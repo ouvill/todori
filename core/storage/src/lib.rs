@@ -1,11 +1,11 @@
-//! `cotori-storage`: ローカルストレージアクセス層。
+//! `todori-storage`: ローカルストレージアクセス層。
 //!
 //! TODO: SQLite(SQLCipher) の統合（`rusqlite` の bundled-sqlcipher 系feature）は
 //! ビルド検証タスクで実施予定（`docs/03_技術仕様書.md` §5.1, §12）。
 //! 本crateは現時点では `TaskRepository` トレイトのスタブのみを提供する。
 
-use cotori_domain::{Task, Uuid};
 use thiserror::Error;
+use todori_domain::{Task, Uuid};
 
 #[derive(Debug, Error)]
 pub enum StorageError {

@@ -12,7 +12,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-license = "UNLICENSED"
+license = "AGPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
@@ -37,7 +37,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # workspace-local crates
-cotori-domain = { path = "core/domain" }
-cotori-crypto = { path = "core/crypto" }
-cotori-sync = { path = "core/sync" }
-cotori-storage = { path = "core/storage" }
+todori-domain = { path = "core/domain" }
+todori-crypto = { path = "core/crypto" }
+todori-sync = { path = "core/sync" }
+todori-storage = { path = "core/storage" }

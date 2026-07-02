@@ -1,4 +1,4 @@
-//! `cotori` CLI。
+//! `todori` CLI。
 //!
 //! `core` crate群を通じてローカルの暗号化DBへ直接アクセスする設計だが
 //! （`docs/03_技術仕様書.md` §8.1, §8.3）、DB統合前の現段階ではスタブとして
@@ -7,7 +7,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "cotori", version, about = "Cotori: E2EE Todo CLI")]
+#[command(name = "todori", version, about = "Todori: E2EE Todo CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

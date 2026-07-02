@@ -1,4 +1,4 @@
-package dev.cotori.cotori
+package dev.todori.todori
 
 import io.flutter.embedding.android.FlutterActivity
 

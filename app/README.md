@@ -1,8 +1,8 @@
-# cotori (app)
+# todori (app)
 
-Cotori のクライアントUI（Flutter）。`flutter create` で生成した雛形であり、
+Todori のクライアントUI（Flutter）。`flutter create` で生成した雛形であり、
 `flutter_rust_bridge` による `core/` (Rustコアクレート群) との連携は後続タスクで実装する
-（`docs/03_技術仕様書.md` §1.1, §2）。
+（`docs/03_技術仕様書.md` §1.1, §2、[`docs/tasks/task-03-flutter-rust-bridge.md`](../docs/tasks/task-03-flutter-rust-bridge.md) 参照）。
 
 ## Getting Started
 

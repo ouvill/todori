@@ -1,4 +1,4 @@
-//! `cotori-server`: コントロールプレーン API サーバー (axum)。
+//! `todori-server`: コントロールプレーン API サーバー (axum)。
 //!
 //! 通常のHTTPサーバーとして実装し、Lambda固有のコードは一切含まない
 //! （`docs/03_技術仕様書.md` §1.5）。AWS Lambda上ではAWS Lambda Web Adapter (LWA)
@@ -25,7 +25,7 @@ async fn main() {
         .await
         .expect("failed to bind listener");
 
-    tracing::info!("cotori-server listening on port {port}");
+    tracing::info!("todori-server listening on port {port}");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

@@ -238,71 +238,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
-name = "cotori-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "cotori-domain",
- "cotori-storage",
-]
-
-[[package]]
-name = "cotori-crypto"
-version = "0.1.0"
-dependencies = [
- "chacha20poly1305",
- "hkdf",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "cotori-domain"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
-]
-
-[[package]]
-name = "cotori-mcp-server"
-version = "0.1.0"
-dependencies = [
- "cotori-domain",
-]
-
-[[package]]
-name = "cotori-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "cotori-storage"
-version = "0.1.0"
-dependencies = [
- "cotori-domain",
- "thiserror",
-]
-
-[[package]]
-name = "cotori-sync"
-version = "0.1.0"
-dependencies = [
- "cotori-domain",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -895,6 +830,71 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "todori-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "todori-domain",
+ "todori-storage",
+]
+
+[[package]]
+name = "todori-crypto"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "hkdf",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "todori-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "todori-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "todori-domain",
+]
+
+[[package]]
+name = "todori-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "todori-storage"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "todori-domain",
+]
+
+[[package]]
+name = "todori-sync"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "todori-domain",
 ]
 
 [[package]]

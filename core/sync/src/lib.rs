@@ -1,4 +1,4 @@
-//! `cotori-sync`: HLC・差分検出・push/pull同期エンジンを提供する crate。
+//! `todori-sync`: HLC・差分検出・push/pull同期エンジンを提供する crate。
 //!
 //! 詳細は `docs/03_技術仕様書.md` §6 同期プロトコル を参照。
 //!
