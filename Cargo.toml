@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "core/domain",
+    "core/crypto",
+    "core/sync",
+    "core/storage",
+    "cli",
+    "mcp-server",
+    "server",
+]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# core/domain
+uuid = { version = "1", features = ["v7", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# core/crypto
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+
+# cli
+clap = { version = "4", features = ["derive"] }
+
+# server
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# workspace-local crates
+cotori-domain = { path = "core/domain" }
+cotori-crypto = { path = "core/crypto" }
+cotori-sync = { path = "core/sync" }
+cotori-storage = { path = "core/storage" }

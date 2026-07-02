@@ -12,3 +12,31 @@ UI面では、丸みや淡い配色を取り入れた親しみやすいデザイ
 - [機能仕様書](./docs/02_機能仕様書.md)
 - [技術仕様書](./docs/03_技術仕様書.md)
 - [課金設計書](./docs/04_課金設計書.md)
+
+## リポジトリ構成
+
+本リポジトリはmonorepo構成であり（詳細は[技術仕様書 §2](./docs/03_技術仕様書.md#2-リポジトリモジュール構成)を参照）、以下のディレクトリで構成される。
+
+```
+cotori/
+├── app/                  Flutterアプリ本体（iOS / Android / Windows / macOS / Linux）
+├── core/                 Rustコアクレート群（暗号・同期・ドメインロジックの単一の実装源泉）
+│   ├── domain/           エンティティ・ユースケース（cotori-domain）
+│   ├── crypto/           鍵導出・AEAD暗号化（cotori-crypto）
+│   ├── sync/             HLC・同期エンジン（cotori-sync）
+│   └── storage/          ローカルストレージアクセス層（cotori-storage）
+├── cli/                  Rust CLI「cotori」（cotori-cli）。coreを利用
+├── mcp-server/           Rust MCPサーバー（cotori-mcp-server）。coreを利用
+├── server/               Rust APIサーバー（axum、cotori-server）。AWS Lambda上で稼働
+└── docs/                 設計ドキュメント
+```
+
+### 開発コマンド例
+
+```sh
+# Rustワークスペース全体のテスト
+cargo test --workspace
+
+# Flutterアプリの起動
+cd app && flutter run
+```
