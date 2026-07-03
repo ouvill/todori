@@ -94,3 +94,63 @@
 - widget test修正内容（変更した場合はその理由）
 - 直書き検出スクリプト（`app/tool/check_hardcoded_strings.sh`）の仕様（検出パターン、既知の除外）
 - 未解決事項（あれば）
+
+## 9. 完了報告
+
+作業日: 2026-07-04
+
+### 実装結果
+
+- `app/l10n.yaml` を追加し、Flutter gen-l10n の入力を `app/lib/l10n/`、生成先を `app/lib/src/generated/l10n/` に固定した。
+- `app/pubspec.yaml` の `flutter:` セクションに `generate: true` を追加した。
+- `app/lib/l10n/app_en.arb` / `app/lib/l10n/app_ja.arb` を追加し、task-09の3画面、ダイアログ、`main.dart` のUI文字列を `AppLocalizations` 経由へ移行した。
+- `app/lib/main.dart` の通常起動時 `MaterialApp.router` と初期化失敗時 `MaterialApp` の双方に `localizationsDelegates` / `supportedLocales` / `onGenerateTitle` を設定した。初期化失敗画面も生成済み `AppLocalizations` から文言を取得する構成とした。
+- `app/lib/src/screens/lists_screen.dart` / `tasks_screen.dart` / `task_detail_screen.dart` の `Text(...)`、tooltip、ダイアログタイトル、入力ラベル、ボタン文言、プレースホルダ付きエラー文言をARB参照に置換した。
+- `app/tool/check_hardcoded_strings.sh` を追加し、対象範囲の簡易直書き検出を導入した。
+- `app/test/l10n_test.dart` を追加し、`AppLocalizations.delegate.load(const Locale('en'))` / `const Locale('ja')` で主要キーがロードでき、en/jaの訳文が切り替わることを検証するテストを実装した。
+
+### ARBキー数と主要キー
+
+- 通常キー数は23件である。
+- 主要キー: `appTitle`, `listsTitle`, `listsEmpty`, `failedToLoadLists`, `newListTooltip`, `newListTitle`, `nameLabel`, `cancelButton`, `createButton`, `tasksTitle`, `tasksEmpty`, `failedToLoadTasks`, `newTaskTooltip`, `newTaskTitle`, `titleLabel`, `taskDetailTitle`, `failedToLoadTask`, `taskNotFound`, `taskStatus`, `taskPriority`, `taskCreatedAt`, `moveToTrashButton`, `failedToStartTodori`。
+- プレースホルダ付きキーは `failedToLoadLists(error)`, `failedToLoadTasks(error)`, `failedToLoadTask(error)`, `taskStatus(status)`, `taskPriority(priority)`, `taskCreatedAt(createdAt)`, `failedToStartTodori(error)` とした。
+
+### 生成構成
+
+`app/l10n.yaml` の内容は以下のとおりである。
+
+```yaml
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-dir: lib/src/generated/l10n
+```
+
+- 生成物は `app/lib/src/generated/l10n/app_localizations.dart`、`app_localizations_en.dart`、`app_localizations_ja.dart` に出力される。
+- `app/.gitignore` は `.dart_tool/` を除外しているが、生成先を `lib/src/generated/l10n/` にしたため、生成物はgit管理対象になる。`.gitignore` の変更は不要である。
+- 通常の `flutter gen-l10n` はこのサンドボックスではFlutter SDK cacheへの書き込みで失敗するため、検証時は既存の `flutter_tools.snapshot` を `FLUTTER_ALREADY_LOCKED=true` 付きで直接起動して生成した。
+
+### widget test修正内容
+
+- `app/test/widget_test.dart` は変更していない。英語ARBの文言を既存の英語ハードコード文言と揃えたため、既存の `find.text('Lists')` 等のアサーション意図を維持できる。
+- `TodoriApp` 側に `localizationsDelegates` / `supportedLocales` を設定したため、widget test環境の既定ロケール（en）で既存アサーションが解決される構成である。
+
+### 直書き検出スクリプト
+
+- `app/tool/check_hardcoded_strings.sh` は `app/lib/main.dart` と `app/lib/src/screens/` 配下を対象にする。
+- 検出パターンは `Text('...')` / `Text("...")`、`tooltip: '...'` / `tooltip: "..."`、`labelText: '...'` / `labelText: "..."`、`title: '...'` / `title: "..."` である。
+- `Text(task.title)` や `Text(l10n.xxx)` のような変数・ローカライズ参照は許可する。route path、status値、import、debug log等の非UI文字列は本タスクの検出対象外とした。
+
+### 検証
+
+- `cargo fmt --all -- --check` 成功。
+- `cargo clippy --workspace -- -D warnings` 成功。
+- `cargo test --workspace` 成功（62件）。
+- `cd app && flutter analyze` はFlutter SDK cacheへの書き込みがサンドボックス外として拒否されるため、同等の `flutter_tools.snapshot analyze` を `FLUTTER_ALREADY_LOCKED=true` 付きで実行し、成功（No issues found）。
+- `sh app/tool/check_hardcoded_strings.sh` 成功（検出0件）。
+- `cd app && flutter test` 相当の `flutter_tools.snapshot test` は、テストコード読み込み前に `127.0.0.1:0` のサーバソケット作成が `Operation not permitted` で拒否され失敗した。これは本環境のローカルソケット禁止に起因する失敗であり、テストコード起因の失敗ではない。追加した `app/test/l10n_test.dart` は実装済みである。
+
+### 未解決事項
+
+- Rust側エラーメッセージは現状どおり `String` パススルーで表示している。エラーコード化してDart側でローカライズする設計は将来課題である。
+- `flutter` ラッパーコマンドはSDK cache書き込み制約の影響を受けるため、この環境では `flutter_tools.snapshot` 直接起動で代替検証した。

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 
 /// The lists screen (initial route `/lists`).
 ///
@@ -12,19 +13,18 @@ class ListsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final listsAsync = ref.watch(listsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Lists')),
+      appBar: AppBar(title: Text(l10n.listsTitle)),
       body: listsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
-            Center(child: Text('Failed to load lists: $error')),
+            Center(child: Text(l10n.failedToLoadLists(error.toString()))),
         data: (lists) {
           if (lists.isEmpty) {
-            return const Center(
-              child: Text('No lists yet. Tap + to create one.'),
-            );
+            return Center(child: Text(l10n.listsEmpty));
           }
           return ListView.builder(
             itemCount: lists.length,
@@ -41,7 +41,7 @@ class ListsScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _createList(context, ref),
-        tooltip: 'New list',
+        tooltip: l10n.newListTooltip,
         child: const Icon(Icons.add),
       ),
     );
@@ -77,21 +77,23 @@ class _NewListDialogState extends State<_NewListDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return AlertDialog(
-      title: const Text('New list'),
+      title: Text(l10n.newListTitle),
       content: TextField(
         controller: _controller,
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Name'),
+        decoration: InputDecoration(labelText: l10n.nameLabel),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancelButton),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Create'),
+          child: Text(l10n.createButton),
         ),
       ],
     );

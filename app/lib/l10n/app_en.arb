@@ -1,0 +1,75 @@
+{
+  "@@locale": "en",
+  "appTitle": "Todori",
+  "listsTitle": "Lists",
+  "listsEmpty": "No lists yet. Tap + to create one.",
+  "failedToLoadLists": "Failed to load lists: {error}",
+  "@failedToLoadLists": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "newListTooltip": "New list",
+  "newListTitle": "New list",
+  "nameLabel": "Name",
+  "cancelButton": "Cancel",
+  "createButton": "Create",
+  "tasksTitle": "Tasks",
+  "tasksEmpty": "No tasks yet. Tap + to create one.",
+  "failedToLoadTasks": "Failed to load tasks: {error}",
+  "@failedToLoadTasks": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "newTaskTooltip": "New task",
+  "newTaskTitle": "New task",
+  "titleLabel": "Title",
+  "taskDetailTitle": "Task detail",
+  "failedToLoadTask": "Failed to load task: {error}",
+  "@failedToLoadTask": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "taskNotFound": "Task not found.",
+  "taskStatus": "Status: {status}",
+  "@taskStatus": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "taskPriority": "Priority: {priority}",
+  "@taskPriority": {
+    "placeholders": {
+      "priority": {
+        "type": "int"
+      }
+    }
+  },
+  "taskCreatedAt": "Created at: {createdAt}",
+  "@taskCreatedAt": {
+    "placeholders": {
+      "createdAt": {
+        "type": "int"
+      }
+    }
+  },
+  "moveToTrashButton": "Move to trash",
+  "failedToStartTodori": "Failed to start Todori: {error}",
+  "@failedToStartTodori": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
+}

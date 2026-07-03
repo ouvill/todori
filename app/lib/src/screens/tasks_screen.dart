@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 
 /// The task list screen for a single list (route
 /// `/lists/:listId/tasks`).
@@ -16,19 +17,18 @@ class TasksScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final tasksAsync = ref.watch(tasksProvider(listId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tasks')),
+      appBar: AppBar(title: Text(l10n.tasksTitle)),
       body: tasksAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
-            Center(child: Text('Failed to load tasks: $error')),
+            Center(child: Text(l10n.failedToLoadTasks(error.toString()))),
         data: (tasks) {
           if (tasks.isEmpty) {
-            return const Center(
-              child: Text('No tasks yet. Tap + to create one.'),
-            );
+            return Center(child: Text(l10n.tasksEmpty));
           }
           return ListView.builder(
             itemCount: tasks.length,
@@ -55,7 +55,7 @@ class TasksScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _createTask(context, ref),
-        tooltip: 'New task',
+        tooltip: l10n.newTaskTooltip,
         child: const Icon(Icons.add),
       ),
     );
@@ -91,21 +91,23 @@ class _NewTaskDialogState extends State<_NewTaskDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return AlertDialog(
-      title: const Text('New task'),
+      title: Text(l10n.newTaskTitle),
       content: TextField(
         controller: _controller,
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Title'),
+        decoration: InputDecoration(labelText: l10n.titleLabel),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancelButton),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('Create'),
+          child: Text(l10n.createButton),
         ),
       ],
     );

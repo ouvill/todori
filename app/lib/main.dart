@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
@@ -60,11 +61,20 @@ class TodoriApp extends StatelessWidget {
     final error = initializationError;
     if (error != null) {
       return MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
         home: Scaffold(
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Failed to start Todori: $error'),
+              child: Builder(
+                builder: (context) => Text(
+                  AppLocalizations.of(
+                    context,
+                  )!.failedToStartTodori(error.toString()),
+                ),
+              ),
             ),
           ),
         ),
@@ -74,7 +84,9 @@ class TodoriApp extends StatelessWidget {
     return ProviderScope(
       overrides: overrides,
       child: MaterialApp.router(
-        title: 'Todori',
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
           useMaterial3: true,

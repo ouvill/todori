@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 
 /// The task detail screen (route `/lists/:listId/tasks/:taskId`).
 ///
@@ -21,19 +22,20 @@ class TaskDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final detailAsync = ref.watch(
       taskDetailProvider((listId: listId, taskId: taskId)),
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Task detail')),
+      appBar: AppBar(title: Text(l10n.taskDetailTitle)),
       body: detailAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
-            Center(child: Text('Failed to load task: $error')),
+            Center(child: Text(l10n.failedToLoadTask(error.toString()))),
         data: (task) {
           if (task == null) {
-            return const Center(child: Text('Task not found.'));
+            return Center(child: Text(l10n.taskNotFound));
           }
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -45,13 +47,13 @@ class TaskDetailScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               if (task.note.isNotEmpty) Text(task.note),
               const SizedBox(height: 16),
-              Text('Status: ${task.status}'),
-              Text('Priority: ${task.priority}'),
-              Text('Created at: ${task.createdAt}'),
+              Text(l10n.taskStatus(task.status)),
+              Text(l10n.taskPriority(task.priority)),
+              Text(l10n.taskCreatedAt(task.createdAt)),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('Move to trash'),
+                label: Text(l10n.moveToTrashButton),
                 onPressed: () async {
                   await ref
                       .read(tasksProvider(listId).notifier)
