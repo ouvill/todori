@@ -1,0 +1,80 @@
+# AGENTS.md
+
+このファイルはCodex CLIが自動で読み込む開発ハンドブックである。Todoriリポジトリで作業する前に必ず読むこと。
+
+## プロジェクト概要
+
+Todoriは E2EE（エンドツーエンド暗号化）Todoアプリである。UIはFlutter、コアロジックはRustで実装し、両者を `flutter_rust_bridge`（バージョン `2.12.0` 固定）で接続する。
+
+ドキュメント地図（読む順の目安）:
+
+- `docs/01_企画書.md` ── プロダクト企画・ロードマップ
+- `docs/02_機能仕様書.md` ── 機能仕様（F-01〜F-53）
+- `docs/03_技術仕様書.md` ── **技術的な唯一の真実源**。実装と仕様書に矛盾があればこちらを優先する
+- `docs/04_課金設計書.md` ── 課金設計（Phase 1では不要なことが多い）
+- `docs/05_設計判断記録.md` ── ADR（設計判断記録）
+- `docs/06_事業・法務方針.md` ── 事業・法務方針
+- `docs/07_Phase1計画書.md` ── **現在の実行計画**。マイルストーン（M1〜M5）と完了条件を定義する
+- `docs/tasks/` ── 作業指示書と完了報告。実際の実装作業はこのディレクトリの指示書単位で行う
+
+**`docs/01`〜`04` は変更禁止**である。実装中にこれらの記述と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、仕様書を書き換えずに、当該タスクの完了報告の「未解決事項」に記録すること。
+
+## リポジトリ構成
+
+- `core/domain` ── 純粋ロジック・ユースケース（リスト/タスク操作、ステータス遷移、サブタスク制約検証等）
+- `core/crypto` ── OPAQUE PoC、AEAD、HKDF、Device Key
+- `core/storage` ── SQLCipher + rusqlite。`TaskRepository` / `ListRepository`
+- `core/sync` ── 未実装（雛形のみ）
+- `app/` ── Flutterアプリ本体
+- `app/rust` ── flutter_rust_bridge用のブリッジcrate（crate名 `todori_app_bridge`）
+- `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
+- `cli` ── CLI雛形（Phase 1では未接続）
+- `mcp-server` ── MCPサーバー雛形（Phase 1では未接続）
+- `server` ── サーバー雛形（Phase 1では未使用。Phase 2以降のサーバー経由同期用）
+
+## 品質ゲート（コミット前に全て通すこと）
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
+cd app && flutter analyze
+cd app && flutter test        # 事前に: cd app/rust && env CARGO_TARGET_DIR=target cargo build --release
+sh app/tool/check_hardcoded_strings.sh
+```
+
+## 開発規約
+
+- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/)（`feat:` / `fix:` / `docs:` / `chore:` 等）に従う。本文は日本語で構わない。1タスクにつき1〜数コミットを目安とする。
+- Rust依存クレートを追加する場合は、必ずリポジトリルート `Cargo.toml` の `[workspace.dependencies]` にバージョンを集約し、各crateからは `foo.workspace = true` の形で参照する。
+- UI文字列は必ずARB化する（`app/lib/l10n/app_en.arb` + `app_ja.arb`）。文字列の直書きは `app/tool/check_hardcoded_strings.sh` が検出する。
+- 状態管理はRiverpod 3.x（`AsyncNotifier` + `invalidateSelf`）を用いる。`riverpod_generator` は使わない。ルーティングは `go_router` を用い、ルート定義は `app/lib/src/router.dart` に集約する。
+- 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
+- 作業は `docs/tasks/` の指示書方式で行う（詳細は `docs/tasks/README.md`）。タスク完了時は指示書末尾に「## 9. 完了報告」を追記してからコミットする。
+
+## 環境
+
+- ホスト: macOS（Apple Silicon）、Xcode 26.6、CocoaPods 1.16.2
+- Rustターゲット導入済み: `aarch64-apple-darwin` / `aarch64-apple-ios` / `aarch64-apple-ios-sim` / `x86_64-apple-ios` / `aarch64-linux-android`。`cargo-ndk` 導入済み
+- `flutter_rust_bridge_codegen` 2.12.0（`~/.cargo/bin`）。Rust側crate（`flutter_rust_bridge`）とDart側pub（`flutter_rust_bridge`）の**バージョンは `=2.12.0` 固定で一致必須**
+
+## 重要な設計制約・ハマりどころ（変更・違反禁止）
+
+1. **命名の三位一体**: cargoパッケージ名 = pod名 = FRB stem = `todori_app_bridge`。cargokitはパッケージ名から `lib<名前>.a` を探し、FRBローダーは `<stem>.framework` を探すため、どれか一つでも変えると壊れる。
+2. **`.cargo/config.toml` の `IPHONEOS_DEPLOYMENT_TARGET=15.0` を消さない**。消すとiOS実機ターゲットで `___chkstk_darwin` 未定義のリンクエラーが発生する（vendoredのOpenSSL/SQLCipherがSDK最新でビルドされるため）。
+3. **FRB再生成**: Rust API（`app/rust/src/api.rs`）を変更したら、リポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行する。生成物（`frb_generated.*`、`app/lib/src/rust/` 配下）はコミット対象であり、**手編集禁止**である。
+4. **SQLCipher鍵は常にDevice Key由来**（HKDF、`info=todori/local-db-key/v1`）。この文脈文字列は互換性に関わるため変更禁止であり、テストで値が固定されている。
+5. `FileDeviceKeyStore`（`app/rust/src/dev_key_store.rs`）と `InMemoryDeviceKeyStore` は開発用実装である。**本番はOSキーチェーン実装（未実装、バックログ参照）に置き換え必須**である。
+6. `sort_order` は暫定連番（`'a0'`, `'a1'`, ...）である。fractional index本実装はM3のタスクである。
+7. macOS実行: `cd app && flutter build macos --debug` でビルドし、実行後のアプリの実データは `~/Library/Containers/dev.todori.todori/` に生成される。DBが暗号化されているかは `head -c 16 <db> | xxd` で乱数ヘッダを確認して検証する。
+8. iOS向けコア検証手法（確立済み）: `cargo test --no-run --target aarch64-apple-ios-sim -p todori-crypto -p todori-storage` → `xcrun simctl boot <device>` → `xcrun simctl spawn <device> <test binary>`。
+
+## サンドボックス実行時の既知の制約（codex exec / workspace-write）
+
+- `.git` へ書き込めない場合がある。コミットは承認を得るか、サンドボックス外で実施する。
+- ローカルソケットのbindが禁止されている場合があり、`flutter test` が実行不能なことがある。テストは必ず書き、実行不能な場合は環境起因である旨を完了報告に明記し、承認付き実行やユーザーへの依頼で代替する。
+- ネットワークアクセスが禁止されている場合がある。新規依存追加（pub.dev/crates.io）は事前承認を得るか、ユーザーに依頼する。
+
+## 現在地とバックログ
+
+進捗の詳細と次にやるべきタスクは `docs/tasks/BACKLOG.md` を参照すること。
