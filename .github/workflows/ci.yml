@@ -68,6 +68,10 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Cargokit build_tool pub get
+        working-directory: app/rust_builder/cargokit/build_tool
+        run: dart pub get
+
       - name: FRB regenerate
         run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 
