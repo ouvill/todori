@@ -22,6 +22,7 @@
 | task-04 | [task-04-phase1-plan.md](./task-04-phase1-plan.md) | Phase 1（MVP）計画書 `docs/07_Phase1計画書.md` の作成。ドキュメント作業のみでコード変更なし | 雛形にのみ依存。他タスクと並行実施可。ただし計画書内でtask-01〜03のPoC結果を前提とする箇所がある旨を明記する |
 | task-05 | [task-05-domain-usecases.md](./task-05-domain-usecases.md) | `core/domain` にリスト/タスク操作ユースケース（生成・編集・ステータス遷移・論理削除/復元・サブタスク制約検証）を追加する | 雛形にのみ依存。単独実施可。Phase1計画書M1-01に対応 |
 | task-06 | [task-06-storage-repositories.md](./task-06-storage-repositories.md) | `core/storage` に `lists` テーブルを追加し、`ListRepository` / `TaskRepository::update` を実装して `core/domain` のユースケースと接続する | task-02・task-05の成果物に依存。Phase1計画書M1-02/M1-03に対応 |
+| task-07 | [task-07-device-key.md](./task-07-device-key.md) | `core/crypto` にDevice Key生成・OSキーチェーン抽象（trait）・SQLCipher用ローカルDB鍵導出を実装し、`core/storage` でDK生成からDB openまでの統合テストを実証する | task-02・task-06の成果物に依存。Phase1計画書M1-04に対応 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
