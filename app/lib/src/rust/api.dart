@@ -6,8 +6,196 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `core_state`, `list_to_dto`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `with_list_repository`, `with_task_repository`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
+
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiGreet(name: name);
 
 Future<String> createDraftTask({required String title}) =>
     RustLib.instance.api.crateApiCreateDraftTask(title: title);
+
+/// Initializes Todori core for the process using `db_dir`.
+///
+/// This creates or loads a development plaintext `device.key`, derives the
+/// SQLCipher key, initializes `<db_dir>/todori.db`, and stores only the DB path
+/// plus derived key in process-global state. Reinitializing with the same DB
+/// path succeeds idempotently; reinitializing with a different DB path returns
+/// an error because `OnceLock` cannot safely swap process-global state.
+Future<void> initCore({required String dbDir}) =>
+    RustLib.instance.api.crateApiInitCore(dbDir: dbDir);
+
+/// Creates a list using the caller-provided fractional `sort_order`.
+///
+/// Automatic fractional index generation is a later M3 concern and is not done
+/// in this bridge layer.
+Future<ListDto> createList({required String name, required String sortOrder}) =>
+    RustLib.instance.api.crateApiCreateList(name: name, sortOrder: sortOrder);
+
+Future<List<ListDto>> getLists() => RustLib.instance.api.crateApiGetLists();
+
+/// Creates a task using the caller-provided fractional `sort_order`.
+///
+/// Automatic fractional index generation is a later M3 concern and is not done
+/// in this bridge layer.
+Future<TaskDto> createTask({
+  required String listId,
+  required String title,
+  required String sortOrder,
+}) => RustLib.instance.api.crateApiCreateTask(
+  listId: listId,
+  title: title,
+  sortOrder: sortOrder,
+);
+
+Future<List<TaskDto>> getTasks({required String listId}) =>
+    RustLib.instance.api.crateApiGetTasks(listId: listId);
+
+Future<TaskDto> setTaskStatus({
+  required String taskId,
+  required String status,
+  String? closedReason,
+}) => RustLib.instance.api.crateApiSetTaskStatus(
+  taskId: taskId,
+  status: status,
+  closedReason: closedReason,
+);
+
+Future<TaskDto> trashTask({required String taskId}) =>
+    RustLib.instance.api.crateApiTrashTask(taskId: taskId);
+
+Future<TaskDto> restoreTask({required String taskId}) =>
+    RustLib.instance.api.crateApiRestoreTask(taskId: taskId);
+
+Future<List<TaskDto>> getTrashedTasks() =>
+    RustLib.instance.api.crateApiGetTrashedTasks();
+
+class ListDto {
+  final String id;
+  final String name;
+  final String color;
+  final String icon;
+  final String? orgId;
+  final String sortOrder;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+
+  const ListDto({
+    required this.id,
+    required this.name,
+    required this.color,
+    required this.icon,
+    this.orgId,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      color.hashCode ^
+      icon.hashCode ^
+      orgId.hashCode ^
+      sortOrder.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ListDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          color == other.color &&
+          icon == other.icon &&
+          orgId == other.orgId &&
+          sortOrder == other.sortOrder &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
+
+class TaskDto {
+  final String id;
+  final String listId;
+  final String? parentTaskId;
+  final String title;
+  final String note;
+  final String status;
+  final int priority;
+  final PlatformInt64? dueAt;
+  final PlatformInt64? scheduledAt;
+  final int? estimatedMinutes;
+  final String sortOrder;
+  final PlatformInt64? completedAt;
+  final String? closedReason;
+  final PlatformInt64? deletedAt;
+  final String? assignee;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+
+  const TaskDto({
+    required this.id,
+    required this.listId,
+    this.parentTaskId,
+    required this.title,
+    required this.note,
+    required this.status,
+    required this.priority,
+    this.dueAt,
+    this.scheduledAt,
+    this.estimatedMinutes,
+    required this.sortOrder,
+    this.completedAt,
+    this.closedReason,
+    this.deletedAt,
+    this.assignee,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      listId.hashCode ^
+      parentTaskId.hashCode ^
+      title.hashCode ^
+      note.hashCode ^
+      status.hashCode ^
+      priority.hashCode ^
+      dueAt.hashCode ^
+      scheduledAt.hashCode ^
+      estimatedMinutes.hashCode ^
+      sortOrder.hashCode ^
+      completedAt.hashCode ^
+      closedReason.hashCode ^
+      deletedAt.hashCode ^
+      assignee.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          listId == other.listId &&
+          parentTaskId == other.parentTaskId &&
+          title == other.title &&
+          note == other.note &&
+          status == other.status &&
+          priority == other.priority &&
+          dueAt == other.dueAt &&
+          scheduledAt == other.scheduledAt &&
+          estimatedMinutes == other.estimatedMinutes &&
+          sortOrder == other.sortOrder &&
+          completedAt == other.completedAt &&
+          closedReason == other.closedReason &&
+          deletedAt == other.deletedAt &&
+          assignee == other.assignee &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}

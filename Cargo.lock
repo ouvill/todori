@@ -1655,7 +1655,9 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "serde_json",
+ "todori-crypto",
  "todori-domain",
+ "todori-storage",
 ]
 
 [[package]]
