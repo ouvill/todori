@@ -41,6 +41,9 @@ dependencies:
   path_provider: ^2.1.6
   todori_app_bridge:
     path: rust_builder
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
 dev_dependencies:
   flutter_test:
