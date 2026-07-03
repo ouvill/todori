@@ -92,3 +92,59 @@
 - 追加したテストの総数（`core/crypto` / `core/storage` 別）
 - zeroize等メモリ衛生に関する所見（本タスクで対応しなかった理由と、必要性の評価）
 - 未解決事項（あれば）
+
+## 9. 完了報告
+
+作業日: 2026-07-04
+
+### 実装結果
+
+- `core/crypto/src/device_key.rs` を追加し、Device Key (DK) の生成、OSキーチェーン抽象、SQLCipher用ローカルDB鍵導出、インメモリテストダブルを実装した。
+- `core/crypto/src/lib.rs` から `device_key` モジュールと主要APIをre-exportした。
+- `core/storage/Cargo.toml` の `[dev-dependencies]` に `todori-crypto.workspace = true` を追加した。
+- `core/storage/src/lib.rs` に、DK生成からDB open、同一DKでの再オープン、異なるDKでの失敗までを確認する統合テストを追加した。
+
+### 追加した公開API
+
+- 追加した公開定数: `DEVICE_KEY_LEN` / `LOCAL_DB_KEY_INFO`
+- 追加した公開関数: `generate_device_key` / `derive_local_db_key` / `ensure_device_key`
+- 追加した公開trait: `DeviceKeyStore`
+- `DeviceKeyStore` の公開メソッド: `load` / `store` / `delete`
+- 追加した公開型: `InMemoryDeviceKeyStore`
+- `InMemoryDeviceKeyStore` の公開メソッド: `new`
+- 追加した公開エラー型: `KeyStoreError`
+- `KeyStoreError` の公開バリアント: `Backend(String)`
+
+### 文脈文字列
+
+- SQLCipher用ローカルDB鍵導出のHKDF `info` は `todori/local-db-key/v1` とした。
+- `LOCAL_DB_KEY_INFO` と既知DK `[0x42; 32]` に対する導出結果を単体テストで固定し、意図しない変更を検出できるようにした。
+
+### テスト
+
+- `core/crypto/src/device_key.rs` に単体テストを5件追加した。
+  - DK生成が32byteで複数回生成時に異なること。
+  - `derive_local_db_key` が決定的であり、文脈文字列と既知DKの導出結果が固定されていること。
+  - 入力DKが異なれば導出鍵も異なること。
+  - `ensure_device_key` が初回生成・保存し、2回目は同じ鍵を返すこと。
+  - `delete` 後の `ensure_device_key` が新しい鍵を生成すること。
+- `core/storage/src/lib.rs` に統合テストを1件追加した。
+  - `InMemoryDeviceKeyStore` で `ensure_device_key` → `derive_local_db_key` → `open_encrypted` → タスク書き込み → 同一store由来DKで再オープンして読み取り成功 → 異なるDK由来鍵で再オープン失敗、を確認した。
+
+### zeroize等メモリ衛生
+
+- 本タスクの指示どおり、zeroize等によるメモリ消去の強化は実装していない。
+- 現状の `InMemoryDeviceKeyStore` は平文DKをメモリ保持するテストダブル兼暫定実装であり、本番使用禁止であることをdoc commentに明記した。
+- 本番のOSキーチェーン実装やメモリ上の鍵取り扱いを実装する後続タスクでは、DK・導出鍵のライフタイム短縮、zeroize導入、`Debug`/ログ出力防止の継続確認が必要である。
+
+### 検証
+
+- `cargo test -p todori-crypto device_key::` 成功（5 tests）。
+- `cargo test -p todori-storage` 成功（10 tests）。
+- `cargo fmt --all -- --check` 成功。
+- `cargo clippy --workspace -- -D warnings` 成功。
+- `cargo test --workspace` 成功。
+
+### 未解決事項
+
+- zeroize等によるメモリ消去の強化は後続タスクでの検討・実装が必要。

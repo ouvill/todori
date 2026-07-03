@@ -387,6 +387,7 @@ fn status_from_str(value: &str) -> Result<TaskStatus, StorageError> {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+    use todori_crypto::{derive_local_db_key, ensure_device_key, InMemoryDeviceKeyStore};
     use todori_domain::{
         delete_task, new_list, new_task, restore_task, transition_task, update_title,
     };
@@ -458,6 +459,35 @@ mod tests {
         let result = open_encrypted(file.path(), &WRONG_KEY);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn device_key_store_derived_key_reopens_database_and_rejects_other_device_key() {
+        let file = NamedTempFile::new().unwrap();
+        let mut store = InMemoryDeviceKeyStore::new();
+        let task = sample_task();
+
+        {
+            let device_key = ensure_device_key(&mut store).unwrap();
+            let db_key = derive_local_db_key(&device_key);
+            let connection = open_encrypted(file.path(), &db_key).unwrap();
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        {
+            let device_key = ensure_device_key(&mut store).unwrap();
+            let db_key = derive_local_db_key(&device_key);
+            let connection = open_encrypted(file.path(), &db_key).unwrap();
+            let repository = SqliteTaskRepository::new(connection);
+            assert_eq!(repository.get(task.id).unwrap(), task);
+        }
+
+        let mut other_store = InMemoryDeviceKeyStore::new();
+        let other_device_key = ensure_device_key(&mut other_store).unwrap();
+        let other_db_key = derive_local_db_key(&other_device_key);
+
+        assert!(open_encrypted(file.path(), &other_db_key).is_err());
     }
 
     #[test]

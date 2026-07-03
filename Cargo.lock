@@ -1717,6 +1717,7 @@ dependencies = [
  "rusqlite",
  "tempfile",
  "thiserror",
+ "todori-crypto",
  "todori-domain",
  "uuid",
 ]
