@@ -1,8 +1,7 @@
 //! `todori-storage`: ローカルストレージアクセス層。
 //!
-//! TODO: SQLite(SQLCipher) の統合（`rusqlite` の bundled-sqlcipher 系feature）は
-//! ビルド検証タスクで実施予定（`docs/03_技術仕様書.md` §5.1, §12）。
-//! 本crateは現時点では `TaskRepository` トレイトのスタブのみを提供する。
+//! SQLCipherで暗号化されたSQLite上に `TaskRepository` を実装する
+//! （`docs/03_技術仕様書.md` §5）。現在はPoC段階で、`update` などは未実装。
 
 use std::{path::Path, str::FromStr};
 
@@ -28,7 +27,7 @@ pub enum StorageError {
 
 /// タスクの永続化を担うリポジトリ。
 ///
-/// 現時点ではSQLCipher統合前のスタブであり、同期シグネチャのみを定義する。
+/// SQLite(SQLCipher)実装は [`SqliteTaskRepository`] を参照。同期シグネチャのみを定義する。
 pub trait TaskRepository {
     fn get(&self, id: Uuid) -> Result<Task, StorageError>;
     fn insert(&mut self, task: Task) -> Result<(), StorageError>;
