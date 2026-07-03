@@ -15,14 +15,15 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | iOS Simulatorでflutter run検証 | cargokitのiOS podspec実証（`app/rust_builder/ios/todori_app_bridge.podspec` 同梱済み）。macOSで踏んだ地雷は解決済みのため短期決着見込み | M2残 | Simulator起動には `xcrun simctl` を用いる。署名不要 |
-| 2 | タスク編集UI | タスク詳細画面での `title`/`note`/`priority`/`due_at` 編集。ブリッジにupdate系APIを追加（FRB再生成が必要） | M3-02 | |
-| 3 | サブタスク表示・作成 | `validate_parent`（`core/domain` 実装済み）のブリッジ公開とUI実装 | M3-03相当 | |
-| 4 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
-| 5 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
-| 6 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 7 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 8 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | OSS公開前監査 | public repository化に向け、秘密情報、公開不適切情報、OSS基本文書、ライセンス、CI/Actions安全性を棚卸しする | 公開準備 | [task-12-open-source-readiness.md](./task-12-open-source-readiness.md) |
+| 2 | iOS Simulatorでflutter run検証 | cargokitのiOS podspec実証（`app/rust_builder/ios/todori_app_bridge.podspec` 同梱済み）。macOSで踏んだ地雷は解決済みのため短期決着見込み | M2残 | Simulator起動には `xcrun simctl` を用いる。署名不要 |
+| 3 | タスク編集UI | タスク詳細画面での `title`/`note`/`priority`/`due_at` 編集。ブリッジにupdate系APIを追加（FRB再生成が必要） | M3-02 | |
+| 4 | サブタスク表示・作成 | `validate_parent`（`core/domain` 実装済み）のブリッジ公開とUI実装 | M3-03相当 | |
+| 5 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
+| 6 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
+| 7 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 8 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 9 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
