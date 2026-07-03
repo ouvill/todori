@@ -1,0 +1,6 @@
+# iOS実機ターゲット(aarch64-apple-ios)のリンクに必要。
+# vendored OpenSSL/SQLCipherのCオブジェクトは最新SDKでビルドされるため、
+# Rust側リンクのdeployment targetを合わせないと ___chkstk_darwin 未定義でリンクに失敗する。
+# （2026-07-04検証。最終的な最低サポートiOSバージョンはリリース前に別途決定する）
+[env]
+IPHONEOS_DEPLOYMENT_TARGET = "15.0"
