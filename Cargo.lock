@@ -1650,17 +1650,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "todori-app-bridge"
-version = "0.1.0"
-dependencies = [
- "flutter_rust_bridge",
- "serde_json",
- "todori-crypto",
- "todori-domain",
- "todori-storage",
-]
-
-[[package]]
 name = "todori-cli"
 version = "0.1.0"
 dependencies = [
@@ -1731,6 +1720,17 @@ dependencies = [
  "serde",
  "thiserror",
  "todori-domain",
+]
+
+[[package]]
+name = "todori_app_bridge"
+version = "0.1.0"
+dependencies = [
+ "flutter_rust_bridge",
+ "serde_json",
+ "todori-crypto",
+ "todori-domain",
+ "todori-storage",
 ]
 
 [[package]]

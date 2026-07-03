@@ -20,8 +20,9 @@ Future<void> main() async {
     final dbDir = Directory('${supportDir.path}/todori-db');
     await dbDir.create(recursive: true);
     await initCore(dbDir: dbDir.path);
-  } catch (error) {
+  } catch (error, stackTrace) {
     initializationError = error;
+    debugPrint('Todori native core initialization failed: $error\n$stackTrace');
   }
 
   runApp(TodoriApp(initializationError: initializationError));
