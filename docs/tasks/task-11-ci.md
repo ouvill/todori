@@ -123,3 +123,86 @@ CIはmacOSランナーで動くことを基本とし、cargokit / Flutter / Rust
 - 直書き検出スクリプトのCI上での実行位置
 - GitHub Actionsまたはローカルで確認した検証結果
 - 未解決事項（あれば）
+
+## 9. 完了報告
+
+### 変更内容
+
+- `.github/workflows/ci.yml` を更新し、Pull Requestと `main` へのpushで実行される `quality-gates` jobを追加した。
+- 既存のUbuntu上のRust job / Flutter job分割を、`macos-latest` 上の単一jobに統合した。cargokit、Flutter、Rust、SQLCipher vendored OpenSSL、FRB生成物を同じmacOS環境で一気通貫に検証するためである。
+
+### job/step構成
+
+`Phase 1 quality gates` jobは以下の順で実行する。
+
+1. `actions/checkout@v4`
+2. Rust toolchain setup（`dtolnay/rust-toolchain@stable`、`rustfmt` / `clippy`）
+3. Cargo cache restore/save
+4. Flutter SDK setup（`subosito/flutter-action@v2`、`channel: stable`、Flutter cache有効）
+5. `flutter_rust_bridge_codegen 2.12.0` のcache restore/save
+6. `flutter_rust_bridge_codegen 2.12.0` のinstallと `flutter_rust_bridge_codegen --version`
+7. `cargo fmt --all -- --check`
+8. `cargo clippy --workspace -- -D warnings`
+9. `cargo test --workspace`
+10. `cd app && flutter pub get`
+11. `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`
+12. `git diff --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust`
+13. `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`
+14. `cd app && flutter analyze`
+15. `cd app && flutter test`
+16. `sh app/tool/check_hardcoded_strings.sh`
+
+各品質ゲートはstep名を分け、Rust fmt、Rust clippy、Rust test、FRB差分、Flutter analyze、Flutter test、直書き検出のどこで失敗したか判別できる構成にした。
+
+### バージョン方針
+
+- Rust toolchainは既存CIと同じ `stable` を維持した。リポジトリ内に `rust-toolchain.toml` 等の固定ファイルが無いため、今回のCI整備では新たな固定を導入しない。
+- Flutter SDKは `subosito/flutter-action@v2` の `channel: stable` を維持した。`app/pubspec.lock` のSDK制約は `flutter: ">=3.38.4"` だが、リポジトリにFlutterバージョン固定ファイルが無いため、現時点ではstable channel運用とする。
+- FRB codegenは `cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked` で2.12.0固定にした。CIログに `flutter_rust_bridge_codegen --version` を出し、Rust側crate / Dart側pubと同じ2.12.0であることを確認できるようにした。
+
+### キャッシュ方針
+
+- Cargo cacheは `~/.cargo/registry`、`~/.cargo/git`、workspace rootの `target`、Flutter test前ビルド用の `app/rust/target` を対象にした。
+- Cargo cache keyは `${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}` とし、runner OSと `Cargo.lock` の変更で自然に更新される。
+- Flutter cacheは `subosito/flutter-action@v2` のcache機能を使い、keyにrunner OSと `app/pubspec.lock` を含めた。
+- FRB codegen cacheは `~/.cargo/bin/flutter_rust_bridge_codegen` とcargo install metadataを対象にし、keyにrunner OS、FRB codegen 2.12.0、`Cargo.lock` を含めた。cache hit時もversion確認を行い、2.12.0でなければ `--force` 付きで再installする。
+
+### FRB差分チェック
+
+- 再生成コマンドはリポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行する。
+- 差分チェック対象は `flutter_rust_bridge.yaml` の出力先に合わせ、`app/rust/src/frb_generated.rs`、`app/rust/frb_generated.h`、`app/lib/src/rust` とした。
+- 差分チェックは `git diff --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust` で実行する。
+
+### Flutter test前のネイティブビルド
+
+- `Flutter test` stepより前に `Build app/rust release library for Flutter tests` stepを置き、`app/rust` で `env CARGO_TARGET_DIR=target cargo build --release` を実行する。
+- Dart/Flutterテストが参照するネイティブライブラリを、task-08以降の手元手順と同じrelease buildで用意するためである。
+
+### 直書き検出
+
+- `UI hardcoded string check` stepを最後に追加し、`sh app/tool/check_hardcoded_strings.sh` を実行する。
+- Flutter analyze/testとは別stepにしたため、失敗時にUI文字列直書き違反であることをCIログから判別できる。
+
+### 検証結果
+
+ローカルで以下を確認した。
+
+- `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); puts "yaml ok"'` 成功。
+- `cargo fmt --all -- --check` 成功。
+- `cargo clippy --workspace -- -D warnings` 成功。
+- `cargo test --workspace` 成功（Rust 62件成功）。
+- `flutter_rust_bridge_codegen --version` が `flutter_rust_bridge_codegen 2.12.0` を出力。
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` 成功。通常サンドボックスではFlutter SDK cache更新がワークスペース外書き込みとして拒否されたため、承認付き実行で確認した。
+- `git diff --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust` 成功。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release` 成功。
+- `cd app && flutter pub get` 成功。通常サンドボックスではFlutter SDK cache更新がワークスペース外書き込みとして拒否されたため、承認付き実行で確認した。
+- `cd app && flutter analyze` 成功。承認付き実行で確認した。
+- `cd app && flutter test` 成功（Flutter 11件成功）。承認付き実行で確認した。
+- `sh app/tool/check_hardcoded_strings.sh` 成功。
+- `git diff --check` 成功。
+
+GitHub Actions上の実行結果は、このブランチをpushしていないため未確認である。
+
+### 未解決事項
+
+- GitHub Actions上の実CI結果は未確認である。push後に `Phase 1 quality gates` jobの通過を確認する必要がある。

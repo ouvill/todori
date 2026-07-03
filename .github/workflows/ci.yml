@@ -7,32 +7,84 @@ on:
     branches: [main]
 
 jobs:
-  rust:
-    name: Rust
-    runs-on: ubuntu-latest
+  quality-gates:
+    name: Phase 1 quality gates
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-      - name: cargo clippy
-        run: cargo clippy --workspace -- -D warnings
-      - name: cargo test
-        run: cargo test --workspace
 
-  flutter:
-    name: Flutter
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Cache Cargo dependencies and targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            app/rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: flutter pub get
+          cache: true
+          cache-key: ${{ runner.os }}-flutter-stable-${{ hashFiles('app/pubspec.lock') }}
+
+      - name: Cache flutter_rust_bridge_codegen 2.12.0
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/flutter_rust_bridge_codegen
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: ${{ runner.os }}-frb-codegen-2.12.0-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install flutter_rust_bridge_codegen 2.12.0
+        run: |
+          if ! command -v flutter_rust_bridge_codegen >/dev/null; then
+            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+          elif ! flutter_rust_bridge_codegen --version | grep -q '2.12.0'; then
+            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked --force
+          fi
+          flutter_rust_bridge_codegen --version
+
+      - name: Rust fmt
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Rust test
+        run: cargo test --workspace
+
+      - name: Flutter pub get
         working-directory: app
         run: flutter pub get
-      - name: flutter analyze
+
+      - name: FRB regenerate
+        run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
+
+      - name: FRB generated diff check
+        run: git diff --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust
+
+      - name: Build app/rust release library for Flutter tests
+        working-directory: app/rust
+        run: env CARGO_TARGET_DIR=target cargo build --release
+
+      - name: Flutter analyze
         working-directory: app
         run: flutter analyze
+
+      - name: Flutter test
+        working-directory: app
+        run: flutter test
+
+      - name: UI hardcoded string check
+        run: sh app/tool/check_hardcoded_strings.sh
