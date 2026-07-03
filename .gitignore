@@ -1,4 +1,5 @@
 /target
+/app/rust/target
 **/*.rs.bk
 Cargo.lock.bak
 

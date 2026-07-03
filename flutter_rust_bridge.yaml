@@ -1,0 +1,8 @@
+rust_input: crate::api
+rust_root: app/rust
+rust_output: app/rust/src/frb_generated.rs
+dart_output: app/lib/src/rust
+dart_root: app
+c_output: app/rust/frb_generated.h
+dart_entrypoint_class_name: RustLib
+web: false

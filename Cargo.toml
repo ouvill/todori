@@ -5,6 +5,7 @@ members = [
     "core/crypto",
     "core/sync",
     "core/storage",
+    "app/rust",
     "cli",
     "mcp-server",
     "server",
@@ -23,9 +24,20 @@ serde_json = "1"
 thiserror = "2"
 
 # core/crypto
+argon2 = "0.5"
 chacha20poly1305 = "0.10"
 hkdf = "0.12"
+opaque-ke = { version = "3.0.0", features = ["argon2"] }
+rand = "0.8"
 sha2 = "0.10"
+
+# core/storage
+hex = "0.4"
+rusqlite = { version = "0.40.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+tempfile = "3"
+
+# app/rust
+flutter_rust_bridge = "2.12.0"
 
 # cli
 clap = { version = "4", features = ["derive"] }

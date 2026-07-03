@@ -8,6 +8,8 @@
 
 pub mod aead;
 pub mod kdf;
+pub mod opaque;
 
 pub use aead::{decrypt, encrypt, CryptoError};
 pub use kdf::derive_key;
+pub use opaque::TodoriCipherSuite;
