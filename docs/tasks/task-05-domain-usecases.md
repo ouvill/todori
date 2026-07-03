@@ -110,3 +110,44 @@
 - 追加した単体テストの総数と、4.の8.に列挙した異常系テストがすべて含まれていることの確認
 - 削除済みタスクへの `delete_task` 再呼び出し、未削除タスクへの `restore_task` 呼び出しの挙動として採用した方針
 - 未解決事項（あれば）
+
+## 9. 完了報告
+
+作業日: 2026-07-04
+
+### 実装結果
+
+- `core/domain/src/usecases.rs` を追加し、`core/domain/src/lib.rs` から `pub mod usecases;` と主要APIのre-exportを追加した。
+- 追加した公開型は `DomainError`。
+- 追加した公開関数は `new_task` / `new_list` / `update_title` / `update_note` / `update_priority` / `update_due_at` / `update_scheduled_at` / `update_estimated_minutes` / `transition_task` / `delete_task` / `restore_task` / `rename_list` / `validate_parent` / `validate_parent_for`。
+- `title` / `name` は `trim()` 後に空の場合も未入力として `DomainError::EmptyTitle` / `DomainError::EmptyName` を返す方針にした。
+- `delete_task` は論理削除のみを行い、物理削除や30日後削除バッチ、Undoスタックは本タスクの範囲外として扱った。
+
+### ステータス遷移の解釈
+
+- `WontDo` への遷移では `completed_at = None`、`closed_reason = 引数値` とした。F-06の「`wont_do` は完了扱いにはせず区別して記録する」という記述に合わせ、完了日時は設定しない。
+- `Done` への遷移では `completed_at = Some(now_ms)`、`closed_reason = None` とした。本タスク指示の解釈どおり、`Done` は完了日時の記録を主とし、理由欄は使用しない。
+- `Todo` への再オープンでは `completed_at` / `closed_reason` をどちらもクリアし、`InProgress` への遷移では完了関連メタデータを変更しない。
+
+### 削除・復元の方針
+
+- 削除済みタスクへの編集系関数および `transition_task` は `DomainError::TaskDeleted` を返す。
+- 削除済みタスクへの `delete_task` 再呼び出しは、リトライを安全にするため冪等に成功させる。既存の `deleted_at` / `updated_at` は変更しない。
+- 未削除タスクへの `restore_task` 呼び出しも冪等に成功させる。`deleted_at` / `updated_at` は変更しない。
+
+### テスト
+
+- `core/domain/src/usecases.rs` に単体テストを25件追加した。
+- 4.の8.に列挙された異常系は、空titleでの `new_task` / 編集失敗、空nameでの `new_list` / 名称変更失敗、不許可遷移、削除済みタスクへの編集・遷移、自己参照parent、間接循環parent、別リストparent、削除済みparent、存在しないparentをすべて含めた。
+- 正常系は、タスク/リスト生成、タスク各フィールド更新、`Done` / `WontDo` / 再オープン / `InProgress` 遷移、削除・復元、親検証成功、新規作成時向けの `validate_parent_for` を含めた。
+
+### 検証
+
+- `cargo test -p todori-domain` 成功。
+- `cargo fmt --all -- --check` 成功。
+- `cargo clippy --workspace -- -D warnings` 成功。
+- `cargo test --workspace` 成功。
+
+### 未解決事項
+
+- なし。
