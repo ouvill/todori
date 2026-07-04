@@ -68,7 +68,6 @@ Primary task-22 mocks:
 - [Empty state and dialog](../../assets/brand/generated/todori-design-direction-empty-dialog.webp)
 - [Mobile focus task list](../../assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp)
 - [Focus timer](../../assets/brand/generated/todori-design-direction-focus-timer.webp)
-- [Completion state](../../assets/brand/generated/todori-design-direction-completion-state.webp)
 
 Earlier reference inputs:
 
