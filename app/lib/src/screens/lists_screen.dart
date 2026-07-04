@@ -40,18 +40,63 @@ class ListsScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
               final list = lists[index];
+              final theme = Theme.of(context);
+              final colorScheme = theme.colorScheme;
               return Material(
-                color: Theme.of(context).colorScheme.surface,
+                color: colorScheme.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
+                  side: BorderSide(color: colorScheme.outlineVariant),
                 ),
-                child: ListTile(
-                  title: Text(list.name, softWrap: true),
-                  trailing: const Icon(Icons.chevron_right),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
                   onTap: () => context.push('/lists/${list.id}/tasks'),
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.fromSTEB(
+                      AppSpacing.md,
+                      AppSpacing.sm,
+                      AppSpacing.sm,
+                      AppSpacing.sm,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: colorScheme.primaryContainer,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.list_alt_outlined,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.xs,
+                            ),
+                            child: Text(
+                              list.name,
+                              softWrap: true,
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               );
             },

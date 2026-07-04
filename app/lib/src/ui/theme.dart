@@ -12,6 +12,7 @@ const _seedColor = Color(0xFF2F6F4E);
 const _lightSurface = Color(0xFFFFFCF7);
 const _lightSurfaceContainer = Color(0xFFF2F7EF);
 const _lightSurfaceContainerHigh = Color(0xFFE8F0E5);
+const _lightCoral = Color(0xFFE8755A);
 const _darkSurface = Color(0xFF101510);
 const _darkSurfaceContainer = Color(0xFF182019);
 const _darkSurfaceContainerHigh = Color(0xFF223025);
@@ -47,6 +48,9 @@ ThemeData buildTodoriTheme(Brightness brightness) {
     outlineVariant: brightness == Brightness.light
         ? const Color(0xFFD9E3D6)
         : const Color(0xFF3A493D),
+    error: brightness == Brightness.light
+        ? _lightCoral
+        : const Color(0xFFFFB4A8),
   );
   final base = ThemeData(colorScheme: colorScheme, useMaterial3: true);
 
@@ -108,6 +112,60 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       ),
       labelMedium: base.textTheme.labelMedium?.copyWith(
         fontWeight: FontWeight.w600,
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: brightness == Brightness.light
+          ? const Color(0xFF24382D)
+          : colorScheme.surfaceContainerHighest,
+      contentTextStyle: base.textTheme.bodyMedium?.copyWith(
+        color: brightness == Brightness.light
+            ? Colors.white
+            : colorScheme.onSurface,
+      ),
+      actionTextColor: brightness == Brightness.light
+          ? const Color(0xFFF6E7B7)
+          : const Color(0xFFFFDFA8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(48, 44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(48, 44),
+        side: BorderSide(color: colorScheme.outlineVariant),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        minimumSize: const Size(48, 44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     ),
   );

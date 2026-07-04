@@ -85,7 +85,13 @@ class TaskDetailScreen extends ConsumerWidget {
                       Text(task.title, style: theme.textTheme.headlineSmall),
                       if (task.note.isNotEmpty) ...[
                         const SizedBox(height: AppSpacing.sm),
-                        Text(task.note),
+                        Text(
+                          task.note,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            height: 1.35,
+                          ),
+                        ),
                       ],
                       const SizedBox(height: AppSpacing.md),
                       AppProtectionSignal(
@@ -248,6 +254,7 @@ Future<void> _showLatestUndoSnackBar(BuildContext context) async {
   messenger.showSnackBar(
     SnackBar(
       content: Text(_undoMessage(l10n, undo.operationType)),
+      margin: const EdgeInsets.all(AppSpacing.md),
       action: SnackBarAction(
         label: l10n.undoActionLabel,
         onPressed: () {
@@ -266,10 +273,18 @@ Future<void> _applyUndo(
 ) async {
   try {
     await container.read(latestTaskUndoProvider.notifier).undo(undoId);
-    messenger.showSnackBar(SnackBar(content: Text(l10n.undoSuccessMessage)));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(l10n.undoSuccessMessage),
+        margin: const EdgeInsets.all(AppSpacing.md),
+      ),
+    );
   } catch (error) {
     messenger.showSnackBar(
-      SnackBar(content: Text(l10n.undoFailedMessage(error.toString()))),
+      SnackBar(
+        content: Text(l10n.undoFailedMessage(error.toString())),
+        margin: const EdgeInsets.all(AppSpacing.md),
+      ),
     );
   }
 }
@@ -338,92 +353,104 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
     final l10n = AppLocalizations.of(context)!;
 
     return AlertDialog(
+      scrollable: true,
       title: Text(l10n.editTaskTitle),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _titleController,
-                autofocus: true,
-                decoration: InputDecoration(labelText: l10n.titleLabel),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return l10n.titleRequiredError;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              TextFormField(
-                controller: _noteController,
-                decoration: InputDecoration(labelText: l10n.noteLabel),
-                minLines: 2,
-                maxLines: 4,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              DropdownButtonFormField<int>(
-                initialValue: _priority,
-                decoration: InputDecoration(labelText: l10n.priorityLabel),
-                items: [
-                  DropdownMenuItem(value: 0, child: Text(l10n.priorityNone)),
-                  DropdownMenuItem(value: 1, child: Text(l10n.priorityLow)),
-                  DropdownMenuItem(value: 2, child: Text(l10n.priorityMedium)),
-                  DropdownMenuItem(value: 3, child: Text(l10n.priorityHigh)),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _priority = value);
-                  }
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(l10n.dueDateLabel),
-              const SizedBox(height: AppSpacing.xs),
-              Text(l10n.taskDueAt(formatDueDate(l10n, _dueAt))),
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.event_outlined),
-                    label: Text(l10n.setDueDateButton),
-                    onPressed: _saving ? null : () => _selectDueDate(context),
-                  ),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.clear),
-                    label: Text(l10n.clearDueDateButton),
-                    onPressed: _saving
-                        ? null
-                        : () => setState(() => _dueAt = null),
-                  ),
-                ],
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  l10n.failedToSaveTask(_error!),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextFormField(
+              controller: _titleController,
+              autofocus: true,
+              decoration: InputDecoration(labelText: l10n.titleLabel),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return l10n.titleRequiredError;
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextFormField(
+              controller: _noteController,
+              decoration: InputDecoration(labelText: l10n.noteLabel),
+              minLines: 2,
+              maxLines: 4,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            DropdownButtonFormField<int>(
+              initialValue: _priority,
+              decoration: InputDecoration(labelText: l10n.priorityLabel),
+              items: [
+                DropdownMenuItem(value: 0, child: Text(l10n.priorityNone)),
+                DropdownMenuItem(value: 1, child: Text(l10n.priorityLow)),
+                DropdownMenuItem(value: 2, child: Text(l10n.priorityMedium)),
+                DropdownMenuItem(value: 3, child: Text(l10n.priorityHigh)),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _priority = value);
+                }
+              },
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(l10n.dueDateLabel),
+            const SizedBox(height: AppSpacing.xs),
+            Text(l10n.taskDueAt(formatDueDate(l10n, _dueAt))),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.event_outlined),
+                  label: Text(l10n.setDueDateButton),
+                  onPressed: _saving ? null : () => _selectDueDate(context),
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.clear),
+                  label: Text(l10n.clearDueDateButton),
+                  onPressed: _saving
+                      ? null
+                      : () => setState(() => _dueAt = null),
                 ),
               ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                l10n.failedToSaveTask(_error!),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
-          ),
+          ],
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: Text(l10n.cancelButton),
-        ),
-        TextButton(
-          onPressed: _saving ? null : _save,
-          child: Text(l10n.saveButton),
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            TextButton(
+              onPressed: _saving ? null : () => Navigator.of(context).pop(),
+              child: Text(l10n.cancelButton),
+            ),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: Text(l10n.saveButton),
+            ),
+          ],
         ),
       ],
+      actionsPadding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.md,
+      ),
     );
   }
 

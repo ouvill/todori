@@ -81,10 +81,12 @@ class _TrashTaskRow extends StatelessWidget {
     ];
 
     return Material(
-      color: colorScheme.surface,
+      color: colorScheme.surface.withValues(alpha: 0.9),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.78),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsetsDirectional.fromSTEB(
@@ -116,9 +118,15 @@ class _TrashTaskRow extends StatelessWidget {
                     SizedBox(
                       width: 48,
                       height: 48,
-                      child: Icon(
-                        Icons.restore_from_trash_outlined,
-                        color: colorScheme.onSurfaceVariant,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.restore_from_trash_outlined,
+                          color: colorScheme.primary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.xs),

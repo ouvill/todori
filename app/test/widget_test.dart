@@ -530,7 +530,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('四半期レビュー'), findsOneWidget);
-    expect(find.textContaining('Second task'), findsOneWidget);
     expect(
       find.byKey(ValueKey('task-priority-dot-${first.id}')),
       findsOneWidget,
@@ -541,6 +540,9 @@ void main() {
     expect(tester.takeException(), isNull);
 
     final secondMoveUp = find.byKey(ValueKey('task-move-up-${second.id}'));
+    await tester.drag(find.byType(ListView), const Offset(0, -220));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Second task'), findsOneWidget);
     await tester.ensureVisible(secondMoveUp);
     await tester.pumpAndSettle();
     await tester.tap(secondMoveUp);
@@ -588,6 +590,64 @@ void main() {
 
     expect(find.text('New list'), findsOneWidget);
     expect(find.text('Create'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('polished list, sort, detail, and dialog surfaces stay stable', (
+    tester,
+  ) async {
+    _useNarrowDynamicTypeView(tester);
+    final fake = FakeBridgeService();
+    await fake.createList(
+      name: '受信箱とても長いリスト名 with a product screenshot length',
+      sortOrder: 'a0',
+    );
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'README screenshot前に確認する非常に長いタスクタイトル with English detail',
+    );
+    await fake.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: '長いnoteでも詳細画面で読みやすく折り返すことを確認するための説明文です。',
+      priority: 3,
+      dueAt: 1,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('受信箱'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.textContaining('受信箱'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Sort tasks'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manual'), findsOneWidget);
+    expect(find.text('Due date'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Manual').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('README screenshot'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
+    expect(find.text('Priority: High'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit task'), findsOneWidget);
+    expect(find.byType(TextFormField), findsNWidgets(2));
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

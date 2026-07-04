@@ -50,7 +50,7 @@ class _MetadataPill extends StatelessWidget {
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colorScheme.surfaceContainer,
+          color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: colorScheme.outlineVariant.withValues(alpha: 0.72),
@@ -186,10 +186,16 @@ class AppTaskRow extends StatelessWidget {
         AppSpacing.md + ((effectiveDepth - 1) * AppSpacing.lg) + AppSpacing.sm;
 
     return Material(
-      color: colorScheme.surface,
+      color: isDone
+          ? colorScheme.surface.withValues(alpha: 0.72)
+          : colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        side: BorderSide(
+          color: isDone
+              ? colorScheme.outlineVariant.withValues(alpha: 0.7)
+              : colorScheme.outlineVariant,
+        ),
       ),
       child: Stack(
         children: [
@@ -291,9 +297,12 @@ class AppTaskRow extends StatelessWidget {
                   ),
                   if (stackTrailing) ...[
                     const SizedBox(height: AppSpacing.xs),
-                    Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: effectiveTrailing,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: effectiveTrailing,
+                      ),
                     ),
                   ],
                 ],
@@ -448,19 +457,29 @@ class AppProtectionSignal extends StatelessWidget {
               AppSpacing.sm,
               AppSpacing.xs,
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.lock_outline, size: 16, color: colorScheme.primary),
-                const SizedBox(width: AppSpacing.xs),
-                Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 16,
                     color: colorScheme.primary,
-                    fontWeight: FontWeight.w700,
                   ),
-                ),
-              ],
+                  const SizedBox(width: AppSpacing.xs),
+                  Flexible(
+                    child: Text(
+                      label,
+                      softWrap: true,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

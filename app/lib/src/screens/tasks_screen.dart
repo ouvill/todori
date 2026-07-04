@@ -190,16 +190,23 @@ class _TaskSortMenu extends StatelessWidget {
           for (final mode in TaskSortMode.values)
             PopupMenuItem<TaskSortMode>(
               value: mode,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    selectedMode == mode ? Icons.check : Icons.sort,
-                    size: 18,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(child: Text(_taskSortLabel(l10n, mode))),
-                ],
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 168),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      selectedMode == mode
+                          ? Icons.check_circle_outline
+                          : Icons.sort,
+                      size: 18,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Flexible(
+                      child: Text(_taskSortLabel(l10n, mode), softWrap: true),
+                    ),
+                  ],
+                ),
               ),
             ),
         ];
@@ -230,6 +237,7 @@ Future<void> _showLatestUndoSnackBar(BuildContext context) async {
   messenger.showSnackBar(
     SnackBar(
       content: Text(_undoMessage(l10n, undo.operationType)),
+      margin: const EdgeInsets.all(AppSpacing.md),
       action: SnackBarAction(
         label: l10n.undoActionLabel,
         onPressed: () {
@@ -248,10 +256,18 @@ Future<void> _applyUndo(
 ) async {
   try {
     await container.read(latestTaskUndoProvider.notifier).undo(undoId);
-    messenger.showSnackBar(SnackBar(content: Text(l10n.undoSuccessMessage)));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(l10n.undoSuccessMessage),
+        margin: const EdgeInsets.all(AppSpacing.md),
+      ),
+    );
   } catch (error) {
     messenger.showSnackBar(
-      SnackBar(content: Text(l10n.undoFailedMessage(error.toString()))),
+      SnackBar(
+        content: Text(l10n.undoFailedMessage(error.toString())),
+        margin: const EdgeInsets.all(AppSpacing.md),
+      ),
     );
   }
 }

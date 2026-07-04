@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:todori/src/ui/theme.dart';
 
 Future<String?> showAppTextInputDialog({
   required BuildContext context,
@@ -32,15 +33,25 @@ Future<bool> showAppConfirmDialog({
       title: Text(title),
       content: Text(message),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(cancelLabel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(confirmLabel),
+        _DialogActions(
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(cancelLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(confirmLabel),
+            ),
+          ],
         ),
       ],
+      actionsPadding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.md,
+      ),
     ),
   );
   return confirmed ?? false;
@@ -84,15 +95,41 @@ class _AppTextInputDialogState extends State<_AppTextInputDialog> {
         onSubmitted: (value) => Navigator.of(context).pop(value),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(widget.cancelLabel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(widget.submitLabel),
+        _DialogActions(
+          children: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(widget.cancelLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(_controller.text),
+              child: Text(widget.submitLabel),
+            ),
+          ],
         ),
       ],
+      actionsPadding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
+        0,
+        AppSpacing.md,
+        AppSpacing.md,
+      ),
+    );
+  }
+}
+
+class _DialogActions extends StatelessWidget {
+  const _DialogActions({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      children: children,
     );
   }
 }
