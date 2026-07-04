@@ -827,7 +827,9 @@ void main() {
 
     expect(find.text('Trash'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('Deleted: 1970-01-01'), findsOneWidget);
+    expect(find.textContaining('Deleted'), findsOneWidget);
+    expect(find.textContaining('Deleted:'), findsNothing);
+    expect(find.textContaining('1970'), findsNothing);
     expect(find.byTooltip('Restore task'), findsOneWidget);
 
     final trashed = await fake.getTrashedTasks();
@@ -898,7 +900,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('削除済みでも復元'), findsOneWidget);
-    expect(find.text('Priority: Medium'), findsOneWidget);
+    expect(find.byTooltip('Priority: Medium'), findsOneWidget);
+    expect(find.text('Priority: Medium'), findsNothing);
     expect(find.byTooltip('Restore task'), findsOneWidget);
     expect(tester.takeException(), isNull);
 

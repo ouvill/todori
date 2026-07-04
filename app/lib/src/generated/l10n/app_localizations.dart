@@ -605,7 +605,7 @@ abstract class AppLocalizations {
   /// No description provided for @taskDeletedAt.
   ///
   /// In en, this message translates to:
-  /// **'Deleted: {deletedAt}'**
+  /// **'Deleted {deletedAt}'**
   String taskDeletedAt(String deletedAt);
 
   /// No description provided for @failedToStartTodori.

@@ -63,20 +63,23 @@ class _TrashTaskRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final formattedDueDate = formatRelativeDueDate(l10n, locale, task.dueAt);
+    final overdue = isTaskOverdue(task);
     final metadata = [
-      TaskMetadataItem(
-        icon: Icons.delete_outline,
-        label: l10n.taskDeletedAt(formatDueDate(l10n, task.deletedAt)),
-      ),
-      if (task.priority > 0)
+      if (task.deletedAt != null)
         TaskMetadataItem(
-          icon: Icons.flag_outlined,
-          label: l10n.taskPriority(taskPriorityLabel(l10n, task.priority)),
+          icon: Icons.delete_outline,
+          label: l10n.taskDeletedAt(
+            formatRelativeDueDate(l10n, locale, task.deletedAt),
+          ),
         ),
       if (task.dueAt != null)
         TaskMetadataItem(
           icon: Icons.event_outlined,
-          label: l10n.taskDueAt(formatDueDate(l10n, task.dueAt)),
+          label: l10n.taskDueAt(formattedDueDate),
+          emphasisColor: overdue ? priorityDotColor(3) : null,
+          semanticLabel: overdue ? l10n.taskDueOverdue(formattedDueDate) : null,
         ),
     ];
 
@@ -116,8 +119,8 @@ class _TrashTaskRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 48,
-                      height: 48,
+                      width: 40,
+                      height: 40,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: colorScheme.surfaceContainerHighest,
@@ -125,6 +128,7 @@ class _TrashTaskRow extends StatelessWidget {
                         ),
                         child: Icon(
                           Icons.restore_from_trash_outlined,
+                          size: 22,
                           color: colorScheme.primary,
                         ),
                       ),
@@ -134,12 +138,27 @@ class _TrashTaskRow extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            task.title,
-                            softWrap: true,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              PriorityDot(
+                                key: ValueKey('trash-priority-dot-${task.id}'),
+                                priority: task.priority,
+                                semanticLabel: l10n.taskPriority(
+                                  taskPriorityLabel(l10n, task.priority),
+                                ),
+                                isMuted: false,
+                              ),
+                              Expanded(
+                                child: Text(
+                                  task.title,
+                                  softWrap: true,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           TaskMetadata(items: metadata),

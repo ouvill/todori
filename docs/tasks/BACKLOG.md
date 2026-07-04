@@ -28,7 +28,8 @@
 - **Product experience alignment完了済み**: task-29で、起動直後をListsではなく既定リストのTasks体験へ変更し、rootにToday header / pending count / list名pill / Add task actionを追加した。Lists画面は管理/切替画面へ再位置付けし、`todori-design-direction-mobile-focus-tasks.webp` / `todori-design-direction-lists.webp` のtask-first構造へ寄せた。Focus timer、検索、スマートリスト、件数badge、装飾イラストは未実装機能として別タスク扱い。
 - **visual QAスクリーンショット基盤整備済み**: task-28の使い捨て目視QAを恒久化した。`app/test/visual_qa/` + `app/tool/visual_qa.sh` を新設し、FakeBridgeServiceを共有化、`TODORI_VISUAL_QA=1` ゲートでCIへ影響しない形で実行できるようにした。
 - **design mood alignment完了済み**: task-30でLora/Interのブランドタイポグラフィを導入し、タスク行のStatus/Priorityチップ削除と相対日付化、行密度圧縮、円形チェックボックスを行った。Task detail画面のLocal protectionチップ削除とCreated at表示バグ修正も行った。before/afterスクショで参照画像の雰囲気への到達を確認済み。
-- **テスト数**: Rust 74 / Flutter 37（task-30実装セッション時点の値）。
+- **Trash visual refinement完了済み**: task-31でTrash行の削除日/期限日を短縮・相対日付文法へ揃え、visibleなPriorityチップをpriority dotへ置き換えた。FakeBridgeServiceの時刻seedを現実的なepoch millisecondsへ更新し、dark themeのpriority dot確認用 `home_tasks_dark.png` をvisual QAに追加した。
+- **テスト数**: Rust 74 / Flutter 37（task-31実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で8スクリーンショットを生成）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
@@ -38,7 +39,6 @@
 | 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
 | 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 4 | task-31 Trash visual refinement | Trash行の日付・priority表現をTasks画面文法へ揃え、visual QA seedとダークテーマpriority dot検証を整える | M2相当（visual polish残課題） | 出典: task-30完了報告 未解決事項（Trash相対日付・dark priority dot） |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

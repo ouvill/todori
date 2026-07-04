@@ -171,7 +171,7 @@
   "taskSortCreatedAt": "Created",
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
-  "taskDeletedAt": "Deleted: {deletedAt}",
+  "taskDeletedAt": "Deleted {deletedAt}",
   "@taskDeletedAt": {
     "placeholders": {
       "deletedAt": {

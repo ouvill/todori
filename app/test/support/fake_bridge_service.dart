@@ -19,14 +19,16 @@ class FakeBridgeService implements BridgeService {
     required String name,
     required String sortOrder,
   }) async {
+    final listSeq = _listSeq++;
+    final now = _fakeTimestamp(listSeq);
     final list = ListDto(
-      id: 'list-${_listSeq++}',
+      id: 'list-$listSeq',
       name: name,
       color: '',
       icon: '',
       sortOrder: sortOrder,
-      createdAt: 0,
-      updatedAt: 0,
+      createdAt: now,
+      updatedAt: now,
     );
     _lists.add(list);
     return list;
@@ -65,8 +67,8 @@ class FakeBridgeService implements BridgeService {
       status: 'todo',
       priority: 0,
       sortOrder: sortOrder,
-      createdAt: taskSeq,
-      updatedAt: 0,
+      createdAt: _fakeTimestamp(100 + taskSeq),
+      updatedAt: _fakeTimestamp(100 + taskSeq),
     );
     _tasks.add(task);
     return task;
@@ -97,6 +99,7 @@ class FakeBridgeService implements BridgeService {
     }
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final task = _tasks[index];
+    final updatedAt = task.updatedAt + _fakeMinuteMs;
     final updated = TaskDto(
       id: task.id,
       listId: task.listId,
@@ -114,7 +117,7 @@ class FakeBridgeService implements BridgeService {
       deletedAt: task.deletedAt,
       assignee: task.assignee,
       createdAt: task.createdAt,
-      updatedAt: task.updatedAt + 1,
+      updatedAt: updatedAt,
     );
     _tasks[index] = updated;
     _recordUndo(operationType: 'edit', before: task, after: updated);
@@ -129,11 +132,12 @@ class FakeBridgeService implements BridgeService {
   }) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final before = _tasks[index];
+    final updatedAt = before.updatedAt + _fakeMinuteMs;
     final updated = before._copyWith(
       status: status,
-      completedAt: status == 'done' ? 1 : null,
+      completedAt: status == 'done' ? updatedAt : null,
       closedReason: closedReason,
-      updatedAt: before.updatedAt + 1,
+      updatedAt: updatedAt,
     );
     _tasks[index] = updated;
     if (status == 'done') {
@@ -146,9 +150,10 @@ class FakeBridgeService implements BridgeService {
   Future<TaskDto> trashTask({required String taskId}) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final before = _tasks[index];
+    final updatedAt = before.updatedAt + _fakeMinuteMs;
     final updated = before._copyWith(
-      deletedAt: 1,
-      updatedAt: before.updatedAt + 1,
+      deletedAt: updatedAt,
+      updatedAt: updatedAt,
     );
     _tasks[index] = updated;
     if (before.deletedAt == null) {
@@ -187,9 +192,10 @@ class FakeBridgeService implements BridgeService {
         ? null
         : _reorderBoundary(previousTaskId, task);
     final next = nextTaskId == null ? null : _reorderBoundary(nextTaskId, task);
+    final updatedAt = task.updatedAt + _fakeMinuteMs;
     final updated = task._copyWith(
       sortOrder: _fractionalIndexBetween(previous?.sortOrder, next?.sortOrder),
-      updatedAt: task.updatedAt + 1,
+      updatedAt: updatedAt,
     );
     _tasks[index] = updated;
     return updated;
@@ -256,7 +262,9 @@ class FakeBridgeService implements BridgeService {
     required TaskDto before,
     required TaskDto after,
   }) {
-    final id = 'undo-${_undoSeq++}';
+    final undoSeq = _undoSeq++;
+    final id = 'undo-$undoSeq';
+    final createdAt = _fakeTimestamp(1000 + undoSeq);
     _undoEntries.add(
       FakeTaskUndoEntry(
         id: id,
@@ -266,19 +274,26 @@ class FakeBridgeService implements BridgeService {
         afterUpdatedAt: after.updatedAt,
         afterDeletedAt: after.deletedAt,
         afterCompletedAt: after.completedAt,
-        createdAt: _undoSeq,
+        createdAt: createdAt,
         dto: TaskUndoDto(
           id: id,
           operationType: operationType,
           taskId: before.id,
           listId: before.listId,
           taskTitle: before.title,
-          createdAt: _undoSeq,
+          createdAt: createdAt,
         ),
       ),
     );
   }
 }
+
+final int _fakeClockBaseMs = DateTime.utc(2026, 7, 1, 9).millisecondsSinceEpoch;
+
+const int _fakeMinuteMs = Duration.millisecondsPerMinute;
+
+int _fakeTimestamp(int sequence) =>
+    _fakeClockBaseMs + (sequence * _fakeMinuteMs);
 
 /// A recorded undo entry for [FakeBridgeService].
 ///

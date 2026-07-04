@@ -84,6 +84,6 @@
   "taskSortCreatedAt": "作成順",
   "moveTaskUpTooltip": "タスクを上へ移動",
   "moveTaskDownTooltip": "タスクを下へ移動",
-  "taskDeletedAt": "削除日時: {deletedAt}",
+  "taskDeletedAt": "削除 {deletedAt}",
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

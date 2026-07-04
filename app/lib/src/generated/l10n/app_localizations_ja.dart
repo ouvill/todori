@@ -287,7 +287,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String taskDeletedAt(String deletedAt) {
-    return '削除日時: $deletedAt';
+    return '削除 $deletedAt';
   }
 
   @override

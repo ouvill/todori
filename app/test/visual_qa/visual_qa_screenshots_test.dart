@@ -53,6 +53,15 @@ void main() {
     await _screenshot(tester, 'home_tasks');
   });
 
+  testWidgets('home_tasks_dark: dark priority dot contrast check', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useDarkPlatformBrightness(tester);
+    await _seedRealisticData(tester);
+    await _screenshot(tester, 'home_tasks_dark');
+  });
+
   testWidgets('home_tasks_empty: root list with zero tasks', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
@@ -305,6 +314,11 @@ void _setMobileViewport(WidgetTester tester) {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+void _useDarkPlatformBrightness(WidgetTester tester) {
+  tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+  addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 }
 
 /// Rasterizes the whole app (including any open dialog/overlay) to a PNG at
