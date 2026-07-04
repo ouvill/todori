@@ -1,5 +1,7 @@
 # Todori（トドリ）― E2EE Todoアプリ
 
+> Status: pre-release. Todori is public for E2EE transparency and development visibility, but it is not ready for production use or broad external promotion yet.
+
 Todoriは、「プライバシーを一切妥協しない、ふわっと親しみやすいTodoアプリ」をコンセプトに掲げるTodo管理アプリです。E2EE（エンドツーエンド暗号化）とローカルファーストの設計を軸に、iOS・Android・Desktop（Windows・macOS・Linux）で動作するマルチプラットフォーム対応を目指しています。アカウント登録や課金を行わなくても、単一端末上でアプリのコア機能をフルに利用できる点が特徴です。
 
 既存のTodoアプリの多くはタスクの内容を平文のままサーバーに保存していますが、Todoリストには健康・仕事・人間関係など機微な情報が含まれることが少なくありません。Todoriは、サーバー側がパスワードもタスク内容も知り得ないOPAQUE認証とE2EEを組み合わせることで、この課題に正面から向き合います。複数端末間の同期やOrganizationでのタスク共有など、サーバーを介した機能のみを有料の対象とすることで、気軽に使い始められる体験と、使うほど便利になる拡張性の両立を図ります。
@@ -46,5 +48,7 @@ cd app && flutter run
 ## License
 
 Todoriは [`LICENSE`](./LICENSE)（AGPL-3.0-only）のもとで公開されています。コントリビューションには [`CONTRIBUTING.md`](./CONTRIBUTING.md) および [`CLA.md`](./CLA.md)（Contributor License Agreement）への同意が必要です。
+
+Todori is currently in an early pre-release phase. Public issues and pull requests may be handled conservatively until the app, contribution process, and release policy mature.
 
 セキュリティ脆弱性を見つけた場合は、public issueには詳細を書かず、[`SECURITY.md`](./SECURITY.md) の非公開報告導線を参照してください。

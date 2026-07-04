@@ -18,6 +18,9 @@ Before opening a pull request, make sure the following all pass locally:
 - `cargo clippy --workspace -- -D warnings`
 - `cargo test --workspace`
 - `cd app && flutter analyze` (if you changed anything under `app/`)
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release` before Flutter tests
+- `cd app && flutter test`
+- `sh app/tool/check_hardcoded_strings.sh`
 
 Pull requests that fail these checks in CI will not be merged until fixed.
 
