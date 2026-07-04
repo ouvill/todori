@@ -82,6 +82,11 @@ ThemeData buildTodoriTheme(Brightness brightness) {
     floatingActionButtonTheme: FloatingActionButtonThemeData(
       backgroundColor: colorScheme.primary,
       foregroundColor: colorScheme.onPrimary,
+      elevation: 0,
+      focusElevation: 1,
+      hoverElevation: 1,
+      highlightElevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),

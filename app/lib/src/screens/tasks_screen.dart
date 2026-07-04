@@ -301,17 +301,27 @@ class _TaskReorderControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
     final canMoveUp = siblingIndex > 0;
     final canMoveDown = siblingIndex >= 0 && siblingIndex < siblings.length - 1;
+    final actionColor = colorScheme.onSurfaceVariant.withValues(alpha: 0.72);
+    final disabledActionColor = colorScheme.onSurfaceVariant.withValues(
+      alpha: 0.28,
+    );
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
           key: ValueKey('task-move-up-${task.id}'),
-          icon: const Icon(Icons.keyboard_arrow_up),
+          icon: const Icon(Icons.keyboard_arrow_up, size: 21),
           tooltip: l10n.moveTaskUpTooltip,
           visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(
+            foregroundColor: actionColor,
+            disabledForegroundColor: disabledActionColor,
+            minimumSize: const Size(40, 40),
+          ),
           onPressed: canMoveUp
               ? () async {
                   final nextTaskId = siblings[siblingIndex - 1].id;
@@ -327,9 +337,14 @@ class _TaskReorderControls extends StatelessWidget {
         ),
         IconButton(
           key: ValueKey('task-move-down-${task.id}'),
-          icon: const Icon(Icons.keyboard_arrow_down),
+          icon: const Icon(Icons.keyboard_arrow_down, size: 21),
           tooltip: l10n.moveTaskDownTooltip,
           visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(
+            foregroundColor: actionColor,
+            disabledForegroundColor: disabledActionColor,
+            minimumSize: const Size(40, 40),
+          ),
           onPressed: canMoveDown
               ? () async {
                   final previousTaskId = siblings[siblingIndex + 1].id;
@@ -343,7 +358,7 @@ class _TaskReorderControls extends StatelessWidget {
                 }
               : null,
         ),
-        const Icon(Icons.chevron_right),
+        Icon(Icons.chevron_right, color: actionColor),
       ],
     );
   }
