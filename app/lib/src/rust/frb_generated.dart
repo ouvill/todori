@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1685575805;
+  int get rustContentHash => -1098268632;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -86,7 +86,6 @@ abstract class RustLibApi extends BaseApi {
   Future<TaskDto> crateApiCreateTask({
     required String listId,
     required String title,
-    required String sortOrder,
     String? parentTaskId,
   });
 
@@ -99,6 +98,12 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiGreet({required String name});
 
   Future<void> crateApiInitCore({required String dbDir});
+
+  Future<TaskDto> crateApiReorderTask({
+    required String taskId,
+    String? previousTaskId,
+    String? nextTaskId,
+  });
 
   Future<TaskDto> crateApiRestoreTask({required String taskId});
 
@@ -193,7 +198,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<TaskDto> crateApiCreateTask({
     required String listId,
     required String title,
-    required String sortOrder,
     String? parentTaskId,
   }) {
     return handler.executeNormal(
@@ -202,7 +206,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(listId, serializer);
           sse_encode_String(title, serializer);
-          sse_encode_String(sortOrder, serializer);
           sse_encode_opt_String(parentTaskId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -216,7 +219,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, sortOrder, parentTaskId],
+        argValues: [listId, title, parentTaskId],
         apiImpl: this,
       ),
     );
@@ -224,7 +227,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "sortOrder", "parentTaskId"],
+    argNames: ["listId", "title", "parentTaskId"],
   );
 
   @override
@@ -366,6 +369,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_core", argNames: ["dbDir"]);
 
   @override
+  Future<TaskDto> crateApiReorderTask({
+    required String taskId,
+    String? previousTaskId,
+    String? nextTaskId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          sse_encode_opt_String(previousTaskId, serializer);
+          sse_encode_opt_String(nextTaskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_task_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiReorderTaskConstMeta,
+        argValues: [taskId, previousTaskId, nextTaskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiReorderTaskConstMeta => const TaskConstMeta(
+    debugName: "reorder_task",
+    argNames: ["taskId", "previousTaskId", "nextTaskId"],
+  );
+
+  @override
   Future<TaskDto> crateApiRestoreTask({required String taskId}) {
     return handler.executeNormal(
       NormalTask(
@@ -375,7 +414,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -409,7 +448,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -439,7 +478,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -477,7 +516,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 13,
             port: port_,
           );
         },

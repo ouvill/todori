@@ -3,9 +3,11 @@
 //! 詳細な論理スキーマは `docs/03_技術仕様書.md` §3 データモデル を参照。
 
 pub mod entities;
+pub mod sort_order;
 pub mod usecases;
 
 pub use entities::{List, Task, TaskStatus};
+pub use sort_order::{fractional_index_after, fractional_index_between};
 pub use usecases::{
     delete_task, new_list, new_task, rename_list, restore_task, transition_task, update_due_at,
     update_estimated_minutes, update_note, update_priority, update_scheduled_at, update_title,

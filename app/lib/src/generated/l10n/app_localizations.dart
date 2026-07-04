@@ -470,6 +470,18 @@ abstract class AppLocalizations {
   /// **'Restore task'**
   String get restoreTaskTooltip;
 
+  /// No description provided for @moveTaskUpTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move task up'**
+  String get moveTaskUpTooltip;
+
+  /// No description provided for @moveTaskDownTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move task down'**
+  String get moveTaskDownTooltip;
+
   /// No description provided for @taskDeletedAt.
   ///
   /// In en, this message translates to:

@@ -27,7 +27,6 @@ void main() {
     final task = await createTask(
       listId: list.id,
       title: 'Write bridge usecase test',
-      sortOrder: 'a0',
     );
     expect(task.parentTaskId, isNull);
 
@@ -62,7 +61,6 @@ void main() {
     final task = await createTask(
       listId: list.id,
       title: 'Reject invalid transition',
-      sortOrder: 'a0',
     );
 
     await setTaskStatus(taskId: task.id, status: 'done');
@@ -80,29 +78,20 @@ void main() {
   test('empty task title throws', () async {
     final list = await createList(name: 'Validation', sortOrder: 'c0');
 
-    expect(
-      () => createTask(listId: list.id, title: '   ', sortOrder: 'a0'),
-      throwsA(anything),
-    );
+    expect(() => createTask(listId: list.id, title: '   '), throwsA(anything));
   });
 
   test('subtask parent id persists through Rust bridge', () async {
     final list = await createList(name: 'Subtasks', sortOrder: 's0');
-    final parent = await createTask(
-      listId: list.id,
-      title: 'Parent',
-      sortOrder: 'a0',
-    );
+    final parent = await createTask(listId: list.id, title: 'Parent');
     final child = await createTask(
       listId: list.id,
       title: 'Child',
-      sortOrder: 'a0',
       parentTaskId: parent.id,
     );
     final grandchild = await createTask(
       listId: list.id,
       title: 'Grandchild',
-      sortOrder: 'a0',
       parentTaskId: child.id,
     );
 
@@ -132,12 +121,10 @@ void main() {
     final otherListParent = await createTask(
       listId: otherList.id,
       title: 'Other list parent',
-      sortOrder: 'a0',
     );
     final deletedParent = await createTask(
       listId: list.id,
       title: 'Deleted parent',
-      sortOrder: 'a0',
     );
     await trashTask(taskId: deletedParent.id);
 
@@ -145,7 +132,6 @@ void main() {
       () => createTask(
         listId: list.id,
         title: 'Missing parent child',
-        sortOrder: 'a1',
         parentTaskId: list.id,
       ),
       throwsA(anything),
@@ -154,7 +140,6 @@ void main() {
       () => createTask(
         listId: list.id,
         title: 'Cross-list child',
-        sortOrder: 'a2',
         parentTaskId: otherListParent.id,
       ),
       throwsA(anything),
@@ -163,9 +148,100 @@ void main() {
       () => createTask(
         listId: list.id,
         title: 'Deleted-parent child',
-        sortOrder: 'a3',
         parentTaskId: deletedParent.id,
       ),
+      throwsA(anything),
+    );
+  });
+
+  test('createTask assigns fractional sort orders per sibling group', () async {
+    final list = await createList(name: 'Generated order', sortOrder: 'g0');
+    final first = await createTask(listId: list.id, title: 'First root');
+    final second = await createTask(listId: list.id, title: 'Second root');
+    final third = await createTask(listId: list.id, title: 'Third root');
+    final parent = await createTask(listId: list.id, title: 'Parent');
+    final firstChild = await createTask(
+      listId: list.id,
+      title: 'First child',
+      parentTaskId: parent.id,
+    );
+    final secondChild = await createTask(
+      listId: list.id,
+      title: 'Second child',
+      parentTaskId: parent.id,
+    );
+
+    expect(first.sortOrder.compareTo(second.sortOrder), lessThan(0));
+    expect(second.sortOrder.compareTo(third.sortOrder), lessThan(0));
+    expect(firstChild.sortOrder.compareTo(secondChild.sortOrder), lessThan(0));
+
+    final active = await getTasks(listId: list.id);
+    final rootTitles = active
+        .where((task) => task.parentTaskId == null)
+        .map((task) => task.title)
+        .toList();
+    expect(rootTitles, ['First root', 'Second root', 'Third root', 'Parent']);
+  });
+
+  test('reorderTask persists sibling order through Rust bridge', () async {
+    final list = await createList(name: 'Reorder', sortOrder: 'r0');
+    final first = await createTask(listId: list.id, title: 'First');
+    await createTask(listId: list.id, title: 'Second');
+    final third = await createTask(listId: list.id, title: 'Third');
+
+    final moved = await reorderTask(
+      taskId: third.id,
+      previousTaskId: null,
+      nextTaskId: first.id,
+    );
+
+    expect(moved.sortOrder.compareTo(first.sortOrder), lessThan(0));
+    final active = await getTasks(listId: list.id);
+    expect(active.map((task) => task.title), ['Third', 'First', 'Second']);
+    expect(
+      active.singleWhere((task) => task.id == third.id).parentTaskId,
+      isNull,
+    );
+  });
+
+  test('reorderTask rejects invalid boundaries', () async {
+    final list = await createList(name: 'Reorder validation', sortOrder: 'rv0');
+    final otherList = await createList(
+      name: 'Other reorder validation',
+      sortOrder: 'rv1',
+    );
+    final first = await createTask(listId: list.id, title: 'First');
+    final second = await createTask(listId: list.id, title: 'Second');
+    final otherListTask = await createTask(
+      listId: otherList.id,
+      title: 'Other list task',
+    );
+    final child = await createTask(
+      listId: list.id,
+      title: 'Child',
+      parentTaskId: first.id,
+    );
+    final deleted = await createTask(listId: list.id, title: 'Deleted');
+    await trashTask(taskId: deleted.id);
+
+    expect(
+      () => reorderTask(taskId: first.id, previousTaskId: first.id),
+      throwsA(anything),
+    );
+    expect(
+      () => reorderTask(taskId: first.id, previousTaskId: otherListTask.id),
+      throwsA(anything),
+    );
+    expect(
+      () => reorderTask(taskId: second.id, previousTaskId: child.id),
+      throwsA(anything),
+    );
+    expect(
+      () => reorderTask(taskId: first.id, nextTaskId: deleted.id),
+      throwsA(anything),
+    );
+    expect(
+      () => reorderTask(taskId: deleted.id, previousTaskId: second.id),
       throwsA(anything),
     );
   });
@@ -174,11 +250,7 @@ void main() {
     'updateTask persists editable task fields through Rust bridge',
     () async {
       final list = await createList(name: 'Editing', sortOrder: 'd0');
-      final task = await createTask(
-        listId: list.id,
-        title: 'Draft title',
-        sortOrder: 'a0',
-      );
+      final task = await createTask(listId: list.id, title: 'Draft title');
       const dueAt = 1782864000000;
 
       final updated = await updateTask(
@@ -222,7 +294,6 @@ void main() {
     final task = await createTask(
       listId: list.id,
       title: 'Reject invalid priority',
-      sortOrder: 'a0',
     );
 
     expect(

@@ -217,6 +217,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get restoreTaskTooltip => 'Restore task';
 
   @override
+  String get moveTaskUpTooltip => 'Move task up';
+
+  @override
+  String get moveTaskDownTooltip => 'Move task down';
+
+  @override
   String taskDeletedAt(String deletedAt) {
     return 'Deleted: $deletedAt';
   }

@@ -216,6 +216,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get restoreTaskTooltip => 'タスクを復元';
 
   @override
+  String get moveTaskUpTooltip => 'タスクを上へ移動';
+
+  @override
+  String get moveTaskDownTooltip => 'タスクを下へ移動';
+
+  @override
   String taskDeletedAt(String deletedAt) {
     return '削除日時: $deletedAt';
   }

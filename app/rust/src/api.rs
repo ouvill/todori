@@ -7,9 +7,9 @@ use std::{
 
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
-    delete_task as domain_delete_task, new_list, new_task, restore_task as domain_restore_task,
-    transition_task, update_due_at, update_note, update_priority, update_title,
-    validate_parent_for, List, Task, TaskStatus, Uuid,
+    delete_task as domain_delete_task, fractional_index_after, fractional_index_between, new_list,
+    new_task, restore_task as domain_restore_task, transition_task, update_due_at, update_note,
+    update_priority, update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
@@ -135,26 +135,32 @@ pub fn get_lists() -> Result<Vec<ListDto>, String> {
     })
 }
 
-/// Creates a task using the caller-provided fractional `sort_order`.
-///
-/// Automatic fractional index generation is a later M3 concern and is not done
-/// in this bridge layer.
+/// Creates a task at the end of its sibling group using a domain-generated
+/// fractional `sort_order`.
 pub fn create_task(
     list_id: String,
     title: String,
-    sort_order: String,
     parent_task_id: Option<String>,
 ) -> Result<TaskDto, String> {
     let list_id = parse_uuid(&list_id)?;
     let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
-    let task = new_task(list_id, parent_task_id, title, sort_order, now_ms()?)
-        .map_err(|error| error.to_string())?;
+    let now_ms = now_ms()?;
     with_task_repository(|repository| {
-        if let Some(parent_id) = parent_task_id {
-            let mut tasks = repository
-                .list_active_by_list(list_id)
-                .map_err(|error| error.to_string())?;
+        let mut tasks = repository
+            .list_active_by_list(list_id)
+            .map_err(|error| error.to_string())?;
 
+        let last_sibling_sort_order = tasks
+            .iter()
+            .filter(|existing| existing.parent_task_id == parent_task_id)
+            .map(|existing| existing.sort_order.as_str())
+            .max();
+        let sort_order =
+            fractional_index_after(last_sibling_sort_order).map_err(|error| error.to_string())?;
+        let task = new_task(list_id, parent_task_id, title, sort_order, now_ms)
+            .map_err(|error| error.to_string())?;
+
+        if let Some(parent_id) = parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
                 match repository.get(parent_id) {
                     Ok(parent) => tasks.push(parent),
@@ -169,6 +175,51 @@ pub fn create_task(
 
         repository
             .insert(task.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(task_to_dto(task))
+    })
+}
+
+pub fn reorder_task(
+    task_id: String,
+    previous_task_id: Option<String>,
+    next_task_id: Option<String>,
+) -> Result<TaskDto, String> {
+    let task_id = parse_uuid(&task_id)?;
+    let previous_task_id = previous_task_id.as_deref().map(parse_uuid).transpose()?;
+    let next_task_id = next_task_id.as_deref().map(parse_uuid).transpose()?;
+
+    if previous_task_id == Some(task_id) || next_task_id == Some(task_id) {
+        return Err("task cannot be reordered relative to itself".to_string());
+    }
+    if previous_task_id.is_some() && previous_task_id == next_task_id {
+        return Err("previous and next task must be different".to_string());
+    }
+
+    let now_ms = now_ms()?;
+    with_task_repository(|repository| {
+        let mut task = repository.get(task_id).map_err(|error| error.to_string())?;
+        ensure_active_task(&task)?;
+
+        let previous = previous_task_id
+            .map(|boundary_id| load_reorder_boundary(repository, boundary_id, &task))
+            .transpose()?;
+        let next = next_task_id
+            .map(|boundary_id| load_reorder_boundary(repository, boundary_id, &task))
+            .transpose()?;
+
+        let sort_order = fractional_index_between(
+            previous
+                .as_ref()
+                .map(|boundary| boundary.sort_order.as_str()),
+            next.as_ref().map(|boundary| boundary.sort_order.as_str()),
+        )
+        .map_err(|error| error.to_string())?;
+
+        task.sort_order = sort_order;
+        task.updated_at = now_ms;
+        repository
+            .update(task.clone())
             .map_err(|error| error.to_string())?;
         Ok(task_to_dto(task))
     })
@@ -320,6 +371,31 @@ fn parse_status(value: &str) -> Result<TaskStatus, String> {
         "wont_do" => Ok(TaskStatus::WontDo),
         other => Err(format!("invalid task status: {other}")),
     }
+}
+
+fn ensure_active_task(task: &Task) -> Result<(), String> {
+    if task.deleted_at.is_some() {
+        return Err("task is deleted".to_string());
+    }
+    Ok(())
+}
+
+fn load_reorder_boundary(
+    repository: &SqliteTaskRepository,
+    boundary_id: Uuid,
+    task: &Task,
+) -> Result<Task, String> {
+    let boundary = repository
+        .get(boundary_id)
+        .map_err(|error| error.to_string())?;
+    ensure_active_task(&boundary)?;
+    if boundary.list_id != task.list_id {
+        return Err("reorder boundary belongs to a different list".to_string());
+    }
+    if boundary.parent_task_id != task.parent_task_id {
+        return Err("reorder boundary belongs to a different parent".to_string());
+    }
+    Ok(boundary)
 }
 
 fn status_to_string(status: TaskStatus) -> String {

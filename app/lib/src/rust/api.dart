@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `list_to_dto`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -34,20 +34,26 @@ Future<ListDto> createList({required String name, required String sortOrder}) =>
 
 Future<List<ListDto>> getLists() => RustLib.instance.api.crateApiGetLists();
 
-/// Creates a task using the caller-provided fractional `sort_order`.
-///
-/// Automatic fractional index generation is a later M3 concern and is not done
-/// in this bridge layer.
+/// Creates a task at the end of its sibling group using a domain-generated
+/// fractional `sort_order`.
 Future<TaskDto> createTask({
   required String listId,
   required String title,
-  required String sortOrder,
   String? parentTaskId,
 }) => RustLib.instance.api.crateApiCreateTask(
   listId: listId,
   title: title,
-  sortOrder: sortOrder,
   parentTaskId: parentTaskId,
+);
+
+Future<TaskDto> reorderTask({
+  required String taskId,
+  String? previousTaskId,
+  String? nextTaskId,
+}) => RustLib.instance.api.crateApiReorderTask(
+  taskId: taskId,
+  previousTaskId: previousTaskId,
+  nextTaskId: nextTaskId,
 );
 
 Future<List<TaskDto>> getTasks({required String listId}) =>

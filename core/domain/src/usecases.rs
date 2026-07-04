@@ -31,6 +31,12 @@ pub enum DomainError {
     CyclicParent,
     #[error("parent task is deleted")]
     ParentDeleted,
+    #[error("invalid sort order")]
+    InvalidSortOrder,
+    #[error("invalid sort order boundary")]
+    InvalidSortOrderBoundary,
+    #[error("sort order space is exhausted")]
+    SortOrderSpaceExhausted,
 }
 
 /// タスクを作成する。

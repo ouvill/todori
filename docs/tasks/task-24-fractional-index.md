@@ -1,5 +1,8 @@
 # task-24: fractional indexとタスク手動並び替えUI
 
+> ステータス: 実装完了（worker報告追記済み・親検証待ち）
+> 作業日: 2026-07-05
+
 ## 1. 背景とコンテキスト
 
 `docs/tasks/BACKLOG.md` の優先度付きバックログ先頭は「fractional index」であり、内容は `sort_order` 生成の本実装（`core/domain`）と並び替えUIである。`AGENTS.md` でも、現在の `sort_order` は暫定連番（`'a0'`, `'a1'`, ...）であり、fractional index本実装はM3のタスクと明記されている。
@@ -193,3 +196,145 @@
 - やらなかったことが守られていること（Undo、条件ソートUI、リスト並び替え、別親/別リスト移動、階層変更、新規依存追加なし）
 - public/private境界の確認結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-05
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/PLAYBOOK.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/07_Phase1計画書.md` M3-05
+- `docs/tasks/task-18-task-editing-ui.md`
+- `docs/tasks/task-19-subtasks-ui.md`
+- `docs/tasks/task-23-trash-restore-ui.md`
+- `core/domain/src/entities.rs`
+- `core/domain/src/usecases.rs`
+- `core/storage/src/lib.rs`
+- `core/storage/src/schema.sql`
+- `app/rust/src/api.rs`
+- `flutter_rust_bridge.yaml`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/core_usecases_test.dart`
+- `app/test/widget_test.dart`
+- `app/tool/check_hardcoded_strings.sh`
+
+### M3-05のうち実装した範囲
+
+- 実装した範囲は、M3-05のうち `fractional index生成` と `タスク一覧の同一階層内の手動並び替えUI` に限定した。
+- Undoは履歴データ構造と復元時の競合方針が別途必要なため実装していない。
+- 条件ソートUIは、手動順と締切/優先度/作成順の切替状態・ユーザー設定の保存方針が別途必要なため実装していない。
+- リスト並び替えは `listsProvider` とリスト一覧UIの別スコープになるため実装していない。
+
+### fractional index生成ロジック
+
+- `core/domain/src/sort_order.rs` を追加し、`fractional_index_between(previous, next)` と `fractional_index_after(last)` を公開した。
+- 文字集合は ASCII の `0-9A-Za-z`。Rust `String`、Dart `String.compareTo`、SQLite `TEXT` の通常昇順比較で同じ順序になる前提で生成する。
+- `previous` / `next` は省略可能で、先頭、末尾、2値の間を決定的に生成する。浮動小数点、時刻、乱数は使っていない。
+- 既存境界は空文字と文字集合外を `InvalidSortOrder`、`previous >= next` を `InvalidSortOrderBoundary` として拒否する。表現空間がない境界は `SortOrderSpaceExhausted` として扱う。
+- unit testで初期値、先頭、末尾、2値間、連続挿入、不正値、不正境界を検証した。
+
+### 新規task作成時のsort_order生成方針
+
+- Rust bridgeの `create_task` から `sort_order` 引数を削除し、Rust/domain側で生成する形に変更した。
+- root taskは `parent_task_id == None` のactive兄弟内で最後尾に入る値を生成する。
+- subtaskは同じ `parent_task_id` を持つactive兄弟内で最後尾に入る値を生成する。
+- Flutter側の `TasksNotifier.createTask()` はタスク用 `nextSortOrder()` に依存しない。`nextSortOrder()` はリスト作成用の暫定ヘルパーとしてのみ残した。
+
+### 追加/変更したRust bridge API
+
+- `create_task(list_id, title, parent_task_id)`:
+  - タスク用 `sort_order` は引数で受け取らず、同一階層の兄弟末尾として生成する。
+  - 既存の親検証は維持し、候補親がactive一覧にない場合は `TaskRepository::get` で削除済み親も検証対象に含める。
+- `reorder_task(task_id, previous_task_id, next_task_id)`:
+  - 対象task、前後境界taskがactiveであることを確認する。
+  - 前後境界taskは対象taskと同じ `list_id` かつ同じ `parent_task_id` の場合だけ許可する。
+  - 対象自身を境界にする指定、同じ境界IDの重複、別リスト、別親、削除済みtaskはエラーにする。
+  - 生成した `sort_order` と `updated_at` を `TaskRepository::update` で永続化する。
+
+### FRB再生成
+
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行し、成功した。
+- 初回はFlutter SDK cacheへの書き込みがサンドボックスで拒否されたため、承認付きで同コマンドを再実行して成功した。
+- `app/rust/src/frb_generated.rs` と `app/lib/src/rust/` 配下は生成コマンドで更新し、手編集していない。
+
+### Dart provider / service / fake
+
+- `BridgeService` / `FrbBridgeService` からタスク作成時の `sortOrder` 引数を削除した。
+- `BridgeService` / `FrbBridgeService` に `reorderTask` を追加した。
+- `TasksNotifier.createTask()` はRust/domain生成に任せ、成功後に `ref.invalidateSelf()` で再取得する。
+- `TasksNotifier.reorderTask()` を追加し、並び替え成功後に `ref.invalidateSelf()` で該当listのtask一覧を再取得する。
+- `FakeBridgeService` はテスト用に同じ文字集合の決定的fractional index生成と `reorderTask` 境界検証を持つよう更新した。
+
+### 手動並び替えUI
+
+- `TasksScreen` の各行に上/下移動のicon buttonを追加した。
+- 上/下移動は、同じ `parentTaskId` を持つ兄弟配列だけを対象に、移動後の `previousTaskId` / `nextTaskId` 境界を計算して `TasksNotifier.reorderTask()` を呼ぶ。
+- 先頭行の上移動、末尾行の下移動はdisabled状態にした。
+- icon-only controlには `moveTaskUpTooltip` / `moveTaskDownTooltip` を設定した。
+- `AppTaskRow` は任意の `trailing` を受け取れるようにし、既定では従来どおりchevronを表示する。
+
+### サブタスク階層を壊さないための方針
+
+- UI側では `parentTaskId` が同じ兄弟だけを移動候補にする。
+- Rust bridge側でも境界taskの `list_id` と `parent_task_id` が対象taskと一致しない場合は拒否する。
+- 並び替えでは `parent_task_id`、`list_id`、階層深度を変更しない。更新対象は `sort_order` と `updated_at` のみ。
+
+### i18nキー
+
+- `moveTaskUpTooltip`
+- `moveTaskDownTooltip`
+
+`app/lib/l10n/app_en.arb` / `app_ja.arb` を更新し、`flutter gen-l10n` で `app/lib/src/generated/l10n/*` を更新した。初回はFlutter SDK cache制約で失敗したため、承認付きで再実行して成功した。
+
+### 追加/更新したテスト
+
+- `core/domain` unit test:
+  - 初期値、先頭生成、末尾生成、2値間生成、連続挿入、不正値、不正境界を追加。
+- `app/test/core_usecases_test.dart`:
+  - タスク作成時のroot/subtask兄弟ごとの生成順を検証。
+  - `reorderTask` 後の `getTasks(listId)` が新しい順序を返すことを検証。
+  - 対象自身、別リスト、別親、削除済み境界、削除済み対象の並び替え拒否を検証。
+- `app/test/widget_test.dart`:
+  - 上/下移動UIでroot taskの表示順とFakeBridgeService状態が変わることを検証。
+  - subtaskの上移動で同じ親と階層表示が維持されることを検証。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust 70 tests）。
+- `cd app && flutter analyze`: 初回はFlutter SDK cache書き込みがサンドボックスで拒否されたため、承認付きで再実行して成功。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
+- `cd app && flutter test`: 初回はFlutter SDK cache書き込みがサンドボックスで拒否されたため、承認付きで再実行して成功（Flutter 27 tests）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+- `git diff --check`: 成功。
+
+### やらなかったこと
+
+- Undo、条件ソートUI、リスト並び替え、別親/別リスト移動、階層変更は実装していない。
+- permanent delete、通知、検索、タグ、アプリロックは実装していない。
+- 新規Rust crate / pub package / UI frameworkは追加していない。
+- DB schema migrationは行っていない。既存 `sort_order TEXT NOT NULL` を使った。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+
+### public/private境界
+
+- `todori-private/` は読まず、変更していない。
+- public repoへprivate側の課金、収益、法務、監査、公開前ロードマップ等の詳細は転記していない。
+
+### 未解決事項・要人間判断
+
+- なし。

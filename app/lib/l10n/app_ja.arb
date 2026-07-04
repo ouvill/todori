@@ -62,6 +62,8 @@
   "trashEmptyBody": "削除したタスクはここに表示されます。",
   "failedToLoadTrash": "ゴミ箱の読み込みに失敗しました: {error}",
   "restoreTaskTooltip": "タスクを復元",
+  "moveTaskUpTooltip": "タスクを上へ移動",
+  "moveTaskDownTooltip": "タスクを下へ移動",
   "taskDeletedAt": "削除日時: {deletedAt}",
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

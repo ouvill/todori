@@ -68,6 +68,10 @@ class TasksScreen extends ConsumerWidget {
               final node = nodes[index];
               final task = node.task;
               final stats = descendantStatsOf(task.id, tasks);
+              final siblings = _siblingsOf(task, tasks);
+              final siblingIndex = siblings.indexWhere(
+                (sibling) => sibling.id == task.id,
+              );
               return AppTaskRow(
                 key: ValueKey('task-row-${task.id}'),
                 checkboxKey: ValueKey('task-done-${task.id}'),
@@ -84,6 +88,20 @@ class TasksScreen extends ConsumerWidget {
                   l10n: l10n,
                   task: task,
                   stats: stats,
+                ),
+                trailing: _TaskReorderControls(
+                  task: task,
+                  siblings: siblings,
+                  siblingIndex: siblingIndex,
+                  onMove: ({required previousTaskId, required nextTaskId}) {
+                    return ref
+                        .read(tasksProvider(listId).notifier)
+                        .reorderTask(
+                          taskId: task.id,
+                          previousTaskId: previousTaskId,
+                          nextTaskId: nextTaskId,
+                        );
+                  },
                 ),
                 onToggleDone: () => _completeTask(context, ref, task, tasks),
                 onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
@@ -137,4 +155,86 @@ class TasksScreen extends ConsumerWidget {
 
     await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
   }
+}
+
+class _TaskReorderControls extends StatelessWidget {
+  const _TaskReorderControls({
+    required this.task,
+    required this.siblings,
+    required this.siblingIndex,
+    required this.onMove,
+  });
+
+  final TaskDto task;
+  final List<TaskDto> siblings;
+  final int siblingIndex;
+  final Future<void> Function({
+    required String? previousTaskId,
+    required String? nextTaskId,
+  })
+  onMove;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final canMoveUp = siblingIndex > 0;
+    final canMoveDown = siblingIndex >= 0 && siblingIndex < siblings.length - 1;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: ValueKey('task-move-up-${task.id}'),
+          icon: const Icon(Icons.keyboard_arrow_up),
+          tooltip: l10n.moveTaskUpTooltip,
+          visualDensity: VisualDensity.compact,
+          onPressed: canMoveUp
+              ? () async {
+                  final nextTaskId = siblings[siblingIndex - 1].id;
+                  final previousTaskId = siblingIndex >= 2
+                      ? siblings[siblingIndex - 2].id
+                      : null;
+                  await onMove(
+                    previousTaskId: previousTaskId,
+                    nextTaskId: nextTaskId,
+                  );
+                }
+              : null,
+        ),
+        IconButton(
+          key: ValueKey('task-move-down-${task.id}'),
+          icon: const Icon(Icons.keyboard_arrow_down),
+          tooltip: l10n.moveTaskDownTooltip,
+          visualDensity: VisualDensity.compact,
+          onPressed: canMoveDown
+              ? () async {
+                  final previousTaskId = siblings[siblingIndex + 1].id;
+                  final nextTaskId = siblingIndex + 2 < siblings.length
+                      ? siblings[siblingIndex + 2].id
+                      : null;
+                  await onMove(
+                    previousTaskId: previousTaskId,
+                    nextTaskId: nextTaskId,
+                  );
+                }
+              : null,
+        ),
+        const Icon(Icons.chevron_right),
+      ],
+    );
+  }
+}
+
+List<TaskDto> _siblingsOf(TaskDto task, List<TaskDto> tasks) {
+  final siblings = tasks
+      .where((candidate) => candidate.parentTaskId == task.parentTaskId)
+      .toList();
+  siblings.sort((a, b) {
+    final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+    if (sortOrder != 0) {
+      return sortOrder;
+    }
+    return a.id.compareTo(b.id);
+  });
+  return siblings;
 }

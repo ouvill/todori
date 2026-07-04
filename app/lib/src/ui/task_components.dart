@@ -161,6 +161,7 @@ class AppTaskRow extends StatelessWidget {
     this.prioritySemanticLabel,
     this.hierarchyGuideKey,
     this.onToggleDone,
+    this.trailing,
   });
 
   final String title;
@@ -173,6 +174,7 @@ class AppTaskRow extends StatelessWidget {
   final Key? hierarchyGuideKey;
   final List<TaskMetadataItem> metadata;
   final VoidCallback? onToggleDone;
+  final Widget? trailing;
   final VoidCallback onTap;
 
   @override
@@ -263,7 +265,7 @@ class AppTaskRow extends StatelessWidget {
                     padding: const EdgeInsets.only(top: AppSpacing.xs),
                     child: TaskMetadata(items: metadata),
                   ),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: trailing ?? const Icon(Icons.chevron_right),
             onTap: onTap,
           ),
         ],

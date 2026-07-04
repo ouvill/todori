@@ -19,11 +19,10 @@ abstract class BridgeService {
   /// Returns all lists.
   Future<List<rust_api.ListDto>> getLists();
 
-  /// Creates a task using the caller-provided `sortOrder`.
+  /// Creates a task at the end of its sibling group.
   Future<rust_api.TaskDto> createTask({
     required String listId,
     required String title,
-    required String sortOrder,
     String? parentTaskId,
   });
 
@@ -52,6 +51,13 @@ abstract class BridgeService {
   /// Restores a previously trashed task.
   Future<rust_api.TaskDto> restoreTask({required String taskId});
 
+  /// Reorders a task within its current sibling group.
+  Future<rust_api.TaskDto> reorderTask({
+    required String taskId,
+    String? previousTaskId,
+    String? nextTaskId,
+  });
+
   /// Returns all trashed tasks.
   Future<List<rust_api.TaskDto>> getTrashedTasks();
 }
@@ -74,12 +80,10 @@ class FrbBridgeService implements BridgeService {
   Future<rust_api.TaskDto> createTask({
     required String listId,
     required String title,
-    required String sortOrder,
     String? parentTaskId,
   }) => rust_api.createTask(
     listId: listId,
     title: title,
-    sortOrder: sortOrder,
     parentTaskId: parentTaskId,
   );
 
@@ -120,6 +124,17 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<rust_api.TaskDto> restoreTask({required String taskId}) =>
       rust_api.restoreTask(taskId: taskId);
+
+  @override
+  Future<rust_api.TaskDto> reorderTask({
+    required String taskId,
+    String? previousTaskId,
+    String? nextTaskId,
+  }) => rust_api.reorderTask(
+    taskId: taskId,
+    previousTaskId: previousTaskId,
+    nextTaskId: nextTaskId,
+  );
 
   @override
   Future<List<rust_api.TaskDto>> getTrashedTasks() =>

@@ -41,9 +41,22 @@ class FakeBridgeService implements BridgeService {
   Future<TaskDto> createTask({
     required String listId,
     required String title,
-    required String sortOrder,
     String? parentTaskId,
   }) async {
+    final siblings =
+        _tasks
+            .where(
+              (task) =>
+                  task.listId == listId &&
+                  task.parentTaskId == parentTaskId &&
+                  task.deletedAt == null,
+            )
+            .toList()
+          ..sort(_compareTasks);
+    final sortOrder = _fractionalIndexBetween(
+      siblings.isEmpty ? null : siblings.last.sortOrder,
+      null,
+    );
     final task = TaskDto(
       id: 'task-${_taskSeq++}',
       listId: listId,
@@ -62,9 +75,11 @@ class FakeBridgeService implements BridgeService {
 
   @override
   Future<List<TaskDto>> getTasks({required String listId}) async {
-    return _tasks
+    final tasks = _tasks
         .where((task) => task.listId == listId && task.deletedAt == null)
         .toList();
+    tasks.sort(_compareTasks);
+    return tasks;
   }
 
   @override
@@ -139,8 +154,54 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
+  Future<TaskDto> reorderTask({
+    required String taskId,
+    String? previousTaskId,
+    String? nextTaskId,
+  }) async {
+    if (previousTaskId == taskId || nextTaskId == taskId) {
+      throw Exception('task cannot be reordered relative to itself');
+    }
+    if (previousTaskId != null && previousTaskId == nextTaskId) {
+      throw Exception('previous and next task must be different');
+    }
+
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    final task = _tasks[index];
+    if (task.deletedAt != null) {
+      throw Exception('task is deleted');
+    }
+    final previous = previousTaskId == null
+        ? null
+        : _reorderBoundary(previousTaskId, task);
+    final next = nextTaskId == null ? null : _reorderBoundary(nextTaskId, task);
+    final updated = task._copyWith(
+      sortOrder: _fractionalIndexBetween(previous?.sortOrder, next?.sortOrder),
+      updatedAt: task.updatedAt + 1,
+    );
+    _tasks[index] = updated;
+    return updated;
+  }
+
+  @override
   Future<List<TaskDto>> getTrashedTasks() async {
     return _tasks.where((task) => task.deletedAt != null).toList();
+  }
+
+  TaskDto _reorderBoundary(String boundaryId, TaskDto task) {
+    final boundary = _tasks.singleWhere(
+      (candidate) => candidate.id == boundaryId,
+    );
+    if (boundary.deletedAt != null) {
+      throw Exception('task is deleted');
+    }
+    if (boundary.listId != task.listId) {
+      throw Exception('reorder boundary belongs to a different list');
+    }
+    if (boundary.parentTaskId != task.parentTaskId) {
+      throw Exception('reorder boundary belongs to a different parent');
+    }
+    return boundary;
   }
 }
 
@@ -154,6 +215,7 @@ extension _TaskDtoCopy on TaskDto {
     int? completedAt,
     String? closedReason,
     int? deletedAt,
+    String? sortOrder,
     int? updatedAt,
   }) {
     return TaskDto(
@@ -167,7 +229,7 @@ extension _TaskDtoCopy on TaskDto {
       dueAt: dueAt ?? this.dueAt,
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
-      sortOrder: sortOrder,
+      sortOrder: sortOrder ?? this.sortOrder,
       completedAt: completedAt ?? this.completedAt,
       closedReason: closedReason ?? this.closedReason,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -200,6 +262,65 @@ extension _TaskDtoCopy on TaskDto {
   }
 }
 
+int _compareTasks(TaskDto a, TaskDto b) {
+  final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+  if (sortOrder != 0) {
+    return sortOrder;
+  }
+  return a.id.compareTo(b.id);
+}
+
+const _sortAlphabet =
+    '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+String _fractionalIndexBetween(String? previous, String? next) {
+  if (previous != null) {
+    _validateSortOrder(previous);
+  }
+  if (next != null) {
+    _validateSortOrder(next);
+  }
+  if (previous != null && next != null && previous.compareTo(next) >= 0) {
+    throw Exception('invalid sort order boundary');
+  }
+
+  final buffer = StringBuffer();
+  var index = 0;
+  while (true) {
+    final previousDigit = _digitAt(previous, index, isPrevious: true);
+    final nextDigit = _digitAt(next, index, isPrevious: false);
+    if (nextDigit - previousDigit > 1) {
+      return '${buffer.toString()}'
+          '${_sortAlphabet[(previousDigit + ((nextDigit - previousDigit) ~/ 2))]}';
+    }
+    if (previousDigit < 0) {
+      if (next != null && index + 1 < next.length) {
+        return '${buffer.toString()}${_sortAlphabet[nextDigit]}';
+      }
+      throw Exception('sort order space is exhausted');
+    }
+    buffer.write(_sortAlphabet[previousDigit]);
+    index += 1;
+  }
+}
+
+void _validateSortOrder(String value) {
+  if (value.isEmpty ||
+      value.split('').any((char) => !_sortAlphabet.contains(char))) {
+    throw Exception('invalid sort order');
+  }
+}
+
+int _digitAt(String? value, int index, {required bool isPrevious}) {
+  if (value == null) {
+    return isPrevious ? -1 : _sortAlphabet.length;
+  }
+  if (index >= value.length) {
+    return isPrevious ? -1 : _sortAlphabet.length;
+  }
+  return _sortAlphabet.indexOf(value[index]);
+}
+
 Future<FakeBridgeService> _pumpAppWithSeedData(
   WidgetTester tester, {
   String listName = 'Inbox',
@@ -208,11 +329,7 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   final fake = FakeBridgeService();
   await fake.createList(name: listName, sortOrder: 'a0');
   final lists = await fake.getLists();
-  await fake.createTask(
-    listId: lists.first.id,
-    title: taskTitle,
-    sortOrder: 'a0',
-  );
+  await fake.createTask(listId: lists.first.id, title: taskTitle);
 
   await tester.pumpWidget(
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -326,27 +443,64 @@ void main() {
     expect(updatedCheckbox.value, isTrue);
   });
 
+  testWidgets('task list move buttons reorder root tasks', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final first = await fake.createTask(listId: listId, title: 'First task');
+    final second = await fake.createTask(listId: listId, title: 'Second task');
+    final third = await fake.createTask(listId: listId, title: 'Third task');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(ValueKey('task-move-up-${first.id}')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(ValueKey('task-move-down-${third.id}')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(ValueKey('task-move-down-${first.id}')));
+    await tester.pumpAndSettle();
+
+    final active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), [second.id, first.id, third.id]);
+
+    final secondTop = tester.getTopLeft(find.text('Second task')).dy;
+    final firstTop = tester.getTopLeft(find.text('First task')).dy;
+    final thirdTop = tester.getTopLeft(find.text('Third task')).dy;
+    expect(secondTop, lessThan(firstTop));
+    expect(firstTop, lessThan(thirdTop));
+  });
+
   testWidgets('task list shows three-level subtasks with descendant progress', (
     tester,
   ) async {
     final fake = FakeBridgeService();
     await fake.createList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final parent = await fake.createTask(
-      listId: listId,
-      title: 'Plan launch',
-      sortOrder: 'a0',
-    );
+    final parent = await fake.createTask(listId: listId, title: 'Plan launch');
     final child = await fake.createTask(
       listId: listId,
       title: 'Draft checklist',
-      sortOrder: 'a0',
       parentTaskId: parent.id,
     );
     final grandchild = await fake.createTask(
       listId: listId,
       title: 'Review checklist',
-      sortOrder: 'a0',
       parentTaskId: child.id,
     );
     await fake.setTaskStatus(taskId: grandchild.id, status: 'done');
@@ -377,6 +531,57 @@ void main() {
     final grandchildTop = tester.getTopLeft(find.text('Review checklist')).dy;
     expect(parentTop, lessThan(childTop));
     expect(childTop, lessThan(grandchildTop));
+  });
+
+  testWidgets('subtask move buttons keep the same parent and depth', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(listId: listId, title: 'Parent');
+    final firstChild = await fake.createTask(
+      listId: listId,
+      title: 'First child',
+      parentTaskId: parent.id,
+    );
+    final secondChild = await fake.createTask(
+      listId: listId,
+      title: 'Second child',
+      parentTaskId: parent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('task-move-up-${secondChild.id}')));
+    await tester.pumpAndSettle();
+
+    final active = await fake.getTasks(listId: listId);
+    expect(
+      active
+          .where((task) => task.parentTaskId == parent.id)
+          .map((task) => task.id),
+      [secondChild.id, firstChild.id],
+    );
+    expect(
+      active.singleWhere((task) => task.id == secondChild.id).parentTaskId,
+      parent.id,
+    );
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${secondChild.id}')),
+      findsOneWidget,
+    );
+
+    final parentTop = tester.getTopLeft(find.text('Parent')).dy;
+    final secondTop = tester.getTopLeft(find.text('Second child')).dy;
+    final firstTop = tester.getTopLeft(find.text('First child')).dy;
+    expect(parentTop, lessThan(secondTop));
+    expect(secondTop, lessThan(firstTop));
   });
 
   testWidgets('detail screen creates a subtask under the current task', (
@@ -417,12 +622,10 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent task',
-        sortOrder: 'a0',
       );
       final child = await fake.createTask(
         listId: listId,
         title: 'Child task',
-        sortOrder: 'a0',
         parentTaskId: parent.id,
       );
 
