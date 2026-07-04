@@ -39,6 +39,7 @@
 | task-19 | 完了 | [task-19-subtasks-ui.md](./task-19-subtasks-ui.md) | サブタスク表示・作成。`validate_parent` / `validate_parent_for` を使うブリッジ公開と、階層表示・進捗表示・親完了確認UIを実装する | task-08〜10・task-18の成果物に依存。M3-03相当 |
 | task-20 | 完了 | [task-20-ui-foundation.md](./task-20-ui-foundation.md) | task-18/19後のUI文法を整える。ThemeData、共通task row/metadata、空状態、ダイアログ、既存Lists/Tasks/TaskDetailの見た目を小さく整理する | task-18・task-19の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前のUI基盤整備 |
 | task-21 | 完了 | [task-21-visual-direction.md](./task-21-visual-direction.md) | 参考画像 `assets/brand/generated/todori-mobile-product.png` の方向性を、既存UI foundationへ実アプリの視覚文法として反映する | task-20の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前の視覚方向性反映 |
+| task-22 | 完了 | [task-22-design-direction-sketch.md](./task-22-design-direction-sketch.md) | 「柔らかく・親しみやすく・エレガント」を主要画面の画像モックと `docs/design/visual-direction.md` のデザインルールへ具体化する | task-20・task-21の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前のデザイン正本作成 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
