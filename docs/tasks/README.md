@@ -35,6 +35,7 @@
 | task-15 | 完了 | [task-15-security-policy.md](./task-15-security-policy.md) | public化前に `SECURITY.md` を作成し、脆弱性報告導線とGitHub private vulnerability reporting利用方針を整備する | task-12の監査結果に依存。GitHub private vulnerability reportingの有効化は人間作業 |
 | task-16 | 完了 | [task-16-flutter-analyze-build-artifact.md](./task-16-flutter-analyze-build-artifact.md) | `flutter analyze` がmacOS build artifact内の古いcargokit参照で失敗する原因を調査し、品質ゲートを復旧する | task-14検証セッションで発見。機能変更ではなく品質ゲート復旧 |
 | task-17 | 完了 | [task-17-ios-simulator-flutter-run.md](./task-17-ios-simulator-flutter-run.md) | iOS Simulatorで `flutter run` を実行し、Cargokit / CocoaPods / Xcode / FRB / SQLCipher のアプリ起動パイプラインを検証する | task-08〜11・task-16の成果物に依存。M2残のiOSビルド組み込み検証 |
+| task-18 | 未着手 | [task-18-task-editing-ui.md](./task-18-task-editing-ui.md) | タスク詳細画面で `title` / `note` / `priority` / `due_at` を編集し、ブリッジ更新API経由でDBへ反映する | task-08〜10の成果物に依存。M3-02のタスク編集部分 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
