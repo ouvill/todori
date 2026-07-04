@@ -307,4 +307,88 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test('delete complete and edit undo roundtrip through Rust bridge', () async {
+    final list = await createList(name: 'Undo lifecycle', sortOrder: 'u0');
+
+    final editTask = await createTask(listId: list.id, title: 'Original title');
+    await updateTask(
+      taskId: editTask.id,
+      title: 'Edited title',
+      note: 'Edited note',
+      priority: 2,
+      dueAt: 1782864000000,
+    );
+    final editUndo = await getLatestTaskUndo();
+    expect(editUndo, isNotNull);
+    expect(editUndo!.operationType, 'edit');
+    expect(editUndo.taskId, editTask.id);
+    final editRestored = await undoTaskOperation(undoId: editUndo.id);
+    expect(editRestored.title, 'Original title');
+    expect(editRestored.note, '');
+    expect(editRestored.priority, 0);
+    expect(editRestored.dueAt, isNull);
+
+    final completeTask = await createTask(
+      listId: list.id,
+      title: 'Complete undo',
+    );
+    await setTaskStatus(taskId: completeTask.id, status: 'done');
+    final completeUndo = await getLatestTaskUndo();
+    expect(completeUndo!.operationType, 'complete');
+    final completeRestored = await undoTaskOperation(undoId: completeUndo.id);
+    expect(completeRestored.status, 'todo');
+    expect(completeRestored.completedAt, isNull);
+
+    final deleteTask = await createTask(listId: list.id, title: 'Delete undo');
+    await trashTask(taskId: deleteTask.id);
+    final deleteUndo = await getLatestTaskUndo();
+    expect(deleteUndo!.operationType, 'delete');
+    final deleteRestored = await undoTaskOperation(undoId: deleteUndo.id);
+    expect(deleteRestored.deletedAt, isNull);
+    expect(
+      (await getTasks(listId: list.id)).map((task) => task.id),
+      contains(deleteTask.id),
+    );
+  });
+
+  test('undo rejects conflicts and consumed entries', () async {
+    final list = await createList(name: 'Undo conflicts', sortOrder: 'u1');
+
+    final editTask = await createTask(listId: list.id, title: 'Draft');
+    await updateTask(
+      taskId: editTask.id,
+      title: 'First edit',
+      note: '',
+      priority: 0,
+      dueAt: null,
+    );
+    final staleEditUndo = (await getLatestTaskUndo())!;
+    await updateTask(
+      taskId: editTask.id,
+      title: 'Second edit',
+      note: '',
+      priority: 0,
+      dueAt: null,
+    );
+    expect(
+      () => undoTaskOperation(undoId: staleEditUndo.id),
+      throwsA(anything),
+    );
+
+    final completeTask = await createTask(
+      listId: list.id,
+      title: 'Complete then delete',
+    );
+    await setTaskStatus(taskId: completeTask.id, status: 'done');
+    final completeUndo = (await getLatestTaskUndo())!;
+    await trashTask(taskId: completeTask.id);
+    expect(() => undoTaskOperation(undoId: completeUndo.id), throwsA(anything));
+
+    final consumedTask = await createTask(listId: list.id, title: 'Consumed');
+    await setTaskStatus(taskId: consumedTask.id, status: 'done');
+    final consumedUndo = (await getLatestTaskUndo())!;
+    await undoTaskOperation(undoId: consumedUndo.id);
+    expect(() => undoTaskOperation(undoId: consumedUndo.id), throwsA(anything));
+  });
 }

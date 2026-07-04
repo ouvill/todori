@@ -216,6 +216,26 @@ class AppLocalizationsJa extends AppLocalizations {
   String get restoreTaskTooltip => 'タスクを復元';
 
   @override
+  String get undoActionLabel => '元に戻す';
+
+  @override
+  String get undoCompleteMessage => 'タスクを完了しました。';
+
+  @override
+  String get undoDeleteMessage => 'タスクをゴミ箱へ移動しました。';
+
+  @override
+  String get undoEditMessage => 'タスクを保存しました。';
+
+  @override
+  String get undoSuccessMessage => '元に戻しました。';
+
+  @override
+  String undoFailedMessage(String error) {
+    return '元に戻せませんでした: $error';
+  }
+
+  @override
   String get moveTaskUpTooltip => 'タスクを上へ移動';
 
   @override

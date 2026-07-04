@@ -17,10 +17,41 @@ pub enum StorageError {
     NotFound(Uuid),
     #[error("invalid task status in database: {0}")]
     InvalidStatus(String),
+    #[error("invalid undo operation in database: {0}")]
+    InvalidUndoOperation(String),
     #[error("invalid uuid in database: {0}")]
     InvalidUuid(#[from] uuid::Error),
+    #[error("invalid task snapshot in database: {0}")]
+    InvalidTaskSnapshot(#[from] serde_json::Error),
+    #[error("undo entry already used: {0}")]
+    UndoConsumed(Uuid),
+    #[error("task changed after undo was created: {0}")]
+    UndoConflict(Uuid),
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+}
+
+/// Undo対象のタスク操作種別。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskUndoOperation {
+    Delete,
+    Complete,
+    Edit,
+}
+
+/// ローカル専用のタスクUndo履歴。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskUndoEntry {
+    pub id: Uuid,
+    pub operation_type: TaskUndoOperation,
+    pub task_id: Uuid,
+    pub list_id: Uuid,
+    pub before_snapshot: Task,
+    pub after_updated_at: i64,
+    pub after_deleted_at: Option<i64>,
+    pub after_completed_at: Option<i64>,
+    pub created_at: i64,
+    pub consumed_at: Option<i64>,
 }
 
 /// タスクの永続化を担うリポジトリ。
@@ -65,6 +96,112 @@ impl SqliteTaskRepository {
 
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    /// Updates a task and records the undo snapshot in the same SQLite transaction.
+    pub fn update_with_undo(
+        &mut self,
+        before: Task,
+        after: Task,
+        operation_type: TaskUndoOperation,
+        created_at: i64,
+    ) -> Result<TaskUndoEntry, StorageError> {
+        let entry = TaskUndoEntry {
+            id: Uuid::now_v7(),
+            operation_type,
+            task_id: before.id,
+            list_id: before.list_id,
+            before_snapshot: before,
+            after_updated_at: after.updated_at,
+            after_deleted_at: after.deleted_at,
+            after_completed_at: after.completed_at,
+            created_at,
+            consumed_at: None,
+        };
+
+        let transaction = self.connection.transaction()?;
+        update_task_on(&transaction, &after)?;
+        insert_task_undo_on(&transaction, &entry)?;
+        transaction.commit()?;
+
+        Ok(entry)
+    }
+
+    pub fn latest_unconsumed_undo(&self) -> Result<Option<TaskUndoEntry>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT id, operation_type, task_id, list_id, before_snapshot,
+                        after_updated_at, after_deleted_at, after_completed_at,
+                        created_at, consumed_at
+                 FROM task_undo_entries
+                 WHERE consumed_at IS NULL
+                 ORDER BY created_at DESC, rowid DESC
+                 LIMIT 1",
+                [],
+                row_to_task_undo_entry,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    pub fn undo_task_operation(
+        &mut self,
+        undo_id: Uuid,
+        consumed_at: i64,
+    ) -> Result<Task, StorageError> {
+        let transaction = self.connection.transaction()?;
+        let entry = transaction
+            .query_row(
+                "SELECT id, operation_type, task_id, list_id, before_snapshot,
+                        after_updated_at, after_deleted_at, after_completed_at,
+                        created_at, consumed_at
+                 FROM task_undo_entries
+                 WHERE id = ?1",
+                [undo_id.to_string()],
+                row_to_task_undo_entry,
+            )
+            .optional()?
+            .transpose()?
+            .ok_or(StorageError::NotFound(undo_id))?;
+
+        if entry.consumed_at.is_some() {
+            return Err(StorageError::UndoConsumed(undo_id));
+        }
+
+        let current = transaction
+            .query_row(
+                "SELECT id, list_id, parent_task_id, title, note, status, priority,
+                        due_at, scheduled_at, estimated_minutes, sort_order,
+                        completed_at, closed_reason, deleted_at, assignee,
+                        created_at, updated_at
+                 FROM tasks
+                 WHERE id = ?1",
+                [entry.task_id.to_string()],
+                row_to_task,
+            )
+            .optional()?
+            .ok_or(StorageError::NotFound(entry.task_id))?;
+
+        if current.updated_at != entry.after_updated_at
+            || current.deleted_at != entry.after_deleted_at
+            || current.completed_at != entry.after_completed_at
+        {
+            return Err(StorageError::UndoConflict(entry.task_id));
+        }
+
+        update_task_on(&transaction, &entry.before_snapshot)?;
+        let changed = transaction.execute(
+            "UPDATE task_undo_entries
+             SET consumed_at = ?2
+             WHERE id = ?1 AND consumed_at IS NULL",
+            params![undo_id.to_string(), consumed_at],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::UndoConsumed(undo_id));
+        }
+        transaction.commit()?;
+
+        Ok(entry.before_snapshot)
     }
 }
 
@@ -122,51 +259,7 @@ impl TaskRepository for SqliteTaskRepository {
     }
 
     fn update(&mut self, task: Task) -> Result<(), StorageError> {
-        let changed = self.connection.execute(
-            "UPDATE tasks
-             SET list_id = ?2,
-                 parent_task_id = ?3,
-                 title = ?4,
-                 note = ?5,
-                 status = ?6,
-                 priority = ?7,
-                 due_at = ?8,
-                 scheduled_at = ?9,
-                 estimated_minutes = ?10,
-                 sort_order = ?11,
-                 completed_at = ?12,
-                 closed_reason = ?13,
-                 deleted_at = ?14,
-                 assignee = ?15,
-                 created_at = ?16,
-                 updated_at = ?17
-             WHERE id = ?1",
-            params![
-                task.id.to_string(),
-                task.list_id.to_string(),
-                task.parent_task_id.map(|id| id.to_string()),
-                task.title,
-                task.note,
-                status_to_str(task.status),
-                task.priority,
-                task.due_at,
-                task.scheduled_at,
-                task.estimated_minutes,
-                task.sort_order,
-                task.completed_at,
-                task.closed_reason,
-                task.deleted_at,
-                task.assignee.map(|id| id.to_string()),
-                task.created_at,
-                task.updated_at,
-            ],
-        )?;
-
-        if changed == 0 {
-            return Err(StorageError::NotFound(task.id));
-        }
-
-        Ok(())
+        update_task_on(&self.connection, &task)
     }
 
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
@@ -202,6 +295,79 @@ impl TaskRepository for SqliteTaskRepository {
 
         Ok(tasks)
     }
+}
+
+fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
+    let changed = connection.execute(
+        "UPDATE tasks
+         SET list_id = ?2,
+             parent_task_id = ?3,
+             title = ?4,
+             note = ?5,
+             status = ?6,
+             priority = ?7,
+             due_at = ?8,
+             scheduled_at = ?9,
+             estimated_minutes = ?10,
+             sort_order = ?11,
+             completed_at = ?12,
+             closed_reason = ?13,
+             deleted_at = ?14,
+             assignee = ?15,
+             created_at = ?16,
+             updated_at = ?17
+         WHERE id = ?1",
+        params![
+            task.id.to_string(),
+            task.list_id.to_string(),
+            task.parent_task_id.map(|id| id.to_string()),
+            task.title,
+            task.note,
+            status_to_str(task.status),
+            task.priority,
+            task.due_at,
+            task.scheduled_at,
+            task.estimated_minutes,
+            task.sort_order,
+            task.completed_at,
+            task.closed_reason,
+            task.deleted_at,
+            task.assignee.map(|id| id.to_string()),
+            task.created_at,
+            task.updated_at,
+        ],
+    )?;
+
+    if changed == 0 {
+        return Err(StorageError::NotFound(task.id));
+    }
+
+    Ok(())
+}
+
+fn insert_task_undo_on(connection: &Connection, entry: &TaskUndoEntry) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO task_undo_entries (
+            id, operation_type, task_id, list_id, before_snapshot,
+            after_updated_at, after_deleted_at, after_completed_at,
+            created_at, consumed_at
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+        )",
+        params![
+            entry.id.to_string(),
+            undo_operation_to_str(entry.operation_type),
+            entry.task_id.to_string(),
+            entry.list_id.to_string(),
+            serde_json::to_string(&entry.before_snapshot)?,
+            entry.after_updated_at,
+            entry.after_deleted_at,
+            entry.after_completed_at,
+            entry.created_at,
+            entry.consumed_at,
+        ],
+    )?;
+    Ok(())
 }
 
 /// SQLite-backed implementation of [`ListRepository`].
@@ -350,6 +516,31 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
+fn row_to_task_undo_entry(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<TaskUndoEntry, StorageError>> {
+    let id: String = row.get(0)?;
+    let operation_type: String = row.get(1)?;
+    let task_id: String = row.get(2)?;
+    let list_id: String = row.get(3)?;
+    let before_snapshot: String = row.get(4)?;
+
+    Ok((|| {
+        Ok(TaskUndoEntry {
+            id: Uuid::from_str(&id)?,
+            operation_type: undo_operation_from_str(&operation_type)?,
+            task_id: Uuid::from_str(&task_id)?,
+            list_id: Uuid::from_str(&list_id)?,
+            before_snapshot: serde_json::from_str(&before_snapshot)?,
+            after_updated_at: row.get(5)?,
+            after_deleted_at: row.get(6)?,
+            after_completed_at: row.get(7)?,
+            created_at: row.get(8)?,
+            consumed_at: row.get(9)?,
+        })
+    })())
+}
+
 fn parse_uuid(value: String, column: usize) -> rusqlite::Result<Uuid> {
     Uuid::from_str(&value).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
@@ -380,6 +571,23 @@ fn status_from_str(value: &str) -> Result<TaskStatus, StorageError> {
         "done" => Ok(TaskStatus::Done),
         "wont_do" => Ok(TaskStatus::WontDo),
         other => Err(StorageError::InvalidStatus(other.to_string())),
+    }
+}
+
+fn undo_operation_to_str(operation_type: TaskUndoOperation) -> &'static str {
+    match operation_type {
+        TaskUndoOperation::Delete => "delete",
+        TaskUndoOperation::Complete => "complete",
+        TaskUndoOperation::Edit => "edit",
+    }
+}
+
+fn undo_operation_from_str(value: &str) -> Result<TaskUndoOperation, StorageError> {
+    match value {
+        "delete" => Ok(TaskUndoOperation::Delete),
+        "complete" => Ok(TaskUndoOperation::Complete),
+        "edit" => Ok(TaskUndoOperation::Edit),
+        other => Err(StorageError::InvalidUndoOperation(other.to_string())),
     }
 }
 
@@ -665,6 +873,144 @@ mod tests {
             task_repository.list_active_by_list(list.id).unwrap(),
             vec![active, restored]
         );
+    }
+
+    #[test]
+    fn update_with_undo_records_edit_and_restores_previous_snapshot() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let task = sample_task();
+        repository.insert(task.clone()).unwrap();
+
+        let updated =
+            update_title(task.clone(), "Undo me".to_string(), task.updated_at + 1).unwrap();
+        let undo = repository
+            .update_with_undo(
+                task.clone(),
+                updated.clone(),
+                TaskUndoOperation::Edit,
+                updated.updated_at,
+            )
+            .unwrap();
+
+        assert_eq!(repository.latest_unconsumed_undo().unwrap().unwrap(), undo);
+        assert_eq!(repository.get(task.id).unwrap(), updated);
+
+        let restored = repository
+            .undo_task_operation(undo.id, updated.updated_at + 1)
+            .unwrap();
+
+        assert_eq!(restored, task);
+        assert_eq!(repository.get(task.id).unwrap(), task);
+        assert!(repository.latest_unconsumed_undo().unwrap().is_none());
+        assert!(matches!(
+            repository.undo_task_operation(undo.id, updated.updated_at + 2),
+            Err(StorageError::UndoConsumed(id)) if id == undo.id
+        ));
+    }
+
+    #[test]
+    fn delete_and_complete_undo_entries_restore_task_state() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let task = sample_task();
+        repository.insert(task.clone()).unwrap();
+
+        let done =
+            transition_task(task.clone(), TaskStatus::Done, None, task.updated_at + 1).unwrap();
+        let complete_undo = repository
+            .update_with_undo(
+                task.clone(),
+                done.clone(),
+                TaskUndoOperation::Complete,
+                done.updated_at,
+            )
+            .unwrap();
+        assert_eq!(
+            repository
+                .undo_task_operation(complete_undo.id, done.updated_at + 1)
+                .unwrap()
+                .status,
+            TaskStatus::Todo
+        );
+
+        let deleted = delete_task(task.clone(), task.updated_at + 2).unwrap();
+        let delete_undo = repository
+            .update_with_undo(
+                task.clone(),
+                deleted.clone(),
+                TaskUndoOperation::Delete,
+                deleted.updated_at,
+            )
+            .unwrap();
+        assert!(repository.get(task.id).unwrap().deleted_at.is_some());
+
+        let restored = repository
+            .undo_task_operation(delete_undo.id, deleted.updated_at + 1)
+            .unwrap();
+        assert_eq!(restored.deleted_at, task.deleted_at);
+        assert_eq!(repository.get(task.id).unwrap(), task);
+    }
+
+    #[test]
+    fn undo_rejects_edit_conflict_after_later_update() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let task = sample_task();
+        repository.insert(task.clone()).unwrap();
+
+        let edited =
+            update_title(task.clone(), "First edit".to_string(), task.updated_at + 1).unwrap();
+        let undo = repository
+            .update_with_undo(
+                task.clone(),
+                edited.clone(),
+                TaskUndoOperation::Edit,
+                edited.updated_at,
+            )
+            .unwrap();
+        let second_edit = update_title(
+            edited.clone(),
+            "Second edit".to_string(),
+            edited.updated_at + 1,
+        )
+        .unwrap();
+        repository.update(second_edit).unwrap();
+
+        assert!(matches!(
+            repository.undo_task_operation(undo.id, edited.updated_at + 2),
+            Err(StorageError::UndoConflict(id)) if id == task.id
+        ));
+    }
+
+    #[test]
+    fn complete_undo_rejects_deleted_current_task() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let task = sample_task();
+        repository.insert(task.clone()).unwrap();
+
+        let done =
+            transition_task(task.clone(), TaskStatus::Done, None, task.updated_at + 1).unwrap();
+        let undo = repository
+            .update_with_undo(
+                task.clone(),
+                done.clone(),
+                TaskUndoOperation::Complete,
+                done.updated_at,
+            )
+            .unwrap();
+        let deleted = delete_task(done, task.updated_at + 2).unwrap();
+        repository.update(deleted).unwrap();
+
+        assert!(matches!(
+            repository.undo_task_operation(undo.id, task.updated_at + 3),
+            Err(StorageError::UndoConflict(id)) if id == task.id
+        ));
     }
 
     #[test]

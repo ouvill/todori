@@ -217,6 +217,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get restoreTaskTooltip => 'Restore task';
 
   @override
+  String get undoActionLabel => 'Undo';
+
+  @override
+  String get undoCompleteMessage => 'Task completed.';
+
+  @override
+  String get undoDeleteMessage => 'Task moved to trash.';
+
+  @override
+  String get undoEditMessage => 'Task saved.';
+
+  @override
+  String get undoSuccessMessage => 'Undone.';
+
+  @override
+  String undoFailedMessage(String error) {
+    return 'Undo failed: $error';
+  }
+
+  @override
   String get moveTaskUpTooltip => 'Move task up';
 
   @override

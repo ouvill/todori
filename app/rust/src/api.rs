@@ -13,7 +13,7 @@ use todori_domain::{
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
-    TaskRepository,
+    TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 
 use crate::dev_key_store::FileDeviceKeyStore;
@@ -54,6 +54,15 @@ pub struct TaskDto {
     pub assignee: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+pub struct TaskUndoDto {
+    pub id: String,
+    pub operation_type: String,
+    pub task_id: String,
+    pub list_id: String,
+    pub task_title: String,
+    pub created_at: i64,
 }
 
 pub fn greet(name: String) -> String {
@@ -250,13 +259,14 @@ pub fn update_task(
     let now_ms = now_ms()?;
 
     with_task_repository(|repository| {
-        let task = repository.get(task_id).map_err(|error| error.to_string())?;
-        let task = update_title(task, title, now_ms).map_err(|error| error.to_string())?;
+        let before = repository.get(task_id).map_err(|error| error.to_string())?;
+        let task =
+            update_title(before.clone(), title, now_ms).map_err(|error| error.to_string())?;
         let task = update_note(task, note, now_ms).map_err(|error| error.to_string())?;
         let task = update_priority(task, priority, now_ms).map_err(|error| error.to_string())?;
         let updated = update_due_at(task, due_at, now_ms).map_err(|error| error.to_string())?;
         repository
-            .update(updated.clone())
+            .update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now_ms)
             .map_err(|error| error.to_string())?;
         Ok(task_to_dto(updated))
     })
@@ -272,12 +282,18 @@ pub fn set_task_status(
     let now_ms = now_ms()?;
 
     with_task_repository(|repository| {
-        let task = repository.get(task_id).map_err(|error| error.to_string())?;
-        let updated = transition_task(task, status, closed_reason, now_ms)
+        let before = repository.get(task_id).map_err(|error| error.to_string())?;
+        let updated = transition_task(before.clone(), status, closed_reason, now_ms)
             .map_err(|error| error.to_string())?;
-        repository
-            .update(updated.clone())
-            .map_err(|error| error.to_string())?;
+        if status == TaskStatus::Done {
+            repository
+                .update_with_undo(before, updated.clone(), TaskUndoOperation::Complete, now_ms)
+                .map_err(|error| error.to_string())?;
+        } else {
+            repository
+                .update(updated.clone())
+                .map_err(|error| error.to_string())?;
+        }
         Ok(task_to_dto(updated))
     })
 }
@@ -287,11 +303,18 @@ pub fn trash_task(task_id: String) -> Result<TaskDto, String> {
     let now_ms = now_ms()?;
 
     with_task_repository(|repository| {
-        let task = repository.get(task_id).map_err(|error| error.to_string())?;
-        let updated = domain_delete_task(task, now_ms).map_err(|error| error.to_string())?;
-        repository
-            .update(updated.clone())
-            .map_err(|error| error.to_string())?;
+        let before = repository.get(task_id).map_err(|error| error.to_string())?;
+        let updated =
+            domain_delete_task(before.clone(), now_ms).map_err(|error| error.to_string())?;
+        if before.deleted_at.is_none() {
+            repository
+                .update_with_undo(before, updated.clone(), TaskUndoOperation::Delete, now_ms)
+                .map_err(|error| error.to_string())?;
+        } else {
+            repository
+                .update(updated.clone())
+                .map_err(|error| error.to_string())?;
+        }
         Ok(task_to_dto(updated))
     })
 }
@@ -316,6 +339,26 @@ pub fn get_trashed_tasks() -> Result<Vec<TaskDto>, String> {
             .list_trashed()
             .map_err(|error| error.to_string())
             .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
+pub fn get_latest_task_undo() -> Result<Option<TaskUndoDto>, String> {
+    with_task_repository(|repository| {
+        repository
+            .latest_unconsumed_undo()
+            .map_err(|error| error.to_string())
+            .map(|entry| entry.map(task_undo_to_dto))
+    })
+}
+
+pub fn undo_task_operation(undo_id: String) -> Result<TaskDto, String> {
+    let undo_id = parse_uuid(&undo_id)?;
+    let now_ms = now_ms()?;
+    with_task_repository(|repository| {
+        repository
+            .undo_task_operation(undo_id, now_ms)
+            .map_err(|error| error.to_string())
+            .map(task_to_dto)
     })
 }
 
@@ -441,4 +484,24 @@ fn task_to_dto(task: Task) -> TaskDto {
         created_at: task.created_at,
         updated_at: task.updated_at,
     }
+}
+
+fn task_undo_to_dto(entry: TaskUndoEntry) -> TaskUndoDto {
+    TaskUndoDto {
+        id: entry.id.to_string(),
+        operation_type: task_undo_operation_to_string(entry.operation_type),
+        task_id: entry.task_id.to_string(),
+        list_id: entry.list_id.to_string(),
+        task_title: entry.before_snapshot.title,
+        created_at: entry.created_at,
+    }
+}
+
+fn task_undo_operation_to_string(operation_type: TaskUndoOperation) -> String {
+    match operation_type {
+        TaskUndoOperation::Delete => "delete",
+        TaskUndoOperation::Complete => "complete",
+        TaskUndoOperation::Edit => "edit",
+    }
+    .to_string()
 }

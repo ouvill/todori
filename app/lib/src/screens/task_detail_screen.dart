@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -169,6 +171,9 @@ class TaskDetailScreen extends ConsumerWidget {
                         .read(tasksProvider(listId).notifier)
                         .trashTask(task.id);
                     if (context.mounted) {
+                      await _showLatestUndoSnackBar(context);
+                    }
+                    if (context.mounted) {
                       context.pop();
                     }
                   },
@@ -207,7 +212,7 @@ class TaskDetailScreen extends ConsumerWidget {
     WidgetRef ref,
     TaskDto task,
   ) async {
-    await showDialog<void>(
+    final saved = await showDialog<bool>(
       context: context,
       builder: (context) => _EditTaskDialog(
         task: task,
@@ -224,7 +229,58 @@ class TaskDetailScreen extends ConsumerWidget {
         },
       ),
     );
+    if (saved == true && context.mounted) {
+      await _showLatestUndoSnackBar(context);
+    }
   }
+}
+
+Future<void> _showLatestUndoSnackBar(BuildContext context) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  container.invalidate(latestTaskUndoProvider);
+  final undo = await container.read(latestTaskUndoProvider.future);
+  if (!context.mounted || undo == null) {
+    return;
+  }
+
+  final l10n = AppLocalizations.of(context)!;
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(_undoMessage(l10n, undo.operationType)),
+      action: SnackBarAction(
+        label: l10n.undoActionLabel,
+        onPressed: () {
+          unawaited(_applyUndo(container, messenger, l10n, undo.id));
+        },
+      ),
+    ),
+  );
+}
+
+Future<void> _applyUndo(
+  ProviderContainer container,
+  ScaffoldMessengerState messenger,
+  AppLocalizations l10n,
+  String undoId,
+) async {
+  try {
+    await container.read(latestTaskUndoProvider.notifier).undo(undoId);
+    messenger.showSnackBar(SnackBar(content: Text(l10n.undoSuccessMessage)));
+  } catch (error) {
+    messenger.showSnackBar(
+      SnackBar(content: Text(l10n.undoFailedMessage(error.toString()))),
+    );
+  }
+}
+
+String _undoMessage(AppLocalizations l10n, String operationType) {
+  return switch (operationType) {
+    'delete' => l10n.undoDeleteMessage,
+    'complete' => l10n.undoCompleteMessage,
+    'edit' => l10n.undoEditMessage,
+    _ => l10n.undoEditMessage,
+  };
 }
 
 TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
@@ -408,7 +464,7 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
         dueAt: _dueAt,
       );
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(true);
       }
     } catch (error) {
       if (mounted) {

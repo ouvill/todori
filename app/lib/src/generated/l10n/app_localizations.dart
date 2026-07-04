@@ -470,6 +470,42 @@ abstract class AppLocalizations {
   /// **'Restore task'**
   String get restoreTaskTooltip;
 
+  /// No description provided for @undoActionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get undoActionLabel;
+
+  /// No description provided for @undoCompleteMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Task completed.'**
+  String get undoCompleteMessage;
+
+  /// No description provided for @undoDeleteMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Task moved to trash.'**
+  String get undoDeleteMessage;
+
+  /// No description provided for @undoEditMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Task saved.'**
+  String get undoEditMessage;
+
+  /// No description provided for @undoSuccessMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Undone.'**
+  String get undoSuccessMessage;
+
+  /// No description provided for @undoFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo failed: {error}'**
+  String undoFailedMessage(String error);
+
   /// No description provided for @moveTaskUpTooltip.
   ///
   /// In en, this message translates to:

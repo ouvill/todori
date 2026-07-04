@@ -22,19 +22,19 @@
 - **ゴミ箱画面・復元UI実装済み**: task-23で `/trash` route、Tasks画面からのゴミ箱導線、`trashedTasksProvider`、削除済みタスク一覧、復元action、empty/loading/error、en/ja i18n、widget testを追加した。復元後は元リストのactive task一覧も更新される。
 - **fractional index・タスク手動並び替え実装済み**: task-24で `core/domain` に決定的なfractional index生成を追加し、Rust bridgeの `create_task` をRust/domain側生成へ移行した。`reorder_task` API、FRB生成物、Dart bridge/provider/fake、Tasks画面の同一階層内上/下移動UI、en/ja i18n、domain/FRB/widget testを追加した。Undo、条件ソートUI、リスト並び替えは後続タスクへ分離した。
 - **UI較正完了済み**: task-25で、AI生成画像・画像モックをピクセル完全基準にせず、既存実画面の密度、長いタイトル、i18n、Dynamic Type、狭い画面、タップ領域、tooltip/semanticsを優先する較正を実装した。`docs/design/visual-direction.md` にCalibration Ruleを追加し、Tasks画面の常設保護シグナルを外し、長文/狭幅/Dynamic Type向けwidget testを追加した。Undo・条件ソートUIは後続タスクへ継続し、その後に実アプリUIの見た目をプロダクト品質へ引き上げるpolish taskを行う。
-- **テスト数**: Rust 70 / Flutter 30（task-25独立検証時点の値。着手前に最新の完了報告で更新すること）。
+- **Undo実装済み**: task-26でローカルSQLCipher DB内の `task_undo_entries`、削除/完了/編集のUndo履歴作成、競合検出、最新履歴取得/適用API、SnackBar action、Dart provider/fake、Rust/storage/API・Dart/FRB統合・widget testを追加した。条件ソートUI、手動並び替えUndo、複数段Undo/Redo、履歴一覧画面は後続へ分離した。
+- **テスト数**: Rust 74 / Flutter 34（task-26実装セッション時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | Undo | 削除/完了/編集のUndo。履歴データ構造、操作単位、復元時の競合方針を定めて実装する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項。指示書: `docs/tasks/task-26-undo.md` |
-| 2 | 条件ソートUI | 手動順と締切/優先度/作成順ソートの切替UI。切替状態と設定保存方針も含めて整理する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
-| 3 | Visual polish / product UI refinement | Lists / Tasks / Detail / Trash / Dialog / Empty state を、実データで破綻しないままTodoriらしい完成度へ引き上げる。タイポグラフィ、余白、surface、icon、空状態、操作感、App Store/READMEスクリーンショット前の第一印象をまとめて磨く | M3 polish | ユーザー判断（2026-07-05）とtask-25後のUI較正結果由来。Undo・条件ソートUIで操作密度が固まった後に実施 |
-| 4 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 5 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 6 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | 条件ソートUI | 手動順と締切/優先度/作成順ソートの切替UI。切替状態と設定保存方針も含めて整理する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
+| 2 | Visual polish / product UI refinement | Lists / Tasks / Detail / Trash / Dialog / Empty state を、実データで破綻しないままTodoriらしい完成度へ引き上げる。タイポグラフィ、余白、surface、icon、空状態、操作感、App Store/READMEスクリーンショット前の第一印象をまとめて磨く | M3 polish | ユーザー判断（2026-07-05）とtask-25後のUI較正結果由来。Undo・条件ソートUIで操作密度が固まった後に実施 |
+| 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 5 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

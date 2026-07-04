@@ -135,6 +135,19 @@
     }
   },
   "restoreTaskTooltip": "Restore task",
+  "undoActionLabel": "Undo",
+  "undoCompleteMessage": "Task completed.",
+  "undoDeleteMessage": "Task moved to trash.",
+  "undoEditMessage": "Task saved.",
+  "undoSuccessMessage": "Undone.",
+  "undoFailedMessage": "Undo failed: {error}",
+  "@undoFailedMessage": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
   "taskDeletedAt": "Deleted: {deletedAt}",

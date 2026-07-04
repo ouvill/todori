@@ -1706,6 +1706,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "thiserror",
  "todori-crypto",

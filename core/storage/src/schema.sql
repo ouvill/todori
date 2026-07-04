@@ -29,10 +29,27 @@ CREATE TABLE IF NOT EXISTS lists (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS task_undo_entries (
+    id TEXT PRIMARY KEY NOT NULL,
+    operation_type TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    list_id TEXT NOT NULL,
+    before_snapshot TEXT NOT NULL,
+    after_updated_at INTEGER NOT NULL,
+    after_deleted_at INTEGER,
+    after_completed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    consumed_at INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_lists_sort_order ON lists(sort_order);
+CREATE INDEX IF NOT EXISTS idx_task_undo_entries_latest
+    ON task_undo_entries(consumed_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_undo_entries_task_id
+    ON task_undo_entries(task_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
     title,

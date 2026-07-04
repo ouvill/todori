@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/rust/api.dart' show ListDto, TaskDto;
+import 'package:todori/src/rust/api.dart' show ListDto, TaskDto, TaskUndoDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -97,6 +97,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       priority: priority,
       dueAt: dueAt,
     );
+    ref.invalidate(latestTaskUndoProvider);
     ref.invalidateSelf();
   }
 
@@ -104,6 +105,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   Future<void> setStatus(String taskId, String status) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.setTaskStatus(taskId: taskId, status: status);
+    if (status == 'done') {
+      ref.invalidate(latestTaskUndoProvider);
+    }
     ref.invalidateSelf();
   }
 
@@ -111,6 +115,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   Future<void> trashTask(String taskId) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.trashTask(taskId: taskId);
+    ref.invalidate(latestTaskUndoProvider);
     ref.invalidateSelf();
     ref.invalidate(trashedTasksProvider);
   }
@@ -197,4 +202,28 @@ TaskDto? _findTaskById(List<TaskDto>? tasks, String taskId) {
 final trashedTasksProvider =
     AsyncNotifierProvider<TrashedTasksNotifier, List<TaskDto>>(
       TrashedTasksNotifier.new,
+    );
+
+/// Manages the latest task undo entry and applies undo through the bridge.
+class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
+  @override
+  FutureOr<TaskUndoDto?> build() {
+    return ref.watch(bridgeServiceProvider).getLatestTaskUndo();
+  }
+
+  Future<TaskDto> undo(String undoId) async {
+    final restored = await ref
+        .read(bridgeServiceProvider)
+        .undoTaskOperation(undoId: undoId);
+    ref.invalidate(tasksProvider(restored.listId));
+    ref.invalidate(trashedTasksProvider);
+    ref.invalidateSelf();
+    await ref.read(tasksProvider(restored.listId).future);
+    return restored;
+  }
+}
+
+final latestTaskUndoProvider =
+    AsyncNotifierProvider<LatestTaskUndoNotifier, TaskUndoDto?>(
+      LatestTaskUndoNotifier.new,
     );

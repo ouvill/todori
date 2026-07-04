@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -91,6 +91,12 @@ Future<TaskDto> restoreTask({required String taskId}) =>
 
 Future<List<TaskDto>> getTrashedTasks() =>
     RustLib.instance.api.crateApiGetTrashedTasks();
+
+Future<TaskUndoDto?> getLatestTaskUndo() =>
+    RustLib.instance.api.crateApiGetLatestTaskUndo();
+
+Future<TaskDto> undoTaskOperation({required String undoId}) =>
+    RustLib.instance.api.crateApiUndoTaskOperation(undoId: undoId);
 
 class ListDto {
   final String id;
@@ -220,4 +226,43 @@ class TaskDto {
           assignee == other.assignee &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
+}
+
+class TaskUndoDto {
+  final String id;
+  final String operationType;
+  final String taskId;
+  final String listId;
+  final String taskTitle;
+  final PlatformInt64 createdAt;
+
+  const TaskUndoDto({
+    required this.id,
+    required this.operationType,
+    required this.taskId,
+    required this.listId,
+    required this.taskTitle,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      operationType.hashCode ^
+      taskId.hashCode ^
+      listId.hashCode ^
+      taskTitle.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskUndoDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          operationType == other.operationType &&
+          taskId == other.taskId &&
+          listId == other.listId &&
+          taskTitle == other.taskTitle &&
+          createdAt == other.createdAt;
 }

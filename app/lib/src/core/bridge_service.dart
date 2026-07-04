@@ -60,6 +60,12 @@ abstract class BridgeService {
 
   /// Returns all trashed tasks.
   Future<List<rust_api.TaskDto>> getTrashedTasks();
+
+  /// Returns the latest unconsumed task undo entry, if one exists.
+  Future<rust_api.TaskUndoDto?> getLatestTaskUndo();
+
+  /// Applies a task undo entry.
+  Future<rust_api.TaskDto> undoTaskOperation({required String undoId});
 }
 
 /// Default [BridgeService] implementation backed by the FRB-generated
@@ -139,4 +145,12 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<List<rust_api.TaskDto>> getTrashedTasks() =>
       rust_api.getTrashedTasks();
+
+  @override
+  Future<rust_api.TaskUndoDto?> getLatestTaskUndo() =>
+      rust_api.getLatestTaskUndo();
+
+  @override
+  Future<rust_api.TaskDto> undoTaskOperation({required String undoId}) =>
+      rust_api.undoTaskOperation(undoId: undoId);
 }

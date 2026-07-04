@@ -13,8 +13,10 @@ import 'package:todori/src/rust/api.dart';
 class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
+  final List<_FakeTaskUndoEntry> _undoEntries = [];
   int _listSeq = 0;
   int _taskSeq = 0;
+  int _undoSeq = 0;
 
   @override
   Future<ListDto> createList({
@@ -118,6 +120,7 @@ class FakeBridgeService implements BridgeService {
       updatedAt: task.updatedAt + 1,
     );
     _tasks[index] = updated;
+    _recordUndo(operationType: 'edit', before: task, after: updated);
     return updated;
   }
 
@@ -128,20 +131,32 @@ class FakeBridgeService implements BridgeService {
     String? closedReason,
   }) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
-    final updated = _tasks[index]._copyWith(
+    final before = _tasks[index];
+    final updated = before._copyWith(
       status: status,
       completedAt: status == 'done' ? 1 : null,
       closedReason: closedReason,
+      updatedAt: before.updatedAt + 1,
     );
     _tasks[index] = updated;
+    if (status == 'done') {
+      _recordUndo(operationType: 'complete', before: before, after: updated);
+    }
     return updated;
   }
 
   @override
   Future<TaskDto> trashTask({required String taskId}) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
-    final updated = _tasks[index]._copyWith(deletedAt: 1);
+    final before = _tasks[index];
+    final updated = before._copyWith(
+      deletedAt: 1,
+      updatedAt: before.updatedAt + 1,
+    );
     _tasks[index] = updated;
+    if (before.deletedAt == null) {
+      _recordUndo(operationType: 'delete', before: before, after: updated);
+    }
     return updated;
   }
 
@@ -188,6 +203,41 @@ class FakeBridgeService implements BridgeService {
     return _tasks.where((task) => task.deletedAt != null).toList();
   }
 
+  @override
+  Future<TaskUndoDto?> getLatestTaskUndo() async {
+    final available = _undoEntries
+        .where((entry) => !entry.consumed)
+        .toList(growable: false);
+    if (available.isEmpty) {
+      return null;
+    }
+    available.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return available.first.dto;
+  }
+
+  @override
+  Future<TaskDto> undoTaskOperation({required String undoId}) async {
+    final entry = _undoEntries.singleWhere(
+      (candidate) => candidate.id == undoId,
+    );
+    if (entry.consumed) {
+      throw Exception('undo entry already used');
+    }
+    final index = _tasks.indexWhere((task) => task.id == entry.taskId);
+    if (index < 0) {
+      throw Exception('record not found');
+    }
+    final current = _tasks[index];
+    if (current.updatedAt != entry.afterUpdatedAt ||
+        current.deletedAt != entry.afterDeletedAt ||
+        current.completedAt != entry.afterCompletedAt) {
+      throw Exception('task changed after undo was created');
+    }
+    entry.consumed = true;
+    _tasks[index] = entry.before;
+    return entry.before;
+  }
+
   TaskDto _reorderBoundary(String boundaryId, TaskDto task) {
     final boundary = _tasks.singleWhere(
       (candidate) => candidate.id == boundaryId,
@@ -203,6 +253,59 @@ class FakeBridgeService implements BridgeService {
     }
     return boundary;
   }
+
+  void _recordUndo({
+    required String operationType,
+    required TaskDto before,
+    required TaskDto after,
+  }) {
+    final id = 'undo-${_undoSeq++}';
+    _undoEntries.add(
+      _FakeTaskUndoEntry(
+        id: id,
+        operationType: operationType,
+        taskId: before.id,
+        before: before,
+        afterUpdatedAt: after.updatedAt,
+        afterDeletedAt: after.deletedAt,
+        afterCompletedAt: after.completedAt,
+        createdAt: _undoSeq,
+        dto: TaskUndoDto(
+          id: id,
+          operationType: operationType,
+          taskId: before.id,
+          listId: before.listId,
+          taskTitle: before.title,
+          createdAt: _undoSeq,
+        ),
+      ),
+    );
+  }
+}
+
+class _FakeTaskUndoEntry {
+  _FakeTaskUndoEntry({
+    required this.id,
+    required this.operationType,
+    required this.taskId,
+    required this.before,
+    required this.afterUpdatedAt,
+    required this.afterDeletedAt,
+    required this.afterCompletedAt,
+    required this.createdAt,
+    required this.dto,
+  });
+
+  final String id;
+  final String operationType;
+  final String taskId;
+  final TaskDto before;
+  final int afterUpdatedAt;
+  final int? afterDeletedAt;
+  final int? afterCompletedAt;
+  final int createdAt;
+  final TaskUndoDto dto;
+  bool consumed = false;
 }
 
 extension _TaskDtoCopy on TaskDto {
@@ -527,9 +630,19 @@ void main() {
 
     final active = await fake.getTasks(listId: listId);
     expect(active.single.status, 'done');
+    expect(find.text('Task completed.'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
 
     final updatedCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(updatedCheckbox.value, isTrue);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    final undone = await fake.getTasks(listId: listId);
+    expect(undone.single.status, 'todo');
+    final undoneCheckbox = tester.widget<Checkbox>(checkboxFinder);
+    expect(undoneCheckbox.value, isFalse);
   });
 
   testWidgets('task list move buttons reorder root tasks', (tester) async {
@@ -791,6 +904,43 @@ void main() {
     );
   });
 
+  testWidgets('editing a task shows undo and restores previous fields', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Buy oat milk');
+    await tester.enterText(find.byType(TextFormField).at(1), 'Shelf-stable');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task saved.'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Undone.'), findsOneWidget);
+    expect(find.text('Buy milk'), findsOneWidget);
+    expect(find.text('Shelf-stable'), findsNothing);
+
+    final listId = (await fake.getLists()).first.id;
+    final active = await fake.getTasks(listId: listId);
+    expect(active.single.title, 'Buy milk');
+    expect(active.single.note, '');
+  });
+
   testWidgets('empty title in edit dialog shows validation error', (
     tester,
   ) async {
@@ -855,6 +1005,33 @@ void main() {
 
     final active = await fake.getTasks(listId: listId);
     expect(active.single.title, 'Buy milk');
+    expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('trash action shows undo and restores the task', (tester) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to trash'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task moved to trash.'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    final listId = (await fake.getLists()).first.id;
+    final active = await fake.getTasks(listId: listId);
+    expect(active.single.title, 'Buy milk');
+    expect(await fake.getTrashedTasks(), isEmpty);
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
