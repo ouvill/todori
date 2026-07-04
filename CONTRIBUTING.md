@@ -21,6 +21,10 @@ Before opening a pull request, make sure the following all pass locally:
 
 Pull requests that fail these checks in CI will not be merged until fixed.
 
+## Security Reports
+
+Please do not report security vulnerabilities in public issues or pull requests. See [`SECURITY.md`](./SECURITY.md) for the private reporting process.
+
 ## Commit Messages
 
 This repository follows [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`). Commit messages may be written in English or Japanese.
