@@ -20,17 +20,19 @@
 - **視覚方向性反映済み**: task-21で参考画像由来の深いグリーン/淡いセージ/白いsurface、priority dot、pill metadata、サブタスク階層線、ローカル保護シグナルを既存UI foundationへ反映した。
 - **デザイン方向性スケッチ完了済み**: task-22で、主要画面・空状態/ダイアログ・ゴミ箱/復元・フォーカスタイマー・完了状態の画像モックを作成し、`docs/design/visual-direction.md` に実装可能なデザインルールを整理した。キャラは空状態/オンボーディング中心、暗号化マークはメインUI常駐なし、タスク一覧は雰囲気より実用密度を優先する方針とした。
 - **ゴミ箱画面・復元UI実装済み**: task-23で `/trash` route、Tasks画面からのゴミ箱導線、`trashedTasksProvider`、削除済みタスク一覧、復元action、empty/loading/error、en/ja i18n、widget testを追加した。復元後は元リストのactive task一覧も更新される。
-- **テスト数**: Rust 62 / Flutter 22（いずれも最新の完了報告時点の値。着手前に最新の完了報告で更新すること）。
+- **fractional index・タスク手動並び替え実装済み**: task-24で `core/domain` に決定的なfractional index生成を追加し、Rust bridgeの `create_task` をRust/domain側生成へ移行した。`reorder_task` API、FRB生成物、Dart bridge/provider/fake、Tasks画面の同一階層内上/下移動UI、en/ja i18n、domain/FRB/widget testを追加した。Undo、条件ソートUI、リスト並び替えは後続タスクへ分離した。
+- **テスト数**: Rust 70 / Flutter 27（いずれもtask-24完了報告と親検証時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
-| 2 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 3 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 4 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | Undo | 削除/完了/編集のUndo。履歴データ構造、操作単位、復元時の競合方針を定めて実装する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
+| 2 | 条件ソートUI | 手動順と締切/優先度/作成順ソートの切替UI。切替状態と設定保存方針も含めて整理する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
+| 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 5 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
