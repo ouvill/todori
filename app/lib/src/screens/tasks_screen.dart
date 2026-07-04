@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/rust/api.dart';
 
 /// The task list screen for a single list (route
 /// `/lists/:listId/tasks`).
@@ -30,22 +32,35 @@ class TasksScreen extends ConsumerWidget {
           if (tasks.isEmpty) {
             return Center(child: Text(l10n.tasksEmpty));
           }
+          final nodes = flattenTaskTree(buildTaskTree(tasks));
           return ListView.builder(
-            itemCount: tasks.length,
+            itemCount: nodes.length,
             itemBuilder: (context, index) {
-              final task = tasks[index];
+              final node = nodes[index];
+              final task = node.task;
+              final stats = descendantStatsOf(task.id, tasks);
+              final depth = node.depth > 4 ? 4 : node.depth;
               return ListTile(
+                key: ValueKey('task-row-${task.id}'),
+                contentPadding: EdgeInsetsDirectional.only(
+                  start: 16 + (depth * 24),
+                  end: 16,
+                ),
                 leading: Checkbox(
+                  key: ValueKey('task-done-${task.id}'),
                   value: task.status == 'done',
                   onChanged: (checked) {
                     if (checked == true) {
-                      ref
-                          .read(tasksProvider(listId).notifier)
-                          .setStatus(task.id, 'done');
+                      _completeTask(context, ref, task, tasks);
                     }
                   },
                 ),
                 title: Text(task.title),
+                subtitle: stats.hasDescendants
+                    ? Text(
+                        l10n.subtaskProgress(stats.doneCount, stats.totalCount),
+                      )
+                    : null,
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
               );
@@ -70,6 +85,41 @@ class TasksScreen extends ConsumerWidget {
       return;
     }
     await ref.read(tasksProvider(listId).notifier).createTask(title.trim());
+  }
+
+  Future<void> _completeTask(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+    List<TaskDto> tasks,
+  ) async {
+    if (hasIncompleteDescendants(task.id, tasks)) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          final l10n = AppLocalizations.of(context)!;
+          return AlertDialog(
+            title: Text(l10n.completeTaskDialogTitle),
+            content: Text(l10n.completeTaskDialogMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(l10n.cancelButton),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(l10n.continueButton),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmed != true) {
+        return;
+      }
+    }
+
+    await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
   }
 }
 

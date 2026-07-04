@@ -87,6 +87,7 @@ abstract class RustLibApi extends BaseApi {
     required String listId,
     required String title,
     required String sortOrder,
+    String? parentTaskId,
   });
 
   Future<List<ListDto>> crateApiGetLists();
@@ -193,6 +194,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String listId,
     required String title,
     required String sortOrder,
+    String? parentTaskId,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -201,6 +203,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(listId, serializer);
           sse_encode_String(title, serializer);
           sse_encode_String(sortOrder, serializer);
+          sse_encode_opt_String(parentTaskId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -213,7 +216,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, sortOrder],
+        argValues: [listId, title, sortOrder, parentTaskId],
         apiImpl: this,
       ),
     );
@@ -221,7 +224,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "sortOrder"],
+    argNames: ["listId", "title", "sortOrder", "parentTaskId"],
   );
 
   @override

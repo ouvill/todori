@@ -138,11 +138,16 @@ fn wire__crate__api__create_task_impl(
             let api_list_id = <String>::sse_decode(&mut deserializer);
             let api_title = <String>::sse_decode(&mut deserializer);
             let api_sort_order = <String>::sse_decode(&mut deserializer);
+            let api_parent_task_id = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok =
-                        crate::api::create_task(api_list_id, api_title, api_sort_order)?;
+                    let output_ok = crate::api::create_task(
+                        api_list_id,
+                        api_title,
+                        api_sort_order,
+                        api_parent_task_id,
+                    )?;
                     Ok(output_ok)
                 })())
             }

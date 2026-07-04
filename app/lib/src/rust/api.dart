@@ -42,10 +42,12 @@ Future<TaskDto> createTask({
   required String listId,
   required String title,
   required String sortOrder,
+  String? parentTaskId,
 }) => RustLib.instance.api.crateApiCreateTask(
   listId: listId,
   title: title,
   sortOrder: sortOrder,
+  parentTaskId: parentTaskId,
 );
 
 Future<List<TaskDto>> getTasks({required String listId}) =>

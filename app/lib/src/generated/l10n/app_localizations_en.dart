@@ -92,6 +92,33 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get subtasksTitle => 'Subtasks';
+
+  @override
+  String get subtasksEmpty => 'No subtasks yet.';
+
+  @override
+  String get addSubtaskButton => 'Add subtask';
+
+  @override
+  String get newSubtaskTitle => 'New subtask';
+
+  @override
+  String subtaskProgress(int doneCount, int totalCount) {
+    return 'Progress: $doneCount/$totalCount';
+  }
+
+  @override
+  String get completeTaskDialogTitle => 'Complete parent task?';
+
+  @override
+  String get completeTaskDialogMessage =>
+      'This task has incomplete subtasks. Completing it will not complete its subtasks.';
+
+  @override
+  String get continueButton => 'Continue';
+
+  @override
   String get editTaskTooltip => 'Edit task';
 
   @override

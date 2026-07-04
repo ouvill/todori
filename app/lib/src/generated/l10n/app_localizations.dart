@@ -236,6 +236,54 @@ abstract class AppLocalizations {
   /// **'Created at: {createdAt}'**
   String taskCreatedAt(int createdAt);
 
+  /// No description provided for @subtasksTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtasks'**
+  String get subtasksTitle;
+
+  /// No description provided for @subtasksEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No subtasks yet.'**
+  String get subtasksEmpty;
+
+  /// No description provided for @addSubtaskButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add subtask'**
+  String get addSubtaskButton;
+
+  /// No description provided for @newSubtaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New subtask'**
+  String get newSubtaskTitle;
+
+  /// No description provided for @subtaskProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Progress: {doneCount}/{totalCount}'**
+  String subtaskProgress(int doneCount, int totalCount);
+
+  /// No description provided for @completeTaskDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete parent task?'**
+  String get completeTaskDialogTitle;
+
+  /// No description provided for @completeTaskDialogMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This task has incomplete subtasks. Completing it will not complete its subtasks.'**
+  String get completeTaskDialogMessage;
+
+  /// No description provided for @continueButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get continueButton;
+
   /// No description provided for @editTaskTooltip.
   ///
   /// In en, this message translates to:

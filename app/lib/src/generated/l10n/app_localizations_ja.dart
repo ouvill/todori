@@ -92,6 +92,33 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get subtasksTitle => 'サブタスク';
+
+  @override
+  String get subtasksEmpty => 'サブタスクはまだありません。';
+
+  @override
+  String get addSubtaskButton => 'サブタスクを追加';
+
+  @override
+  String get newSubtaskTitle => '新しいサブタスク';
+
+  @override
+  String subtaskProgress(int doneCount, int totalCount) {
+    return '進捗: $doneCount/$totalCount';
+  }
+
+  @override
+  String get completeTaskDialogTitle => '親タスクを完了しますか？';
+
+  @override
+  String get completeTaskDialogMessage =>
+      'このタスクには未完了のサブタスクがあります。親タスクを完了しても、サブタスクは自動では完了しません。';
+
+  @override
+  String get continueButton => '続行';
+
+  @override
   String get editTaskTooltip => 'タスクを編集';
 
   @override

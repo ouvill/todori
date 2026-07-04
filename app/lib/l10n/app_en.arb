@@ -72,6 +72,24 @@
       }
     }
   },
+  "subtasksTitle": "Subtasks",
+  "subtasksEmpty": "No subtasks yet.",
+  "addSubtaskButton": "Add subtask",
+  "newSubtaskTitle": "New subtask",
+  "subtaskProgress": "Progress: {doneCount}/{totalCount}",
+  "@subtaskProgress": {
+    "placeholders": {
+      "doneCount": {
+        "type": "int"
+      },
+      "totalCount": {
+        "type": "int"
+      }
+    }
+  },
+  "completeTaskDialogTitle": "Complete parent task?",
+  "completeTaskDialogMessage": "This task has incomplete subtasks. Completing it will not complete its subtasks.",
+  "continueButton": "Continue",
   "editTaskTooltip": "Edit task",
   "editTaskTitle": "Edit task",
   "priorityLabel": "Priority",

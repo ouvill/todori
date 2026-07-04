@@ -71,11 +71,21 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   }
 
   /// Creates a new task titled `title` in this list and refreshes the task
-  /// list.
-  Future<void> createTask(String title) async {
+  /// list. When [parentTaskId] is provided, the new task is created as a
+  /// subtask of that parent.
+  Future<void> createTask(String title, {String? parentTaskId}) async {
     final bridge = ref.read(bridgeServiceProvider);
-    final sortOrder = nextSortOrder(state.value?.length ?? 0);
-    await bridge.createTask(listId: listId, title: title, sortOrder: sortOrder);
+    final currentTasks = state.value ?? const <TaskDto>[];
+    final siblingCount = currentTasks
+        .where((task) => task.parentTaskId == parentTaskId)
+        .length;
+    final sortOrder = nextSortOrder(siblingCount);
+    await bridge.createTask(
+      listId: listId,
+      title: title,
+      sortOrder: sortOrder,
+      parentTaskId: parentTaskId,
+    );
     ref.invalidateSelf();
   }
 

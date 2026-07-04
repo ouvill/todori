@@ -1,5 +1,8 @@
 # task-19: サブタスク表示・作成
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 `docs/tasks/BACKLOG.md` の優先度1は「サブタスク表示・作成」であり、`docs/07_Phase1計画書.md` のM3-03「サブタスク無制限階層と進捗表示を実装する」に相当する。完了条件は「3階層以上のサブタスク作成、親完了時の確認、進捗率表示のwidget testが通ること」である。
@@ -198,3 +201,103 @@
 - 追加/更新したテスト
 - 品質ゲート6点と `check_hardcoded_strings.sh` の実行結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+- 作業日: 2026-07-04
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/PLAYBOOK.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/02_機能仕様書.md` F-05 / F-06 / F-07
+  - `docs/07_Phase1計画書.md` M3-02 / M3-03 / M3-04 / M3-05
+  - `docs/tasks/task-08-bridge-usecases.md`
+  - `docs/tasks/task-09-ui-skeleton.md`
+  - `docs/tasks/task-10-i18n.md`
+  - `docs/tasks/task-18-task-editing-ui.md`
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `core/storage/src/schema.sql`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `flutter_rust_bridge.yaml`
+- 変更したRust bridge APIと `parent_task_id` の扱い:
+  - `app/rust/src/api.rs` の `create_task` を `parent_task_id: Option<String>` 付きに変更した。
+  - `parent_task_id` 未指定時は `new_task(list_id, None, ...)` として従来どおりトップレベルタスクを作成する。
+  - `parent_task_id` 指定時はUUID文字列を `parse_uuid` で検証し、`new_task(list_id, Some(parent_id), ...)` で未保存タスクを作成してからinsert前に親検証を行う。
+- `validate_parent_for` の利用箇所と拒否できる親候補エラー:
+  - `create_task` 内で同一リストの `list_active_by_list(list_id)` 結果を取得し、候補親がactive一覧に無い場合は `TaskRepository::get(parent_id)` で個別取得して検証対象に追加した。
+  - これにより、存在しない親は `ParentNotFound`、別リスト親は `ParentInDifferentList`、削除済み親は `ParentDeleted` としてdomain検証経由で拒否できる。
+  - 循環参照は新規作成UIでは通常発生しないが、bridge側は既存domainの `validate_parent_for(task.id, list_id, parent_id, &tasks)` を使うためdomain実装の循環検出に従う。
+- FRB再生成の結果:
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行し、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`、`app/rust/src/frb_generated.rs` を再生成した。
+  - `flutter_rust_bridge` / `flutter_rust_bridge_codegen` は `2.12.0` 固定を維持した。
+  - 生成物は手編集していない。
+- 追加/変更したDart provider / service / FakeBridgeService:
+  - `BridgeService.createTask` / `FrbBridgeService.createTask` に省略可能な `String? parentTaskId` を追加した。
+  - `TasksNotifier.createTask(String title, {String? parentTaskId})` を追加し、同一親配下の既存兄弟数から暫定 `sortOrder` を生成してからbridgeへ渡す。
+  - `FakeBridgeService.createTask` も `parentTaskId` を受け取り、作成した `TaskDto.parentTaskId` に保存するよう更新した。
+  - `app/lib/src/core/task_tree.dart` を追加し、階層構築、flatten、直下子取得、子孫進捗、未完了子孫判定を画面外へ切り出した。
+- 階層表示の仕様:
+  - `parentTaskId == null` のタスクをトップレベルとして扱う。
+  - 親IDが存在しない孤立タスクはトップレベル扱いで表示し、アプリがクラッシュしないようにした。
+  - 同一親配下の並び順は `sortOrder` 昇順、同値の場合は `id` 昇順とした。
+  - 3階層以上は再帰的に表示する。表示インデントは深すぎる階層で破綻しないよう、一覧画面では4段階分までに抑制した。
+  - 表示側でも重複/循環風データに対して `visited` / `emitted` を使い、無限再帰しないよう防御した。
+- サブタスク作成UIの仕様:
+  - `TaskDetailScreen` に直下サブタスク一覧と `Add subtask` ボタンを追加した。
+  - 追加ボタンからtitle入力ダイアログを開き、空titleまたは空白のみtitleは保存しない。
+  - 保存時は現在表示中のタスクIDを `parentTaskId` として `TasksNotifier.createTask` へ渡す。
+  - 子タスク行をタップすると既存ルート `/lists/:listId/tasks/:taskId` で該当サブタスク詳細へ遷移する。
+- 進捗表示の計算方針:
+  - 進捗は直下子だけでなく子孫タスク全体を対象にし、`status == 'done'` の件数 / 総子孫数を `Progress: done/total` として表示する。
+  - `done` 以外（`todo`, `in_progress`, `wont_do` など）は未完了扱いとした。
+  - 子孫0件のタスクでは進捗を表示しないため、`0/0` は表示しない。
+- 親完了時の確認ダイアログ仕様:
+  - `TasksScreen` のcheckboxで `done` にしようとしたとき、未完了の子孫がある場合だけ確認ダイアログを表示する。
+  - キャンセルでは `setStatus` を呼ばず、親タスクの状態は変わらない。
+  - 続行時のみ `setStatus(task.id, 'done')` を呼ぶ。
+  - 子孫タスクは自動完了しない。
+- 追加したi18nキー:
+  - `subtasksTitle`
+  - `subtasksEmpty`
+  - `addSubtaskButton`
+  - `newSubtaskTitle`
+  - `subtaskProgress`
+  - `completeTaskDialogTitle`
+  - `completeTaskDialogMessage`
+  - `continueButton`
+- 追加/更新したテスト:
+  - `app/test/widget_test.dart`
+    - `FakeBridgeService.createTask` を `parentTaskId` 対応に更新。
+    - トップレベル→子→孫の3階層表示と子孫進捗を検証するwidget testを追加。
+    - 詳細画面からサブタスクを作成し、FakeBridgeServiceの `parentTaskId` と画面表示に反映されることを検証するwidget testを追加。
+    - 未完了子孫を持つ親完了時に確認ダイアログが出て、キャンセルでは状態変更されず、続行では親のみdoneになることを検証するwidget testを追加。
+  - `app/test/core_usecases_test.dart`
+    - 親ID付き `createTask` が実DBへ永続化され、`getTasks` で `parentTaskId` が返ることを検証するテストを追加。
+    - 存在しない親、別リスト親、削除済み親がbridge経由で拒否されることを検証するテストを追加。
+- 品質ゲートの実行結果:
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`: 成功
+  - `cargo fmt --all -- --check`: 成功
+  - `cargo clippy --workspace -- -D warnings`: 成功
+  - `cargo test --workspace`: 成功（Rust 62件）
+  - `cd app && flutter gen-l10n`: 成功
+  - `cd app && flutter analyze`: 成功（No issues found）
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+  - `cd app && flutter test`: 成功（Flutter 20件）
+  - `cd app && flutter test test/core_usecases_test.dart`: 成功（7件、bridge統合テストの明示確認）
+  - `sh app/tool/check_hardcoded_strings.sh`: 成功
+  - `git -C todori diff --check`: 成功
+- 補足:
+  - Flutter/Dartツールはサンドボックス内ではSDK cacheへの書き込み権限で失敗したため、承認付き実行で `flutter_rust_bridge_codegen generate` / `flutter gen-l10n` / `dart format` / `flutter analyze` / `flutter test` を実行した。
+- 未解決事項・要人間判断:
+  - なし。

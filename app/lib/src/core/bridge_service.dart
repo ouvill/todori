@@ -24,6 +24,7 @@ abstract class BridgeService {
     required String listId,
     required String title,
     required String sortOrder,
+    String? parentTaskId,
   });
 
   /// Returns the active (non-trashed) tasks of `listId`.
@@ -74,7 +75,13 @@ class FrbBridgeService implements BridgeService {
     required String listId,
     required String title,
     required String sortOrder,
-  }) => rust_api.createTask(listId: listId, title: title, sortOrder: sortOrder);
+    String? parentTaskId,
+  }) => rust_api.createTask(
+    listId: listId,
+    title: title,
+    sortOrder: sortOrder,
+    parentTaskId: parentTaskId,
+  );
 
   @override
   Future<List<rust_api.TaskDto>> getTasks({required String listId}) =>

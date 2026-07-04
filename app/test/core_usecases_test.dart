@@ -29,6 +29,7 @@ void main() {
       title: 'Write bridge usecase test',
       sortOrder: 'a0',
     );
+    expect(task.parentTaskId, isNull);
 
     final activeTasks = await getTasks(listId: list.id);
     expect(activeTasks.map((entry) => entry.id), contains(task.id));
@@ -81,6 +82,90 @@ void main() {
 
     expect(
       () => createTask(listId: list.id, title: '   ', sortOrder: 'a0'),
+      throwsA(anything),
+    );
+  });
+
+  test('subtask parent id persists through Rust bridge', () async {
+    final list = await createList(name: 'Subtasks', sortOrder: 's0');
+    final parent = await createTask(
+      listId: list.id,
+      title: 'Parent',
+      sortOrder: 'a0',
+    );
+    final child = await createTask(
+      listId: list.id,
+      title: 'Child',
+      sortOrder: 'a0',
+      parentTaskId: parent.id,
+    );
+    final grandchild = await createTask(
+      listId: list.id,
+      title: 'Grandchild',
+      sortOrder: 'a0',
+      parentTaskId: child.id,
+    );
+
+    expect(child.parentTaskId, parent.id);
+    expect(grandchild.parentTaskId, child.id);
+
+    final active = await getTasks(listId: list.id);
+    expect(
+      active.singleWhere((task) => task.id == child.id).parentTaskId,
+      parent.id,
+    );
+    expect(
+      active.singleWhere((task) => task.id == grandchild.id).parentTaskId,
+      child.id,
+    );
+  });
+
+  test('createTask rejects invalid parent candidates', () async {
+    final list = await createList(
+      name: 'Subtask parent validation',
+      sortOrder: 's1',
+    );
+    final otherList = await createList(
+      name: 'Other subtask parent validation',
+      sortOrder: 's2',
+    );
+    final otherListParent = await createTask(
+      listId: otherList.id,
+      title: 'Other list parent',
+      sortOrder: 'a0',
+    );
+    final deletedParent = await createTask(
+      listId: list.id,
+      title: 'Deleted parent',
+      sortOrder: 'a0',
+    );
+    await trashTask(taskId: deletedParent.id);
+
+    expect(
+      () => createTask(
+        listId: list.id,
+        title: 'Missing parent child',
+        sortOrder: 'a1',
+        parentTaskId: list.id,
+      ),
+      throwsA(anything),
+    );
+    expect(
+      () => createTask(
+        listId: list.id,
+        title: 'Cross-list child',
+        sortOrder: 'a2',
+        parentTaskId: otherListParent.id,
+      ),
+      throwsA(anything),
+    );
+    expect(
+      () => createTask(
+        listId: list.id,
+        title: 'Deleted-parent child',
+        sortOrder: 'a3',
+        parentTaskId: deletedParent.id,
+      ),
       throwsA(anything),
     );
   });

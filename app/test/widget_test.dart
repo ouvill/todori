@@ -42,10 +42,12 @@ class FakeBridgeService implements BridgeService {
     required String listId,
     required String title,
     required String sortOrder,
+    String? parentTaskId,
   }) async {
     final task = TaskDto(
       id: 'task-${_taskSeq++}',
       listId: listId,
+      parentTaskId: parentTaskId,
       title: title,
       note: '',
       status: 'todo',
@@ -288,19 +290,142 @@ void main() {
     await tester.tap(find.text('Inbox'));
     await tester.pumpAndSettle();
 
-    final checkbox = tester.widget<Checkbox>(find.byType(Checkbox));
+    final listId = (await fake.getLists()).first.id;
+    final task = (await fake.getTasks(listId: listId)).single;
+    final checkboxFinder = find.byKey(ValueKey('task-done-${task.id}'));
+    final checkbox = tester.widget<Checkbox>(checkboxFinder);
     expect(checkbox.value, isFalse);
 
-    await tester.tap(find.byType(Checkbox));
+    await tester.tap(checkboxFinder);
     await tester.pumpAndSettle();
 
-    final listId = (await fake.getLists()).first.id;
     final active = await fake.getTasks(listId: listId);
     expect(active.single.status, 'done');
 
-    final updatedCheckbox = tester.widget<Checkbox>(find.byType(Checkbox));
+    final updatedCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(updatedCheckbox.value, isTrue);
   });
+
+  testWidgets('task list shows three-level subtasks with descendant progress', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Plan launch',
+      sortOrder: 'a0',
+    );
+    final child = await fake.createTask(
+      listId: listId,
+      title: 'Draft checklist',
+      sortOrder: 'a0',
+      parentTaskId: parent.id,
+    );
+    final grandchild = await fake.createTask(
+      listId: listId,
+      title: 'Review checklist',
+      sortOrder: 'a0',
+      parentTaskId: child.id,
+    );
+    await fake.setTaskStatus(taskId: grandchild.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plan launch'), findsOneWidget);
+    expect(find.text('Draft checklist'), findsOneWidget);
+    expect(find.text('Review checklist'), findsOneWidget);
+    expect(find.text('Progress: 1/2'), findsOneWidget);
+    expect(find.text('Progress: 1/1'), findsOneWidget);
+
+    final parentTop = tester.getTopLeft(find.text('Plan launch')).dy;
+    final childTop = tester.getTopLeft(find.text('Draft checklist')).dy;
+    final grandchildTop = tester.getTopLeft(find.text('Review checklist')).dy;
+    expect(parentTop, lessThan(childTop));
+    expect(childTop, lessThan(grandchildTop));
+  });
+
+  testWidgets('detail screen creates a subtask under the current task', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Parent task',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Parent task'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add subtask'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Child task');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Child task'), findsOneWidget);
+
+    final listId = (await fake.getLists()).first.id;
+    final active = await fake.getTasks(listId: listId);
+    final parent = active.singleWhere((task) => task.title == 'Parent task');
+    final child = active.singleWhere((task) => task.title == 'Child task');
+    expect(child.parentTaskId, parent.id);
+  });
+
+  testWidgets(
+    'incomplete descendants require confirmation before parent done',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Parent task',
+        sortOrder: 'a0',
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Child task',
+        sortOrder: 'a0',
+        parentTaskId: parent.id,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inbox'));
+      await tester.pumpAndSettle();
+
+      final parentCheckbox = find.byKey(ValueKey('task-done-${parent.id}'));
+      await tester.tap(parentCheckbox);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Complete parent task?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      var active = await fake.getTasks(listId: listId);
+      expect(active.singleWhere((task) => task.id == parent.id).status, 'todo');
+
+      await tester.tap(parentCheckbox);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      active = await fake.getTasks(listId: listId);
+      expect(active.singleWhere((task) => task.id == parent.id).status, 'done');
+      expect(active.singleWhere((task) => task.id == child.id).status, 'todo');
+    },
+  );
 
   testWidgets('editing a task updates detail, list, and fake bridge state', (
     tester,

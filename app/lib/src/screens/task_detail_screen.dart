@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 
@@ -24,6 +25,7 @@ class TaskDetailScreen extends ConsumerWidget {
     final detailAsync = ref.watch(
       taskDetailProvider((listId: listId, taskId: taskId)),
     );
+    final tasksAsync = ref.watch(tasksProvider(listId));
 
     return Scaffold(
       appBar: AppBar(
@@ -44,14 +46,17 @@ class TaskDetailScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: detailAsync.when(
+      body: tasksAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
             Center(child: Text(l10n.failedToLoadTask(error.toString()))),
-        data: (task) {
+        data: (tasks) {
+          final task = _findTaskById(tasks, taskId);
           if (task == null) {
             return Center(child: Text(l10n.taskNotFound));
           }
+          final stats = descendantStatsOf(task.id, tasks);
+          final subtasks = directSubtasksOf(task.id, tasks);
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -66,6 +71,46 @@ class TaskDetailScreen extends ConsumerWidget {
               Text(l10n.taskPriority(task.priority)),
               Text(l10n.taskDueAt(_formatDueAt(task.dueAt))),
               Text(l10n.taskCreatedAt(task.createdAt)),
+              if (stats.hasDescendants)
+                Text(l10n.subtaskProgress(stats.doneCount, stats.totalCount)),
+              const SizedBox(height: 24),
+              Text(
+                l10n.subtasksTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (subtasks.isEmpty)
+                Text(l10n.subtasksEmpty)
+              else
+                for (final subtask in subtasks)
+                  ListTile(
+                    key: ValueKey('subtask-row-${subtask.id}'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      subtask.status == 'done'
+                          ? Icons.check_circle_outline
+                          : Icons.radio_button_unchecked,
+                    ),
+                    title: Text(subtask.title),
+                    subtitle:
+                        descendantStatsOf(subtask.id, tasks).hasDescendants
+                        ? Text(
+                            l10n.subtaskProgress(
+                              descendantStatsOf(subtask.id, tasks).doneCount,
+                              descendantStatsOf(subtask.id, tasks).totalCount,
+                            ),
+                          )
+                        : null,
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () =>
+                        context.push('/lists/$listId/tasks/${subtask.id}'),
+                  ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add),
+                label: Text(l10n.addSubtaskButton),
+                onPressed: () => _createSubtask(context, ref, task),
+              ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 icon: const Icon(Icons.delete_outline),
@@ -84,6 +129,23 @@ class TaskDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _createSubtask(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => const _NewSubtaskDialog(),
+    );
+    if (title == null || title.trim().isEmpty) {
+      return;
+    }
+    await ref
+        .read(tasksProvider(listId).notifier)
+        .createTask(title.trim(), parentTaskId: task.id);
   }
 
   Future<void> _editTask(
@@ -111,6 +173,47 @@ class TaskDetailScreen extends ConsumerWidget {
   }
 }
 
+class _NewSubtaskDialog extends StatefulWidget {
+  const _NewSubtaskDialog();
+
+  @override
+  State<_NewSubtaskDialog> createState() => _NewSubtaskDialogState();
+}
+
+class _NewSubtaskDialogState extends State<_NewSubtaskDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    return AlertDialog(
+      title: Text(l10n.newSubtaskTitle),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(labelText: l10n.titleLabel),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.cancelButton),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: Text(l10n.createButton),
+        ),
+      ],
+    );
+  }
+}
+
 String _formatDueAt(int? dueAt) {
   if (dueAt == null) {
     return '-';
@@ -120,6 +223,15 @@ String _formatDueAt(int? dueAt) {
   final month = date.month.toString().padLeft(2, '0');
   final day = date.day.toString().padLeft(2, '0');
   return '$year-$month-$day';
+}
+
+TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
+  for (final task in tasks) {
+    if (task.id == taskId) {
+      return task;
+    }
+  }
+  return null;
 }
 
 class _EditTaskDialog extends StatefulWidget {

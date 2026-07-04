@@ -8,11 +8,12 @@ use std::{
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
     delete_task as domain_delete_task, new_list, new_task, restore_task as domain_restore_task,
-    transition_task, update_due_at, update_note, update_priority, update_title, List, Task,
-    TaskStatus, Uuid,
+    transition_task, update_due_at, update_note, update_priority, update_title,
+    validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
+    open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
+    TaskRepository,
 };
 
 use crate::dev_key_store::FileDeviceKeyStore;
@@ -138,11 +139,34 @@ pub fn get_lists() -> Result<Vec<ListDto>, String> {
 ///
 /// Automatic fractional index generation is a later M3 concern and is not done
 /// in this bridge layer.
-pub fn create_task(list_id: String, title: String, sort_order: String) -> Result<TaskDto, String> {
+pub fn create_task(
+    list_id: String,
+    title: String,
+    sort_order: String,
+    parent_task_id: Option<String>,
+) -> Result<TaskDto, String> {
     let list_id = parse_uuid(&list_id)?;
-    let task =
-        new_task(list_id, None, title, sort_order, now_ms()?).map_err(|error| error.to_string())?;
+    let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
+    let task = new_task(list_id, parent_task_id, title, sort_order, now_ms()?)
+        .map_err(|error| error.to_string())?;
     with_task_repository(|repository| {
+        if let Some(parent_id) = parent_task_id {
+            let mut tasks = repository
+                .list_active_by_list(list_id)
+                .map_err(|error| error.to_string())?;
+
+            if !tasks.iter().any(|existing| existing.id == parent_id) {
+                match repository.get(parent_id) {
+                    Ok(parent) => tasks.push(parent),
+                    Err(StorageError::NotFound(_)) => {}
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+
+            validate_parent_for(task.id, list_id, parent_id, &tasks)
+                .map_err(|error| error.to_string())?;
+        }
+
         repository
             .insert(task.clone())
             .map_err(|error| error.to_string())?;
