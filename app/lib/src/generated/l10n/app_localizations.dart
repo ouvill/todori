@@ -188,6 +188,12 @@ abstract class AppLocalizations {
   /// **'Title'**
   String get titleLabel;
 
+  /// No description provided for @noteLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Note'**
+  String get noteLabel;
+
   /// No description provided for @taskDetailTitle.
   ///
   /// In en, this message translates to:
@@ -218,11 +224,95 @@ abstract class AppLocalizations {
   /// **'Priority: {priority}'**
   String taskPriority(int priority);
 
+  /// No description provided for @taskDueAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Due: {dueAt}'**
+  String taskDueAt(String dueAt);
+
   /// No description provided for @taskCreatedAt.
   ///
   /// In en, this message translates to:
   /// **'Created at: {createdAt}'**
   String taskCreatedAt(int createdAt);
+
+  /// No description provided for @editTaskTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task'**
+  String get editTaskTooltip;
+
+  /// No description provided for @editTaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task'**
+  String get editTaskTitle;
+
+  /// No description provided for @priorityLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Priority'**
+  String get priorityLabel;
+
+  /// No description provided for @priorityNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get priorityNone;
+
+  /// No description provided for @priorityLow.
+  ///
+  /// In en, this message translates to:
+  /// **'Low'**
+  String get priorityLow;
+
+  /// No description provided for @priorityMedium.
+  ///
+  /// In en, this message translates to:
+  /// **'Medium'**
+  String get priorityMedium;
+
+  /// No description provided for @priorityHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'High'**
+  String get priorityHigh;
+
+  /// No description provided for @dueDateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Due date'**
+  String get dueDateLabel;
+
+  /// No description provided for @setDueDateButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Set date'**
+  String get setDueDateButton;
+
+  /// No description provided for @clearDueDateButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear date'**
+  String get clearDueDateButton;
+
+  /// No description provided for @saveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get saveButton;
+
+  /// No description provided for @titleRequiredError.
+  ///
+  /// In en, this message translates to:
+  /// **'Title is required.'**
+  String get titleRequiredError;
+
+  /// No description provided for @failedToSaveTask.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save task: {error}'**
+  String failedToSaveTask(String error);
 
   /// No description provided for @moveToTrashButton.
   ///

@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1587440084;
+  int get rustContentHash => 1685575805;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -108,6 +108,14 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<TaskDto> crateApiTrashTask({required String taskId});
+
+  Future<TaskDto> crateApiUpdateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    PlatformInt64? dueAt,
+  });
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -445,6 +453,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiTrashTaskConstMeta =>
       const TaskConstMeta(debugName: "trash_task", argNames: ["taskId"]);
+
+  @override
+  Future<TaskDto> crateApiUpdateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    PlatformInt64? dueAt,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          sse_encode_String(title, serializer);
+          sse_encode_String(note, serializer);
+          sse_encode_i_32(priority, serializer);
+          sse_encode_opt_box_autoadd_i_64(dueAt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 12,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_task_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUpdateTaskConstMeta,
+        argValues: [taskId, title, note, priority, dueAt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUpdateTaskConstMeta => const TaskConstMeta(
+    debugName: "update_task",
+    argNames: ["taskId", "title", "note", "priority", "dueAt"],
+  );
 
   @protected
   String dco_decode_String(dynamic raw) {

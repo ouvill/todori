@@ -58,6 +58,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get titleLabel => 'Title';
 
   @override
+  String get noteLabel => 'Note';
+
+  @override
   String get taskDetailTitle => 'Task detail';
 
   @override
@@ -79,8 +82,54 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String taskDueAt(String dueAt) {
+    return 'Due: $dueAt';
+  }
+
+  @override
   String taskCreatedAt(int createdAt) {
     return 'Created at: $createdAt';
+  }
+
+  @override
+  String get editTaskTooltip => 'Edit task';
+
+  @override
+  String get editTaskTitle => 'Edit task';
+
+  @override
+  String get priorityLabel => 'Priority';
+
+  @override
+  String get priorityNone => 'None';
+
+  @override
+  String get priorityLow => 'Low';
+
+  @override
+  String get priorityMedium => 'Medium';
+
+  @override
+  String get priorityHigh => 'High';
+
+  @override
+  String get dueDateLabel => 'Due date';
+
+  @override
+  String get setDueDateButton => 'Set date';
+
+  @override
+  String get clearDueDateButton => 'Clear date';
+
+  @override
+  String get saveButton => 'Save';
+
+  @override
+  String get titleRequiredError => 'Title is required.';
+
+  @override
+  String failedToSaveTask(String error) {
+    return 'Failed to save task: $error';
   }
 
   @override

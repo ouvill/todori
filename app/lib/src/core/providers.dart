@@ -53,7 +53,7 @@ final listsProvider = AsyncNotifierProvider<ListsNotifier, List<ListDto>>(
 /// Manages the active (non-trashed) tasks of a single list, keyed by
 /// `listId`.
 ///
-/// Invalidate strategy: [createTask], [setStatus] and [trashTask] each
+/// Invalidate strategy: [createTask], [updateTask], [setStatus] and [trashTask] each
 /// perform their bridge call first, then call `ref.invalidateSelf()`, which
 /// re-runs [build] for this `listId` only (other lists' [TasksNotifier]
 /// instances are untouched). [taskDetailProvider] derives its value from
@@ -76,6 +76,25 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     final bridge = ref.read(bridgeServiceProvider);
     final sortOrder = nextSortOrder(state.value?.length ?? 0);
     await bridge.createTask(listId: listId, title: title, sortOrder: sortOrder);
+    ref.invalidateSelf();
+  }
+
+  /// Updates editable task fields and refreshes the task list.
+  Future<void> updateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    required int? dueAt,
+  }) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.updateTask(
+      taskId: taskId,
+      title: title,
+      note: note,
+      priority: priority,
+      dueAt: dueAt,
+    );
     ref.invalidateSelf();
   }
 

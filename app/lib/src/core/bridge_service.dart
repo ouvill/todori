@@ -29,6 +29,15 @@ abstract class BridgeService {
   /// Returns the active (non-trashed) tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
 
+  /// Updates the editable fields of a task.
+  Future<rust_api.TaskDto> updateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    int? dueAt,
+  });
+
   /// Transitions a task's status.
   Future<rust_api.TaskDto> setTaskStatus({
     required String taskId,
@@ -70,6 +79,21 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<List<rust_api.TaskDto>> getTasks({required String listId}) =>
       rust_api.getTasks(listId: listId);
+
+  @override
+  Future<rust_api.TaskDto> updateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    int? dueAt,
+  }) => rust_api.updateTask(
+    taskId: taskId,
+    title: title,
+    note: note,
+    priority: priority,
+    dueAt: dueAt,
+  );
 
   @override
   Future<rust_api.TaskDto> setTaskStatus({

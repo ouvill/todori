@@ -51,6 +51,20 @@ Future<TaskDto> createTask({
 Future<List<TaskDto>> getTasks({required String listId}) =>
     RustLib.instance.api.crateApiGetTasks(listId: listId);
 
+Future<TaskDto> updateTask({
+  required String taskId,
+  required String title,
+  required String note,
+  required int priority,
+  PlatformInt64? dueAt,
+}) => RustLib.instance.api.crateApiUpdateTask(
+  taskId: taskId,
+  title: title,
+  note: note,
+  priority: priority,
+  dueAt: dueAt,
+);
+
 Future<TaskDto> setTaskStatus({
   required String taskId,
   required String status,

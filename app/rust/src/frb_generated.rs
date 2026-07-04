@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1587440084;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1685575805;
 
 // Section: executor
 
@@ -414,6 +414,49 @@ fn wire__crate__api__trash_task_impl(
         },
     )
 }
+fn wire__crate__api__update_task_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "update_task",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_task_id = <String>::sse_decode(&mut deserializer);
+            let api_title = <String>::sse_decode(&mut deserializer);
+            let api_note = <String>::sse_decode(&mut deserializer);
+            let api_priority = <i32>::sse_decode(&mut deserializer);
+            let api_due_at = <Option<i64>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::update_task(
+                        api_task_id,
+                        api_title,
+                        api_note,
+                        api_priority,
+                        api_due_at,
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 
 // Section: dart2rust
 
@@ -613,6 +656,7 @@ fn pde_ffi_dispatcher_primary_impl(
         9 => wire__crate__api__restore_task_impl(port, ptr, rust_vec_len, data_len),
         10 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__trash_task_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

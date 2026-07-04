@@ -29,6 +29,7 @@
   "newTaskTooltip": "New task",
   "newTaskTitle": "New task",
   "titleLabel": "Title",
+  "noteLabel": "Note",
   "taskDetailTitle": "Task detail",
   "failedToLoadTask": "Failed to load task: {error}",
   "@failedToLoadTask": {
@@ -55,11 +56,39 @@
       }
     }
   },
+  "taskDueAt": "Due: {dueAt}",
+  "@taskDueAt": {
+    "placeholders": {
+      "dueAt": {
+        "type": "String"
+      }
+    }
+  },
   "taskCreatedAt": "Created at: {createdAt}",
   "@taskCreatedAt": {
     "placeholders": {
       "createdAt": {
         "type": "int"
+      }
+    }
+  },
+  "editTaskTooltip": "Edit task",
+  "editTaskTitle": "Edit task",
+  "priorityLabel": "Priority",
+  "priorityNone": "None",
+  "priorityLow": "Low",
+  "priorityMedium": "Medium",
+  "priorityHigh": "High",
+  "dueDateLabel": "Due date",
+  "setDueDateButton": "Set date",
+  "clearDueDateButton": "Clear date",
+  "saveButton": "Save",
+  "titleRequiredError": "Title is required.",
+  "failedToSaveTask": "Failed to save task: {error}",
+  "@failedToSaveTask": {
+    "placeholders": {
+      "error": {
+        "type": "String"
       }
     }
   },

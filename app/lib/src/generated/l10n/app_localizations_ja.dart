@@ -58,6 +58,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get titleLabel => 'タイトル';
 
   @override
+  String get noteLabel => 'ノート';
+
+  @override
   String get taskDetailTitle => 'タスク詳細';
 
   @override
@@ -79,8 +82,54 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String taskDueAt(String dueAt) {
+    return '期限: $dueAt';
+  }
+
+  @override
   String taskCreatedAt(int createdAt) {
     return '作成日時: $createdAt';
+  }
+
+  @override
+  String get editTaskTooltip => 'タスクを編集';
+
+  @override
+  String get editTaskTitle => 'タスクを編集';
+
+  @override
+  String get priorityLabel => '優先度';
+
+  @override
+  String get priorityNone => 'なし';
+
+  @override
+  String get priorityLow => '低';
+
+  @override
+  String get priorityMedium => '中';
+
+  @override
+  String get priorityHigh => '高';
+
+  @override
+  String get dueDateLabel => '期限日';
+
+  @override
+  String get setDueDateButton => '日付を設定';
+
+  @override
+  String get clearDueDateButton => '日付をクリア';
+
+  @override
+  String get saveButton => '保存';
+
+  @override
+  String get titleRequiredError => 'タイトルは必須です。';
+
+  @override
+  String failedToSaveTask(String error) {
+    return 'タスクの保存に失敗しました: $error';
   }
 
   @override

@@ -8,7 +8,8 @@ use std::{
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
     delete_task as domain_delete_task, new_list, new_task, restore_task as domain_restore_task,
-    transition_task, List, Task, TaskStatus, Uuid,
+    transition_task, update_due_at, update_note, update_priority, update_title, List, Task,
+    TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
@@ -156,6 +157,33 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
             .list_active_by_list(list_id)
             .map_err(|error| error.to_string())
             .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
+pub fn update_task(
+    task_id: String,
+    title: String,
+    note: String,
+    priority: i32,
+    due_at: Option<i64>,
+) -> Result<TaskDto, String> {
+    if !(0..=3).contains(&priority) {
+        return Err("task priority must be between 0 and 3".to_string());
+    }
+
+    let task_id = parse_uuid(&task_id)?;
+    let now_ms = now_ms()?;
+
+    with_task_repository(|repository| {
+        let task = repository.get(task_id).map_err(|error| error.to_string())?;
+        let task = update_title(task, title, now_ms).map_err(|error| error.to_string())?;
+        let task = update_note(task, note, now_ms).map_err(|error| error.to_string())?;
+        let task = update_priority(task, priority, now_ms).map_err(|error| error.to_string())?;
+        let updated = update_due_at(task, due_at, now_ms).map_err(|error| error.to_string())?;
+        repository
+            .update(updated.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(task_to_dto(updated))
     })
 }
 

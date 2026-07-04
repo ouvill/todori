@@ -66,6 +66,45 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
+  Future<TaskDto> updateTask({
+    required String taskId,
+    required String title,
+    required String note,
+    required int priority,
+    int? dueAt,
+  }) async {
+    if (title.trim().isEmpty) {
+      throw Exception('task title must not be empty');
+    }
+    if (priority < 0 || priority > 3) {
+      throw Exception('task priority must be between 0 and 3');
+    }
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    final task = _tasks[index];
+    final updated = TaskDto(
+      id: task.id,
+      listId: task.listId,
+      parentTaskId: task.parentTaskId,
+      title: title,
+      note: note,
+      status: task.status,
+      priority: priority,
+      dueAt: dueAt,
+      scheduledAt: task.scheduledAt,
+      estimatedMinutes: task.estimatedMinutes,
+      sortOrder: task.sortOrder,
+      completedAt: task.completedAt,
+      closedReason: task.closedReason,
+      deletedAt: task.deletedAt,
+      assignee: task.assignee,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt + 1,
+    );
+    _tasks[index] = updated;
+    return updated;
+  }
+
+  @override
   Future<TaskDto> setTaskStatus({
     required String taskId,
     required String status,
@@ -105,20 +144,25 @@ class FakeBridgeService implements BridgeService {
 
 extension _TaskDtoCopy on TaskDto {
   TaskDto _copyWith({
+    String? title,
+    String? note,
     String? status,
+    int? priority,
+    int? dueAt,
     int? completedAt,
     String? closedReason,
     int? deletedAt,
+    int? updatedAt,
   }) {
     return TaskDto(
       id: id,
       listId: listId,
       parentTaskId: parentTaskId,
-      title: title,
-      note: note,
+      title: title ?? this.title,
+      note: note ?? this.note,
       status: status ?? this.status,
-      priority: priority,
-      dueAt: dueAt,
+      priority: priority ?? this.priority,
+      dueAt: dueAt ?? this.dueAt,
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
       sortOrder: sortOrder,
@@ -127,7 +171,7 @@ extension _TaskDtoCopy on TaskDto {
       deletedAt: deletedAt ?? this.deletedAt,
       assignee: assignee,
       createdAt: createdAt,
-      updatedAt: updatedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -256,5 +300,69 @@ void main() {
 
     final updatedCheckbox = tester.widget<Checkbox>(find.byType(Checkbox));
     expect(updatedCheckbox.value, isTrue);
+  });
+
+  testWidgets('editing a task updates detail, list, and fake bridge state', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Buy oat milk');
+    await tester.enterText(find.byType(TextFormField).at(1), 'Shelf-stable');
+    await tester.tap(find.text('None'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('High').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Buy oat milk'), findsOneWidget);
+    expect(find.text('Shelf-stable'), findsOneWidget);
+    expect(find.text('Priority: 3'), findsOneWidget);
+
+    final listId = (await fake.getLists()).first.id;
+    final active = await fake.getTasks(listId: listId);
+    expect(active.single.title, 'Buy oat milk');
+    expect(active.single.note, 'Shelf-stable');
+    expect(active.single.priority, 3);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Buy oat milk'), findsOneWidget);
+  });
+
+  testWidgets('empty title in edit dialog shows validation error', (
+    tester,
+  ) async {
+    await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, '   ');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Title is required.'), findsOneWidget);
+    expect(find.text('Buy milk'), findsWidgets);
   });
 }

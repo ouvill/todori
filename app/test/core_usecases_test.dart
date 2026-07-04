@@ -84,4 +84,71 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test(
+    'updateTask persists editable task fields through Rust bridge',
+    () async {
+      final list = await createList(name: 'Editing', sortOrder: 'd0');
+      final task = await createTask(
+        listId: list.id,
+        title: 'Draft title',
+        sortOrder: 'a0',
+      );
+      const dueAt = 1782864000000;
+
+      final updated = await updateTask(
+        taskId: task.id,
+        title: 'Updated title',
+        note: 'Updated note',
+        priority: 2,
+        dueAt: dueAt,
+      );
+
+      expect(updated.id, task.id);
+      expect(updated.title, 'Updated title');
+      expect(updated.note, 'Updated note');
+      expect(updated.priority, 2);
+      expect(updated.dueAt, dueAt);
+      expect(updated.updatedAt, greaterThanOrEqualTo(task.updatedAt));
+
+      final persisted = (await getTasks(
+        listId: list.id,
+      )).singleWhere((entry) => entry.id == task.id);
+      expect(persisted.title, 'Updated title');
+      expect(persisted.note, 'Updated note');
+      expect(persisted.priority, 2);
+      expect(persisted.dueAt, dueAt);
+
+      final cleared = await updateTask(
+        taskId: task.id,
+        title: 'Updated title',
+        note: '',
+        priority: 0,
+        dueAt: null,
+      );
+      expect(cleared.note, '');
+      expect(cleared.priority, 0);
+      expect(cleared.dueAt, isNull);
+    },
+  );
+
+  test('updateTask rejects priority outside 0 through 3', () async {
+    final list = await createList(name: 'Priority validation', sortOrder: 'e0');
+    final task = await createTask(
+      listId: list.id,
+      title: 'Reject invalid priority',
+      sortOrder: 'a0',
+    );
+
+    expect(
+      () => updateTask(
+        taskId: task.id,
+        title: task.title,
+        note: task.note,
+        priority: 4,
+        dueAt: null,
+      ),
+      throwsA(anything),
+    );
+  });
 }

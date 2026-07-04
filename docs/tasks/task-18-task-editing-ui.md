@@ -1,5 +1,8 @@
 # task-18: タスク編集UI
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 `docs/07_Phase1計画書.md` のM3-02は「タスクCRUD UIを実装する」を定義しており、完了条件は「画面からタスク作成/編集/削除/復元ができ、DBに反映されること」である。task-09までに、リスト一覧→タスク一覧→タスク詳細の画面骨格、タスク作成、done遷移、論理削除（ゴミ箱へ移動）は実装済みである。一方、タスク詳細画面で既存タスクの `title` / `note` / `priority` / `due_at` を編集するUIと、Dart/FRB経由でそれをDBへ永続化するAPIは未実装である。
@@ -147,3 +150,84 @@
 - 追加/更新したテスト
 - 品質ゲート6点の実行結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+- 作業日: 2026-07-04
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/task-18-task-editing-ui.md`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `core/domain/src/usecases.rs`
+  - `app/tool/check_hardcoded_strings.sh`
+- 追加/変更したRust bridge API:
+  - `app/rust/src/api.rs` に `update_task(task_id, title, note, priority, due_at) -> Result<TaskDto, String>` を追加済み。
+  - `TaskRepository::get` で既存タスクを取得し、`update_title` / `update_note` / `update_priority` / `update_due_at` を順に適用して `TaskRepository::update` で永続化する。
+  - `priority` は bridge 層で `0..=3` の範囲外を `task priority must be between 0 and 3` として拒否する。
+  - `updated_at` は1回取得した `now_ms` を各 field update に渡すため、複数フィールド更新時は同一タイムスタンプになる。
+- FRB再生成の結果:
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行し、`app/lib/src/rust/**` と `app/rust/src/frb_generated.rs` を再生成した。
+  - 生成物は手編集していない。
+- 追加/変更したDart provider / service:
+  - `BridgeService` / `FrbBridgeService` に `updateTask` を追加済み。
+  - `TasksNotifier.updateTask` は bridge 呼び出し後に `ref.invalidateSelf()` で該当 list の `tasksProvider` を再取得する。`taskDetailProvider` は `tasksProvider` 由来のため更新に追随する。
+- 編集UIの仕様:
+  - `TaskDetailScreen` の AppBar に編集アイコンを追加し、編集ダイアログから保存する。
+  - `title` は trim 後の空文字を保存不可とし、フォームエラーを表示する。
+  - `note` は空文字を許可する。
+  - `priority` は `None` / `Low` / `Medium` / `High` のドロップダウンで `0` / `1` / `2` / `3` を送る。
+  - `due_at` は `Set date` で日付選択、`Clear date` で `null` クリアできる。
+- due_atのepoch milliseconds変換方針:
+  - `showDatePicker` の選択日をローカル日付の `DateTime(year, month, day)` として扱い、その日のローカル 00:00 の `millisecondsSinceEpoch` を bridge に渡す。
+  - 表示時は保存済み epoch milliseconds をローカル日時へ戻し、`yyyy-MM-dd` 形式で表示する。
+- priorityの扱い:
+  - `0 = none`, `1 = low`, `2 = medium`, `3 = high` 相当。
+  - UI はドロップダウンで範囲外入力を作らない。
+  - bridge 層も `0..=3` 以外を拒否する。
+- 追加したi18nキー:
+  - `noteLabel`
+  - `taskDueAt`
+  - `editTaskTooltip`
+  - `editTaskTitle`
+  - `priorityLabel`
+  - `priorityNone`
+  - `priorityLow`
+  - `priorityMedium`
+  - `priorityHigh`
+  - `dueDateLabel`
+  - `setDueDateButton`
+  - `clearDueDateButton`
+  - `saveButton`
+  - `titleRequiredError`
+  - `failedToSaveTask`
+- 追加/更新したテスト:
+  - `app/test/widget_test.dart`
+    - `FakeBridgeService.updateTask` を追加。
+    - 詳細画面から title / note / priority を編集し、詳細・一覧・FakeBridgeService 状態へ反映されるテストを追加。
+    - 空 title 保存でフォームエラーが表示されるテストを追加。
+  - `app/test/core_usecases_test.dart`
+    - 実DB/FRB経由で `updateTask` が title / note / priority / dueAt を永続化し、dueAt の `null` クリアも反映されるテストを追加。
+    - priority 範囲外エラーのテストを追加。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: 成功
+  - `cargo clippy --workspace -- -D warnings`: 成功
+  - `cargo test --workspace`: 成功
+  - `cd app && flutter gen-l10n`: 成功
+  - `cd app && flutter analyze`: 成功
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+  - `cd app && flutter test`: 成功
+  - `sh app/tool/check_hardcoded_strings.sh`: 成功
+  - `git -C todori diff --check`: 成功
+- 補足:
+  - Flutter/Dart ツールはサンドボックス内では SDK cache への書き込み権限で失敗したため、承認付き実行で `dart format` / `flutter gen-l10n` / `flutter_rust_bridge_codegen generate` / `flutter analyze` / `flutter test` を実行した。
+- 未解決事項・要人間判断:
+  - なし。
