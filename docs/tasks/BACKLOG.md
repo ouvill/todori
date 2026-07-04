@@ -13,6 +13,7 @@
 - **公開前security policy整備済み**: task-15で `SECURITY.md`、README/CONTRIBUTING導線、private vulnerability reporting利用方針を追加済み。GitHub public repository化時にprivate vulnerability reportingを有効化し、代替連絡先を確定する必要がある。
 - **品質ゲート復旧済み**: task-16で `flutter analyze` がmacOS build artifact内の古いcargokit参照を拾う問題を調査し、`app/analysis_options.yaml` の `build/**` 除外で復旧した。
 - **iOS検証**: Simulator上で `todori-crypto` 全17テスト・`todori-storage` 全10テストが成功、実機ターゲットのリンクも成功済み（`docs/07_Phase1計画書.md` §3補足参照）。
+- **iOS Flutter実行検証済み**: task-17で iPhone 15 Pro Simulator（iOS 17.0）上の `flutter run --debug` が成功。CocoaPods / Cargokit / Xcode build / FRB loader / SQLCipher DB作成まで到達し、`app/ios/Podfile.lock` とPods接続済みworkspace/projectを追加した。Swift Package Manager未対応警告は後続検討事項。
 - **テスト数**: Rust 62 / Flutter 11（いずれも最新の完了報告時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
@@ -20,14 +21,13 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | iOS Simulatorでflutter run検証 | cargokitのiOS podspec実証（`app/rust_builder/ios/todori_app_bridge.podspec` 同梱済み）。macOSで踏んだ地雷は解決済みのため短期決着見込み | M2残 | Simulator起動には `xcrun simctl` を用いる。署名不要 |
-| 2 | タスク編集UI | タスク詳細画面での `title`/`note`/`priority`/`due_at` 編集。ブリッジにupdate系APIを追加（FRB再生成が必要） | M3-02 | |
-| 3 | サブタスク表示・作成 | `validate_parent`（`core/domain` 実装済み）のブリッジ公開とUI実装 | M3-03相当 | |
-| 4 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
-| 5 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
-| 6 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 7 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 8 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | タスク編集UI | タスク詳細画面での `title`/`note`/`priority`/`due_at` 編集。ブリッジにupdate系APIを追加（FRB再生成が必要） | M3-02 | |
+| 2 | サブタスク表示・作成 | `validate_parent`（`core/domain` 実装済み）のブリッジ公開とUI実装 | M3-03相当 | |
+| 3 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
+| 4 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
+| 5 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 6 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 7 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
