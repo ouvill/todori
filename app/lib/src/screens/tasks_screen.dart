@@ -5,6 +5,9 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
+import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/states.dart';
+import 'package:todori/src/ui/task_components.dart';
 
 /// The task list screen for a single list (route
 /// `/lists/:listId/tasks`).
@@ -25,12 +28,16 @@ class TasksScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: Text(l10n.tasksTitle)),
       body: tasksAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const AppLoadingState(),
         error: (error, stackTrace) =>
-            Center(child: Text(l10n.failedToLoadTasks(error.toString()))),
+            AppErrorState(message: l10n.failedToLoadTasks(error.toString())),
         data: (tasks) {
           if (tasks.isEmpty) {
-            return Center(child: Text(l10n.tasksEmpty));
+            return AppEmptyState(
+              icon: Icons.checklist_outlined,
+              title: l10n.tasksEmptyTitle,
+              body: l10n.tasksEmptyBody,
+            );
           }
           final nodes = flattenTaskTree(buildTaskTree(tasks));
           return ListView.builder(
@@ -39,29 +46,18 @@ class TasksScreen extends ConsumerWidget {
               final node = nodes[index];
               final task = node.task;
               final stats = descendantStatsOf(task.id, tasks);
-              final depth = node.depth > 4 ? 4 : node.depth;
-              return ListTile(
+              return AppTaskRow(
                 key: ValueKey('task-row-${task.id}'),
-                contentPadding: EdgeInsetsDirectional.only(
-                  start: 16 + (depth * 24),
-                  end: 16,
+                checkboxKey: ValueKey('task-done-${task.id}'),
+                title: task.title,
+                isDone: task.status == 'done',
+                depth: node.depth,
+                metadata: taskMetadataItemsFor(
+                  l10n: l10n,
+                  task: task,
+                  stats: stats,
                 ),
-                leading: Checkbox(
-                  key: ValueKey('task-done-${task.id}'),
-                  value: task.status == 'done',
-                  onChanged: (checked) {
-                    if (checked == true) {
-                      _completeTask(context, ref, task, tasks);
-                    }
-                  },
-                ),
-                title: Text(task.title),
-                subtitle: stats.hasDescendants
-                    ? Text(
-                        l10n.subtaskProgress(stats.doneCount, stats.totalCount),
-                      )
-                    : null,
-                trailing: const Icon(Icons.chevron_right),
+                onToggleDone: () => _completeTask(context, ref, task, tasks),
                 onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
               );
             },
@@ -77,9 +73,13 @@ class TasksScreen extends ConsumerWidget {
   }
 
   Future<void> _createTask(BuildContext context, WidgetRef ref) async {
-    final title = await showDialog<String>(
+    final l10n = AppLocalizations.of(context)!;
+    final title = await showAppTextInputDialog(
       context: context,
-      builder: (context) => const _NewTaskDialog(),
+      title: l10n.newTaskTitle,
+      label: l10n.titleLabel,
+      cancelLabel: l10n.cancelButton,
+      submitLabel: l10n.createButton,
     );
     if (title == null || title.trim().isEmpty) {
       return;
@@ -94,72 +94,19 @@ class TasksScreen extends ConsumerWidget {
     List<TaskDto> tasks,
   ) async {
     if (hasIncompleteDescendants(task.id, tasks)) {
-      final confirmed = await showDialog<bool>(
+      final l10n = AppLocalizations.of(context)!;
+      final confirmed = await showAppConfirmDialog(
         context: context,
-        builder: (context) {
-          final l10n = AppLocalizations.of(context)!;
-          return AlertDialog(
-            title: Text(l10n.completeTaskDialogTitle),
-            content: Text(l10n.completeTaskDialogMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(l10n.cancelButton),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(l10n.continueButton),
-              ),
-            ],
-          );
-        },
+        title: l10n.completeTaskDialogTitle,
+        message: l10n.completeTaskDialogMessage,
+        cancelLabel: l10n.cancelButton,
+        confirmLabel: l10n.continueButton,
       );
-      if (confirmed != true) {
+      if (!confirmed) {
         return;
       }
     }
 
     await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
-  }
-}
-
-class _NewTaskDialog extends StatefulWidget {
-  const _NewTaskDialog();
-
-  @override
-  State<_NewTaskDialog> createState() => _NewTaskDialogState();
-}
-
-class _NewTaskDialogState extends State<_NewTaskDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return AlertDialog(
-      title: Text(l10n.newTaskTitle),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(labelText: l10n.titleLabel),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.cancelButton),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(l10n.createButton),
-        ),
-      ],
-    );
   }
 }

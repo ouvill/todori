@@ -18,6 +18,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listsEmpty => 'No lists yet. Tap + to create one.';
 
   @override
+  String get listsEmptyTitle => 'No lists yet.';
+
+  @override
+  String get listsEmptyBody => 'Tap + to create one.';
+
+  @override
   String failedToLoadLists(String error) {
     return 'Failed to load lists: $error';
   }
@@ -42,6 +48,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';
+
+  @override
+  String get tasksEmptyTitle => 'No tasks yet.';
+
+  @override
+  String get tasksEmptyBody => 'Tap + to create one.';
 
   @override
   String failedToLoadTasks(String error) {
@@ -77,7 +89,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String taskPriority(int priority) {
+  String taskPriority(String priority) {
     return 'Priority: $priority';
   }
 
@@ -119,6 +131,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continueButton => 'Continue';
 
   @override
+  String get statusTodo => 'To do';
+
+  @override
+  String get statusInProgress => 'In progress';
+
+  @override
+  String get statusDone => 'Done';
+
+  @override
+  String get statusWontDo => 'Won\'t do';
+
+  @override
   String get editTaskTooltip => 'Edit task';
 
   @override
@@ -141,6 +165,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dueDateLabel => 'Due date';
+
+  @override
+  String get noDueDate => 'No due date';
 
   @override
   String get setDueDateButton => 'Set date';

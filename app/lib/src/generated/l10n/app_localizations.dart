@@ -116,6 +116,18 @@ abstract class AppLocalizations {
   /// **'No lists yet. Tap + to create one.'**
   String get listsEmpty;
 
+  /// No description provided for @listsEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No lists yet.'**
+  String get listsEmptyTitle;
+
+  /// No description provided for @listsEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap + to create one.'**
+  String get listsEmptyBody;
+
   /// No description provided for @failedToLoadLists.
   ///
   /// In en, this message translates to:
@@ -163,6 +175,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No tasks yet. Tap + to create one.'**
   String get tasksEmpty;
+
+  /// No description provided for @tasksEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No tasks yet.'**
+  String get tasksEmptyTitle;
+
+  /// No description provided for @tasksEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap + to create one.'**
+  String get tasksEmptyBody;
 
   /// No description provided for @failedToLoadTasks.
   ///
@@ -222,7 +246,7 @@ abstract class AppLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Priority: {priority}'**
-  String taskPriority(int priority);
+  String taskPriority(String priority);
 
   /// No description provided for @taskDueAt.
   ///
@@ -284,6 +308,30 @@ abstract class AppLocalizations {
   /// **'Continue'**
   String get continueButton;
 
+  /// No description provided for @statusTodo.
+  ///
+  /// In en, this message translates to:
+  /// **'To do'**
+  String get statusTodo;
+
+  /// No description provided for @statusInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get statusInProgress;
+
+  /// No description provided for @statusDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get statusDone;
+
+  /// No description provided for @statusWontDo.
+  ///
+  /// In en, this message translates to:
+  /// **'Won\'t do'**
+  String get statusWontDo;
+
   /// No description provided for @editTaskTooltip.
   ///
   /// In en, this message translates to:
@@ -331,6 +379,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Due date'**
   String get dueDateLabel;
+
+  /// No description provided for @noDueDate.
+  ///
+  /// In en, this message translates to:
+  /// **'No due date'**
+  String get noDueDate;
 
   /// No description provided for @setDueDateButton.
   ///

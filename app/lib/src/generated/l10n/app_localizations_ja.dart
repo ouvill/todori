@@ -18,6 +18,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get listsEmpty => 'リストがありません。+をタップして作成してください。';
 
   @override
+  String get listsEmptyTitle => 'リストがありません。';
+
+  @override
+  String get listsEmptyBody => '+をタップして作成してください。';
+
+  @override
   String failedToLoadLists(String error) {
     return 'リストの読み込みに失敗しました: $error';
   }
@@ -42,6 +48,12 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';
+
+  @override
+  String get tasksEmptyTitle => 'タスクがありません。';
+
+  @override
+  String get tasksEmptyBody => '+をタップして作成してください。';
 
   @override
   String failedToLoadTasks(String error) {
@@ -77,7 +89,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String taskPriority(int priority) {
+  String taskPriority(String priority) {
     return '優先度: $priority';
   }
 
@@ -119,6 +131,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get continueButton => '続行';
 
   @override
+  String get statusTodo => '未着手';
+
+  @override
+  String get statusInProgress => '進行中';
+
+  @override
+  String get statusDone => '完了';
+
+  @override
+  String get statusWontDo => '対応しない';
+
+  @override
   String get editTaskTooltip => 'タスクを編集';
 
   @override
@@ -141,6 +165,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get dueDateLabel => '期限日';
+
+  @override
+  String get noDueDate => '期限なし';
 
   @override
   String get setDueDateButton => '日付を設定';

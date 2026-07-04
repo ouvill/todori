@@ -37,7 +37,7 @@
 | task-17 | 完了 | [task-17-ios-simulator-flutter-run.md](./task-17-ios-simulator-flutter-run.md) | iOS Simulatorで `flutter run` を実行し、Cargokit / CocoaPods / Xcode / FRB / SQLCipher のアプリ起動パイプラインを検証する | task-08〜11・task-16の成果物に依存。M2残のiOSビルド組み込み検証 |
 | task-18 | 完了 | [task-18-task-editing-ui.md](./task-18-task-editing-ui.md) | タスク詳細画面で `title` / `note` / `priority` / `due_at` を編集し、ブリッジ更新API経由でDBへ反映する | task-08〜10の成果物に依存。M3-02のタスク編集部分 |
 | task-19 | 完了 | [task-19-subtasks-ui.md](./task-19-subtasks-ui.md) | サブタスク表示・作成。`validate_parent` / `validate_parent_for` を使うブリッジ公開と、階層表示・進捗表示・親完了確認UIを実装する | task-08〜10・task-18の成果物に依存。M3-03相当 |
-| task-20 | 未着手 | [task-20-ui-foundation.md](./task-20-ui-foundation.md) | task-18/19後のUI文法を整える。ThemeData、共通task row/metadata、空状態、ダイアログ、既存Lists/Tasks/TaskDetailの見た目を小さく整理する | task-18・task-19の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前のUI基盤整備 |
+| task-20 | 完了 | [task-20-ui-foundation.md](./task-20-ui-foundation.md) | task-18/19後のUI文法を整える。ThemeData、共通task row/metadata、空状態、ダイアログ、既存Lists/Tasks/TaskDetailの見た目を小さく整理する | task-18・task-19の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前のUI基盤整備 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

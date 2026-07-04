@@ -10,6 +10,7 @@ import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
+import 'package:todori/src/ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,6 +65,8 @@ class TodoriApp extends StatelessWidget {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+        theme: buildTodoriTheme(Brightness.light),
+        darkTheme: buildTodoriTheme(Brightness.dark),
         home: Scaffold(
           body: Center(
             child: Padding(
@@ -87,10 +90,8 @@ class TodoriApp extends StatelessWidget {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-          useMaterial3: true,
-        ),
+        theme: buildTodoriTheme(Brightness.light),
+        darkTheme: buildTodoriTheme(Brightness.dark),
         routerConfig: router,
       ),
     );

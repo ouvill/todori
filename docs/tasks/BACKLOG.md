@@ -16,6 +16,7 @@
 - **iOS Flutter実行検証済み**: task-17で iPhone 15 Pro Simulator（iOS 17.0）上の `flutter run --debug` が成功。CocoaPods / Cargokit / Xcode build / FRB loader / SQLCipher DB作成まで到達し、`app/ios/Podfile.lock` とPods接続済みworkspace/projectを追加した。Swift Package Manager未対応警告は後続検討事項。
 - **タスク編集UI実装済み**: task-18でタスク詳細画面から `title` / `note` / `priority` / `due_at` を編集し、FRB更新API経由でDBへ永続化できるようにした。priorityは `0..3`、due dateは設定/クリアに対応。
 - **サブタスク表示・作成実装済み**: task-19で親ID付き `create_task`、3階層以上の階層表示、子孫全体の進捗表示、詳細画面からのサブタスク作成、未完了子孫がある親完了時の確認ダイアログを追加した。
+- **UI基盤整備済み**: task-20で `ThemeData`、共通task row/metadata、空状態、loading/error、入力/確認ダイアログの小さな共通部品を追加し、Lists / Tasks / TaskDetail の見た目と文法を整理した。
 - **テスト数**: Rust 62 / Flutter 20（いずれも最新の完了報告時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
@@ -23,12 +24,11 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | UI基盤整備 | `ThemeData`、共通task row/metadata、空状態、ダイアログ、既存Lists/Tasks/TaskDetailの見た目を小さく整理する | M3-02〜M3-05 / M4-03相当 | task-18/19後のUI基盤整備。ゴミ箱画面・復元UI以降へ進む前に実施 |
-| 2 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
-| 3 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
-| 4 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 5 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 6 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
+| 2 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
+| 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 5 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

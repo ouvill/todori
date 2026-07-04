@@ -260,7 +260,7 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('Status: todo'), findsOneWidget);
+    expect(find.text('Status: To do'), findsOneWidget);
   });
 
   testWidgets('creating a list via the FAB dialog updates the list', (
@@ -454,7 +454,7 @@ void main() {
 
     expect(find.text('Buy oat milk'), findsOneWidget);
     expect(find.text('Shelf-stable'), findsOneWidget);
-    expect(find.text('Priority: 3'), findsOneWidget);
+    expect(find.text('Priority: High'), findsOneWidget);
 
     final listId = (await fake.getLists()).first.id;
     final active = await fake.getTasks(listId: listId);

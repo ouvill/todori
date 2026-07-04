@@ -3,6 +3,8 @@
   "appTitle": "Todori",
   "listsTitle": "Lists",
   "listsEmpty": "No lists yet. Tap + to create one.",
+  "listsEmptyTitle": "No lists yet.",
+  "listsEmptyBody": "Tap + to create one.",
   "failedToLoadLists": "Failed to load lists: {error}",
   "@failedToLoadLists": {
     "placeholders": {
@@ -18,6 +20,8 @@
   "createButton": "Create",
   "tasksTitle": "Tasks",
   "tasksEmpty": "No tasks yet. Tap + to create one.",
+  "tasksEmptyTitle": "No tasks yet.",
+  "tasksEmptyBody": "Tap + to create one.",
   "failedToLoadTasks": "Failed to load tasks: {error}",
   "@failedToLoadTasks": {
     "placeholders": {
@@ -52,7 +56,7 @@
   "@taskPriority": {
     "placeholders": {
       "priority": {
-        "type": "int"
+        "type": "String"
       }
     }
   },
@@ -90,6 +94,10 @@
   "completeTaskDialogTitle": "Complete parent task?",
   "completeTaskDialogMessage": "This task has incomplete subtasks. Completing it will not complete its subtasks.",
   "continueButton": "Continue",
+  "statusTodo": "To do",
+  "statusInProgress": "In progress",
+  "statusDone": "Done",
+  "statusWontDo": "Won't do",
   "editTaskTooltip": "Edit task",
   "editTaskTitle": "Edit task",
   "priorityLabel": "Priority",
@@ -98,6 +106,7 @@
   "priorityMedium": "Medium",
   "priorityHigh": "High",
   "dueDateLabel": "Due date",
+  "noDueDate": "No due date",
   "setDueDateButton": "Set date",
   "clearDueDateButton": "Clear date",
   "saveButton": "Save",

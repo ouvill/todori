@@ -5,6 +5,10 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
+import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/states.dart';
+import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/theme.dart';
 
 /// The task detail screen (route `/lists/:listId/tasks/:taskId`).
 ///
@@ -47,82 +51,94 @@ class TaskDetailScreen extends ConsumerWidget {
         ],
       ),
       body: tasksAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const AppLoadingState(),
         error: (error, stackTrace) =>
-            Center(child: Text(l10n.failedToLoadTask(error.toString()))),
+            AppErrorState(message: l10n.failedToLoadTask(error.toString())),
         data: (tasks) {
           final task = _findTaskById(tasks, taskId);
           if (task == null) {
-            return Center(child: Text(l10n.taskNotFound));
+            return AppEmptyState(
+              icon: Icons.search_off_outlined,
+              title: l10n.taskNotFound,
+            );
           }
           final stats = descendantStatsOf(task.id, tasks);
           final subtasks = directSubtasksOf(task.id, tasks);
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.md),
             children: [
               Text(
                 task.title,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               if (task.note.isNotEmpty) Text(task.note),
-              const SizedBox(height: 16),
-              Text(l10n.taskStatus(task.status)),
-              Text(l10n.taskPriority(task.priority)),
-              Text(l10n.taskDueAt(_formatDueAt(task.dueAt))),
+              const SizedBox(height: AppSpacing.md),
+              TaskMetadata(
+                items: taskMetadataItemsFor(
+                  l10n: l10n,
+                  task: task,
+                  stats: stats,
+                  includeNoDueDate: true,
+                  includePriorityNone: true,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
               Text(l10n.taskCreatedAt(task.createdAt)),
-              if (stats.hasDescendants)
-                Text(l10n.subtaskProgress(stats.doneCount, stats.totalCount)),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.lg),
               Text(
                 l10n.subtasksTitle,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               if (subtasks.isEmpty)
-                Text(l10n.subtasksEmpty)
+                AppEmptyState(
+                  icon: Icons.account_tree_outlined,
+                  title: l10n.subtasksEmpty,
+                )
               else
                 for (final subtask in subtasks)
-                  ListTile(
+                  Builder(
                     key: ValueKey('subtask-row-${subtask.id}'),
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(
-                      subtask.status == 'done'
-                          ? Icons.check_circle_outline
-                          : Icons.radio_button_unchecked,
-                    ),
-                    title: Text(subtask.title),
-                    subtitle:
-                        descendantStatsOf(subtask.id, tasks).hasDescendants
-                        ? Text(
-                            l10n.subtaskProgress(
-                              descendantStatsOf(subtask.id, tasks).doneCount,
-                              descendantStatsOf(subtask.id, tasks).totalCount,
-                            ),
-                          )
-                        : null,
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () =>
-                        context.push('/lists/$listId/tasks/${subtask.id}'),
+                    builder: (context) {
+                      final subtaskStats = descendantStatsOf(subtask.id, tasks);
+                      return AppTaskRow(
+                        title: subtask.title,
+                        isDone: subtask.status == 'done',
+                        metadata: taskMetadataItemsFor(
+                          l10n: l10n,
+                          task: subtask,
+                          stats: subtaskStats,
+                        ),
+                        onTap: () =>
+                            context.push('/lists/$listId/tasks/${subtask.id}'),
+                      );
+                    },
                   ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.add),
-                label: Text(l10n.addSubtaskButton),
-                onPressed: () => _createSubtask(context, ref, task),
+              const SizedBox(height: AppSpacing.sm),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.add),
+                  label: Text(l10n.addSubtaskButton),
+                  onPressed: () => _createSubtask(context, ref, task),
+                ),
               ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.delete_outline),
-                label: Text(l10n.moveToTrashButton),
-                onPressed: () async {
-                  await ref
-                      .read(tasksProvider(listId).notifier)
-                      .trashTask(task.id);
-                  if (context.mounted) {
-                    context.pop();
-                  }
-                },
+              const SizedBox(height: AppSpacing.lg),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Icons.delete_outline),
+                  label: Text(l10n.moveToTrashButton),
+                  onPressed: () async {
+                    await ref
+                        .read(tasksProvider(listId).notifier)
+                        .trashTask(task.id);
+                    if (context.mounted) {
+                      context.pop();
+                    }
+                  },
+                ),
               ),
             ],
           );
@@ -136,9 +152,13 @@ class TaskDetailScreen extends ConsumerWidget {
     WidgetRef ref,
     TaskDto task,
   ) async {
-    final title = await showDialog<String>(
+    final l10n = AppLocalizations.of(context)!;
+    final title = await showAppTextInputDialog(
       context: context,
-      builder: (context) => const _NewSubtaskDialog(),
+      title: l10n.newSubtaskTitle,
+      label: l10n.titleLabel,
+      cancelLabel: l10n.cancelButton,
+      submitLabel: l10n.createButton,
     );
     if (title == null || title.trim().isEmpty) {
       return;
@@ -171,58 +191,6 @@ class TaskDetailScreen extends ConsumerWidget {
       ),
     );
   }
-}
-
-class _NewSubtaskDialog extends StatefulWidget {
-  const _NewSubtaskDialog();
-
-  @override
-  State<_NewSubtaskDialog> createState() => _NewSubtaskDialogState();
-}
-
-class _NewSubtaskDialogState extends State<_NewSubtaskDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return AlertDialog(
-      title: Text(l10n.newSubtaskTitle),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(labelText: l10n.titleLabel),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.cancelButton),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(l10n.createButton),
-        ),
-      ],
-    );
-  }
-}
-
-String _formatDueAt(int? dueAt) {
-  if (dueAt == null) {
-    return '-';
-  }
-  final date = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
-  final year = date.year.toString().padLeft(4, '0');
-  final month = date.month.toString().padLeft(2, '0');
-  final day = date.day.toString().padLeft(2, '0');
-  return '$year-$month-$day';
 }
 
 TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
@@ -299,14 +267,14 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
                   return null;
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.sm),
               TextFormField(
                 controller: _noteController,
                 decoration: InputDecoration(labelText: l10n.noteLabel),
                 minLines: 2,
                 maxLines: 4,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.sm),
               DropdownButtonFormField<int>(
                 initialValue: _priority,
                 decoration: InputDecoration(labelText: l10n.priorityLabel),
@@ -322,13 +290,13 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
                   }
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.md),
               Text(l10n.dueDateLabel),
-              const SizedBox(height: 4),
-              Text(l10n.taskDueAt(_formatDueAt(_dueAt))),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.xs),
+              Text(l10n.taskDueAt(formatDueDate(l10n, _dueAt))),
+              const SizedBox(height: AppSpacing.sm),
               Wrap(
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   OutlinedButton.icon(
                     icon: const Icon(Icons.event_outlined),
@@ -345,7 +313,7 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
                 ],
               ),
               if (_error != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpacing.sm),
                 Text(
                   l10n.failedToSaveTask(_error!),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),

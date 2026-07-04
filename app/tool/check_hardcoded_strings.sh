@@ -6,6 +6,7 @@ set -eu
 # Scope:
 # - app/lib/main.dart
 # - app/lib/src/screens/*.dart
+# - app/lib/src/ui/*.dart
 #
 # Patterns:
 # - Text('...') / Text("...")
@@ -19,7 +20,7 @@ set -eu
 #   debug logs are outside this task's detection scope.
 
 root_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-targets="$root_dir/lib/main.dart $root_dir/lib/src/screens"
+targets="$root_dir/lib/main.dart $root_dir/lib/src/screens $root_dir/lib/src/ui"
 
 matches="$(
   grep -RInE \

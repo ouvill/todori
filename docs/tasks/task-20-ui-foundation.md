@@ -1,5 +1,8 @@
 # task-20: UI基盤整備
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 `docs/07_Phase1計画書.md` のM3では、タスクCRUD、サブタスク、ゴミ箱・復元、Undo、並び替えを順に実装してMVPのタスク操作を完成させる。task-18でタスク詳細編集、task-19でサブタスク表示・作成・進捗・親完了確認が追加され、画面上の情報量と操作導線が増えた。
@@ -166,3 +169,128 @@ task-18/19後の既存UIを小さく整え、後続のゴミ箱画面・復元UI
 - 品質ゲート6点と `check_hardcoded_strings.sh` の実行結果
 - やらなかったことが守られていること（新規依存なし、Rust/FRB/DB/domain変更なし、ゴミ箱/Undo/並び替え/通知未実装）
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+- 作業日: 2026-07-04
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/PLAYBOOK.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/02_機能仕様書.md` F-02 / F-05 / F-06 / F-07 / F-48 / F-49
+  - `docs/07_Phase1計画書.md` M2-03 / M2-04 / M3-02 / M3-03 / M3-04 / M3-05 / M4-03
+  - `docs/tasks/task-09-ui-skeleton.md`
+  - `docs/tasks/task-10-i18n.md`
+  - `docs/tasks/task-18-task-editing-ui.md`
+  - `docs/tasks/task-19-subtasks-ui.md`
+  - `app/lib/main.dart`
+  - `app/lib/src/router.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/core/task_tree.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/widget_test.dart`
+  - `app/test/l10n_test.dart`
+  - `app/tool/check_hardcoded_strings.sh`
+
+### 実装結果
+
+- `app/lib/src/ui/theme.dart` を追加し、Material 3 / `ColorScheme.fromSeed` ベースのlight/dark `ThemeData` と8px単位の `AppSpacing` を定義した。
+- `app/lib/main.dart` の `TodoriApp.build` で通常起動時・初期化失敗時の両方に共通themeを適用した。`RustLib.init()` / `initCore()` / DB初期化処理は変更していない。
+- `app/lib/src/ui/states.dart` を追加し、loading / error / empty state の表示文法を共通化した。
+- `app/lib/src/ui/dialogs.dart` を追加し、list/task/subtask作成の入力ダイアログと親完了確認ダイアログを共通化した。
+- `app/lib/src/ui/task_components.dart` を追加し、`AppTaskRow` / `TaskMetadata` / metadata label helperを実装した。`TaskRow` 相当部品は `ValueKey('task-row-${task.id}')`、`ValueKey('task-done-${task.id}')`、`ValueKey('subtask-row-${subtask.id}')` を維持している。
+- `ListsScreen` / `TasksScreen` / `TaskDetailScreen` を共通theme、state、dialog、task row/metadataへ寄せた。
+- `app/tool/check_hardcoded_strings.sh` の検出対象に `app/lib/src/ui/` を追加した。
+
+### ThemeData / color / typography / spacing
+
+- seed colorはエメラルド系 `0xFF10B981` とし、Flutter標準の `ColorScheme.fromSeed` からlight/dark themeを生成した。
+- surface / outline / error / muted text相当は `ColorScheme` の `surface`、`surfaceContainerHighest`、`outlineVariant`、`error`、`onSurfaceVariant` を使う方針にした。
+- typographyは既存 `textTheme` をベースに、AppBar title / headlineSmall / titleMedium / labelMedium のweightを最小限だけ調整した。
+- spacingは `AppSpacing.xs/sm/md/lg/xl` に集約し、既存画面の余白を8px単位へ寄せた。
+
+### 共通UI部品
+
+- `AppTaskRow`: title、done checkbox/status icon、indent、metadata、chevron、tap導線を一貫表示する。
+- `TaskMetadata`: status / priority / due date / subtask progress をicon + textのChipで折り返し可能に表示する。
+- `AppEmptyState`: icon + title + optional body/actionで、空リスト・空タスク・空サブタスク・task not foundの文法を揃えた。
+- `AppLoadingState` / `AppErrorState`: `CircularProgressIndicator` とerror textの画面ごとの差をなくした。
+- `showAppTextInputDialog` / `showAppConfirmDialog`: 作成系入力ダイアログと確認ダイアログのボタン文法を統一した。
+
+### Lists / Tasks / TaskDetail の整理
+
+- Listsは空状態と作成ダイアログを共通部品化し、既存のリスト行と遷移導線を維持した。
+- Tasksは階層表示を `AppTaskRow` へ寄せ、トップレベル/サブタスク、done/todo、metadata、chevronの表示規則を統一した。
+- TaskDetailはタイトル、note、metadata、created_at、サブタスクセクション、追加/削除アクションの間隔を `AppSpacing` へ寄せた。
+- 詳細画面のサブタスク行では `descendantStatsOf(subtask.id, tasks)` の重複呼び出しをやめ、行ごとに一度だけ計算するよう整理した。
+
+### 空状態、loading/error、ダイアログ
+
+- 空リスト・空タスクは共通empty stateでicon + title + bodyを表示する。
+- 空サブタスクとtask not foundも同じempty state文法に寄せた。
+- loading/errorは `AppLoadingState` / `AppErrorState` 経由に統一した。
+- list/task/subtask作成は `showAppTextInputDialog`、未完了子孫を持つ親完了確認は `showAppConfirmDialog` へ統一した。
+
+### status / priority / due date / subtask progress
+
+- statusは内部値 `todo` / `done` をそのまま表示せず、`statusTodo` / `statusInProgress` / `statusDone` / `statusWontDo` のARBラベルへ変換して表示する。
+- priorityは `priorityNone` / `priorityLow` / `priorityMedium` / `priorityHigh` の既存ARBラベルをmetadata表示にも使う。
+- due dateは `formatDueDate` で `yyyy-MM-dd` または `noDueDate` に揃える。
+- subtask progressは既存の `subtaskProgress(doneCount, totalCount)` をmetadata chipで表示する。
+
+### i18n
+
+- 追加/変更したARBキー:
+  - `listsEmptyTitle`
+  - `listsEmptyBody`
+  - `tasksEmptyTitle`
+  - `tasksEmptyBody`
+  - `statusTodo`
+  - `statusInProgress`
+  - `statusDone`
+  - `statusWontDo`
+  - `noDueDate`
+- `taskPriority` のplaceholder型を `int` から `String` に変更し、表示値をローカライズ済みpriority labelへ寄せた。
+- `cd app && flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` 配下を更新した。
+
+### アクセシビリティ
+
+- AppBarの編集アイコン、FAB、既存icon付きボタンのtooltip / labelを維持した。
+- checkboxの `ValueKey('task-done-${task.id}')` と行キーを維持し、widget testから引き続き探索できるようにした。
+- metadataは色だけでなくicon + textでstatus / priority / due / progressを伝える。
+- metadataは `Wrap` で折り返し可能にし、固定heightでテキストを潰さない構成にした。
+
+### テスト
+
+- `app/test/widget_test.dart` の期待値を、status/priorityの表示ラベル変更に合わせて更新した。
+- 既存widget testは、リスト表示、画面遷移、タスク作成、編集、サブタスク表示/作成、親完了確認を引き続き検証している。
+- golden testやスクリーンショット比較基盤は追加していない。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust 62件）。
+- `cd app && flutter gen-l10n`: 成功。
+- `cd app && flutter analyze`: 成功（No issues found）。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
+- `cd app && flutter test`: 成功（Flutter 20件）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功（`main.dart` / `src/screens` / `src/ui` 対象、検出0件）。
+- `git -C todori diff --check`: 成功。
+
+### やらなかったこと
+
+- 新規pub依存・新規Rust依存は追加していない。
+- Rust API、FRB生成物、DB schema、domain usecaseは変更していない。
+- ゴミ箱画面・復元UI、Undo、fractional index、ドラッグ&ドロップ並び替え、通知、タグ、検索UI、設定画面は実装していない。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+- `todori-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
+
+### 未解決事項・要人間判断
+
+- なし。

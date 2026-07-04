@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/states.dart';
 
 /// The lists screen (initial route `/lists`).
 ///
@@ -19,12 +21,16 @@ class ListsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: Text(l10n.listsTitle)),
       body: listsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const AppLoadingState(),
         error: (error, stackTrace) =>
-            Center(child: Text(l10n.failedToLoadLists(error.toString()))),
+            AppErrorState(message: l10n.failedToLoadLists(error.toString())),
         data: (lists) {
           if (lists.isEmpty) {
-            return Center(child: Text(l10n.listsEmpty));
+            return AppEmptyState(
+              icon: Icons.list_alt_outlined,
+              title: l10n.listsEmptyTitle,
+              body: l10n.listsEmptyBody,
+            );
           }
           return ListView.builder(
             itemCount: lists.length,
@@ -48,54 +54,17 @@ class ListsScreen extends ConsumerWidget {
   }
 
   Future<void> _createList(BuildContext context, WidgetRef ref) async {
-    final name = await showDialog<String>(
+    final l10n = AppLocalizations.of(context)!;
+    final name = await showAppTextInputDialog(
       context: context,
-      builder: (context) => const _NewListDialog(),
+      title: l10n.newListTitle,
+      label: l10n.nameLabel,
+      cancelLabel: l10n.cancelButton,
+      submitLabel: l10n.createButton,
     );
     if (name == null || name.trim().isEmpty) {
       return;
     }
     await ref.read(listsProvider.notifier).createList(name.trim());
-  }
-}
-
-class _NewListDialog extends StatefulWidget {
-  const _NewListDialog();
-
-  @override
-  State<_NewListDialog> createState() => _NewListDialogState();
-}
-
-class _NewListDialogState extends State<_NewListDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return AlertDialog(
-      title: Text(l10n.newListTitle),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(labelText: l10n.nameLabel),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.cancelButton),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(l10n.createButton),
-        ),
-      ],
-    );
   }
 }
