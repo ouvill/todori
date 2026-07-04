@@ -110,6 +110,12 @@ abstract class AppLocalizations {
   /// **'Lists'**
   String get listsTitle;
 
+  /// No description provided for @listsSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Lists'**
+  String get listsSectionTitle;
+
   /// No description provided for @listsEmpty.
   ///
   /// In en, this message translates to:
@@ -169,6 +175,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tasks'**
   String get tasksTitle;
+
+  /// No description provided for @todayTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get todayTitle;
+
+  /// No description provided for @homeTasksSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get homeTasksSectionTitle;
+
+  /// No description provided for @homePendingCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} pending'**
+  String homePendingCount(int count);
+
+  /// No description provided for @homeListMenuTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Open lists'**
+  String get homeListMenuTooltip;
+
+  /// No description provided for @homeEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with a list.'**
+  String get homeEmptyTitle;
+
+  /// No description provided for @homeEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a list, then Todori will open straight into your tasks.'**
+  String get homeEmptyBody;
+
+  /// No description provided for @homeNewListButton.
+  ///
+  /// In en, this message translates to:
+  /// **'New list'**
+  String get homeNewListButton;
+
+  /// No description provided for @addTaskButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add task'**
+  String get addTaskButton;
 
   /// No description provided for @tasksEmpty.
   ///

@@ -15,6 +15,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get listsTitle => 'リスト';
 
   @override
+  String get listsSectionTitle => 'リスト';
+
+  @override
   String get listsEmpty => 'リストがありません。+をタップして作成してください。';
 
   @override
@@ -45,6 +48,32 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tasksTitle => 'タスク';
+
+  @override
+  String get todayTitle => '今日';
+
+  @override
+  String get homeTasksSectionTitle => 'タスク';
+
+  @override
+  String homePendingCount(int count) {
+    return '未完了 $count件';
+  }
+
+  @override
+  String get homeListMenuTooltip => 'リストを開く';
+
+  @override
+  String get homeEmptyTitle => 'まずリストを作成';
+
+  @override
+  String get homeEmptyBody => 'リストを作成すると、次回からすぐタスクに入れます。';
+
+  @override
+  String get homeNewListButton => '新しいリスト';
+
+  @override
+  String get addTaskButton => 'タスクを追加';
 
   @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';

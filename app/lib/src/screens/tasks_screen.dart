@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -19,9 +20,16 @@ import 'package:todori/src/ui/theme.dart';
 /// them done and a FAB to create a new one. Tapping a task navigates to its
 /// detail screen.
 class TasksScreen extends ConsumerWidget {
-  const TasksScreen({super.key, required this.listId});
+  const TasksScreen({
+    super.key,
+    required this.listId,
+    this.listName,
+    this.isHome = false,
+  });
 
   final String listId;
+  final String? listName;
+  final bool isHome;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,101 +37,68 @@ class TasksScreen extends ConsumerWidget {
     final tasksAsync = ref.watch(tasksProvider(listId));
     final sortMode = ref.watch(taskSortModeProvider(listId));
 
+    final sortMenu = _TaskSortMenu(
+      selectedMode: sortMode,
+      onSelected: (mode) {
+        ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
+      },
+    );
+    final trashButton = IconButton(
+      icon: const Icon(Icons.restore_from_trash_outlined),
+      tooltip: l10n.openTrashTooltip,
+      onPressed: () => context.push('/trash'),
+    );
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.tasksTitle),
-        actions: [
-          _TaskSortMenu(
-            selectedMode: sortMode,
-            onSelected: (mode) {
-              ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.restore_from_trash_outlined),
-            tooltip: l10n.openTrashTooltip,
-            onPressed: () => context.push('/trash'),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-        ],
-      ),
+      appBar: isHome
+          ? null
+          : AppBar(
+              title: Text(l10n.tasksTitle),
+              actions: [
+                sortMenu,
+                trashButton,
+                const SizedBox(width: AppSpacing.sm),
+              ],
+            ),
       body: tasksAsync.when(
         loading: () => const AppLoadingState(),
         error: (error, stackTrace) =>
             AppErrorState(message: l10n.failedToLoadTasks(error.toString())),
         data: (tasks) {
-          if (tasks.isEmpty) {
-            return AppEmptyState(
-              icon: Icons.checklist_outlined,
-              title: l10n.tasksEmptyTitle,
-              body: l10n.tasksEmptyBody,
-            );
-          }
-          final nodes = flattenTaskTree(
-            buildTaskTree(tasks, sortMode: sortMode),
-          );
-          return ListView.separated(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            itemCount: nodes.length,
-            separatorBuilder: (context, index) =>
-                const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              final node = nodes[index];
-              final task = node.task;
-              final stats = descendantStatsOf(task.id, tasks);
-              final isManualSort = sortMode == TaskSortMode.manual;
-              final siblings = isManualSort
-                  ? _siblingsOf(task, tasks)
-                  : const <TaskDto>[];
-              final siblingIndex = siblings.indexWhere(
-                (sibling) => sibling.id == task.id,
-              );
-              return AppTaskRow(
-                key: ValueKey('task-row-${task.id}'),
-                checkboxKey: ValueKey('task-done-${task.id}'),
-                title: task.title,
-                isDone: task.status == 'done',
-                depth: node.depth,
-                priority: task.priority,
-                priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
-                prioritySemanticLabel: l10n.taskPriority(
-                  taskPriorityLabel(l10n, task.priority),
-                ),
-                hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
-                metadata: taskMetadataItemsFor(
-                  l10n: l10n,
-                  task: task,
-                  stats: stats,
-                ),
-                trailing: isManualSort
-                    ? _TaskReorderControls(
-                        task: task,
-                        siblings: siblings,
-                        siblingIndex: siblingIndex,
-                        onMove:
-                            ({required previousTaskId, required nextTaskId}) {
-                              return ref
-                                  .read(tasksProvider(listId).notifier)
-                                  .reorderTask(
-                                    taskId: task.id,
-                                    previousTaskId: previousTaskId,
-                                    nextTaskId: nextTaskId,
-                                  );
-                            },
-                      )
-                    : null,
-                onToggleDone: () => _completeTask(context, ref, task, tasks),
-                onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
-              );
+          return _TasksBody(
+            listId: listId,
+            listName: listName,
+            isHome: isHome,
+            tasks: tasks,
+            sortMode: sortMode,
+            sortMenu: sortMenu,
+            trashButton: trashButton,
+            onCreateTask: () => _createTask(context, ref),
+            onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
+            onMoveTask: ({required task, previousTaskId, nextTaskId}) {
+              return ref
+                  .read(tasksProvider(listId).notifier)
+                  .reorderTask(
+                    taskId: task.id,
+                    previousTaskId: previousTaskId,
+                    nextTaskId: nextTaskId,
+                  );
             },
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _createTask(context, ref),
-        tooltip: l10n.newTaskTooltip,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: isHome
+          ? FloatingActionButton.extended(
+              onPressed: () => _createTask(context, ref),
+              tooltip: l10n.newTaskTooltip,
+              icon: const Icon(Icons.add),
+              label: Text(l10n.addTaskButton),
+            )
+          : FloatingActionButton(
+              onPressed: () => _createTask(context, ref),
+              tooltip: l10n.newTaskTooltip,
+              child: const Icon(Icons.add),
+            ),
     );
   }
 
@@ -168,6 +143,321 @@ class TasksScreen extends ConsumerWidget {
     }
     await _showLatestUndoSnackBar(context);
   }
+}
+
+class _TasksBody extends StatelessWidget {
+  const _TasksBody({
+    required this.listId,
+    required this.listName,
+    required this.isHome,
+    required this.tasks,
+    required this.sortMode,
+    required this.sortMenu,
+    required this.trashButton,
+    required this.onCreateTask,
+    required this.onCompleteTask,
+    required this.onMoveTask,
+  });
+
+  final String listId;
+  final String? listName;
+  final bool isHome;
+  final List<TaskDto> tasks;
+  final TaskSortMode sortMode;
+  final Widget sortMenu;
+  final Widget trashButton;
+  final VoidCallback onCreateTask;
+  final Future<void> Function(TaskDto task) onCompleteTask;
+  final Future<void> Function({
+    required TaskDto task,
+    required String? previousTaskId,
+    required String? nextTaskId,
+  })
+  onMoveTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final nodes = flattenTaskTree(buildTaskTree(tasks, sortMode: sortMode));
+    if (!isHome && nodes.isEmpty) {
+      return AppEmptyState(
+        icon: Icons.checklist_outlined,
+        title: l10n.tasksEmptyTitle,
+        body: l10n.tasksEmptyBody,
+      );
+    }
+
+    final itemCount = isHome ? nodes.length + 2 : nodes.length;
+    return SafeArea(
+      top: isHome,
+      child: ListView.separated(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          isHome ? AppSpacing.md : AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.xl * 3,
+        ),
+        itemCount: itemCount,
+        separatorBuilder: (context, index) {
+          if (isHome && index == 0) {
+            return const SizedBox(height: AppSpacing.lg);
+          }
+          return const SizedBox(height: AppSpacing.sm);
+        },
+        itemBuilder: (context, index) {
+          if (isHome && index == 0) {
+            return _HomeTasksHeader(
+              listName: listName ?? l10n.tasksTitle,
+              tasks: tasks,
+              sortMenu: sortMenu,
+              trashButton: trashButton,
+            );
+          }
+          if (isHome && index == 1) {
+            return _TaskSectionHeader(
+              pendingCount: _pendingCount(tasks),
+              onCreateTask: onCreateTask,
+            );
+          }
+
+          final node = nodes[isHome ? index - 2 : index];
+          final task = node.task;
+          final stats = descendantStatsOf(task.id, tasks);
+          final showManualControls = !isHome && sortMode == TaskSortMode.manual;
+          final siblings = showManualControls
+              ? _siblingsOf(task, tasks)
+              : const <TaskDto>[];
+          final siblingIndex = siblings.indexWhere(
+            (sibling) => sibling.id == task.id,
+          );
+          return AppTaskRow(
+            key: ValueKey('task-row-${task.id}'),
+            checkboxKey: ValueKey('task-done-${task.id}'),
+            title: task.title,
+            isDone: task.status == 'done',
+            depth: node.depth,
+            priority: task.priority,
+            priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+            prioritySemanticLabel: l10n.taskPriority(
+              taskPriorityLabel(l10n, task.priority),
+            ),
+            hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+            metadata: taskMetadataItemsFor(
+              l10n: l10n,
+              task: task,
+              stats: stats,
+            ),
+            trailing: showManualControls
+                ? _TaskReorderControls(
+                    task: task,
+                    siblings: siblings,
+                    siblingIndex: siblingIndex,
+                    onMove: ({required previousTaskId, required nextTaskId}) {
+                      return onMoveTask(
+                        task: task,
+                        previousTaskId: previousTaskId,
+                        nextTaskId: nextTaskId,
+                      );
+                    },
+                  )
+                : Icon(
+                    Icons.chevron_right,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            onToggleDone: () => onCompleteTask(task),
+            onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HomeTasksHeader extends StatelessWidget {
+  const _HomeTasksHeader({
+    required this.listName,
+    required this.tasks,
+    required this.sortMenu,
+    required this.trashButton,
+  });
+
+  final String listName;
+  final List<TaskDto> tasks;
+  final Widget sortMenu;
+  final Widget trashButton;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final today = DateFormat('EEE, MMM d', locale).format(DateTime.now());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            IconButton.filledTonal(
+              icon: const Icon(Icons.menu),
+              tooltip: l10n.homeListMenuTooltip,
+              onPressed: () => context.push('/lists'),
+            ),
+            const Spacer(),
+            sortMenu,
+            trashButton,
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.todayTitle,
+                    style: theme.textTheme.displayMedium?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                      height: 0.95,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    today,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _PendingBadge(count: _pendingCount(tasks)),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surface.withValues(alpha: 0.68),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.xs,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.list_alt_outlined,
+                  size: 16,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(
+                    listName,
+                    softWrap: true,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskSectionHeader extends StatelessWidget {
+  const _TaskSectionHeader({
+    required this.pendingCount,
+    required this.onCreateTask,
+  });
+
+  final int pendingCount;
+  final VoidCallback onCreateTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.homeTasksSectionTitle,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            _PendingBadge(count: pendingCount),
+            const SizedBox(width: AppSpacing.sm),
+            IconButton.filled(
+              icon: const Icon(Icons.add),
+              tooltip: l10n.newTaskTooltip,
+              onPressed: onCreateTask,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingBadge extends StatelessWidget {
+  const _PendingBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: Text(
+          l10n.homePendingCount(count),
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+int _pendingCount(List<TaskDto> tasks) {
+  return tasks.where((task) => task.status != 'done').length;
 }
 
 class _TaskSortMenu extends StatelessWidget {

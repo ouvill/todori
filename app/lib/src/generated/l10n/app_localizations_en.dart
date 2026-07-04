@@ -15,6 +15,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listsTitle => 'Lists';
 
   @override
+  String get listsSectionTitle => 'Lists';
+
+  @override
   String get listsEmpty => 'No lists yet. Tap + to create one.';
 
   @override
@@ -45,6 +48,33 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tasksTitle => 'Tasks';
+
+  @override
+  String get todayTitle => 'Today';
+
+  @override
+  String get homeTasksSectionTitle => 'Tasks';
+
+  @override
+  String homePendingCount(int count) {
+    return '$count pending';
+  }
+
+  @override
+  String get homeListMenuTooltip => 'Open lists';
+
+  @override
+  String get homeEmptyTitle => 'Start with a list.';
+
+  @override
+  String get homeEmptyBody =>
+      'Create a list, then Todori will open straight into your tasks.';
+
+  @override
+  String get homeNewListButton => 'New list';
+
+  @override
+  String get addTaskButton => 'Add task';
 
   @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';

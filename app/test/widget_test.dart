@@ -461,6 +461,17 @@ Future<void> _selectTaskSortMode(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _openListsScreen(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Open lists'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openListFromHome(WidgetTester tester, String listName) async {
+  await _openListsScreen(tester);
+  await tester.tap(find.text(listName).last);
+  await tester.pumpAndSettle();
+}
+
 void _expectTaskTitleOrder(WidgetTester tester, List<String> titles) {
   final tops = [
     for (final title in titles) tester.getTopLeft(find.text(title)).dy,
@@ -475,8 +486,9 @@ void main() {
     tester,
   ) async {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
+    await _openListsScreen(tester);
 
-    expect(find.text('Lists'), findsOneWidget);
+    expect(find.text('LISTS'), findsOneWidget);
     expect(find.text('Inbox'), findsOneWidget);
   });
 
@@ -487,8 +499,12 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Buy milk'), findsOneWidget);
+    expect(find.byTooltip('Open lists'), findsOneWidget);
+    expect(find.text('Add task'), findsOneWidget);
+
+    await _openListFromHome(tester, 'Inbox');
 
     expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Local protection'), findsNothing);
@@ -526,8 +542,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('とても長い日本語のリスト名と English project name'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'とても長い日本語のリスト名と English project name');
 
     expect(find.textContaining('四半期レビュー'), findsOneWidget);
     expect(
@@ -560,8 +575,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open trash'));
     await tester.pumpAndSettle();
 
@@ -581,14 +594,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No lists yet.'), findsOneWidget);
-    expect(find.text('Tap + to create one.'), findsOneWidget);
+    expect(find.text('Start with a list.'), findsOneWidget);
+    expect(
+      find.text(
+        'Create a list, then Todori will open straight into your tasks.',
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.ensureVisible(find.text('New list'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New list'));
     await tester.pumpAndSettle();
 
-    expect(find.text('New list'), findsOneWidget);
+    expect(find.text('New list'), findsWidgets);
     expect(find.text('Create'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -623,8 +643,10 @@ void main() {
     expect(find.textContaining('受信箱'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.textContaining('受信箱'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(
+      tester,
+      '受信箱とても長いリスト名 with a product screenshot length',
+    );
     await tester.tap(find.byTooltip('Sort tasks'));
     await tester.pumpAndSettle();
 
@@ -658,8 +680,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
@@ -669,12 +689,13 @@ void main() {
     expect(find.text('Status: To do'), findsOneWidget);
   });
 
-  testWidgets('creating a list via the FAB dialog updates the list', (
+  testWidgets('creating a list from list management updates the list', (
     tester,
   ) async {
     final fake = await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
-    await tester.tap(find.byIcon(Icons.add));
+    await _openListsScreen(tester);
+    await tester.tap(find.text('New list'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Work');
     await tester.tap(find.text('Create'));
@@ -692,9 +713,6 @@ void main() {
       listName: 'Inbox',
       taskTitle: 'Buy milk',
     );
-
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
 
     final listId = (await fake.getLists()).first.id;
     final task = (await fake.getTasks(listId: listId)).single;
@@ -734,8 +752,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     expect(
       tester
@@ -820,8 +837,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     _expectTaskTitleOrder(tester, [
       'Manual first',
@@ -891,8 +907,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     expect(find.text('Plan launch'), findsOneWidget);
     expect(find.text('Draft checklist'), findsOneWidget);
@@ -962,8 +977,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
     await _selectTaskSortMode(tester, 'Due date');
 
     _expectTaskTitleOrder(tester, [
@@ -1005,8 +1019,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     await tester.tap(find.byKey(ValueKey('task-move-up-${secondChild.id}')));
     await tester.pumpAndSettle();
@@ -1043,8 +1056,6 @@ void main() {
       taskTitle: 'Parent task',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Parent task'));
     await tester.pumpAndSettle();
 
@@ -1083,8 +1094,6 @@ void main() {
         TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Inbox'));
-      await tester.pumpAndSettle();
 
       final parentCheckbox = find.byKey(ValueKey('task-done-${parent.id}'));
       await tester.tap(parentCheckbox);
@@ -1117,8 +1126,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
@@ -1161,8 +1168,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
@@ -1198,8 +1203,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
@@ -1222,8 +1225,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Move to trash'));
@@ -1263,8 +1264,6 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Move to trash'));
@@ -1306,8 +1305,6 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Inbox'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open trash'));
     await tester.pumpAndSettle();

@@ -2,6 +2,7 @@
   "@@locale": "en",
   "appTitle": "Todori",
   "listsTitle": "Lists",
+  "listsSectionTitle": "Lists",
   "listsEmpty": "No lists yet. Tap + to create one.",
   "listsEmptyTitle": "No lists yet.",
   "listsEmptyBody": "Tap + to create one.",
@@ -19,6 +20,21 @@
   "cancelButton": "Cancel",
   "createButton": "Create",
   "tasksTitle": "Tasks",
+  "todayTitle": "Today",
+  "homeTasksSectionTitle": "Tasks",
+  "homePendingCount": "{count} pending",
+  "@homePendingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeListMenuTooltip": "Open lists",
+  "homeEmptyTitle": "Start with a list.",
+  "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",
+  "homeNewListButton": "New list",
+  "addTaskButton": "Add task",
   "tasksEmpty": "No tasks yet. Tap + to create one.",
   "tasksEmptyTitle": "No tasks yet.",
   "tasksEmptyBody": "Tap + to create one.",

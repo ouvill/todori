@@ -1,7 +1,7 @@
 # task-29: product experience alignment
 
-> ステータス: 未着手
-> 作業日: 未着手
+> ステータス: 完了（rootをtask-firstのToday体験へ変更し、Listsを管理/切替画面へ再位置付け）
+> 作業日: 2026-07-05
 
 ## 1. 背景とコンテキスト
 
@@ -153,3 +153,106 @@ task-28ではLists / Tasks / Detail / Trash / Dialog / Empty stateを小さくpo
 - Rust/DB/FRB/schema/domain/storageを変更していないこと
 - docs/01〜03、`.github/`、`todori-private/` を変更していないこと
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-05
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/PLAYBOOK.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/visual-direction.md`
+- `docs/tasks/task-22-design-direction-sketch.md`
+- `docs/tasks/task-28-visual-polish.md`
+- `assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp`
+- `assets/brand/generated/todori-design-direction-lists.webp`
+- `app/lib/src/router.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/screens/lists_screen.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/widget_test.dart`
+
+### 実装結果
+
+- `app/lib/src/screens/home_screen.dart` を追加し、root `/` をtask-firstのHome画面に変更した。
+- 起動直後は既存listの先頭を使って `TasksScreen(isHome: true)` を表示し、listがない場合はTodoriの空状態からlist作成へ進めるようにした。
+- `app/lib/src/router.dart` の `initialLocation` を `/lists` から `/` に変更し、`/lists` は管理/切替画面として残した。
+- root表示のTasks画面に `Today` / 日付 / pending count / list名pill / Lists導線 / sort / trash / extended add task action を追加した。
+- root表示では手動並び替えハンドルを常時主張させず、リスト管理画面から対象listへ入った通常Tasks画面では従来どおり手動並び替えを維持した。
+- Lists画面を、Todori見出し、大きめのsurface、section label、静かなrow、新規list rowを持つ管理/切替画面へ再構成した。
+- 押せるが何も起きないoverflow buttonは追加しない方針とし、未実装機能に見えるUIを避けた。
+
+### 指定2枚から採用した要素
+
+- `mobile-focus-tasks`: 起動直後にTodayを大きく見せる構成、pending count、作業対象listの控えめな表示、タスク行を主役にする余白、下部のAdd task action。
+- `lists`: Todori見出し、LISTS section label、大きな白いsurface、アイコン付きlist row、New list row。
+
+### 採用しなかった要素と理由
+
+- Focus timer / Start button / completed today section: Phase 1の実装範囲外で、動く機能のように見せないため未採用。
+- 検索、Projects section、件数badge: 現時点の安定した検索/集計APIと画面仕様がないため未採用。
+- 参照画像の装飾イラストの常設表示: 今回は新規assetや画像生成を追加せず、実アプリとして破綻しないFlutter UI構造を優先した。
+
+### i18n
+
+追加したARBキー:
+
+- `listsSectionTitle`
+- `todayTitle`
+- `homeTasksSectionTitle`
+- `homePendingCount`
+- `homeListMenuTooltip`
+- `homeEmptyTitle`
+- `homeEmptyBody`
+- `homeNewListButton`
+- `addTaskButton`
+
+`flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` 配下を更新した。
+
+### 更新したwidget test
+
+- rootがListsではなくToday/Tasks体験であることを確認する期待値を追加した。
+- Lists画面の確認は `Open lists` 導線経由へ変更した。
+- 手動並び替え/条件ソートは、Lists管理画面から通常Tasks画面へ入った経路で従来どおり検証するようにした。
+- listなし空状態は狭幅 + Dynamic Typeでもoverflowせず、スクロールしてlist作成dialogを開けることを確認した。
+
+### 目視QA
+
+- Web実行での目視QAを試みたが、現状のFlutter projectはweb未構成かつ `frb_generated.web.dart` が存在せず、FRB web targetのコンパイルエラーで起動できなかった。これは今回のUI変更ではなく既存のtarget制約として扱った。
+- 代替として `/private/tmp/todori_visual_smoke_test.dart` を一時作成し、Flutter test rendererで以下のPNGを生成して確認した。
+  - `/private/tmp/todori_visual_home.png`
+  - `/private/tmp/todori_visual_lists.png`
+- test rendererの既定fontでは文字がブロック表示になるためtypographyの最終確認には不向きだが、構造としてHomeはToday header / pending badge / list pill / task cards / Add task、ListsはTodori見出し / section label / large surface / list rows / New list rowになっていることを確認した。
+- 残課題: 参照画像の装飾イラストやFocus timerのような強いブランド演出は、動く機能・asset方針が固まった後の別タスクで扱うのが安全。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功（Rust 74 tests）
+- `cd app && flutter analyze`: 成功
+- `cd app && flutter test --reporter compact`: 成功（Flutter 37 tests）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `git diff --check`: 成功
+
+### 変更しなかった範囲
+
+- Rust API / FRB定義 / DB schema / domain usecase / storage repositoryは変更していない。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+- `.github/` と `todori-private/` は変更していない。
+- public repoにprivate詳細は転記していない。
+
+### 未解決事項・要人間判断
+
+- Flutter Webでの実行確認は、FRB web生成物がない既存制約により未実施。Web targetを正式対応する場合は別タスク化が必要。
+- 参照画像相当の装飾イラスト、Focus timer、検索、Projects/Todayなどのスマートリスト、件数badgeは未実装。Phase 1の機能範囲と実データ仕様を決めてから別タスクで扱う。
