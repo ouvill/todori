@@ -38,8 +38,7 @@
 | 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
 | 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 4 | Trash画面の日付表記を相対表記へ統一 | Trash行の日付をTasks画面と同様のToday/Tomorrow/短縮形式へ変更する | M2相当（visual polish残課題） | 出典: task-30完了報告 未解決事項 |
-| 5 | ダークモードでのpriority dotコントラスト検証 | priority dot色トークン（coral/amber/softSage）のダークテーマでの視認性・コントラストを検証する | M2相当（visual polish残課題） | 出典: task-30完了報告 未解決事項 |
+| 4 | task-31 Trash visual refinement | Trash行の日付・priority表現をTasks画面文法へ揃え、visual QA seedとダークテーマpriority dot検証を整える | M2相当（visual polish残課題） | 出典: task-30完了報告 未解決事項（Trash相対日付・dark priority dot） |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
