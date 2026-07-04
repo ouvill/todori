@@ -1,0 +1,51 @@
+# Billing Overview
+
+This document summarizes Todori's public billing principles. Detailed pricing experiments, revenue scenarios, channel comparisons, and operational notes are maintained outside the public repository.
+
+## Principles
+
+- Local-first task management remains available without an account or subscription.
+- Paid plans are intended for server-dependent capabilities such as encrypted multi-device sync, encrypted cloud backup, and organization sharing.
+- Losing paid status must not make local data unreadable or uneditable.
+- Billing state is separated from end-to-end encrypted content. The server may know whether an account has access to a paid capability, but it must not learn task contents.
+- Upsell prompts should appear only in relevant product contexts and must not rely on disruptive advertising or dark patterns.
+- Product analytics for billing should be minimized and should not undermine Todori's privacy promises.
+
+## Public Plan Shape
+
+Todori's planned plan structure is:
+
+| Plan | Intended audience | Public boundary |
+|---|---|---|
+| Free | Single-device local use | Local task management, local storage, local export/backup flows, and privacy-preserving core features |
+| Pro | Individuals who want server-backed convenience | Encrypted sync and server-backed backup for personal use |
+| Org | Teams and organizations | Shared encrypted workspaces, member management, and organization-oriented controls |
+
+Final pricing, trial details, eligibility rules, and launch timing are not committed in this public overview.
+
+## E2EE and Entitlements
+
+Paid capabilities are represented as entitlements associated with an account or organization. Entitlements control access to server-dependent features only. They do not grant the server access to plaintext task data, keys, notes, list names, or other encrypted content.
+
+The technical design must preserve these boundaries:
+
+- Local data remains controlled by the user.
+- Encrypted sync payloads stay opaque to the server.
+- Billing state must not become a recovery mechanism for encrypted data.
+- Revoking access to sync or sharing must not erase local data.
+
+## User Experience
+
+Billing prompts should be quiet and contextual. Appropriate moments include setting up an additional device, enabling encrypted cloud backup, or accepting an organization invitation. Todori should avoid aggressive paywalls, surprise restrictions on existing local functionality, and sales notifications.
+
+Cancellation and renewal flows should be clear. If a paid capability expires, Todori may stop server-backed sync or sharing, but local data remains available on the device.
+
+## Non-Public Detail
+
+The following information belongs in the private repository unless intentionally summarized for public release:
+
+- concrete prices, discount levels, trial experiments, and launch offers
+- revenue scenarios, conversion assumptions, and financial forecasts
+- provider-specific fee comparisons and operating-cost calculations
+- raw billing event schemas beyond what is needed for implementation transparency
+- unfinished operational notes or decision drafts

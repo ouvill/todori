@@ -11,7 +11,7 @@
 - [`docs/01_企画書.md`](../01_企画書.md) ── プロダクト企画・ロードマップ
 - [`docs/02_機能仕様書.md`](../02_機能仕様書.md) ── 機能仕様（F-01〜F-53）
 - [`docs/03_技術仕様書.md`](../03_技術仕様書.md) ── 技術仕様（本リポジトリの技術的な唯一の真実源）
-- [`docs/04_課金設計書.md`](../04_課金設計書.md) ── 課金設計（Phase 1では不要なことが多い）
+- [`docs/billing_overview.md`](../billing_overview.md) ── 公開版の課金方針（Phase 1では不要なことが多い）
 - リポジトリルートの [`README.md`](../../README.md) ── monorepo構成の概要
 
 ## タスク一覧
@@ -30,7 +30,9 @@
 | task-10 | 完了 | [task-10-i18n.md](./task-10-i18n.md) | i18n基盤（en/ja ARB）を導入し、画面骨格のUI文字列を外部化してシステム言語に追従させる | task-09の成果物に依存。Phase1計画書M2-04に対応 |
 | task-11 | 完了 | [task-11-ci.md](./task-11-ci.md) | GitHub ActionsでRust/Flutter品質ゲート、FRB再生成差分チェック、直書き検出を自動化する | task-08〜10の成果物に依存。Phase1計画書M2-01に対応 |
 | task-12 | 完了 | [task-12-open-source-readiness.md](./task-12-open-source-readiness.md) | OSS公開前監査。秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性を棚卸しする | task-11までの成果物に依存。public repository化の事前確認 |
-| task-13 | 完了 | [task-13-public-private-docs-split.md](./task-13-public-private-docs-split.md) | public repoを主、private repoを内部メモ置き場とする運用に向け、公開/非公開ドキュメント分類と移行計画を策定する | task-12の監査結果に依存。public repository化の事前確認 |
+| task-13 | 完了 | [task-13-public-private-docs-split.md](./task-13-public-private-docs-split.md) | public repoを主、private repoを非公開資料側とする運用に向け、公開/非公開ドキュメント分類と移行計画を策定する | task-12の監査結果に依存。public repository化の事前確認 |
+| task-14 | 完了 | [task-14-public-private-repo-split.md](./task-14-public-private-repo-split.md) | public/privateのsibling repo運用に向け、公開版の課金・法務要約、READMEリンク整理、private退避マッピングを作成する | task-13の分割方針に依存。private repo名は `todori-private`。GitHub repository作成・visibility変更は人間作業 |
+| task-15 | 未着手 | [task-15-security-policy.md](./task-15-security-policy.md) | public化前に `SECURITY.md` を作成し、脆弱性報告導線とGitHub private vulnerability reporting利用方針を整備する | task-12の監査結果に依存。GitHub private vulnerability reportingの有効化は人間作業 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
@@ -44,7 +46,7 @@
    - Flutter（`app/`）に変更を加えた場合は追加で `cd app && flutter analyze` も通過すること
 3. **コミット規約**: [Conventional Commits](https://www.conventionalcommits.org/)（`feat:` / `fix:` / `docs:` / `chore:` 等）に従う。コミット本文は日本語で構わない。1タスクにつき1〜数コミットを目安とする。
 4. **変更禁止事項**:
-   - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` / `docs/04_課金設計書.md` の内容は変更しない。実装中にこれらの記述と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、**仕様書を書き換えずに**完了報告の「未解決事項」として報告すること。
+   - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` の内容は変更しない。実装中にこれらの記述と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、**仕様書を書き換えずに**完了報告の「未解決事項」として報告すること。
    - `.github/workflows` 配下は、当該タスクの指示書に明記がある場合を除き変更しない。
 5. **依存追加の作法**: Rustの依存クレートを追加する場合は、必ずリポジトリルート `Cargo.toml` の `[workspace.dependencies]` にバージョンを集約し、各crateの `Cargo.toml` からは `foo.workspace = true` の形で参照すること（既存の `core/crypto/Cargo.toml` 等の記法に倣う）。
 6. **不明点・仕様の矛盾**: 推測で進めず、判明した時点で完了報告の「未解決事項」セクションに記録し、実装は指示書のスコープ内で合理的な暫定解を取ってよい（暫定解の内容も報告すること）。
