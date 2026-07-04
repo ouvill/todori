@@ -41,6 +41,7 @@
 | task-21 | 完了 | [task-21-visual-direction.md](./task-21-visual-direction.md) | 参考画像 `assets/brand/generated/todori-mobile-product.png` の方向性を、既存UI foundationへ実アプリの視覚文法として反映する | task-20の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前の視覚方向性反映 |
 | task-22 | 完了 | [task-22-design-direction-sketch.md](./task-22-design-direction-sketch.md) | 「柔らかく・親しみやすく・エレガント」を主要画面の画像モックと `docs/design/visual-direction.md` のデザインルールへ具体化する | task-20・task-21の成果物に依存。ゴミ箱画面・復元UI、並び替え、通知へ進む前のデザイン正本作成 |
 | task-23 | 完了 | [task-23-trash-restore-ui.md](./task-23-trash-restore-ui.md) | ゴミ箱画面・復元UI。既存の `get_trashed_tasks` / `restore_task` / `trash_task` を使い、削除済みタスク一覧と復元導線を追加する | task-18〜22の成果物に依存。BACKLOG上はM3-04相当、計画書上はM3-02の削除/復元残りにも対応 |
+| task-24 | 未着手 | [task-24-fractional-index.md](./task-24-fractional-index.md) | fractional index生成の本実装と、タスク一覧の同一階層内手動並び替えUIを追加する | task-18〜23の成果物に依存。M3-05のうちUndoと条件ソートUIは後続タスクへ分離 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
