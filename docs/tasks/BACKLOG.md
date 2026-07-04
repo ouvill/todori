@@ -24,17 +24,17 @@
 - **UI較正完了済み**: task-25で、AI生成画像・画像モックをピクセル完全基準にせず、既存実画面の密度、長いタイトル、i18n、Dynamic Type、狭い画面、タップ領域、tooltip/semanticsを優先する較正を実装した。`docs/design/visual-direction.md` にCalibration Ruleを追加し、Tasks画面の常設保護シグナルを外し、長文/狭幅/Dynamic Type向けwidget testを追加した。Undo・条件ソートUIは後続タスクへ継続し、その後に実アプリUIの見た目をプロダクト品質へ引き上げるpolish taskを行う。
 - **Undo実装済み**: task-26でローカルSQLCipher DB内の `task_undo_entries`、削除/完了/編集のUndo履歴作成、競合検出、最新履歴取得/適用API、SnackBar action、Dart provider/fake、Rust/storage/API・Dart/FRB統合・widget testを追加した。条件ソートUI、手動並び替えUndo、複数段Undo/Redo、履歴一覧画面は後続へ分離した。
 - **条件ソートUI実装済み**: task-27でTasks画面に手動順 / 締切順 / 優先度順 / 作成順の表示順切替を追加した。条件ソートは表示順のみを切り替え、`sort_order`、Rust/DB/FRB/schema、永続設定は変更していない。
-- **テスト数**: Rust 74 / Flutter 36（task-27実装セッション時点の値。着手前に最新の完了報告で更新すること）。
+- **Visual polish完了済み**: task-28でLists / Tasks / Detail / Trash / Dialog / Empty stateの第一印象をApp Store/READMEスクリーンショット前のプロダクト品質へ引き上げた。独立検証後の状態同期修正でREADME/BACKLOGの完了状態も更新済み。
+- **テスト数**: Rust 74 / Flutter 37（task-28実装セッション時点の値）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | [task-28: Visual polish / product UI refinement](./task-28-visual-polish.md) | Lists / Tasks / Detail / Trash / Dialog / Empty state を、実データで破綻しないままTodoriらしい完成度へ引き上げる。タイポグラフィ、余白、surface、icon、空状態、操作感、App Store/READMEスクリーンショット前の第一印象をまとめて磨く | M3 polish | 指示書作成済み・未着手。ユーザー判断（2026-07-05）とtask-25後のUI較正結果由来。Undo・条件ソートUIで操作密度が固まった後に実施 |
-| 2 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 3 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 4 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
