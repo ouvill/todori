@@ -1,5 +1,8 @@
 # task-03: flutter_rust_bridge統合
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 Todoriは「Flutter（UI）+ Rust（コアロジック）」構成を採用しており、両者は `flutter_rust_bridge` によるFFIバインディングで接続される（`docs/03_技術仕様書.md` §1.1〜1.3）。現時点のリポジトリでは Flutter アプリ (`app/`) と Rust workspace (`core/`, `cli/`, `mcp-server/`, `server/`) は雛形として別々にコミットされているのみで、両者を繋ぐブリッジは未構築である。

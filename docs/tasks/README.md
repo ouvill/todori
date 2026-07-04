@@ -16,20 +16,21 @@
 
 ## タスク一覧
 
-| ID | ファイル | 概要 | 依存関係 |
-|---|---|---|---|
-| task-01 | [task-01-opaque-poc.md](./task-01-opaque-poc.md) | OPAQUE認証PoC。`core/crypto` に opaque-ke を統合し、登録→ログイン→exportKey→KEK導出→Master Keyラップの一気通貫動作を実証する | 雛形（現在のリポジトリ状態）にのみ依存。task-02と並行実施可 |
-| task-02 | [task-02-sqlcipher-poc.md](./task-02-sqlcipher-poc.md) | SQLCipherビルド検証。`core/storage` に rusqlite(SQLCipher) を導入し、暗号化DBの動作・Androidクロスビルド可否を検証する | 雛形にのみ依存。task-01と並行実施可 |
-| task-03 | [task-03-flutter-rust-bridge.md](./task-03-flutter-rust-bridge.md) | flutter_rust_bridge統合。`app/` から Rust コアを呼び出す最小の垂直貫通を確立する | 雛形（`core/domain` 等）にのみ依存。task-01/02の結果は不要 |
-| task-04 | [task-04-phase1-plan.md](./task-04-phase1-plan.md) | Phase 1（MVP）計画書 `docs/07_Phase1計画書.md` の作成。ドキュメント作業のみでコード変更なし | 雛形にのみ依存。他タスクと並行実施可。ただし計画書内でtask-01〜03のPoC結果を前提とする箇所がある旨を明記する |
-| task-05 | [task-05-domain-usecases.md](./task-05-domain-usecases.md) | `core/domain` にリスト/タスク操作ユースケース（生成・編集・ステータス遷移・論理削除/復元・サブタスク制約検証）を追加する | 雛形にのみ依存。単独実施可。Phase1計画書M1-01に対応 |
-| task-06 | [task-06-storage-repositories.md](./task-06-storage-repositories.md) | `core/storage` に `lists` テーブルを追加し、`ListRepository` / `TaskRepository::update` を実装して `core/domain` のユースケースと接続する | task-02・task-05の成果物に依存。Phase1計画書M1-02/M1-03に対応 |
-| task-07 | [task-07-device-key.md](./task-07-device-key.md) | `core/crypto` にDevice Key生成・OSキーチェーン抽象（trait）・SQLCipher用ローカルDB鍵導出を実装し、`core/storage` でDK生成からDB openまでの統合テストを実証する | task-02・task-06の成果物に依存。Phase1計画書M1-04に対応 |
-| task-08 | [task-08-bridge-usecases.md](./task-08-bridge-usecases.md) | `todori-app-bridge` にリスト/タスク操作のユースケース単位APIを公開し、Dartテストからリスト作成・タスク作成・取得ができることを実証する | task-03・task-05〜07の成果物に依存。Phase1計画書M2-02に対応 |
-| task-09 | [task-09-ui-skeleton.md](./task-09-ui-skeleton.md) | Flutterの画面遷移骨格（リスト一覧→タスク一覧→タスク詳細）と状態管理（Riverpod）方針を実装する | task-08の成果物に依存。Phase1計画書M2-03に対応 |
-| task-10 | [task-10-i18n.md](./task-10-i18n.md) | i18n基盤（en/ja ARB）を導入し、画面骨格のUI文字列を外部化してシステム言語に追従させる | task-09の成果物に依存。Phase1計画書M2-04に対応 |
-| task-11 | [task-11-ci.md](./task-11-ci.md) | GitHub ActionsでRust/Flutter品質ゲート、FRB再生成差分チェック、直書き検出を自動化する | task-08〜10の成果物に依存。Phase1計画書M2-01に対応 |
-| task-12 | [task-12-open-source-readiness.md](./task-12-open-source-readiness.md) | OSS公開前監査。秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性を棚卸しする | task-11までの成果物に依存。public repository化の事前確認 |
+| ID | ステータス | ファイル | 概要 | 依存関係 |
+|---|---|---|---|---|
+| task-01 | 完了 | [task-01-opaque-poc.md](./task-01-opaque-poc.md) | OPAQUE認証PoC。`core/crypto` に opaque-ke を統合し、登録→ログイン→exportKey→KEK導出→Master Keyラップの一気通貫動作を実証する | 雛形（現在のリポジトリ状態）にのみ依存。task-02と並行実施可 |
+| task-02 | 完了 | [task-02-sqlcipher-poc.md](./task-02-sqlcipher-poc.md) | SQLCipherビルド検証。`core/storage` に rusqlite(SQLCipher) を導入し、暗号化DBの動作・Androidクロスビルド可否を検証する | 雛形にのみ依存。task-01と並行実施可 |
+| task-03 | 完了 | [task-03-flutter-rust-bridge.md](./task-03-flutter-rust-bridge.md) | flutter_rust_bridge統合。`app/` から Rust コアを呼び出す最小の垂直貫通を確立する | 雛形（`core/domain` 等）にのみ依存。task-01/02の結果は不要 |
+| task-04 | 完了 | [task-04-phase1-plan.md](./task-04-phase1-plan.md) | Phase 1（MVP）計画書 `docs/07_Phase1計画書.md` の作成。ドキュメント作業のみでコード変更なし | 雛形にのみ依存。他タスクと並行実施可。ただし計画書内でtask-01〜03のPoC結果を前提とする箇所がある旨を明記する |
+| task-05 | 完了 | [task-05-domain-usecases.md](./task-05-domain-usecases.md) | `core/domain` にリスト/タスク操作ユースケース（生成・編集・ステータス遷移・論理削除/復元・サブタスク制約検証）を追加する | 雛形にのみ依存。単独実施可。Phase1計画書M1-01に対応 |
+| task-06 | 完了 | [task-06-storage-repositories.md](./task-06-storage-repositories.md) | `core/storage` に `lists` テーブルを追加し、`ListRepository` / `TaskRepository::update` を実装して `core/domain` のユースケースと接続する | task-02・task-05の成果物に依存。Phase1計画書M1-02/M1-03に対応 |
+| task-07 | 完了 | [task-07-device-key.md](./task-07-device-key.md) | `core/crypto` にDevice Key生成・OSキーチェーン抽象（trait）・SQLCipher用ローカルDB鍵導出を実装し、`core/storage` でDK生成からDB openまでの統合テストを実証する | task-02・task-06の成果物に依存。Phase1計画書M1-04に対応 |
+| task-08 | 完了 | [task-08-bridge-usecases.md](./task-08-bridge-usecases.md) | `todori-app-bridge` にリスト/タスク操作のユースケース単位APIを公開し、Dartテストからリスト作成・タスク作成・取得ができることを実証する | task-03・task-05〜07の成果物に依存。Phase1計画書M2-02に対応 |
+| task-09 | 完了 | [task-09-ui-skeleton.md](./task-09-ui-skeleton.md) | Flutterの画面遷移骨格（リスト一覧→タスク一覧→タスク詳細）と状態管理（Riverpod）方針を実装する | task-08の成果物に依存。Phase1計画書M2-03に対応 |
+| task-10 | 完了 | [task-10-i18n.md](./task-10-i18n.md) | i18n基盤（en/ja ARB）を導入し、画面骨格のUI文字列を外部化してシステム言語に追従させる | task-09の成果物に依存。Phase1計画書M2-04に対応 |
+| task-11 | 完了 | [task-11-ci.md](./task-11-ci.md) | GitHub ActionsでRust/Flutter品質ゲート、FRB再生成差分チェック、直書き検出を自動化する | task-08〜10の成果物に依存。Phase1計画書M2-01に対応 |
+| task-12 | 完了 | [task-12-open-source-readiness.md](./task-12-open-source-readiness.md) | OSS公開前監査。秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性を棚卸しする | task-11までの成果物に依存。public repository化の事前確認 |
+| task-13 | 未着手 | [task-13-public-private-docs-split.md](./task-13-public-private-docs-split.md) | public repoを主、private repoを内部メモ置き場とする運用に向け、公開/非公開ドキュメント分類と移行計画を策定する | task-12の監査結果に依存。public repository化の事前確認 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
@@ -50,6 +51,7 @@
 
 ## 完了報告の規約
 
+- 完了時は当該指示書ファイルの冒頭（タイトル直下）に `> ステータス: 完了（...）` と `> 作業日: YYYY-MM-DD` を追記し、このタスク一覧のステータス列も更新する。
 - 各タスクの実行者は、完了時に当該指示書ファイルの末尾へ「## 9. 完了報告」を追記する（体裁はtask-01〜10の実例に倣う）。
 - 必ず含める: 作業日、実装結果、8章（完了報告に含めるべき内容）で要求された項目、検証結果（品質ゲートの実行結果）、未解決事項。
 - 未解決事項は次タスクの入力になるため、無い場合も「なし」と明記する。

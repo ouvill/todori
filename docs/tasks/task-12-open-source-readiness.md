@@ -1,5 +1,8 @@
 # task-12: OSS公開前監査
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み。公開判断は人間判断）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 Todoriは将来的にOSSとして公開する方針がある。task-11でGitHub ActionsのPhase 1品質ゲートが整備され、public repository化すればGitHub-hosted standard runnerのコスト面でも有利になる。一方で、TodoriはE2EE Todoアプリであり、暗号設計、同期設計、課金・事業方針、未実装のセキュリティ事項、CI/runner設定など、公開前に確認すべき情報が多い。

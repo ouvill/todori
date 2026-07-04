@@ -1,5 +1,8 @@
 # task-01: OPAQUE認証PoC
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 Todoriは「サーバーがパスワードもタスク内容も知り得ない」ことを掲げるE2EE Todoアプリである。認証にはPAKE（Password-Authenticated Key Exchange）プロトコルの一種である **OPAQUE** を採用し、Rust実装 `opaque-ke` crateを用いる。

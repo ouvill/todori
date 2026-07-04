@@ -7,6 +7,7 @@
 - **Phase 1 / M1（コア層）: 完了。** task-05（`core/domain` ユースケース） / task-06（`core/storage` リポジトリ） / task-07（Device Key抽象）。
 - **Phase 1 / M2（ブリッジとUI骨格）: 完了。** task-08（ブリッジAPI公開） / task-09（Riverpod + go_router 画面骨格） / task-10（i18n en/ja） / task-11（CI整備）。macOSデスクトップ実行はcargokitで確立済みで、Phase 1品質ゲートはGitHub Actionsへ追加済み。
 - **PoC完了済み**: task-01（OPAQUE） / task-02（SQLCipher） / task-03（FRB垂直貫通） / task-04（Phase1計画書の作成）。
+- **OSS公開前監査完了済み**: task-12（秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性の棚卸し）。公開判断と公開前整備は人間判断・後続タスクとして扱う。
 - **iOS検証**: Simulator上で `todori-crypto` 全17テスト・`todori-storage` 全10テストが成功、実機ターゲットのリンクも成功済み（`docs/07_Phase1計画書.md` §3補足参照）。
 - **テスト数**: Rust 62 / Flutter 11（いずれも最新の完了報告時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
@@ -15,7 +16,7 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | OSS公開前監査 | public repository化に向け、秘密情報、公開不適切情報、OSS基本文書、ライセンス、CI/Actions安全性を棚卸しする | 公開準備 | [task-12-open-source-readiness.md](./task-12-open-source-readiness.md) |
+| 1 | public/privateドキュメント分割方針 | task-12の監査結果を受け、public repoを主、private repoを内部メモ置き場とする運用に向けた文書分類と移行計画を策定する | 公開準備 | [task-13-public-private-docs-split.md](./task-13-public-private-docs-split.md) |
 | 2 | iOS Simulatorでflutter run検証 | cargokitのiOS podspec実証（`app/rust_builder/ios/todori_app_bridge.podspec` 同梱済み）。macOSで踏んだ地雷は解決済みのため短期決着見込み | M2残 | Simulator起動には `xcrun simctl` を用いる。署名不要 |
 | 3 | タスク編集UI | タスク詳細画面での `title`/`note`/`priority`/`due_at` 編集。ブリッジにupdate系APIを追加（FRB再生成が必要） | M3-02 | |
 | 4 | サブタスク表示・作成 | `validate_parent`（`core/domain` 実装済み）のブリッジ公開とUI実装 | M3-03相当 | |

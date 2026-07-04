@@ -1,5 +1,8 @@
 # task-11: CI整備（M2-01）
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 `docs/07_Phase1計画書.md` のマイルストーンM2「ブリッジとUI骨格」は、M2-01「`flutter_rust_bridge` の再生成手順とCIキャッシュ方針を固定する」を定義している（完了条件: `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` が差分なしで再実行できること）。このタスクは同項目に対応する。
@@ -125,6 +128,8 @@ CIはmacOSランナーで動くことを基本とし、cargokit / Flutter / Rust
 - 未解決事項（あれば）
 
 ## 9. 完了報告
+
+作業日: 2026-07-04
 
 ### 変更内容
 

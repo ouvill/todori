@@ -1,5 +1,8 @@
 # task-02: SQLCipherビルド検証PoC
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 Todoriのローカルストレージは「素のSQLite + SQLCipher」を採用する設計になっている（`docs/03_技術仕様書.md` §5）。SQLCipherの鍵は常にDevice Key (DK) からHKDFで導出した値を使う。しかし、Rustから SQLCipher を利用する `rusqlite` の `bundled-sqlcipher` 系featureが実際に各プラットフォーム（特にAndroid/iOS）でビルドできるかどうかは、`docs/03_技術仕様書.md` §12「未決事項リスト」の筆頭に挙げられている未検証事項である。
