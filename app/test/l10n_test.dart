@@ -21,6 +21,10 @@ void main() {
     expect(ja.cancelButton, 'キャンセル');
     expect(en.localProtectionLabel, 'Local protection');
     expect(ja.localProtectionLabel, 'ローカル保護');
+    expect(en.taskSortTooltip, 'Sort tasks');
+    expect(ja.taskSortTooltip, 'タスクの表示順');
+    expect(en.taskSortDueDate, 'Due date');
+    expect(ja.taskSortDueDate, '締切順');
     expect(en.listsTitle, isNot(ja.listsTitle));
     expect(en.tasksTitle, isNot(ja.tasksTitle));
   });

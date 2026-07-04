@@ -236,6 +236,21 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get taskSortTooltip => 'タスクの表示順';
+
+  @override
+  String get taskSortManual => '手動順';
+
+  @override
+  String get taskSortDueDate => '締切順';
+
+  @override
+  String get taskSortPriority => '優先度順';
+
+  @override
+  String get taskSortCreatedAt => '作成順';
+
+  @override
   String get moveTaskUpTooltip => 'タスクを上へ移動';
 
   @override

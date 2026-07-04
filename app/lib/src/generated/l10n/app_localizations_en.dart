@@ -237,6 +237,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get taskSortTooltip => 'Sort tasks';
+
+  @override
+  String get taskSortManual => 'Manual';
+
+  @override
+  String get taskSortDueDate => 'Due date';
+
+  @override
+  String get taskSortPriority => 'Priority';
+
+  @override
+  String get taskSortCreatedAt => 'Created';
+
+  @override
   String get moveTaskUpTooltip => 'Move task up';
 
   @override

@@ -148,6 +148,11 @@
       }
     }
   },
+  "taskSortTooltip": "Sort tasks",
+  "taskSortManual": "Manual",
+  "taskSortDueDate": "Due date",
+  "taskSortPriority": "Priority",
+  "taskSortCreatedAt": "Created",
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
   "taskDeletedAt": "Deleted: {deletedAt}",

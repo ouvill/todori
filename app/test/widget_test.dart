@@ -45,6 +45,7 @@ class FakeBridgeService implements BridgeService {
     required String title,
     String? parentTaskId,
   }) async {
+    final taskSeq = _taskSeq++;
     final siblings =
         _tasks
             .where(
@@ -60,7 +61,7 @@ class FakeBridgeService implements BridgeService {
       null,
     );
     final task = TaskDto(
-      id: 'task-${_taskSeq++}',
+      id: 'task-$taskSeq',
       listId: listId,
       parentTaskId: parentTaskId,
       title: title,
@@ -68,7 +69,7 @@ class FakeBridgeService implements BridgeService {
       status: 'todo',
       priority: 0,
       sortOrder: sortOrder,
-      createdAt: 0,
+      createdAt: taskSeq,
       updatedAt: 0,
     );
     _tasks.add(task);
@@ -453,6 +454,22 @@ void _useNarrowDynamicTypeView(WidgetTester tester) {
   });
 }
 
+Future<void> _selectTaskSortMode(WidgetTester tester, String label) async {
+  await tester.tap(find.byTooltip('Sort tasks'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
+void _expectTaskTitleOrder(WidgetTester tester, List<String> titles) {
+  final tops = [
+    for (final title in titles) tester.getTopLeft(find.text(title)).dy,
+  ];
+  for (var index = 1; index < tops.length; index += 1) {
+    expect(tops[index - 1], lessThan(tops[index]));
+  }
+}
+
 void main() {
   testWidgets('lists screen shows lists from the bridge service', (
     tester,
@@ -688,6 +705,109 @@ void main() {
     expect(firstTop, lessThan(thirdTop));
   });
 
+  testWidgets('task sort menu switches root order and move buttons', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final manualFirst = await fake.createTask(
+      listId: listId,
+      title: 'Manual first',
+    );
+    final manualSecond = await fake.createTask(
+      listId: listId,
+      title: 'Manual second',
+    );
+    final manualThird = await fake.createTask(
+      listId: listId,
+      title: 'Manual third',
+    );
+    final manualFourth = await fake.createTask(
+      listId: listId,
+      title: 'Manual fourth',
+    );
+    await fake.updateTask(
+      taskId: manualFirst.id,
+      title: manualFirst.title,
+      note: '',
+      priority: 1,
+      dueAt: 300,
+    );
+    await fake.updateTask(
+      taskId: manualSecond.id,
+      title: manualSecond.title,
+      note: '',
+      priority: 3,
+      dueAt: null,
+    );
+    await fake.updateTask(
+      taskId: manualThird.id,
+      title: manualThird.title,
+      note: '',
+      priority: 2,
+      dueAt: 100,
+    );
+    await fake.updateTask(
+      taskId: manualFourth.id,
+      title: manualFourth.title,
+      note: '',
+      priority: 3,
+      dueAt: 400,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+
+    _expectTaskTitleOrder(tester, [
+      'Manual first',
+      'Manual second',
+      'Manual third',
+      'Manual fourth',
+    ]);
+    expect(find.byTooltip('Sort tasks'), findsOneWidget);
+    expect(find.byTooltip('Move task up'), findsWidgets);
+
+    await _selectTaskSortMode(tester, 'Due date');
+    _expectTaskTitleOrder(tester, [
+      'Manual third',
+      'Manual first',
+      'Manual fourth',
+      'Manual second',
+    ]);
+    expect(find.byTooltip('Move task up'), findsNothing);
+    expect(find.byTooltip('Move task down'), findsNothing);
+
+    await _selectTaskSortMode(tester, 'Priority');
+    _expectTaskTitleOrder(tester, [
+      'Manual second',
+      'Manual fourth',
+      'Manual third',
+      'Manual first',
+    ]);
+
+    await _selectTaskSortMode(tester, 'Created');
+    _expectTaskTitleOrder(tester, [
+      'Manual fourth',
+      'Manual third',
+      'Manual second',
+      'Manual first',
+    ]);
+
+    await _selectTaskSortMode(tester, 'Manual');
+    _expectTaskTitleOrder(tester, [
+      'Manual first',
+      'Manual second',
+      'Manual third',
+      'Manual fourth',
+    ]);
+    expect(find.byTooltip('Move task up'), findsWidgets);
+  });
+
   testWidgets('task list shows three-level subtasks with descendant progress', (
     tester,
   ) async {
@@ -733,6 +853,74 @@ void main() {
     final grandchildTop = tester.getTopLeft(find.text('Review checklist')).dy;
     expect(parentTop, lessThan(childTop));
     expect(childTop, lessThan(grandchildTop));
+  });
+
+  testWidgets('condition sort keeps subtasks under their parent', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(listId: listId, title: 'Parent');
+    final childLater = await fake.createTask(
+      listId: listId,
+      title: 'Child later',
+      parentTaskId: parent.id,
+    );
+    final childSooner = await fake.createTask(
+      listId: listId,
+      title: 'Child sooner',
+      parentTaskId: parent.id,
+    );
+    final otherRoot = await fake.createTask(
+      listId: listId,
+      title: 'Other root',
+    );
+    await fake.updateTask(
+      taskId: childLater.id,
+      title: childLater.title,
+      note: '',
+      priority: 0,
+      dueAt: 300,
+    );
+    await fake.updateTask(
+      taskId: childSooner.id,
+      title: childSooner.title,
+      note: '',
+      priority: 0,
+      dueAt: 100,
+    );
+    await fake.updateTask(
+      taskId: otherRoot.id,
+      title: otherRoot.title,
+      note: '',
+      priority: 0,
+      dueAt: 50,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await _selectTaskSortMode(tester, 'Due date');
+
+    _expectTaskTitleOrder(tester, [
+      'Other root',
+      'Parent',
+      'Child sooner',
+      'Child later',
+    ]);
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${childSooner.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${childLater.id}')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Move task up'), findsNothing);
   });
 
   testWidgets('subtask move buttons keep the same parent and depth', (

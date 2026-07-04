@@ -27,11 +27,18 @@ class TasksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final tasksAsync = ref.watch(tasksProvider(listId));
+    final sortMode = ref.watch(taskSortModeProvider(listId));
 
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.tasksTitle),
         actions: [
+          _TaskSortMenu(
+            selectedMode: sortMode,
+            onSelected: (mode) {
+              ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.restore_from_trash_outlined),
             tooltip: l10n.openTrashTooltip,
@@ -52,7 +59,9 @@ class TasksScreen extends ConsumerWidget {
               body: l10n.tasksEmptyBody,
             );
           }
-          final nodes = flattenTaskTree(buildTaskTree(tasks));
+          final nodes = flattenTaskTree(
+            buildTaskTree(tasks, sortMode: sortMode),
+          );
           return ListView.separated(
             padding: const EdgeInsets.all(AppSpacing.md),
             itemCount: nodes.length,
@@ -62,7 +71,10 @@ class TasksScreen extends ConsumerWidget {
               final node = nodes[index];
               final task = node.task;
               final stats = descendantStatsOf(task.id, tasks);
-              final siblings = _siblingsOf(task, tasks);
+              final isManualSort = sortMode == TaskSortMode.manual;
+              final siblings = isManualSort
+                  ? _siblingsOf(task, tasks)
+                  : const <TaskDto>[];
               final siblingIndex = siblings.indexWhere(
                 (sibling) => sibling.id == task.id,
               );
@@ -83,20 +95,23 @@ class TasksScreen extends ConsumerWidget {
                   task: task,
                   stats: stats,
                 ),
-                trailing: _TaskReorderControls(
-                  task: task,
-                  siblings: siblings,
-                  siblingIndex: siblingIndex,
-                  onMove: ({required previousTaskId, required nextTaskId}) {
-                    return ref
-                        .read(tasksProvider(listId).notifier)
-                        .reorderTask(
-                          taskId: task.id,
-                          previousTaskId: previousTaskId,
-                          nextTaskId: nextTaskId,
-                        );
-                  },
-                ),
+                trailing: isManualSort
+                    ? _TaskReorderControls(
+                        task: task,
+                        siblings: siblings,
+                        siblingIndex: siblingIndex,
+                        onMove:
+                            ({required previousTaskId, required nextTaskId}) {
+                              return ref
+                                  .read(tasksProvider(listId).notifier)
+                                  .reorderTask(
+                                    taskId: task.id,
+                                    previousTaskId: previousTaskId,
+                                    nextTaskId: nextTaskId,
+                                  );
+                            },
+                      )
+                    : null,
                 onToggleDone: () => _completeTask(context, ref, task, tasks),
                 onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
               );
@@ -153,6 +168,53 @@ class TasksScreen extends ConsumerWidget {
     }
     await _showLatestUndoSnackBar(context);
   }
+}
+
+class _TaskSortMenu extends StatelessWidget {
+  const _TaskSortMenu({required this.selectedMode, required this.onSelected});
+
+  final TaskSortMode selectedMode;
+  final ValueChanged<TaskSortMode> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return PopupMenuButton<TaskSortMode>(
+      key: const ValueKey('task-sort-menu'),
+      icon: const Icon(Icons.sort),
+      tooltip: l10n.taskSortTooltip,
+      initialValue: selectedMode,
+      onSelected: onSelected,
+      itemBuilder: (context) {
+        return [
+          for (final mode in TaskSortMode.values)
+            PopupMenuItem<TaskSortMode>(
+              value: mode,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    selectedMode == mode ? Icons.check : Icons.sort,
+                    size: 18,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Flexible(child: Text(_taskSortLabel(l10n, mode))),
+                ],
+              ),
+            ),
+        ];
+      },
+    );
+  }
+}
+
+String _taskSortLabel(AppLocalizations l10n, TaskSortMode mode) {
+  return switch (mode) {
+    TaskSortMode.manual => l10n.taskSortManual,
+    TaskSortMode.dueDate => l10n.taskSortDueDate,
+    TaskSortMode.priority => l10n.taskSortPriority,
+    TaskSortMode.createdAt => l10n.taskSortCreatedAt,
+  };
 }
 
 Future<void> _showLatestUndoSnackBar(BuildContext context) async {

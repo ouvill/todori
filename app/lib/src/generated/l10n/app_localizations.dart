@@ -506,6 +506,36 @@ abstract class AppLocalizations {
   /// **'Undo failed: {error}'**
   String undoFailedMessage(String error);
 
+  /// No description provided for @taskSortTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort tasks'**
+  String get taskSortTooltip;
+
+  /// No description provided for @taskSortManual.
+  ///
+  /// In en, this message translates to:
+  /// **'Manual'**
+  String get taskSortManual;
+
+  /// No description provided for @taskSortDueDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Due date'**
+  String get taskSortDueDate;
+
+  /// No description provided for @taskSortPriority.
+  ///
+  /// In en, this message translates to:
+  /// **'Priority'**
+  String get taskSortPriority;
+
+  /// No description provided for @taskSortCreatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get taskSortCreatedAt;
+
   /// No description provided for @moveTaskUpTooltip.
   ///
   /// In en, this message translates to:

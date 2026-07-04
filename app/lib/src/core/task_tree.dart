@@ -1,5 +1,7 @@
 import 'package:todori/src/rust/api.dart';
 
+enum TaskSortMode { manual, dueDate, priority, createdAt }
+
 class TaskTreeNode {
   const TaskTreeNode({
     required this.task,
@@ -21,10 +23,14 @@ class SubtaskStats {
   bool get hasDescendants => totalCount > 0;
 }
 
-List<TaskTreeNode> buildTaskTree(List<TaskDto> tasks) {
-  final sorted = [...tasks]..sort(_compareTasks);
+List<TaskTreeNode> buildTaskTree(
+  List<TaskDto> tasks, {
+  TaskSortMode sortMode = TaskSortMode.manual,
+}) {
+  final sorted = [...tasks]
+    ..sort((a, b) => compareTasksForSortMode(a, b, sortMode));
   final byId = {for (final task in sorted) task.id: task};
-  final childrenByParent = _childrenByParent(sorted);
+  final childrenByParent = _childrenByParent(sorted, sortMode: sortMode);
   final emitted = <String>{};
 
   TaskTreeNode? buildNode(TaskDto task, int depth, Set<String> path) {
@@ -83,9 +89,13 @@ List<TaskTreeNode> flattenTaskTree(List<TaskTreeNode> roots) {
   return flattened;
 }
 
-List<TaskDto> directSubtasksOf(String taskId, List<TaskDto> tasks) {
+List<TaskDto> directSubtasksOf(
+  String taskId,
+  List<TaskDto> tasks, {
+  TaskSortMode sortMode = TaskSortMode.manual,
+}) {
   final children = tasks.where((task) => task.parentTaskId == taskId).toList();
-  children.sort(_compareTasks);
+  children.sort((a, b) => compareTasksForSortMode(a, b, sortMode));
   return children;
 }
 
@@ -131,7 +141,10 @@ bool hasIncompleteDescendants(String taskId, List<TaskDto> tasks) {
   return visitChildren(taskId);
 }
 
-Map<String, List<TaskDto>> _childrenByParent(List<TaskDto> tasks) {
+Map<String, List<TaskDto>> _childrenByParent(
+  List<TaskDto> tasks, {
+  TaskSortMode sortMode = TaskSortMode.manual,
+}) {
   final childrenByParent = <String, List<TaskDto>>{};
   for (final task in tasks) {
     final parentId = task.parentTaskId;
@@ -141,15 +154,74 @@ Map<String, List<TaskDto>> _childrenByParent(List<TaskDto> tasks) {
     childrenByParent.putIfAbsent(parentId, () => <TaskDto>[]).add(task);
   }
   for (final children in childrenByParent.values) {
-    children.sort(_compareTasks);
+    children.sort((a, b) => compareTasksForSortMode(a, b, sortMode));
   }
   return childrenByParent;
 }
 
-int _compareTasks(TaskDto a, TaskDto b) {
-  final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+int compareTasksForSortMode(TaskDto a, TaskDto b, TaskSortMode sortMode) {
+  return switch (sortMode) {
+    TaskSortMode.manual => _compareManual(a, b),
+    TaskSortMode.dueDate => _compareDueDate(a, b),
+    TaskSortMode.priority => _comparePriority(a, b),
+    TaskSortMode.createdAt => _compareCreatedAt(a, b),
+  };
+}
+
+int _compareDueDate(TaskDto a, TaskDto b) {
+  final aDueAt = a.dueAt;
+  final bDueAt = b.dueAt;
+  if (aDueAt == null && bDueAt != null) {
+    return 1;
+  }
+  if (aDueAt != null && bDueAt == null) {
+    return -1;
+  }
+  if (aDueAt != null && bDueAt != null) {
+    final dueAt = aDueAt.compareTo(bDueAt);
+    if (dueAt != 0) {
+      return dueAt;
+    }
+  }
+  return _compareManual(a, b);
+}
+
+int _comparePriority(TaskDto a, TaskDto b) {
+  final priority = b.priority.compareTo(a.priority);
+  if (priority != 0) {
+    return priority;
+  }
+  return _compareManual(a, b);
+}
+
+int _compareCreatedAt(TaskDto a, TaskDto b) {
+  final createdAt = b.createdAt.compareTo(a.createdAt);
+  if (createdAt != 0) {
+    return createdAt;
+  }
+  final sortOrder = _compareSortOrder(a, b);
   if (sortOrder != 0) {
     return sortOrder;
   }
   return a.id.compareTo(b.id);
+}
+
+int _compareManual(TaskDto a, TaskDto b) {
+  final sortOrder = _compareSortOrder(a, b);
+  if (sortOrder != 0) {
+    return sortOrder;
+  }
+  final createdAt = b.createdAt.compareTo(a.createdAt);
+  if (createdAt != 0) {
+    return createdAt;
+  }
+  return a.id.compareTo(b.id);
+}
+
+int _compareSortOrder(TaskDto a, TaskDto b) {
+  final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+  if (sortOrder != 0) {
+    return sortOrder;
+  }
+  return 0;
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
+import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/rust/api.dart' show ListDto, TaskDto, TaskUndoDto;
 
 /// The [BridgeService] used by the app.
@@ -46,6 +47,28 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
 final listsProvider = AsyncNotifierProvider<ListsNotifier, List<ListDto>>(
   ListsNotifier.new,
 );
+
+/// Keeps the selected task display order in memory for the current app
+/// session. Phase 1 intentionally does not persist this value to storage.
+class TaskSortModeNotifier extends Notifier<TaskSortMode> {
+  TaskSortModeNotifier(this.listId);
+
+  final String listId;
+
+  @override
+  TaskSortMode build() {
+    return TaskSortMode.manual;
+  }
+
+  void setMode(TaskSortMode mode) {
+    state = mode;
+  }
+}
+
+final taskSortModeProvider =
+    NotifierProvider.family<TaskSortModeNotifier, TaskSortMode, String>(
+      TaskSortModeNotifier.new,
+    );
 
 /// Manages the active (non-trashed) tasks of a single list, keyed by
 /// `listId`.
