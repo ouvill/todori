@@ -196,6 +196,31 @@ class AppLocalizationsJa extends AppLocalizations {
   String get moveToTrashButton => 'ゴミ箱へ移動';
 
   @override
+  String get openTrashTooltip => 'ゴミ箱を開く';
+
+  @override
+  String get trashTitle => 'ゴミ箱';
+
+  @override
+  String get trashEmptyTitle => 'ゴミ箱は空です。';
+
+  @override
+  String get trashEmptyBody => '削除したタスクはここに表示されます。';
+
+  @override
+  String failedToLoadTrash(String error) {
+    return 'ゴミ箱の読み込みに失敗しました: $error';
+  }
+
+  @override
+  String get restoreTaskTooltip => 'タスクを復元';
+
+  @override
+  String taskDeletedAt(String deletedAt) {
+    return '削除日時: $deletedAt';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }

@@ -244,7 +244,25 @@ void main() {
 
     expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Local protection'), findsOneWidget);
+    expect(find.byTooltip('Open trash'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('trash action opens an empty trash screen', (tester) async {
+    await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open trash'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trash'), findsOneWidget);
+    expect(find.text('Trash is empty.'), findsOneWidget);
+    expect(find.text('Deleted tasks will appear here.'), findsOneWidget);
   });
 
   testWidgets('tapping a task navigates to its detail screen', (tester) async {
@@ -503,5 +521,48 @@ void main() {
 
     expect(find.text('Title is required.'), findsOneWidget);
     expect(find.text('Buy milk'), findsWidgets);
+  });
+
+  testWidgets('trashed task appears in trash and can be restored', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to trash'));
+    await tester.pumpAndSettle();
+
+    final listId = (await fake.getLists()).first.id;
+    expect(await fake.getTasks(listId: listId), isEmpty);
+    expect(find.text('Buy milk'), findsNothing);
+
+    await tester.tap(find.byTooltip('Open trash'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trash'), findsOneWidget);
+    expect(find.text('Buy milk'), findsOneWidget);
+    expect(find.text('Deleted: 1970-01-01'), findsOneWidget);
+    expect(find.byTooltip('Restore task'), findsOneWidget);
+
+    final trashed = await fake.getTrashedTasks();
+    await tester.tap(find.byKey(ValueKey('restore-task-${trashed.single.id}')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trash is empty.'), findsOneWidget);
+    expect(await fake.getTrashedTasks(), isEmpty);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    final active = await fake.getTasks(listId: listId);
+    expect(active.single.title, 'Buy milk');
+    expect(find.text('Buy milk'), findsOneWidget);
   });
 }

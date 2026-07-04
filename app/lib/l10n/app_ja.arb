@@ -56,5 +56,12 @@
   "titleRequiredError": "タイトルは必須です。",
   "failedToSaveTask": "タスクの保存に失敗しました: {error}",
   "moveToTrashButton": "ゴミ箱へ移動",
+  "openTrashTooltip": "ゴミ箱を開く",
+  "trashTitle": "ゴミ箱",
+  "trashEmptyTitle": "ゴミ箱は空です。",
+  "trashEmptyBody": "削除したタスクはここに表示されます。",
+  "failedToLoadTrash": "ゴミ箱の読み込みに失敗しました: {error}",
+  "restoreTaskTooltip": "タスクを復元",
+  "taskDeletedAt": "削除日時: {deletedAt}",
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

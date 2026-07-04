@@ -30,6 +30,11 @@ class TasksScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l10n.tasksTitle),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.restore_from_trash_outlined),
+            tooltip: l10n.openTrashTooltip,
+            onPressed: () => context.push('/trash'),
+          ),
           Padding(
             padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
             child: Center(

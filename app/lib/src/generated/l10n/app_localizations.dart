@@ -434,6 +434,48 @@ abstract class AppLocalizations {
   /// **'Move to trash'**
   String get moveToTrashButton;
 
+  /// No description provided for @openTrashTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Open trash'**
+  String get openTrashTooltip;
+
+  /// No description provided for @trashTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Trash'**
+  String get trashTitle;
+
+  /// No description provided for @trashEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Trash is empty.'**
+  String get trashEmptyTitle;
+
+  /// No description provided for @trashEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted tasks will appear here.'**
+  String get trashEmptyBody;
+
+  /// No description provided for @failedToLoadTrash.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load trash: {error}'**
+  String failedToLoadTrash(String error);
+
+  /// No description provided for @restoreTaskTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore task'**
+  String get restoreTaskTooltip;
+
+  /// No description provided for @taskDeletedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted: {deletedAt}'**
+  String taskDeletedAt(String deletedAt);
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

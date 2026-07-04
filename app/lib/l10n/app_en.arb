@@ -122,6 +122,27 @@
     }
   },
   "moveToTrashButton": "Move to trash",
+  "openTrashTooltip": "Open trash",
+  "trashTitle": "Trash",
+  "trashEmptyTitle": "Trash is empty.",
+  "trashEmptyBody": "Deleted tasks will appear here.",
+  "failedToLoadTrash": "Failed to load trash: {error}",
+  "@failedToLoadTrash": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "restoreTaskTooltip": "Restore task",
+  "taskDeletedAt": "Deleted: {deletedAt}",
+  "@taskDeletedAt": {
+    "placeholders": {
+      "deletedAt": {
+        "type": "String"
+      }
+    }
+  },
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

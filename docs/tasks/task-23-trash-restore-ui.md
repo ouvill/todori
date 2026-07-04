@@ -1,5 +1,8 @@
 # task-23: ゴミ箱画面・復元UI
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-05
+
 ## 1. 背景とコンテキスト
 
 task-18でタスク詳細画面からの `title` / `note` / `priority` / `due_at` 編集が実装され、task-19でサブタスク表示・作成・進捗・親完了確認が追加された。task-20ではUI foundation、task-21では視覚方向性、task-22では `docs/design/visual-direction.md` とゴミ箱/復元UIのデザイン方針が整理された。
@@ -177,3 +180,135 @@ task-18でタスク詳細画面からの `title` / `note` / `priority` / `due_at
 - やらなかったことが守られていること（permanent delete、Undo、fractional index、並び替え、通知、検索、タグ、新規依存、Rust/FRB/DB/domain変更なし）
 - public/private境界の確認結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-05
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/PLAYBOOK.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/07_Phase1計画書.md` の M3-02 / M3-04 / M3-05 周辺
+- `docs/tasks/task-18-task-editing-ui.md`
+- `docs/tasks/task-19-subtasks-ui.md`
+- `docs/tasks/task-20-ui-foundation.md`
+- `docs/tasks/task-21-visual-direction.md`
+- `docs/tasks/task-22-design-direction-sketch.md`
+- `docs/design/visual-direction.md` の `Trash And Restore` とcomponent rules
+- `app/lib/src/router.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/ui/states.dart`
+- `app/lib/src/ui/dialogs.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/widget_test.dart`
+- `app/test/core_usecases_test.dart`
+- `app/tool/check_hardcoded_strings.sh`
+
+### M3-02 / BACKLOG上M3-04相当の対応関係
+
+- `docs/07_Phase1計画書.md` 上は M3-02「タスクCRUD UI」の削除/復元残りに対応する。
+- `docs/tasks/BACKLOG.md` 上は「ゴミ箱画面・復元UI」として M3-04相当の先頭タスクに対応する。
+
+### 追加/変更したrouteと画面
+
+- `app/lib/src/router.dart` に top-level route `/trash`（name: `trash`）を追加した。
+- `app/lib/src/screens/trash_screen.dart` を追加し、削除済みタスク一覧、empty / loading / error、行ごとのrestore actionを実装した。
+- 既存 `/lists`、`/lists/:listId/tasks`、`/lists/:listId/tasks/:taskId` は維持した。
+
+### ゴミ箱導線の配置と理由
+
+- `app/lib/src/screens/tasks_screen.dart` の AppBar action に `Icons.restore_from_trash_outlined` のicon-only導線を追加した。
+- 既存の通常タスク操作やFABを邪魔せず、削除操作がTaskDetailから行われる現在の情報設計でも、タスク一覧から復元先へ戻れるため。
+
+### provider/notifierとinvalidate方針
+
+- `app/lib/src/core/providers.dart` に `trashedTasksProvider` / `TrashedTasksNotifier` を追加した。
+- `build()` は `BridgeService.getTrashedTasks()` を読む。
+- `restoreTask(taskId)` は復元前の `TaskDto` から元 `listId` を取り、`BridgeService.restoreTask()` 後に `trashedTasksProvider` 自身と `tasksProvider(listId)` を更新する。
+- 復元後に戻ったTasks画面で古いactive一覧が残らないよう、`tasksProvider(listId).future` も読み直している。
+- `TasksNotifier.trashTask()` は `BridgeService.trashTask()` 後に当該active task一覧と `trashedTasksProvider` をinvalidateする。
+
+### `getTrashedTasks` / `restoreTask` / `trashTask` の使い方
+
+- ゴミ箱画面表示時に `getTrashedTasks()` を呼び、全体ゴミ箱として削除済みタスクを表示する。
+- 行ごとのrestore actionから `restoreTask(taskId)` を呼ぶ。
+- 既存TaskDetailの削除導線は `trashTask(taskId)` のまま使い、provider側でゴミ箱一覧のstale化を防ぐ。
+
+### 復元後のactive task一覧確認
+
+- widget testで、TaskDetailから `Move to trash` したタスクがactive一覧から消え、ゴミ箱に表示され、restore後にゴミ箱から消えて元リストのactive task一覧へ戻ることを確認した。
+
+### ゴミ箱行の表示方針
+
+- 行は白いsurfaceと薄いborderで既存task rowの視覚文法に寄せた。
+- タイトルは `onSurfaceVariant` でmuted表示にした。
+- metadataは `TaskMetadata` のpillを使い、少なくとも `deletedAt` を `taskDeletedAt` として表示する。priority / due dateがある場合も既存metadata方針で併記する。
+- restore actionは右端の `Icons.restore_outlined` icon buttonとして配置した。
+
+### empty / loading / error状態
+
+- loading: 既存 `AppLoadingState`。
+- error: 既存 `AppErrorState` で `failedToLoadTrash(error)` を表示。
+- empty: 既存 `AppEmptyState` で「Trash is empty. / Deleted tasks will appear here.」相当の短い文言を表示。
+
+### i18nキー
+
+- `openTrashTooltip`
+- `trashTitle`
+- `trashEmptyTitle`
+- `trashEmptyBody`
+- `failedToLoadTrash`
+- `restoreTaskTooltip`
+- `taskDeletedAt`
+
+`app/lib/l10n/app_en.arb` / `app_ja.arb` を更新し、`flutter gen-l10n` で `app/lib/src/generated/l10n/*` を更新した。
+
+### アクセシビリティ
+
+- Tasks画面のゴミ箱導線はicon-only controlとしてtooltipを持つ。
+- ゴミ箱行のrestore actionはtooltipと `Semantics(button: true, label: ...)` を持つ。
+- 削除状態は色だけに頼らず、`Deleted: ...` / `削除日時: ...` のmetadataで明示する。
+
+### 追加/更新したwidget test
+
+- Tasks画面にゴミ箱導線が表示されることを既存ナビゲーションテストへ追加した。
+- ゴミ箱導線からempty trash screenへ遷移できるテストを追加した。
+- TaskDetailからtrashしたタスクがactive一覧から消え、ゴミ箱に表示され、restore後に元リストへ戻るテストを追加した。
+- 既存のタスク作成、編集、サブタスク表示/作成、親完了確認テストは継続して通過した。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust 62 tests）。
+- `cd app && flutter analyze`: 成功。初回はFlutter SDK cache書き込みがサンドボックスで拒否されたため、承認付きで再実行して成功。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
+- `cd app && flutter test`: 成功（Flutter 22 tests）。初回の対象widget testでprovider invalidate timingを修正し、最終的に全件成功。Flutter SDK cache制約のため承認付きで実行。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+
+### やらなかったこと
+
+- permanent delete、Undo、fractional index、並び替え、通知、検索、タグは実装していない。
+- 新規pub依存、UIフレームワーク、icon packageは追加していない。
+- Rust API、FRB生成物、DB schema、storage repository、domain usecaseは変更していない。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+
+### public/private境界
+
+- `todori-private/` は読んでおらず、変更していない。
+- public repoへprivate側の課金、収益、法務、監査、公開前ロードマップ等の詳細は転記していない。
+
+### 未解決事項・要人間判断
+
+- なし。

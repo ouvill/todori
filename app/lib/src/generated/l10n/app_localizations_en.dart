@@ -197,6 +197,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get moveToTrashButton => 'Move to trash';
 
   @override
+  String get openTrashTooltip => 'Open trash';
+
+  @override
+  String get trashTitle => 'Trash';
+
+  @override
+  String get trashEmptyTitle => 'Trash is empty.';
+
+  @override
+  String get trashEmptyBody => 'Deleted tasks will appear here.';
+
+  @override
+  String failedToLoadTrash(String error) {
+    return 'Failed to load trash: $error';
+  }
+
+  @override
+  String get restoreTaskTooltip => 'Restore task';
+
+  @override
+  String taskDeletedAt(String deletedAt) {
+    return 'Deleted: $deletedAt';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }
