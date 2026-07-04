@@ -208,7 +208,6 @@ class _TasksBody extends StatelessWidget {
           if (isHome && index == 0) {
             return _HomeTasksHeader(
               listName: listName ?? l10n.tasksTitle,
-              tasks: tasks,
               sortMenu: sortMenu,
               trashButton: trashButton,
             );
@@ -244,6 +243,7 @@ class _TasksBody extends StatelessWidget {
             hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
             metadata: taskMetadataItemsFor(
               l10n: l10n,
+              locale: Localizations.localeOf(context).toLanguageTag(),
               task: task,
               stats: stats,
             ),
@@ -276,13 +276,11 @@ class _TasksBody extends StatelessWidget {
 class _HomeTasksHeader extends StatelessWidget {
   const _HomeTasksHeader({
     required this.listName,
-    required this.tasks,
     required this.sortMenu,
     required this.trashButton,
   });
 
   final String listName;
-  final List<TaskDto> tasks;
   final Widget sortMenu;
   final Widget trashButton;
 
@@ -310,33 +308,22 @@ class _HomeTasksHeader extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xl),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.todayTitle,
-                    style: theme.textTheme.displayMedium?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      height: 0.95,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    today,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _PendingBadge(count: _pendingCount(tasks)),
-          ],
+        Text(
+          l10n.todayTitle,
+          // Lora display serif, kept to a moderate w600 weight per the
+          // design direction (avoid a too-heavy serif+bold combination).
+          style: theme.textTheme.displayMedium?.copyWith(
+            color: colorScheme.primary,
+            fontWeight: FontWeight.w600,
+            height: 0.95,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          today,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         DecoratedBox(
@@ -391,35 +378,27 @@ class _TaskSectionHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.homeTasksSectionTitle,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: colorScheme.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+    // Plain heading row (task-30): no card-in-card. The single pending pill
+    // here is the only place pending count is shown (the hero header above
+    // no longer repeats it).
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            l10n.homeTasksSectionTitle,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: colorScheme.primary,
             ),
-            _PendingBadge(count: pendingCount),
-            const SizedBox(width: AppSpacing.sm),
-            IconButton.filled(
-              icon: const Icon(Icons.add),
-              tooltip: l10n.newTaskTooltip,
-              onPressed: onCreateTask,
-            ),
-          ],
+          ),
         ),
-      ),
+        _PendingBadge(count: pendingCount),
+        const SizedBox(width: AppSpacing.sm),
+        IconButton.filled(
+          icon: const Icon(Icons.add),
+          tooltip: l10n.newTaskTooltip,
+          onPressed: onCreateTask,
+        ),
+      ],
     );
   }
 }

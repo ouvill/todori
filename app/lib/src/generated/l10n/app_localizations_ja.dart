@@ -113,22 +113,28 @@ class AppLocalizationsJa extends AppLocalizations {
   String get taskNotFound => 'タスクが見つかりません。';
 
   @override
-  String taskStatus(String status) {
-    return 'ステータス: $status';
-  }
-
-  @override
   String taskPriority(String priority) {
     return '優先度: $priority';
   }
 
   @override
   String taskDueAt(String dueAt) {
-    return '期限: $dueAt';
+    return '$dueAt';
   }
 
   @override
-  String taskCreatedAt(int createdAt) {
+  String get dueToday => '今日';
+
+  @override
+  String get dueTomorrow => '明日';
+
+  @override
+  String taskDueOverdue(String dueAt) {
+    return '期限超過: $dueAt';
+  }
+
+  @override
+  String taskCreatedAt(String createdAt) {
     return '作成日時: $createdAt';
   }
 
@@ -146,7 +152,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String subtaskProgress(int doneCount, int totalCount) {
-    return '進捗: $doneCount/$totalCount';
+    return '$doneCount/$totalCount';
   }
 
   @override
@@ -158,12 +164,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get continueButton => '続行';
-
-  @override
-  String get localProtectionLabel => 'ローカル保護';
-
-  @override
-  String get localProtectionTooltip => 'ローカル保存データベースの暗号化で保護されています。';
 
   @override
   String get statusTodo => '未着手';

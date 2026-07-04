@@ -64,9 +64,7 @@ void main() {
     await _screenshot(tester, 'home_tasks_empty');
   });
 
-  testWidgets('lists: list management screen with two lists', (
-    tester,
-  ) async {
+  testWidgets('lists: list management screen with two lists', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
     await tester.tap(find.byTooltip('Open lists'));
@@ -74,9 +72,7 @@ void main() {
     await _screenshot(tester, 'lists');
   });
 
-  testWidgets('task_detail: parent task with three subtasks', (
-    tester,
-  ) async {
+  testWidgets('task_detail: parent task with three subtasks', (tester) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
     await _openTask(tester, seed.parentWithSubtasksTitle);
@@ -241,10 +237,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     dueAt: overdue,
   );
 
-  final standup = await fake.createTask(
-    listId: homeListId,
-    title: '朝会に参加する',
-  );
+  final standup = await fake.createTask(listId: homeListId, title: '朝会に参加する');
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
 
   const parentWithSubtasksTitle = 'Plan the product launch event';
@@ -276,17 +269,17 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     parentTaskId: launch.id,
   );
 
-  await fake.createTask(
-    listId: workListId,
-    title: '四半期レビュー資料を作成する',
-  );
+  await fake.createTask(listId: workListId, title: '四半期レビュー資料を作成する');
 
   await tester.pumpWidget(
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 
-  return _SeedData(fake: fake, parentWithSubtasksTitle: parentWithSubtasksTitle);
+  return _SeedData(
+    fake: fake,
+    parentWithSubtasksTitle: parentWithSubtasksTitle,
+  );
 }
 
 /// Scrolls [title] into view (if needed) and taps it to open task detail.
@@ -345,54 +338,113 @@ Future<void> _screenshot(WidgetTester tester, String name) async {
 ///
 /// - Material Icons come from the Flutter SDK cache (`$FLUTTER_ROOT`), so
 ///   icon glyphs (checkboxes, chevrons, the FAB `+`, etc.) render correctly.
-/// - Body text is registered under the 'Roboto' family (the family Material
-///   3's default [TextTheme] asks for) using a real macOS system font that
-///   can render both Japanese and Latin script, so mixed-language seed data
-///   renders legibly instead of as tofu.
+/// - The bundled brand typefaces (`assets/fonts/Lora`, `assets/fonts/Inter`;
+///   see `app/pubspec.yaml` `fonts:` and `docs/design/visual-direction.md`)
+///   are registered under their real family names, each weight in turn, so
+///   the "Today"/screen-title serif (Lora) and UI body sans (Inter) render
+///   as designed instead of falling back to the test harness's tofu boxes.
+/// - A macOS system font that can render Japanese glyphs is registered under
+///   the `Hiragino Sans` family -- the same name `theme.dart` declares in
+///   `fontFamilyFallback` -- so mixed Japanese/English seed data resolves
+///   Japanese glyphs through that *separate* family instead of tofu.
+///
+///   (Registering the Japanese font as extra same-family candidates on
+///   'Inter'/'Lora' directly, as `FontLoader`'s docs suggest is possible,
+///   was tried first and did not work here: once a family has multiple
+///   candidates of different declared weights, Skia's style matching picks
+///   the closest-weight *Latin* candidate for a run and does not appear to
+///   retry sibling candidates in that family for glyphs it lacks. Routing
+///   Japanese through `fontFamilyFallback` -- a separate, single-typeface
+///   family that Flutter tries per missing glyph -- is what actually
+///   renders Japanese here.)
 Future<void> _loadRealFonts() async {
   await _loadMaterialIconsFont();
-  await _loadBodyFont();
+  await _loadBrandFont(family: 'Inter', weightPaths: _interWeightPaths);
+  await _loadBrandFont(family: 'Lora', weightPaths: _loraWeightPaths);
+  await _loadCjkFallbackFont();
 }
+
+const _interWeightPaths = [
+  'assets/fonts/Inter/Inter-Regular.ttf',
+  'assets/fonts/Inter/Inter-Medium.ttf',
+  'assets/fonts/Inter/Inter-SemiBold.ttf',
+  'assets/fonts/Inter/Inter-Bold.ttf',
+];
+
+const _loraWeightPaths = [
+  'assets/fonts/Lora/Lora-Regular.ttf',
+  'assets/fonts/Lora/Lora-Medium.ttf',
+  'assets/fonts/Lora/Lora-SemiBold.ttf',
+  'assets/fonts/Lora/Lora-Bold.ttf',
+];
+
+/// Must match the first entry of `_cjkFontFamilyFallback` in
+/// `lib/src/ui/theme.dart`.
+const _cjkFallbackFamily = 'Hiragino Sans';
+
+/// Japanese-capable system fonts to try for [_cjkFallbackFamily], in
+/// preference order (Hiragino first, Helvetica as a last resort so the
+/// harness still runs on non-macOS CI without crashing, albeit with tofu for
+/// Japanese in that case).
+const _cjkFallbackPaths = [
+  '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
+  '/System/Library/Fonts/Helvetica.ttc',
+];
 
 Future<void> _loadMaterialIconsFont() async {
   final flutterRoot = Platform.environment['FLUTTER_ROOT'];
   if (flutterRoot == null) {
     return;
   }
-  await _registerFont(
-    family: 'MaterialIcons',
-    path:
-        '$flutterRoot/bin/cache/artifacts/material_fonts/'
-        'MaterialIcons-Regular.otf',
+  final loader = FontLoader('MaterialIcons');
+  await _addFontFile(
+    loader,
+    '$flutterRoot/bin/cache/artifacts/material_fonts/'
+    'MaterialIcons-Regular.otf',
   );
+  await loader.load();
 }
 
-Future<void> _loadBodyFont() async {
-  // Prefer a font that can render Japanese glyphs (the seed data mixes
-  // Japanese and English titles); fall back to Helvetica if unavailable.
-  const candidatePaths = [
-    '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',
-    '/System/Library/Fonts/Helvetica.ttc',
-  ];
-  for (final path in candidatePaths) {
-    if (await _registerFont(family: 'Roboto', path: path)) {
-      return;
+/// Registers every bundled weight for [family] on **one** [FontLoader]
+/// instance loaded exactly once.
+Future<void> _loadBrandFont({
+  required String family,
+  required List<String> weightPaths,
+}) async {
+  final loader = FontLoader(family);
+  for (final path in weightPaths) {
+    await _addFontFile(loader, path);
+  }
+  await loader.load();
+}
+
+/// Registers a single Japanese-capable system font under
+/// [_cjkFallbackFamily] -- a dedicated family with exactly one candidate, so
+/// there is no competing same-family typeface to out-rank it (see the
+/// [_loadRealFonts] doc comment for why that matters).
+Future<void> _loadCjkFallbackFont() async {
+  final loader = FontLoader(_cjkFallbackFamily);
+  for (final path in _cjkFallbackPaths) {
+    if (await _addFontFile(loader, path)) {
+      break;
     }
   }
+  await loader.load();
 }
 
-Future<bool> _registerFont({required String family, required String path}) async {
+/// Reads [path] and adds it to [loader] if the file exists. Returns whether
+/// the font was added, so callers can stop after the first available
+/// candidate in a preference-ordered list (e.g. [_cjkFallbackPaths]).
+Future<bool> _addFontFile(FontLoader loader, String path) async {
   final file = File(path);
   if (!file.existsSync()) {
     return false;
   }
   final bytes = await file.readAsBytes();
-  final loader = FontLoader(family)
-    ..addFont(
-      Future.value(
-        ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes),
-      ),
-    );
-  await loader.load();
+  loader.addFont(
+    Future.value(
+      ByteData.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes),
+    ),
+  );
   return true;
 }

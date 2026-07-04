@@ -79,22 +79,31 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
+  # Brand typography (task-30 design mood alignment): Lora is the display
+  # serif used for Today/screen/section headings, Inter is the UI body
+  # sans-serif used everywhere else. Both are bundled OFL assets (see
+  # assets/fonts/{Lora,Inter}/OFL.txt), not the `google_fonts` package.
+  fonts:
+    - family: Lora
+      fonts:
+        - asset: assets/fonts/Lora/Lora-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Lora/Lora-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Lora/Lora-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Lora/Lora-Bold.ttf
+          weight: 700
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter/Inter-Bold.ttf
+          weight: 700
+
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package

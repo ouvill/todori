@@ -135,7 +135,10 @@ void main() {
     expect(tester.takeException(), isNull);
 
     final secondMoveUp = find.byKey(ValueKey('task-move-up-${second.id}'));
-    await tester.drag(find.byType(ListView), const Offset(0, -220));
+    // Scroll by hunting for the target rather than a fixed pixel delta: the
+    // compact row layout (task-30) lets a very long wrapped title occupy
+    // more vertical space than a fixed drag distance can predict.
+    await tester.scrollUntilVisible(find.textContaining('Second task'), 220);
     await tester.pumpAndSettle();
     expect(find.textContaining('Second task'), findsOneWidget);
     await tester.ensureVisible(secondMoveUp);
@@ -241,7 +244,8 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
-    expect(find.text('Priority: High'), findsOneWidget);
+    // Priority is conveyed by the dot + tooltip/semantics, not a text chip.
+    expect(find.byTooltip('Priority: High'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.edit_outlined));
     await tester.pumpAndSettle();
@@ -265,8 +269,11 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('Local protection'), findsOneWidget);
-    expect(find.text('Status: To do'), findsOneWidget);
+    // No persistent Local protection/lock chip in the main task UI (see
+    // `docs/design/visual-direction.md` Security Signal section); status
+    // keeps a short, unprefixed pill in the detail header.
+    expect(find.text('Local protection'), findsNothing);
+    expect(find.text('To do'), findsOneWidget);
   });
 
   testWidgets('creating a list from list management updates the list', (
@@ -492,8 +499,9 @@ void main() {
     expect(find.text('Plan launch'), findsOneWidget);
     expect(find.text('Draft checklist'), findsOneWidget);
     expect(find.text('Review checklist'), findsOneWidget);
-    expect(find.text('Progress: 1/2'), findsOneWidget);
-    expect(find.text('Progress: 1/1'), findsOneWidget);
+    // Subtask progress is a compact "done/total" pill with no text prefix.
+    expect(find.text('1/2'), findsOneWidget);
+    expect(find.text('1/1'), findsOneWidget);
     expect(
       find.byKey(ValueKey('task-hierarchy-guide-${child.id}')),
       findsOneWidget,
@@ -722,7 +730,7 @@ void main() {
 
     expect(find.text('Buy oat milk'), findsOneWidget);
     expect(find.text('Shelf-stable'), findsOneWidget);
-    expect(find.text('Priority: High'), findsOneWidget);
+    expect(find.byTooltip('Priority: High'), findsOneWidget);
 
     final listId = (await fake.getLists()).first.id;
     final active = await fake.getTasks(listId: listId);

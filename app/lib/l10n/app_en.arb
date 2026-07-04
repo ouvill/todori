@@ -60,14 +60,6 @@
     }
   },
   "taskNotFound": "Task not found.",
-  "taskStatus": "Status: {status}",
-  "@taskStatus": {
-    "placeholders": {
-      "status": {
-        "type": "String"
-      }
-    }
-  },
   "taskPriority": "Priority: {priority}",
   "@taskPriority": {
     "placeholders": {
@@ -76,8 +68,18 @@
       }
     }
   },
-  "taskDueAt": "Due: {dueAt}",
+  "taskDueAt": "{dueAt}",
   "@taskDueAt": {
+    "placeholders": {
+      "dueAt": {
+        "type": "String"
+      }
+    }
+  },
+  "dueToday": "Today",
+  "dueTomorrow": "Tomorrow",
+  "taskDueOverdue": "Overdue: {dueAt}",
+  "@taskDueOverdue": {
     "placeholders": {
       "dueAt": {
         "type": "String"
@@ -88,7 +90,7 @@
   "@taskCreatedAt": {
     "placeholders": {
       "createdAt": {
-        "type": "int"
+        "type": "String"
       }
     }
   },
@@ -96,7 +98,7 @@
   "subtasksEmpty": "No subtasks yet.",
   "addSubtaskButton": "Add subtask",
   "newSubtaskTitle": "New subtask",
-  "subtaskProgress": "Progress: {doneCount}/{totalCount}",
+  "subtaskProgress": "{doneCount}/{totalCount}",
   "@subtaskProgress": {
     "placeholders": {
       "doneCount": {
@@ -110,8 +112,6 @@
   "completeTaskDialogTitle": "Complete parent task?",
   "completeTaskDialogMessage": "This task has incomplete subtasks. Completing it will not complete its subtasks.",
   "continueButton": "Continue",
-  "localProtectionLabel": "Local protection",
-  "localProtectionTooltip": "Stored locally with encrypted database protection.",
   "statusTodo": "To do",
   "statusInProgress": "In progress",
   "statusDone": "Done",

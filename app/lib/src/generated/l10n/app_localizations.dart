@@ -290,12 +290,6 @@ abstract class AppLocalizations {
   /// **'Task not found.'**
   String get taskNotFound;
 
-  /// No description provided for @taskStatus.
-  ///
-  /// In en, this message translates to:
-  /// **'Status: {status}'**
-  String taskStatus(String status);
-
   /// No description provided for @taskPriority.
   ///
   /// In en, this message translates to:
@@ -305,14 +299,32 @@ abstract class AppLocalizations {
   /// No description provided for @taskDueAt.
   ///
   /// In en, this message translates to:
-  /// **'Due: {dueAt}'**
+  /// **'{dueAt}'**
   String taskDueAt(String dueAt);
+
+  /// No description provided for @dueToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get dueToday;
+
+  /// No description provided for @dueTomorrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow'**
+  String get dueTomorrow;
+
+  /// No description provided for @taskDueOverdue.
+  ///
+  /// In en, this message translates to:
+  /// **'Overdue: {dueAt}'**
+  String taskDueOverdue(String dueAt);
 
   /// No description provided for @taskCreatedAt.
   ///
   /// In en, this message translates to:
   /// **'Created at: {createdAt}'**
-  String taskCreatedAt(int createdAt);
+  String taskCreatedAt(String createdAt);
 
   /// No description provided for @subtasksTitle.
   ///
@@ -341,7 +353,7 @@ abstract class AppLocalizations {
   /// No description provided for @subtaskProgress.
   ///
   /// In en, this message translates to:
-  /// **'Progress: {doneCount}/{totalCount}'**
+  /// **'{doneCount}/{totalCount}'**
   String subtaskProgress(int doneCount, int totalCount);
 
   /// No description provided for @completeTaskDialogTitle.
@@ -361,18 +373,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Continue'**
   String get continueButton;
-
-  /// No description provided for @localProtectionLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Local protection'**
-  String get localProtectionLabel;
-
-  /// No description provided for @localProtectionTooltip.
-  ///
-  /// In en, this message translates to:
-  /// **'Stored locally with encrypted database protection.'**
-  String get localProtectionTooltip;
 
   /// No description provided for @statusTodo.
   ///

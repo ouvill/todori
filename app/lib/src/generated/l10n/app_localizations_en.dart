@@ -114,22 +114,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get taskNotFound => 'Task not found.';
 
   @override
-  String taskStatus(String status) {
-    return 'Status: $status';
-  }
-
-  @override
   String taskPriority(String priority) {
     return 'Priority: $priority';
   }
 
   @override
   String taskDueAt(String dueAt) {
-    return 'Due: $dueAt';
+    return '$dueAt';
   }
 
   @override
-  String taskCreatedAt(int createdAt) {
+  String get dueToday => 'Today';
+
+  @override
+  String get dueTomorrow => 'Tomorrow';
+
+  @override
+  String taskDueOverdue(String dueAt) {
+    return 'Overdue: $dueAt';
+  }
+
+  @override
+  String taskCreatedAt(String createdAt) {
     return 'Created at: $createdAt';
   }
 
@@ -147,7 +153,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String subtaskProgress(int doneCount, int totalCount) {
-    return 'Progress: $doneCount/$totalCount';
+    return '$doneCount/$totalCount';
   }
 
   @override
@@ -159,13 +165,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get continueButton => 'Continue';
-
-  @override
-  String get localProtectionLabel => 'Local protection';
-
-  @override
-  String get localProtectionTooltip =>
-      'Stored locally with encrypted database protection.';
 
   @override
   String get statusTodo => 'To do';

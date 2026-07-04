@@ -19,8 +19,8 @@ void main() {
     expect(ja.createButton, '作成');
     expect(en.cancelButton, 'Cancel');
     expect(ja.cancelButton, 'キャンセル');
-    expect(en.localProtectionLabel, 'Local protection');
-    expect(ja.localProtectionLabel, 'ローカル保護');
+    expect(en.dueToday, 'Today');
+    expect(ja.dueToday, '今日');
     expect(en.taskSortTooltip, 'Sort tasks');
     expect(ja.taskSortTooltip, 'タスクの表示順');
     expect(en.taskSortDueDate, 'Due date');

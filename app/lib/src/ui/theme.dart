@@ -17,6 +17,24 @@ const _darkSurface = Color(0xFF101510);
 const _darkSurfaceContainer = Color(0xFF182019);
 const _darkSurfaceContainerHigh = Color(0xFF223025);
 
+/// The bundled brand fonts (`assets/fonts/Lora`, `assets/fonts/Inter`) only
+/// ship Latin glyphs, per task-30's "no new Japanese font" decision --
+/// Japanese continues to render through the platform's own fallback. This
+/// list makes that fallback explicit rather than implicit: real devices
+/// normally resolve missing glyphs to a system CJK font automatically even
+/// without this, but declaring it here is harmless when the family isn't
+/// present (Flutter simply skips it) and it is also what lets the
+/// `visual_qa` screenshot harness -- which runs in an isolated `flutter
+/// test` environment with no automatic system font fallback -- render
+/// Japanese seed data by registering a real Hiragino font under the
+/// `Hiragino Sans` family name (see
+/// `test/visual_qa/visual_qa_screenshots_test.dart`).
+const _cjkFontFamilyFallback = <String>[
+  'Hiragino Sans',
+  'Noto Sans CJK JP',
+  'Noto Sans JP',
+];
+
 ThemeData buildTodoriTheme(Brightness brightness) {
   final generatedScheme = ColorScheme.fromSeed(
     seedColor: _seedColor,
@@ -52,7 +70,17 @@ ThemeData buildTodoriTheme(Brightness brightness) {
         ? _lightCoral
         : const Color(0xFFFFB4A8),
   );
-  final base = ThemeData(colorScheme: colorScheme, useMaterial3: true);
+  final base = ThemeData(
+    colorScheme: colorScheme,
+    useMaterial3: true,
+    // Inter is the UI body typeface (see `assets/fonts/Inter`); Lora is
+    // layered on top for display/headline styles and the AppBar title
+    // below. `fontFamilyFallback` applies to every style derived from this
+    // `ThemeData` (including the Lora overrides below, since `copyWith`
+    // preserves it), covering Japanese glyphs neither brand font ships.
+    fontFamily: 'Inter',
+    fontFamilyFallback: _cjkFontFamilyFallback,
+  );
 
   return base.copyWith(
     scaffoldBackgroundColor: colorScheme.surfaceContainer,
@@ -61,6 +89,7 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       backgroundColor: colorScheme.surfaceContainer,
       foregroundColor: colorScheme.onSurface,
       titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        fontFamily: 'Lora',
         color: colorScheme.primary,
         fontWeight: FontWeight.w700,
       ),
@@ -108,7 +137,16 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
     ),
     textTheme: base.textTheme.copyWith(
+      // Lora (brand display serif) covers Today/screen/section headings;
+      // everything else stays on the base Inter body typeface.
+      displayLarge: base.textTheme.displayLarge?.copyWith(fontFamily: 'Lora'),
+      displayMedium: base.textTheme.displayMedium?.copyWith(fontFamily: 'Lora'),
+      displaySmall: base.textTheme.displaySmall?.copyWith(fontFamily: 'Lora'),
+      headlineMedium: base.textTheme.headlineMedium?.copyWith(
+        fontFamily: 'Lora',
+      ),
       headlineSmall: base.textTheme.headlineSmall?.copyWith(
+        fontFamily: 'Lora',
         color: colorScheme.onSurface,
         fontWeight: FontWeight.w700,
       ),

@@ -68,56 +68,67 @@ class TaskDetailScreen extends ConsumerWidget {
           final subtasks = directSubtasksOf(task.id, tasks);
           final theme = Theme.of(context);
           final colorScheme = theme.colorScheme;
+          final locale = Localizations.localeOf(context).toLanguageTag();
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
-              Material(
-                color: colorScheme.surface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(color: colorScheme.outlineVariant),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  child: Column(
+              // Plain title block directly on the screen background
+              // (task-30): no bordered card, and no persistent
+              // Local-protection/lock chip (see `docs/design/
+              // visual-direction.md` Security Signal section).
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(task.title, style: theme.textTheme.headlineSmall),
-                      if (task.note.isNotEmpty) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          task.note,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            height: 1.35,
-                          ),
+                      PriorityDot(
+                        key: ValueKey('task-priority-dot-${task.id}'),
+                        priority: task.priority,
+                        semanticLabel: l10n.taskPriority(
+                          taskPriorityLabel(l10n, task.priority),
                         ),
-                      ],
-                      const SizedBox(height: AppSpacing.md),
-                      AppProtectionSignal(
-                        label: l10n.localProtectionLabel,
-                        tooltip: l10n.localProtectionTooltip,
+                        isMuted: task.status == 'done',
                       ),
-                      const SizedBox(height: AppSpacing.md),
-                      TaskMetadata(
-                        items: taskMetadataItemsFor(
-                          l10n: l10n,
-                          task: task,
-                          stats: stats,
-                          includeNoDueDate: true,
-                          includePriorityNone: true,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        l10n.taskCreatedAt(task.createdAt),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                      Expanded(
+                        child: Text(
+                          task.title,
+                          style: theme.textTheme.headlineSmall,
                         ),
                       ),
                     ],
                   ),
-                ),
+                  if (task.note.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      task.note,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.md),
+                  TaskMetadata(
+                    items: taskMetadataItemsFor(
+                      l10n: l10n,
+                      locale: locale,
+                      task: task,
+                      stats: stats,
+                      includeNoDueDate: true,
+                      includeStatus: true,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    l10n.taskCreatedAt(
+                      formatAbsoluteDate(locale, task.createdAt),
+                    ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
@@ -149,6 +160,7 @@ class TaskDetailScreen extends ConsumerWidget {
                         ),
                         metadata: taskMetadataItemsFor(
                           l10n: l10n,
+                          locale: locale,
                           task: subtask,
                           stats: subtaskStats,
                         ),
