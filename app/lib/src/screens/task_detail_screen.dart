@@ -331,6 +331,7 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
               const SizedBox(height: AppSpacing.sm),
               Wrap(
                 spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
                 children: [
                   OutlinedButton.icon(
                     icon: const Icon(Icons.event_outlined),

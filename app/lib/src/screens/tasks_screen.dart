@@ -35,15 +35,7 @@ class TasksScreen extends ConsumerWidget {
             tooltip: l10n.openTrashTooltip,
             onPressed: () => context.push('/trash'),
           ),
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
-            child: Center(
-              child: AppProtectionSignal(
-                label: l10n.localProtectionLabel,
-                tooltip: l10n.localProtectionTooltip,
-              ),
-            ),
-          ),
+          const SizedBox(width: AppSpacing.sm),
         ],
       ),
       body: tasksAsync.when(

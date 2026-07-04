@@ -8,6 +8,37 @@ task-22. Image mocks are direction references, not pixel-perfect acceptance
 criteria. Later Flutter tasks should preserve the product judgment here while
 adapting layouts to real data, i18n, accessibility, and platform constraints.
 
+## Calibration Rule
+
+Generated images and task-22 mocks are useful for taste, not for final layout
+truth. The Flutter app is the source for interaction behavior, density,
+localization, text scaling, tap targets, semantics, and platform conventions.
+
+Adopt from images:
+
+- Deep green, pale sage, warm white surfaces, thin borders, and quiet priority
+  accents.
+- A task-first reading order with compact metadata that can wrap.
+- Sparse mascot use in empty or onboarding-like surfaces.
+- Calm trash/restore and completion language.
+
+Do not adopt from images:
+
+- Fixed phone-frame proportions, pixel spacing, exact radii, exact shadows, or
+  one-line rows that only work with mock text.
+- Oversized permanent headers that push real tasks below the fold during
+  ordinary work.
+- Persistent lock/encryption marks in the main task header.
+- Bottom navigation, constant mascot presence, focus timer, AI, account,
+  billing, legal, audit, or roadmap surfaces before a task explicitly adds
+  those features.
+
+When image direction conflicts with real app constraints, prefer the app. A
+row may become denser, controls may stack vertically, metadata may wrap, and
+decorative signals may be removed if that preserves long titles, Japanese and
+English copy, Dynamic Type, narrow mobile widths, 48px-class tap targets, and
+tooltip/semantic labels.
+
 ## Concept
 
 Todori should feel like a quiet everyday object: soft, friendly, and elegant

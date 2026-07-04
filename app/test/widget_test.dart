@@ -339,6 +339,17 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   return fake;
 }
 
+void _useNarrowDynamicTypeView(WidgetTester tester) {
+  tester.view.physicalSize = const Size(320, 640);
+  tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    tester.platformDispatcher.clearTextScaleFactorTestValue();
+  });
+}
+
 void main() {
   testWidgets('lists screen shows lists from the bridge service', (
     tester,
@@ -360,9 +371,64 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Tasks'), findsOneWidget);
-    expect(find.text('Local protection'), findsOneWidget);
+    expect(find.text('Local protection'), findsNothing);
     expect(find.byTooltip('Open trash'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('long task titles survive narrow width and Dynamic Type', (
+    tester,
+  ) async {
+    _useNarrowDynamicTypeView(tester);
+    final fake = FakeBridgeService();
+    await fake.createList(
+      name: 'とても長い日本語のリスト名と English project name',
+      sortOrder: 'a0',
+    );
+    final listId = (await fake.getLists()).first.id;
+    final first = await fake.createTask(
+      listId: listId,
+      title: '四半期レビューのための非常に長いタスクタイトル with detailed English wording',
+    );
+    final second = await fake.createTask(
+      listId: listId,
+      title: 'Second task with enough words to wrap on a narrow phone',
+    );
+    await fake.updateTask(
+      taskId: first.id,
+      title: first.title,
+      note: '',
+      priority: 3,
+      dueAt: 1,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('とても長い日本語のリスト名と English project name'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('四半期レビュー'), findsOneWidget);
+    expect(find.textContaining('Second task'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-priority-dot-${first.id}')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Move task up'), findsWidgets);
+    expect(find.byTooltip('Move task down'), findsWidgets);
+    expect(find.text('Local protection'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    final secondMoveUp = find.byKey(ValueKey('task-move-up-${second.id}'));
+    await tester.ensureVisible(secondMoveUp);
+    await tester.pumpAndSettle();
+    await tester.tap(secondMoveUp);
+    await tester.pumpAndSettle();
+
+    final active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), [second.id, first.id]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('trash action opens an empty trash screen', (tester) async {
@@ -380,6 +446,29 @@ void main() {
     expect(find.text('Trash'), findsOneWidget);
     expect(find.text('Trash is empty.'), findsOneWidget);
     expect(find.text('Deleted tasks will appear here.'), findsOneWidget);
+  });
+
+  testWidgets('empty state and create dialog survive narrow Dynamic Type', (
+    tester,
+  ) async {
+    _useNarrowDynamicTypeView(tester);
+    final fake = FakeBridgeService();
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No lists yet.'), findsOneWidget);
+    expect(find.text('Tap + to create one.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New list'), findsOneWidget);
+    expect(find.text('Create'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('tapping a task navigates to its detail screen', (tester) async {
@@ -767,5 +856,47 @@ void main() {
     final active = await fake.getTasks(listId: listId);
     expect(active.single.title, 'Buy milk');
     expect(find.text('Buy milk'), findsOneWidget);
+  });
+
+  testWidgets('trash rows restore long titles on narrow Dynamic Type', (
+    tester,
+  ) async {
+    _useNarrowDynamicTypeView(tester);
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: '削除済みでも復元できることを確認するための非常に長いタスクタイトル with wrap',
+    );
+    await fake.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: '',
+      priority: 2,
+      dueAt: 1,
+    );
+    await fake.trashTask(taskId: task.id);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open trash'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('削除済みでも復元'), findsOneWidget);
+    expect(find.text('Priority: Medium'), findsOneWidget);
+    expect(find.byTooltip('Restore task'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(ValueKey('restore-task-${task.id}')));
+    await tester.pumpAndSettle();
+
+    expect(await fake.getTrashedTasks(), isEmpty);
+    expect(find.text('Trash is empty.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

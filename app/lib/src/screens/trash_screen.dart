@@ -86,34 +86,74 @@ class _TrashTaskRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: colorScheme.outlineVariant),
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsetsDirectional.only(
-          start: AppSpacing.md,
-          end: AppSpacing.sm,
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.sm,
+          AppSpacing.sm,
         ),
-        leading: Icon(
-          Icons.restore_from_trash_outlined,
-          color: colorScheme.onSurfaceVariant,
-        ),
-        title: Text(
-          task.title,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.xs),
-          child: TaskMetadata(items: metadata),
-        ),
-        trailing: Semantics(
-          button: true,
-          label: l10n.restoreTaskTooltip,
-          child: IconButton(
-            key: ValueKey('restore-task-${task.id}'),
-            icon: const Icon(Icons.restore_outlined),
-            tooltip: l10n.restoreTaskTooltip,
-            onPressed: onRestore,
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(1);
+            final stackAction = constraints.maxWidth < 340 || textScale > 1.25;
+            final restoreButton = Semantics(
+              button: true,
+              label: l10n.restoreTaskTooltip,
+              child: IconButton(
+                key: ValueKey('restore-task-${task.id}'),
+                icon: const Icon(Icons.restore_outlined),
+                tooltip: l10n.restoreTaskTooltip,
+                onPressed: onRestore,
+              ),
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Icon(
+                        Icons.restore_from_trash_outlined,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            task.title,
+                            softWrap: true,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          TaskMetadata(items: metadata),
+                        ],
+                      ),
+                    ),
+                    if (!stackAction) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      restoreButton,
+                    ],
+                  ],
+                ),
+                if (stackAction) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: restoreButton,
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );

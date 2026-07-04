@@ -49,7 +49,7 @@ class ListsScreen extends ConsumerWidget {
                   ),
                 ),
                 child: ListTile(
-                  title: Text(list.name),
+                  title: Text(list.name, softWrap: true),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/lists/${list.id}/tasks'),
                 ),

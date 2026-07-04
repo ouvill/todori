@@ -28,6 +28,7 @@ Future<bool> showAppConfirmDialog({
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
+      scrollable: true,
       title: Text(title),
       content: Text(message),
       actions: [
@@ -74,6 +75,7 @@ class _AppTextInputDialogState extends State<_AppTextInputDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: TextField(
         controller: _controller,

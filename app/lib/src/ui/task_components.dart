@@ -219,56 +219,139 @@ class AppTaskRow extends StatelessWidget {
               ),
             ),
           ],
-          ListTile(
-            contentPadding: EdgeInsetsDirectional.only(
-              start: AppSpacing.md + (effectiveDepth * AppSpacing.lg),
-              end: AppSpacing.md,
-            ),
-            leading: onToggleDone == null
-                ? Icon(
-                    isDone
-                        ? Icons.check_circle_outline
-                        : Icons.radio_button_unchecked,
-                    color: isDone
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                  )
-                : Checkbox(
-                    key: checkboxKey,
-                    value: isDone,
-                    onChanged: isDone ? null : (_) => onToggleDone?.call(),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final textScale = MediaQuery.textScalerOf(context).scale(1);
+              final effectiveTrailing =
+                  trailing ?? const Icon(Icons.chevron_right);
+              final stackTrailing =
+                  trailing != null &&
+                  (constraints.maxWidth < 360 || textScale > 1.25);
+              final rowTrailing = stackTrailing ? null : effectiveTrailing;
+              final content = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _TaskRowLeading(
+                        checkboxKey: checkboxKey,
+                        isDone: isDone,
+                        onToggleDone: onToggleDone,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _PriorityDot(
+                                  key: priorityDotKey,
+                                  priority: priority,
+                                  semanticLabel: prioritySemanticLabel,
+                                  isMuted: isDone,
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    title,
+                                    softWrap: true,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          decoration: isDone
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                          color: isDone
+                                              ? colorScheme.onSurfaceVariant
+                                              : colorScheme.onSurface,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (metadata.isNotEmpty) ...[
+                              const SizedBox(height: AppSpacing.xs),
+                              TaskMetadata(items: metadata),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (rowTrailing != null) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          child: Align(
+                            alignment: AlignmentDirectional.topEnd,
+                            child: rowTrailing,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-            title: Row(
-              children: [
-                _PriorityDot(
-                  key: priorityDotKey,
-                  priority: priority,
-                  semanticLabel: prioritySemanticLabel,
-                  isMuted: isDone,
-                ),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone
-                          ? colorScheme.onSurfaceVariant
-                          : colorScheme.onSurface,
+                  if (stackTrailing) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: effectiveTrailing,
                     ),
+                  ],
+                ],
+              );
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: onTap,
+                child: Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    start: AppSpacing.md + (effectiveDepth * AppSpacing.lg),
+                    top: AppSpacing.sm,
+                    end: AppSpacing.sm,
+                    bottom: AppSpacing.sm,
                   ),
+                  child: content,
                 ),
-              ],
-            ),
-            subtitle: metadata.isEmpty
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.xs),
-                    child: TaskMetadata(items: metadata),
-                  ),
-            trailing: trailing ?? const Icon(Icons.chevron_right),
-            onTap: onTap,
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TaskRowLeading extends StatelessWidget {
+  const _TaskRowLeading({
+    required this.isDone,
+    required this.onToggleDone,
+    this.checkboxKey,
+  });
+
+  final bool isDone;
+  final VoidCallback? onToggleDone;
+  final Key? checkboxKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Center(
+        child: onToggleDone == null
+            ? Icon(
+                isDone
+                    ? Icons.check_circle_outline
+                    : Icons.radio_button_unchecked,
+                color: isDone
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              )
+            : Checkbox(
+                key: checkboxKey,
+                value: isDone,
+                onChanged: isDone ? null : (_) => onToggleDone?.call(),
+              ),
       ),
     );
   }
