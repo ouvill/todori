@@ -33,6 +33,7 @@
 | task-13 | 完了 | [task-13-public-private-docs-split.md](./task-13-public-private-docs-split.md) | public repoを主、private repoを非公開資料側とする運用に向け、公開/非公開ドキュメント分類と移行計画を策定する | task-12の監査結果に依存。public repository化の事前確認 |
 | task-14 | 完了 | [task-14-public-private-repo-split.md](./task-14-public-private-repo-split.md) | public/privateのsibling repo運用に向け、公開版の課金・法務要約、READMEリンク整理、private退避マッピングを作成する | task-13の分割方針に依存。private repo名は `todori-private`。GitHub repository作成・visibility変更は人間作業 |
 | task-15 | 未着手 | [task-15-security-policy.md](./task-15-security-policy.md) | public化前に `SECURITY.md` を作成し、脆弱性報告導線とGitHub private vulnerability reporting利用方針を整備する | task-12の監査結果に依存。GitHub private vulnerability reportingの有効化は人間作業 |
+| task-16 | 未着手 | [task-16-flutter-analyze-build-artifact.md](./task-16-flutter-analyze-build-artifact.md) | `flutter analyze` がmacOS build artifact内の古いcargokit参照で失敗する原因を調査し、品質ゲートを復旧する | task-14検証セッションで発見。機能変更ではなく品質ゲート復旧 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
