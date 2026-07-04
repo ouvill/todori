@@ -30,7 +30,7 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | 条件ソートUI | 手動順と締切/優先度/作成順ソートの切替UI。切替状態と設定保存方針も含めて整理する | M3-05残 | `docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
+| 1 | 条件ソートUI | 手動順と締切/優先度/作成順ソートの切替UI。切替状態と設定保存方針も含めて整理する | M3-05残 | 指示書: `docs/tasks/task-27-condition-sort-ui.md`。`docs/07_Phase1計画書.md` M3-05、task-24完了報告の分離事項 |
 | 2 | Visual polish / product UI refinement | Lists / Tasks / Detail / Trash / Dialog / Empty state を、実データで破綻しないままTodoriらしい完成度へ引き上げる。タイポグラフィ、余白、surface、icon、空状態、操作感、App Store/READMEスクリーンショット前の第一印象をまとめて磨く | M3 polish | ユーザー判断（2026-07-05）とtask-25後のUI較正結果由来。Undo・条件ソートUIで操作密度が固まった後に実施 |
 | 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |

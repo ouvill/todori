@@ -44,6 +44,7 @@
 | task-24 | 完了 | [task-24-fractional-index.md](./task-24-fractional-index.md) | fractional index生成の本実装と、タスク一覧の同一階層内手動並び替えUIを追加する | task-18〜23の成果物に依存。M3-05のうちUndoと条件ソートUIは後続タスクへ分離 |
 | task-25 | 完了 | [task-25-design-calibration-ui-pass.md](./task-25-design-calibration-ui-pass.md) | design calibration UI pass。AI生成画像・画像モックへのピクセル追従ではなく、既存実画面の密度、操作性、i18n、アクセシビリティを小さく較正する | task-20〜24と `docs/design/visual-direction.md` に依存。Undo・条件ソートUIへ進む前のUI実装判断の較正 |
 | task-26 | 完了 | [task-26-undo.md](./task-26-undo.md) | 削除/完了/編集のUndo。履歴データ構造、操作単位、復元時の競合方針を定めて実装する | task-18〜25の成果物に依存。M3-05のうち条件ソートUIは後続タスクへ分離 |
+| task-27 | 未着手 | [task-27-condition-sort-ui.md](./task-27-condition-sort-ui.md) | 条件ソートUI。Tasks画面で手動順 / 締切 / 優先度 / 作成順の表示順切替を追加する | task-24〜26の成果物に依存。M3-05の残り |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
