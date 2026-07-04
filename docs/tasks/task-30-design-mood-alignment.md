@@ -1,5 +1,8 @@
 # task-30: design mood alignment ── typography / metadata quieting / row density
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-05
+
 ## 1. 背景とコンテキスト
 
 task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpolishを重ねたが、参照画像（`assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp` / `assets/brand/generated/todori-design-direction-tasks.webp` / `assets/brand/generated/todori-design-direction-task-detail.webp`）の雰囲気には近づいていない。
@@ -217,3 +220,157 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - `todori-private/` と `.github/` を変更していないこと
 - public/private境界の確認結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-05
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/design/visual-direction.md`
+- `docs/tasks/task-20-ui-foundation.md`
+- `docs/tasks/task-21-visual-direction.md`
+- `docs/tasks/task-22-design-direction-sketch.md`
+- `docs/tasks/task-25-design-calibration-ui-pass.md`
+- `docs/tasks/task-28-visual-polish.md`
+- `docs/tasks/task-29-product-experience-alignment.md`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/ui/states.dart`
+- `app/lib/src/ui/dialogs.dart`
+- `app/lib/src/screens/lists_screen.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/screens/trash_screen.dart`
+- `app/lib/l10n/app_en.arb` / `app_ja.arb`
+- `app/pubspec.yaml`
+- `app/test/widget_test.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+- `app/tool/check_hardcoded_strings.sh`
+- 参照画像: `assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp` / `-tasks.webp` / `-task-detail.webp`（`sips`でPNGへ変換してReadツールで目視）
+
+`docs/tasks/PLAYBOOK.md` と `docs/tasks/BACKLOG.md` はリポジトリに現存しなかった（`docs/tasks/README.md` のタスク一覧とAGENTS.mdの記述で代替した）。未解決事項に記録する。
+
+### フォント資産の取得方法とライセンス確認
+
+- 取得元: Google Fonts CSS2 API を weight ごとに個別リクエストして TTF URL を取得（例: `curl -A 'curl' 'https://fonts.googleapis.com/css2?family=Lora:wght@400'`、`family=Inter:wght@500` 等）。返ってきた `fonts.gstatic.com/.../*.ttf` URLを `curl -A 'curl'` で取得。
+- 取得した weight: Lora/Inter とも Regular(400) / Medium(500) / SemiBold(600) / Bold(700) の4 static weight。variable fontは使用していない。
+- 配置先: `app/assets/fonts/Lora/Lora-{Regular,Medium,SemiBold,Bold}.ttf`、`app/assets/fonts/Inter/Inter-{Regular,Medium,SemiBold,Bold}.ttf`。
+- `file` コマンドで全8ファイルが `TrueType Font data` であることを確認済み。
+- ライセンス: `https://github.com/google/fonts/raw/main/ofl/{lora,inter}/OFL.txt` を取得し、`app/assets/fonts/{Lora,Inter}/OFL.txt` に同梱。取得後、`git diff --check` が指摘した行末空白（アップストリームのテンプレート由来、1行のみ）を空白のみ除去して正規化した（本文の単語・意味は無変更であることを再ダウンロード版とdiffして確認済み）。
+
+### `theme.dart` のタイポグラフィ変更内容
+
+- `ThemeData(fontFamily: 'Inter', ...)` を基本とし、`fontFamilyFallback: ['Hiragino Sans', 'Noto Sans CJK JP', 'Noto Sans JP']` を追加（後述の日本語グリフ対応、実機では通常OS標準フォールバックで足りるが明示した）。
+- `textTheme.copyWith` で `displayLarge` / `displayMedium` / `displaySmall` / `headlineMedium` / `headlineSmall` に `fontFamily: 'Lora'` を適用。AppBarの `titleTextStyle` にも `fontFamily: 'Lora'` を追加。
+- Todayヘッダー（`_HomeTasksHeader`、`displayMedium` 使用）の `fontWeight` を `w700` → `w600` に変更し、太すぎるセリフ+ボールドの組み合わせを避けた。
+- 適用箇所: Todayヘッダー、Tasksセクション見出し、Task detailのタイトル、Lists画面タイトル（`titleLarge`ベースのAppBarタイトル経由）、AppBar全般。
+
+### タスク行のメタデータ削減内容
+
+- `taskMetadataItemsFor` からStatus/Priorityチップを完全に削除（Tasks画面・detail画面のサブタスク行が対象）。状態はチェックボックス/取り消し線、優先度はpriority dot + tooltip/semanticsのみで伝える。
+- Due表記を `formatRelativeDueDate` で相対化: 今日→`dueToday`（Today/今日）、明日→`dueTomorrow`（Tomorrow/明日）、それ以外→`DateFormat.MMMd(locale)`。`taskDueAt` ARBから「Due: 」プレフィックスを削除（値をそのまま表示するテンプレートに変更）。期限切れは `emphasisColor` でcoral着色し、`taskDueOverdue`（新規キー）をsemanticLabelとして付与し色だけに依存しないようにした。
+- サブタスク進捗チップは `subtaskProgress` ARBから「Progress: 」プレフィックスを削除し `{doneCount}/{totalCount}` の短い表記にした。アイコン（`account_tree_outlined`）は維持。
+- priority dotの色トークンを `docs/design/visual-direction.md` に合わせて固定: high=`#E8755A`（coral）、medium=`#EDB73E`（amber）、low=`#A8BEA8`（softSage）、none=dot非表示。従来のbrightness分岐（緑/黄/赤系）を廃止し、トークンどおりの固定色にした（未解決事項に注記）。
+
+### 行密度圧縮の内容
+
+- `_TaskRowLeading` の `Checkbox` に `shape: const CircleBorder()` を追加し円形化した（タップ領域48x48は維持）。
+- `AppTaskRow` から `LayoutBuilder` ベースの「狭幅/Dynamic Typeでchevron/並び替えcontrolを独立した最下行へ逃がす」ロジックを削除し、常に行の右端に `SizedBox(height: 48, child: Center(child: trailing))` で垂直センター配置する構成にした。
+- 行のPadding上下を `AppSpacing.sm`(8) から `AppSpacing.xs`(4) に詰め、メタデータなしタスクがタイトル1行＋αに収まるようにした。
+
+### Tasksホームヘッダーの変更内容
+
+- `_HomeTasksHeader` から `_PendingBadge` を削除（重複表示の解消）。pending数は `_TaskSectionHeader` の1箇所のみに統一。
+- `_TaskSectionHeader` を `DecoratedBox`（card + border）から、`Row`（Lora見出しテキスト + pendingピル + 追加button）のプレーンな見出し行に変更し、card-in-card感を解消した。
+
+### Task detail画面の変更内容
+
+- `AppProtectionSignal`（Local protectionロックチップ）の呼び出しを削除し、ウィジェット自体も未使用になったため削除した。
+- タイトルブロックを `Material`（border付きcard）から、背景に直接置く `Column` に変更。タイトル行の先頭に `PriorityDot`（priorityがある場合のみ）を追加し、priorityチップの代わりにdot+tooltip/semanticsで伝える構成にした。
+- `Created at:` の生epoch表示バグを修正。`formatAbsoluteDate(locale, epochMs)`（`DateFormat.yMMMd`）を新設し、`taskCreatedAt` ARBのplaceholder型を `int` → `String` に変更、フォーマット済み文字列を渡すようにした。
+- メタデータは `taskMetadataItemsFor(..., includeStatus: true, includeNoDueDate: true)` で、Statusのみ「Status: 」プレフィックスなしの短い表記（`taskStatusLabel`直値）で残し、Due/subtask progressは行と同じ文法（相対日付・短縮progress）にした。
+
+### 削除したl10nキー一覧
+
+- `taskStatus`（"Status: {status}"）: rowからStatusチップを削除したことで全箇所で未使用になったため削除。
+- `localProtectionLabel` / `localProtectionTooltip`: Local protectionチップ削除に伴い削除。
+
+### 追加/変更したi18nキーと `flutter gen-l10n`
+
+- 追加: `dueToday`（"Today" / "今日"）、`dueTomorrow`（"Tomorrow" / "明日"）、`taskDueOverdue`（"Overdue: {dueAt}" / "期限超過: {dueAt}"、semanticsのみで使用）。
+- 変更: `taskDueAt` の値を "Due: {dueAt}" → "{dueAt}" に変更（prefix除去）。`subtaskProgress` を "Progress: {doneCount}/{totalCount}" → "{doneCount}/{totalCount}" に変更。`taskCreatedAt` のplaceholder型を `int` → `String` に変更。
+- `cd app && flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` 配下（`app_localizations.dart` / `_en.dart` / `_ja.dart`）を再生成した。手編集はしていない。
+
+### `visual_qa_screenshots_test.dart` のフォント読み込み変更内容
+
+- バンドルした `assets/fonts/Inter/*.ttf`（4 weight）を `FontLoader('Inter')` に、`assets/fonts/Lora/*.ttf`（4 weight）を `FontLoader('Lora')` にそれぞれ登録するよう変更した。
+- 当初、指示書どおり「同一familyに日本語グリフ用のヒラギノを追加登録してフォールバックさせる」実装を試みたが、実機検証の結果、weightの異なる複数typefaceが同一family内に存在すると、Skiaのスタイルマッチングが常に「重み距離が最も近いLatin typeface」を選び、そのtypefaceがカバーしないグリフ（日本語）についてsame-family内の他typefaceへフォールバックしない（tofu表示になる）ことを実機で確認した。
+- 対策として、`ThemeData.fontFamilyFallback`（`theme.dart`側で追加した `['Hiragino Sans', 'Noto Sans CJK JP', 'Noto Sans JP']`）と対応させ、テストハーネス側で `Hiragino Sans` という別familyにヒラギノ角ゴシックW3を単独登録する方式に変更した。この方式は公式にサポートされた `fontFamilyFallback` の仕組みであり、実際にスクリーンショットで日本語・セリフ見出し双方が正しく描画されることを確認した（詳細はコード内コメントに記録）。
+- Material Iconsのロードは既存のまま維持。
+
+### before/afterスクリーンショットの保存パスと比較結果
+
+- before: `app/build/visual_qa_before/`（作業開始前の既存 `app/build/visual_qa/` を退避したもの。task-28/29時点の状態）
+- after: `app/build/visual_qa/`（`sh app/tool/visual_qa.sh` 実行後の最新出力）
+- 比較結果（目視、Readツールで両方確認済み）:
+  - `home_tasks.png`: Status/Priorityチップが消え、Dueが相対表記（Today/Tomorrow/Jul 1）になった。Today/Tasks見出しがLora（セリフ）で描画されている。pending数表示が1箇所（Tasksセクション行）になった。チェックボックスが円形になり、チェブロンが行右端に垂直センター配置され、メタデータなし行がタイトル1行＋αの高さに収まっている。priority dotがcoral/amber/softSageのトークン色になっている。日本語タイトル（地図アプリのUI微調整を仕上げる、等）が正しく描画されている（beforeの時点でも日本語は表示されていたが、フォント変更後も引き続き正しく描画されることを確認）。
+  - `task_detail.png`: Local protectionチップが消え、`Created at: Jan 1, 1970` のようにロケール日付表記になった（beforeは `Created at: 5` という生epoch値のバグがあった）。タイトルブロックがborder付きcardでなくなり、背景に直接タイトル（Lora）+ priority dot + メタデータチップが並ぶ構成になった。pending数の重複表示バグ（beforeにはなかったが、Tasksセクション側の修正に対応）は該当なし。
+  - `lists.png` / `home_tasks_empty.png` / `trash.png` / `task_edit_dialog.png` / `confirm_dialog.png`: いずれもLora見出し・Inter本文が反映され、既存機能（trash chip、edit dialog、confirm dialog）はレイアウト崩れなく表示されている。Trash画面はChip文法・構成とも変更していない（意図どおり）。
+
+### 追加/更新したwidget testの対象と結果
+
+- `test/l10n_test.dart`: `localProtectionLabel` の期待値を削除し、`dueToday` の期待値（en: "Today" / ja: "今日"）に置き換えた。
+- `test/widget_test.dart`:
+  - `tapping a list navigates to its task list`: 既存の `Local protection` findsNothing はそのまま維持。
+  - `polished list, sort, detail, and dialog surfaces stay stable`: detail画面のPriority確認を `find.text('Priority: High')` から `find.byTooltip('Priority: High')` に変更（priorityがdot+tooltipのみになったため）。
+  - `tapping a task navigates to its detail screen`: `Local protection` の期待を `findsOneWidget` → `findsNothing` に、`Status: To do` を `To do`（短縮表記）に変更。
+  - `task list shows three-level subtasks with descendant progress`: `Progress: 1/2` / `Progress: 1/1` を `1/2` / `1/1`（短縮表記）に変更。
+  - `editing a task updates detail, list, and fake bridge state`: detail画面のPriority確認を `find.byTooltip('Priority: High')` に変更。
+  - `long task titles survive narrow width and Dynamic Type`: 行密度圧縮により長いタイトルの折返し行数が増え固定drag量(-220px)では目的の行に届かなくなったため、`tester.drag` の固定オフセットを `tester.scrollUntilVisible` に置き換えた（意図＝狭幅+長文+Dynamic Type耐性+並び替え操作フローの検証は維持、スクロール手段のみ頑健化）。
+  - いずれも既存テストの意図（長文/狭幅/Dynamic Type耐性、操作フロー）は弱めていない。finder変更は構造変更に追従する最小限。
+- 結果: `flutter test`（visual QA harnessを除く37件）全て成功。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust全crateのユニットテスト成功、変更なし）。
+- `cd app && flutter analyze`: 成功（No issues found）。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release` → `cd app && flutter test`: 成功（37 tests passed、visual QA harnessはskip）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功（検出なし）。
+- `git diff --check`: 成功（OFL.txtの行末空白を正規化した後）。
+
+### やらなかったことの遵守確認
+
+- 新機能追加なし（Focus timer、検索、通知、設定画面、マスコット画像組み込み、bottom navigation、いずれも未実装のまま）。
+- Rust API / FRB / DB schema / domain / storage / core配下 / cli / mcp-server / server の変更なし（`cargo test --workspace` の結果も無変更で全通過）。
+- 新規pub依存の追加なし（`pubspec.yaml` の `dependencies:` は無変更、`fonts:` セクションのみ追加）。`google_fonts` パッケージ等は使用していない。
+- Lists画面・Trash画面の構成変更なし（`lists_screen.dart` / `trash_screen.dart` は無変更。テーマ経由のフォント/色トークンの波及のみ）。
+
+### `docs/01〜03` の変更有無
+
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない（`git status` で確認済み）。
+
+### `todori-private/` と `.github/` の変更有無
+
+- どちらも変更していない（`git status` に該当パスの差分なし）。
+
+### public/private境界の確認結果
+
+- 変更はすべて `app/` 配下のUI実装・アセット・テストと `docs/tasks/task-30-*.md` の完了報告のみ。private repo固有の課金・収益・法務・監査・非公開ロードマップ情報の転記はない。フォントはOFL（SIL Open Font License）ライセンスのGoogle Fonts資産で、ライセンスファイルを同梱済みのためpublic repo公開に問題はない。
+
+### 未解決事項・要人間判断
+
+1. `docs/tasks/PLAYBOOK.md` と `docs/tasks/BACKLOG.md` が指示書2章に記載されているが、現在のリポジトリに存在しなかった。`docs/tasks/README.md` のタスク一覧とAGENTS.mdの記述で代替して読み進めた。ファイル構成とタスク指示書の記述に差異がある可能性がある。
+2. 指示書は「FontLoaderは同一familyに複数フォントを追加登録でき、後続がグリフフォールバックになる」と明記しているが、実機検証の結果、重み(weight)の異なる複数typefaceが同一family内にある場合はこの仕組みが機能せず（tofu表示になる）、`ThemeData.fontFamilyFallback` を使った別family方式に変更する必要があった。指示書のFontLoader前提が現在のFlutter engineの挙動と一致しない可能性があり、他タスクでも同様の技法を使う場合は注意が必要。
+3. Task detail画面の主タスク自体のPriority表現について、指示書F章は「メタデータチップはC.と同じ文法（Status表記はdetailでは残してよい）」と記載しており、Priorityについての明示的な例外記述はなかったため、C章の「Priorityチップを行から削除する」をdetailの主タスクにも適用し、priority dot + tooltip/semanticsのみで伝える実装にした。参照画像（`todori-design-direction-task-detail.webp`）では「High priority」という文言付きチップが描かれているが、visual-direction.mdの「Calibration Rule」（画像は方向性の参考であり最終レイアウトの真実ではない）に従い、指示書本文の記述を優先した。この解釈が意図と異なる場合は別タスクでの手直しが必要。
+4. priority dotの色をbrightness(light/dark)で分岐させず、design-directionのトークン色（coral/amber/softSage）に固定した。ダークテーマでのコントラスト・視認性は今回の`visual_qa`ハーネス（ライトテーマのみスクリーンショット）で未検証。
+5. `AppProtectionSignal` ウィジェットクラスは完全に削除した（未使用になったため）。将来的に設定/オンボーディング画面でセキュリティ説明用に同種のUIが必要になった場合は、再実装が必要になる。
+6. Trash画面の日付表示（`taskDeletedAt` / Trash行のDueチップ）は今回のDue相対化・プレフィックス除去の対象外とした（Trash画面の構成変更をしない、という指示書のスコープ制約に従い、`formatDueDate`（絶対日付・YYYY-MM-DD）をそのまま維持）。相対日付表記との一貫性が将来的に議論になる可能性がある。
