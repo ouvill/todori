@@ -1,6 +1,7 @@
 # task-16: flutter analyze失敗原因の調査
 
-> ステータス: 未着手
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
 
 ## 1. 背景とコンテキスト
 
@@ -92,3 +93,63 @@ task-14の検証セッションで品質ゲート6点を再実行したところ
 - 変更しなかったが確認したファイル・ディレクトリ
 - 品質ゲート6点の実行結果
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+作業日: 2026-07-04
+
+### 再現したエラー内容
+
+`cd app && flutter analyze` を実行すると、`app/build/macos/Build/Intermediates.noindex/Pods.build/Debug/.../build_tool/bin/build_tool_runner.dart` が analyzer 対象に入り、以下のエラーで失敗した。
+
+- `package:build_tool/build_tool.dart` を解決できない `uri_does_not_exist`
+- 生成された `build_tool/pubspec.yaml` の `build_tool` path dependency が、存在しない旧絶対パス `/Users/youhei/workspaces/todori/app/rust_builder/cargokit/build_tool` を参照している `path_does_not_exist`
+
+通常サンドボックスでは Flutter SDK cache への書き込みが拒否されるため、`flutter analyze` と `flutter test` は承認付き実行で検証した。
+
+### 原因の切り分け結果
+
+原因はアプリ本体コードではなく、macOS build artifact が `flutter analyze` の解析対象に入っていたことだった。
+
+`app/build/` は `.gitignore` では ignore 済みだが、Dart analyzer は Git ignore を解析対象除外として扱わない。そのため、過去の macOS build 時に Cargokit の `run_build_tool.sh` が `CARGOKIT_TOOL_TEMP_DIR` 配下へ生成した `build_tool_runner.dart` と `pubspec.yaml` が残留していると、古い絶対パスを含む生成物まで解析される。
+
+`app/rust_builder/cargokit/run_build_tool.sh` は `BUILD_TOOL_PKG_DIR="$BASEDIR/build_tool"` を `pubspec.yaml` の path dependency として書き出す。今回残っていた `app/build/macos/.../build_tool/pubspec.yaml` は、リポジトリ移動前の `/Users/youhei/workspaces/todori/...` を埋め込んだ古い生成物だった。
+
+### 変更内容
+
+- `app/analysis_options.yaml` に `analyzer.exclude` を追加し、`build/**` を analyzer 対象から除外した。
+
+この修正により、ignore 済みの build artifact が残っていても `flutter analyze` はアプリ本体とコミット対象ソースを解析する。`flutter clean` で一時的に解消するだけでは再発条件が残るため、品質ゲートとして安定する明示除外を採用した。
+
+### 変更しなかったが確認したファイル・ディレクトリ
+
+- `app/.gitignore`: `/build/` が既に ignore 済みであることを確認した。
+- `app/pubspec.yaml`: `todori_app_bridge` は `path: rust_builder` のままで、旧絶対パスは含まれていないことを確認した。
+- `app/rust_builder/cargokit/run_build_tool.sh`: build tool runner生成の仕組みを確認した。
+- `app/rust_builder/cargokit/build_tool/`: source側の `pubspec.yaml` は正常で、旧絶対パスは含まれていないことを確認した。
+- `app/build/macos/.../build_tool/`: 旧絶対パスを含む残留生成物の発生箇所として確認した。Git管理外であり、コミット対象には含めない。
+- `app/rust/target/`: 旧workspace絶対パスを含むCargo生成物が残っていたが、Git管理外かつ analyzer 失敗原因ではないことを確認した。
+
+### 旧絶対パスの発生源と残存有無
+
+旧絶対パス `/Users/youhei/workspaces/todori/app/rust_builder/cargokit/build_tool` は、macOS build artifact 内の以下の生成 `pubspec.yaml` に残っていた。
+
+- `app/build/macos/Build/Intermediates.noindex/Pods.build/Debug/todori_app_bridge.build/build_tool/pubspec.yaml`
+- `app/build/macos/Build/Intermediates.noindex/Pods.build/Debug/rust_lib_todori.build/build_tool/pubspec.yaml`
+
+これらは Git管理外の build artifact であり、修正後は `build/**` 除外により analyzer 対象外になった。コミット対象ファイルには同旧絶対パスは残っていない。
+
+### 品質ゲート6点の実行結果
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust 62件成功）。
+- `cd app && flutter analyze`: 成功（承認付き実行、旧build artifactが残った状態で `No issues found`）。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release` の後、`cd app && flutter test`: 成功（Flutter 11件成功、`flutter test` は承認付き実行）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+
+追加で `git -C todori diff --check` を実行し、成功した。
+
+### 未解決事項・要人間判断
+
+なし。
