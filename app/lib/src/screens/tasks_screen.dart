@@ -8,6 +8,7 @@ import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/theme.dart';
 
 /// The task list screen for a single list (route
 /// `/lists/:listId/tasks`).
@@ -26,7 +27,20 @@ class TasksScreen extends ConsumerWidget {
     final tasksAsync = ref.watch(tasksProvider(listId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.tasksTitle)),
+      appBar: AppBar(
+        title: Text(l10n.tasksTitle),
+        actions: [
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
+            child: Center(
+              child: AppProtectionSignal(
+                label: l10n.localProtectionLabel,
+                tooltip: l10n.localProtectionTooltip,
+              ),
+            ),
+          ),
+        ],
+      ),
       body: tasksAsync.when(
         loading: () => const AppLoadingState(),
         error: (error, stackTrace) =>
@@ -40,8 +54,11 @@ class TasksScreen extends ConsumerWidget {
             );
           }
           final nodes = flattenTaskTree(buildTaskTree(tasks));
-          return ListView.builder(
+          return ListView.separated(
+            padding: const EdgeInsets.all(AppSpacing.md),
             itemCount: nodes.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
               final node = nodes[index];
               final task = node.task;
@@ -52,6 +69,12 @@ class TasksScreen extends ConsumerWidget {
                 title: task.title,
                 isDone: task.status == 'done',
                 depth: node.depth,
+                priority: task.priority,
+                priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+                prioritySemanticLabel: l10n.taskPriority(
+                  taskPriorityLabel(l10n, task.priority),
+                ),
+                hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
                 metadata: taskMetadataItemsFor(
                   l10n: l10n,
                   task: task,

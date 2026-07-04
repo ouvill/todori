@@ -131,6 +131,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continueButton => 'Continue';
 
   @override
+  String get localProtectionLabel => 'Local protection';
+
+  @override
+  String get localProtectionTooltip =>
+      'Stored locally with encrypted database protection.';
+
+  @override
   String get statusTodo => 'To do';
 
   @override

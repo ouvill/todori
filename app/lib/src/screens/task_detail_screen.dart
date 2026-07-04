@@ -64,32 +64,55 @@ class TaskDetailScreen extends ConsumerWidget {
           }
           final stats = descendantStatsOf(task.id, tasks);
           final subtasks = directSubtasksOf(task.id, tasks);
+          final theme = Theme.of(context);
+          final colorScheme = theme.colorScheme;
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
-              Text(
-                task.title,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (task.note.isNotEmpty) Text(task.note),
-              const SizedBox(height: AppSpacing.md),
-              TaskMetadata(
-                items: taskMetadataItemsFor(
-                  l10n: l10n,
-                  task: task,
-                  stats: stats,
-                  includeNoDueDate: true,
-                  includePriorityNone: true,
+              Material(
+                color: colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(color: colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(task.title, style: theme.textTheme.headlineSmall),
+                      if (task.note.isNotEmpty) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(task.note),
+                      ],
+                      const SizedBox(height: AppSpacing.md),
+                      AppProtectionSignal(
+                        label: l10n.localProtectionLabel,
+                        tooltip: l10n.localProtectionTooltip,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      TaskMetadata(
+                        items: taskMetadataItemsFor(
+                          l10n: l10n,
+                          task: task,
+                          stats: stats,
+                          includeNoDueDate: true,
+                          includePriorityNone: true,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        l10n.taskCreatedAt(task.createdAt),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(l10n.taskCreatedAt(task.createdAt)),
               const SizedBox(height: AppSpacing.lg),
-              Text(
-                l10n.subtasksTitle,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
               const SizedBox(height: AppSpacing.sm),
               if (subtasks.isEmpty)
                 AppEmptyState(
@@ -105,6 +128,17 @@ class TaskDetailScreen extends ConsumerWidget {
                       return AppTaskRow(
                         title: subtask.title,
                         isDone: subtask.status == 'done',
+                        depth: 1,
+                        priority: subtask.priority,
+                        priorityDotKey: ValueKey(
+                          'task-priority-dot-${subtask.id}',
+                        ),
+                        prioritySemanticLabel: l10n.taskPriority(
+                          taskPriorityLabel(l10n, subtask.priority),
+                        ),
+                        hierarchyGuideKey: ValueKey(
+                          'task-hierarchy-guide-${subtask.id}',
+                        ),
                         metadata: taskMetadataItemsFor(
                           l10n: l10n,
                           task: subtask,

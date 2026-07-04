@@ -35,6 +35,8 @@
   "completeTaskDialogTitle": "親タスクを完了しますか？",
   "completeTaskDialogMessage": "このタスクには未完了のサブタスクがあります。親タスクを完了しても、サブタスクは自動では完了しません。",
   "continueButton": "続行",
+  "localProtectionLabel": "ローカル保護",
+  "localProtectionTooltip": "ローカル保存データベースの暗号化で保護されています。",
   "statusTodo": "未着手",
   "statusInProgress": "進行中",
   "statusDone": "完了",

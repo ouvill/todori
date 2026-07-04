@@ -5,6 +5,7 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/ui/dialogs.dart';
 import 'package:todori/src/ui/states.dart';
+import 'package:todori/src/ui/theme.dart';
 
 /// The lists screen (initial route `/lists`).
 ///
@@ -32,14 +33,26 @@ class ListsScreen extends ConsumerWidget {
               body: l10n.listsEmptyBody,
             );
           }
-          return ListView.builder(
+          return ListView.separated(
+            padding: const EdgeInsets.all(AppSpacing.md),
             itemCount: lists.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
               final list = lists[index];
-              return ListTile(
-                title: Text(list.name),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/lists/${list.id}/tasks'),
+              return Material(
+                color: Theme.of(context).colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: ListTile(
+                  title: Text(list.name),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/lists/${list.id}/tasks'),
+                ),
               );
             },
           );

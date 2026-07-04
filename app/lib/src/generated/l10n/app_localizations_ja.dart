@@ -131,6 +131,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get continueButton => '続行';
 
   @override
+  String get localProtectionLabel => 'ローカル保護';
+
+  @override
+  String get localProtectionTooltip => 'ローカル保存データベースの暗号化で保護されています。';
+
+  @override
   String get statusTodo => '未着手';
 
   @override

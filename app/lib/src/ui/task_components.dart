@@ -29,12 +29,58 @@ class TaskMetadata extends StatelessWidget {
       runSpacing: AppSpacing.xs,
       children: [
         for (final item in items)
-          Chip(
-            visualDensity: VisualDensity.compact,
-            avatar: Icon(item.icon, size: 16),
-            label: Text(item.label),
-          ),
+          _MetadataPill(icon: item.icon, label: item.label),
       ],
+    );
+  }
+}
+
+class _MetadataPill extends StatelessWidget {
+  const _MetadataPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final maxWidth = math.max(96.0, MediaQuery.sizeOf(context).width - 96);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(
+            AppSpacing.sm,
+            AppSpacing.xs,
+            AppSpacing.sm,
+            AppSpacing.xs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: colorScheme.primary),
+              const SizedBox(width: AppSpacing.xs),
+              Flexible(
+                child: Text(
+                  label,
+                  softWrap: true,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -110,6 +156,10 @@ class AppTaskRow extends StatelessWidget {
     required this.onTap,
     this.depth = 0,
     this.checkboxKey,
+    this.priority = 0,
+    this.priorityDotKey,
+    this.prioritySemanticLabel,
+    this.hierarchyGuideKey,
     this.onToggleDone,
   });
 
@@ -117,6 +167,10 @@ class AppTaskRow extends StatelessWidget {
   final bool isDone;
   final int depth;
   final Key? checkboxKey;
+  final int priority;
+  final Key? priorityDotKey;
+  final String? prioritySemanticLabel;
+  final Key? hierarchyGuideKey;
   final List<TaskMetadataItem> metadata;
   final VoidCallback? onToggleDone;
   final VoidCallback onTap;
@@ -126,41 +180,206 @@ class AppTaskRow extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final effectiveDepth = math.min(depth, 4);
+    final hierarchyLineStart =
+        AppSpacing.md + ((effectiveDepth - 1) * AppSpacing.lg) + AppSpacing.sm;
 
-    return ListTile(
-      contentPadding: EdgeInsetsDirectional.only(
-        start: AppSpacing.md + (effectiveDepth * AppSpacing.lg),
-        end: AppSpacing.md,
+    return Material(
+      color: colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
-      leading: onToggleDone == null
-          ? Icon(
-              isDone
-                  ? Icons.check_circle_outline
-                  : Icons.radio_button_unchecked,
-              color: isDone
-                  ? colorScheme.primary
-                  : colorScheme.onSurfaceVariant,
-            )
-          : Checkbox(
-              key: checkboxKey,
-              value: isDone,
-              onChanged: isDone ? null : (_) => onToggleDone?.call(),
+      child: Stack(
+        children: [
+          if (effectiveDepth > 0) ...[
+            PositionedDirectional(
+              start: hierarchyLineStart,
+              top: AppSpacing.sm,
+              bottom: AppSpacing.sm,
+              child: DecoratedBox(
+                key: hierarchyGuideKey,
+                decoration: BoxDecoration(
+                  color: colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const SizedBox(width: 1.5),
+              ),
             ),
-      title: Text(
-        title,
-        style: theme.textTheme.titleMedium?.copyWith(
-          decoration: isDone ? TextDecoration.lineThrough : null,
-          color: isDone ? colorScheme.onSurfaceVariant : colorScheme.onSurface,
+            PositionedDirectional(
+              start: hierarchyLineStart,
+              top: 35,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const SizedBox(width: AppSpacing.md, height: 1.5),
+              ),
+            ),
+          ],
+          ListTile(
+            contentPadding: EdgeInsetsDirectional.only(
+              start: AppSpacing.md + (effectiveDepth * AppSpacing.lg),
+              end: AppSpacing.md,
+            ),
+            leading: onToggleDone == null
+                ? Icon(
+                    isDone
+                        ? Icons.check_circle_outline
+                        : Icons.radio_button_unchecked,
+                    color: isDone
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
+                  )
+                : Checkbox(
+                    key: checkboxKey,
+                    value: isDone,
+                    onChanged: isDone ? null : (_) => onToggleDone?.call(),
+                  ),
+            title: Row(
+              children: [
+                _PriorityDot(
+                  key: priorityDotKey,
+                  priority: priority,
+                  semanticLabel: prioritySemanticLabel,
+                  isMuted: isDone,
+                ),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                      color: isDone
+                          ? colorScheme.onSurfaceVariant
+                          : colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: metadata.isEmpty
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: TaskMetadata(items: metadata),
+                  ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onTap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PriorityDot extends StatelessWidget {
+  const _PriorityDot({
+    super.key,
+    required this.priority,
+    this.semanticLabel,
+    required this.isMuted,
+  });
+
+  final int priority;
+  final String? semanticLabel;
+  final bool isMuted;
+
+  @override
+  Widget build(BuildContext context) {
+    if (priority <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final color = _priorityDotColor(context, priority);
+    final dot = Container(
+      width: 11,
+      height: 11,
+      margin: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: isMuted ? color.withValues(alpha: 0.45) : color,
+        shape: BoxShape.circle,
+      ),
+    );
+
+    final label = semanticLabel;
+    if (label == null) {
+      return dot;
+    }
+
+    return Tooltip(
+      message: label,
+      child: Semantics(label: label, child: dot),
+    );
+  }
+}
+
+Color _priorityDotColor(BuildContext context, int priority) {
+  final brightness = Theme.of(context).colorScheme.brightness;
+  return switch (priority) {
+    1 =>
+      brightness == Brightness.light
+          ? const Color(0xFF60C894)
+          : const Color(0xFF7ED9AA),
+    2 =>
+      brightness == Brightness.light
+          ? const Color(0xFFB7C900)
+          : const Color(0xFFD5E84B),
+    3 =>
+      brightness == Brightness.light
+          ? const Color(0xFFFF6B5F)
+          : const Color(0xFFFF9B91),
+    _ => Theme.of(context).colorScheme.outline,
+  };
+}
+
+class AppProtectionSignal extends StatelessWidget {
+  const AppProtectionSignal({
+    super.key,
+    required this.label,
+    required this.tooltip,
+  });
+
+  final String label;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        label: tooltip,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              AppSpacing.xs,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_outline, size: 16, color: colorScheme.primary),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      subtitle: metadata.isEmpty
-          ? null
-          : Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xs),
-              child: TaskMetadata(items: metadata),
-            ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
     );
   }
 }

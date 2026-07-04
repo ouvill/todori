@@ -17,6 +17,7 @@
 - **タスク編集UI実装済み**: task-18でタスク詳細画面から `title` / `note` / `priority` / `due_at` を編集し、FRB更新API経由でDBへ永続化できるようにした。priorityは `0..3`、due dateは設定/クリアに対応。
 - **サブタスク表示・作成実装済み**: task-19で親ID付き `create_task`、3階層以上の階層表示、子孫全体の進捗表示、詳細画面からのサブタスク作成、未完了子孫がある親完了時の確認ダイアログを追加した。
 - **UI基盤整備済み**: task-20で `ThemeData`、共通task row/metadata、空状態、loading/error、入力/確認ダイアログの小さな共通部品を追加し、Lists / Tasks / TaskDetail の見た目と文法を整理した。
+- **視覚方向性反映済み**: task-21で参考画像由来の深いグリーン/淡いセージ/白いsurface、priority dot、pill metadata、サブタスク階層線、ローカル保護シグナルを既存UI foundationへ反映した。
 - **テスト数**: Rust 62 / Flutter 20（いずれも最新の完了報告時点の値。着手前に最新の完了報告で更新すること）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
@@ -24,12 +25,11 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | ビジュアル方向性反映 | 参考画像の深いグリーン/淡いセージ、priority dot、due chip、階層線、保護シグナルを既存UI foundationへ小さく反映する | M3磨き込み相当 | 参考画像 `assets/brand/generated/todori-mobile-product.png` 由来、task-20後の視覚文法反映 |
-| 2 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
-| 3 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
-| 4 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 5 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 6 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 1 | ゴミ箱画面・復元UI | `get_trashed_tasks` / `restore_task` はブリッジ公開済み。画面とルートの追加のみ | M3-04相当 | |
+| 2 | fractional index | `sort_order` 生成の本実装（`core/domain`）と並び替えUI | M3-05相当 | 現状は暫定連番（`'a0'`, `'a1'`, ...） |
+| 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 5 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

@@ -94,6 +94,8 @@
   "completeTaskDialogTitle": "Complete parent task?",
   "completeTaskDialogMessage": "This task has incomplete subtasks. Completing it will not complete its subtasks.",
   "continueButton": "Continue",
+  "localProtectionLabel": "Local protection",
+  "localProtectionTooltip": "Stored locally with encrypted database protection.",
   "statusTodo": "To do",
   "statusInProgress": "In progress",
   "statusDone": "Done",

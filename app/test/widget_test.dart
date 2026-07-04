@@ -243,6 +243,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Tasks'), findsOneWidget);
+    expect(find.text('Local protection'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
@@ -260,6 +261,7 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
+    expect(find.text('Local protection'), findsOneWidget);
     expect(find.text('Status: To do'), findsOneWidget);
   });
 
@@ -343,6 +345,14 @@ void main() {
     expect(find.text('Review checklist'), findsOneWidget);
     expect(find.text('Progress: 1/2'), findsOneWidget);
     expect(find.text('Progress: 1/1'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${child.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
+      findsOneWidget,
+    );
 
     final parentTop = tester.getTopLeft(find.text('Plan launch')).dy;
     final childTop = tester.getTopLeft(find.text('Draft checklist')).dy;
@@ -465,6 +475,10 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('Buy oat milk'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-priority-dot-${active.single.id}')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('empty title in edit dialog shows validation error', (

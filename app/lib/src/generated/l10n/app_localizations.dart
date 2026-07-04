@@ -308,6 +308,18 @@ abstract class AppLocalizations {
   /// **'Continue'**
   String get continueButton;
 
+  /// No description provided for @localProtectionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Local protection'**
+  String get localProtectionLabel;
+
+  /// No description provided for @localProtectionTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored locally with encrypted database protection.'**
+  String get localProtectionTooltip;
+
   /// No description provided for @statusTodo.
   ///
   /// In en, this message translates to:

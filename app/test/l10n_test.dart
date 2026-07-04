@@ -19,6 +19,8 @@ void main() {
     expect(ja.createButton, '作成');
     expect(en.cancelButton, 'Cancel');
     expect(ja.cancelButton, 'キャンセル');
+    expect(en.localProtectionLabel, 'Local protection');
+    expect(ja.localProtectionLabel, 'ローカル保護');
     expect(en.listsTitle, isNot(ja.listsTitle));
     expect(en.tasksTitle, isNot(ja.tasksTitle));
   });

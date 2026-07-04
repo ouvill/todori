@@ -1,5 +1,8 @@
 # task-21: ビジュアル方向性反映
 
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-04
+
 ## 1. 背景とコンテキスト
 
 task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、metadata、empty/loading/error state、dialogの基盤が追加され、Lists / Tasks / TaskDetail の画面文法が揃い始めた。一方、現状のUIはまだMaterial標準寄りの整理段階であり、Todoriのプロダクトらしさを示す視覚的な方向性は薄い。
@@ -169,3 +172,171 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 - 品質ゲート6点と `check_hardcoded_strings.sh` の実行結果
 - やらなかったことが守られていること（新規依存なし、Rust/FRB/DB/domain変更なし、下部ナビ/Focus timer/ゴミ箱/Undo/並び替え/通知未実装）
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+- 作業日: 2026-07-04
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/PLAYBOOK.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/07_Phase1計画書.md` M2-03 / M2-04 / M3-02 / M3-03 / M3-04 / M3-05 / M4-03
+  - `docs/tasks/task-18-task-editing-ui.md`
+  - `docs/tasks/task-19-subtasks-ui.md`
+  - `docs/tasks/task-20-ui-foundation.md`
+  - `assets/brand/generated/todori-mobile-product.png`
+  - `app/lib/main.dart`
+  - `app/lib/src/ui/theme.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/src/ui/states.dart`
+  - `app/lib/src/ui/dialogs.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/widget_test.dart`
+  - `app/test/l10n_test.dart`
+  - `app/tool/check_hardcoded_strings.sh`
+
+### 参考画像から採用した要素 / 採用しなかった要素
+
+- 採用した要素:
+  - 深いグリーンのbrand color、淡いセージ背景、白いsurface。
+  - task row内の小さなpriority dot。
+  - due/status/priority/progressを軽いpillとして読むmetadata。
+  - サブタスクの薄い縦線 + 横線の階層ガイド。
+  - 鍵アイコン付きの小さな保護シグナル。
+- 採用しなかった要素:
+  - Today / Upcoming / Projects / Settings の下部ナビ。
+  - Focus timer / Forest / タイマー操作。
+  - 広告モックの大きなスマホ内レイアウト、ピクセル単位の再現、余白過多の構成。
+  - 通知、検索、タグ、設定、ゴミ箱/復元、Undo、並び替え。
+
+### 変更したUI foundationファイル
+
+- `app/lib/src/ui/theme.dart`
+  - `ColorScheme.fromSeed` を維持しつつ、deep green / sage / white surfaceの方向へ `primary`、`primaryContainer`、`surface`、`surfaceContainer`、`surfaceContainerHighest`、`outlineVariant` を最小限上書きした。
+  - light themeを主対象にし、dark themeも同じgreen/sage方針で読めるコントラストにした。
+  - AppBar title、FAB、input、list/chip/card相当のsurface/borderを既存Material 3 theme内で調整した。
+- `app/lib/src/ui/task_components.dart`
+  - `TaskMetadata` を標準 `Chip` から軽いpill表示へ変更した。
+  - `AppTaskRow` にpriority dot、subtask階層ガイド、白いsurface/borderを追加した。
+  - `AppProtectionSignal` を追加し、保護シグナルのtooltip/semanticsを共通化した。
+- `app/lib/src/ui/states.dart` / `app/lib/src/ui/dialogs.dart`
+  - 読了したが、このタスクでは変更なし。
+
+### ThemeData / color / surface / chip / spacing
+
+- primaryは `0xFF2F6F4E` を中心に、参考画像の深いグリーンへ寄せた。
+- scaffold背景は淡いセージの `surfaceContainer`、task/list/detailの主要面は白寄りの `surface` にした。
+- `outlineVariant` を薄いsage borderとして使い、row/pill/detail surfaceの境界を控えめに揃えた。
+- metadata pillは `surfaceContainer` 背景、999px radius、薄いborder、green icon/textで表示する。
+- `AppSpacing` はtask-20の `xs/sm/md/lg/xl` を維持し、巨大なtoken体系は追加していない。
+
+### priority dot
+
+- `priority == 0`: dotは表示しない。
+- `priority == 1`: green系dot。
+- `priority == 2`: yellow green系dot。
+- `priority == 3`: coral/red系dot。
+- done行ではdotを低彩度化する。
+- 色だけに依存しないよう、既存metadata textの `Priority: Low/Medium/High` / `優先度: 低/中/高` を維持し、dotにはtooltip/semanticsとして同じ `taskPriority(...)` 文言を渡した。
+- `ValueKey('task-priority-dot-${task.id}')` を追加し、widget testから存在確認できるようにした。
+- 既存の `ValueKey('task-row-${task.id}')` と `ValueKey('task-done-${task.id}')` は維持した。
+
+### metadata chip
+
+- status / priority / due date / subtask progress の文言は既存ARB由来のまま維持した。
+  - 例: `Status: To do`, `Priority: High`, `Due: 2026-07-04`, `Progress: 1/2`
+- pillは `Wrap` で折り返し可能にし、狭い幅では1 pillごとに最大幅制約を持たせてDynamic Typeで潰れにくくした。
+- due dateは既存 `formatDueDate` と `taskDueAt` を使い、通知や日付機能の拡張は行っていない。
+
+### サブタスク階層線
+
+- `AppTaskRow.depth` を使い、`depth > 0` の行に薄い縦線と短い横線を表示する。
+- deep hierarchyでは既存方針どおり表示インデントを4段階までに抑制し、無制限階層データでもUIが広がりすぎないようにした。
+- Tasks画面ではflatten済みtreeの各subtask行へ適用した。
+- TaskDetail画面の直下サブタスクにも `depth: 1` と同じ階層ガイドを適用した。
+- 孤立タスクの扱いは既存 `buildTaskTree` / `flattenTaskTree` の防御的表示方針を維持した。
+- `ValueKey('task-hierarchy-guide-${task.id}')` を追加し、widget testで子/孫行の階層ガイドを確認した。
+
+### 暗号化/ローカル保護シグナル
+
+- 追加文言:
+  - en: `Local protection`
+  - ja: `ローカル保護`
+  - tooltip en: `Stored locally with encrypted database protection.`
+  - tooltip ja: `ローカル保存データベースの暗号化で保護されています。`
+- 表示位置:
+  - Tasks画面のAppBar action。
+  - TaskDetail画面のdetail header内。
+- Phase 1のローカルSQLCipher保存時暗号化を示す補助表示に留め、同期E2EE、監査済み、Keychain本実装、アプリロック、生体認証を示唆する文言は使っていない。
+- Device Key、DB鍵、SQLCipher鍵、exportKey等の秘密情報は表示・ログ出力していない。
+- `Tooltip` と `Semantics(label: ...)` を付与した。
+
+### Lists / Tasks / TaskDetail
+
+- Lists:
+  - 一覧行を白いsurface + 薄いborder + 16px radiusへ寄せ、淡いsage背景上で読みやすくした。
+  - 既存のlist tap導線、FAB、空状態は維持した。
+- Tasks:
+  - AppBarにローカル保護シグナルを追加した。
+  - task rowを白いsurface、薄いborder、8px間隔のListViewへ変更した。
+  - checkbox、title、metadata、chevron、行tapは維持した。
+- TaskDetail:
+  - title / note / protection signal / metadata / created_at を白いdetail surfaceにまとめた。
+  - 直下subtask行へpriority dotと階層線を適用した。
+  - edit、subtask追加、trash移動の既存導線は維持した。
+
+### 追加/変更したi18nキー
+
+- `localProtectionLabel`
+- `localProtectionTooltip`
+
+`cd app && flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` 配下を更新した。
+
+### アクセシビリティ
+
+- protection signalにtooltipとsemantic labelを追加した。
+- priority dotはtooltip/semanticsを持ち、metadata textも維持して色だけに依存しない。
+- metadata pillはicon + textを維持した。
+- icon-onlyの既存編集ボタン/FAB tooltipは維持した。
+- metadataは `Wrap`、row titleは `Expanded` を使い、固定heightで文字を潰さない構成を維持した。
+
+### 追加/更新したテスト
+
+- `app/test/widget_test.dart`
+  - Tasks画面とTaskDetail画面の `Local protection` 表示を確認した。
+  - 3階層subtask表示テストで、子/孫の `task-hierarchy-guide-*` を確認した。
+  - 編集後priority highになったtaskの `task-priority-dot-*` を確認した。
+  - 既存の画面遷移、タスク作成、編集、サブタスク表示/作成、親完了確認テストは維持した。
+- `app/test/l10n_test.dart`
+  - en/ja の `localProtectionLabel` を確認した。
+- golden testやスクリーンショット比較基盤は追加していない。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功（Rust 62件）。
+- `cd app && flutter gen-l10n`: 成功。
+- `cd app && flutter analyze`: 成功（No issues found）。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
+- `cd app && flutter test`: 成功（Flutter 20件）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+- `git -C todori diff --check`: 成功。
+
+### やらなかったこと
+
+- 新規pub依存、新規Rust依存、UIフレームワーク、icon packageは追加していない。
+- Rust API、FRB生成物、DB schema、domain usecaseは変更していない。
+- 下部ナビ、Today/Upcoming/Projects/Settings、Focus timer、Forest、ゴミ箱画面・復元UI、Undo、並び替え、通知、検索、タグ、設定画面は実装していない。
+- 本格的なセキュリティ状態画面、鍵管理画面、アプリロック、生体認証、Keychain本実装は追加していない。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+- `todori-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
+
+### 未解決事項・要人間判断
+
+- なし。
