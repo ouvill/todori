@@ -68,6 +68,7 @@ sh app/tool/check_hardcoded_strings.sh
 6. `sort_order` は暫定連番（`'a0'`, `'a1'`, ...）である。fractional index本実装はM3のタスクである。
 7. macOS実行: `cd app && flutter build macos --debug` でビルドし、実行後のアプリの実データは `~/Library/Containers/dev.todori.todori/` に生成される。DBが暗号化されているかは `head -c 16 <db> | xxd` で乱数ヘッダを確認して検証する。
 8. iOS向けコア検証手法（確立済み）: `cargo test --no-run --target aarch64-apple-ios-sim -p todori-crypto -p todori-storage` → `xcrun simctl boot <device>` → `xcrun simctl spawn <device> <test binary>`。
+9. Flutter widget testの `FontLoader` は同一familyへ複数フォントを追加してもグリフフォールバックしない（Skiaがweight近似で1書体を選ぶ）。日本語フォールバックは `TextStyle.fontFamilyFallback` に別family（例: Hiragino Sans）を指定する。visual QAハーネス（`app/test/visual_qa/`）はこの方式で実フォントを登録している。
 
 ## サンドボックス実行時の既知の制約（codex exec / workspace-write）
 
