@@ -7,10 +7,10 @@
 - **Phase 1 / M1（コア層）: 完了。** task-05（`core/domain` ユースケース） / task-06（`core/storage` リポジトリ） / task-07（Device Key抽象）。
 - **Phase 1 / M2（ブリッジとUI骨格）: 完了。** task-08（ブリッジAPI公開） / task-09（Riverpod + go_router 画面骨格） / task-10（i18n en/ja） / task-11（CI整備）。macOSデスクトップ実行はcargokitで確立済みで、Phase 1品質ゲートはGitHub Actionsへ追加済み。
 - **PoC完了済み**: task-01（OPAQUE） / task-02（SQLCipher） / task-03（FRB垂直貫通） / task-04（Phase1計画書の作成）。
-- **OSS公開前監査完了済み**: task-12（秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性の棚卸し）。公開判断と公開前整備は人間判断・後続タスクとして扱う。
+- **OSS公開前監査完了済み**: task-12（秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性の棚卸し）。現在のGitHub repositoryはpublicであり、quiet public / pre-releaseとして扱う。
 - **public/private分割方針完了済み**: task-13（public repoを主、private repoを非公開資料側とする分類と移行計画）。実分割はtask-14で完了済み。
-- **public/private分割完了済み**: task-14（公開版の課金・法務要約、READMEリンク整理、private repo `todori-private` への詳細版退避）。GitHub上の権限設定は人間作業。
-- **公開前security policy整備済み**: task-15で `SECURITY.md`、README/CONTRIBUTING導線、private vulnerability reporting利用方針を追加済み。GitHub public repository化時にprivate vulnerability reportingを有効化し、代替連絡先を確定する必要がある。
+- **public/private分割完了済み**: task-14（公開版の課金・法務要約、READMEリンク整理、private repo `todori-private` への詳細版退避）。public repository visibilityはGitHub上で人間作業により有効化済み。
+- **security policy整備済み**: task-15で `SECURITY.md`、README/CONTRIBUTING導線、private vulnerability reporting利用方針を追加済み。GitHub private vulnerability reportingはGitHub上で人間作業により有効化済み。
 - **品質ゲート復旧済み**: task-16で `flutter analyze` がmacOS build artifact内の古いcargokit参照を拾う問題を調査し、`app/analysis_options.yaml` の `build/**` 除外で復旧した。
 - **iOS検証**: Simulator上で `todori-crypto` 全17テスト・`todori-storage` 全10テストが成功、実機ターゲットのリンクも成功済み（`docs/07_Phase1計画書.md` §3補足参照）。
 - **iOS Flutter実行検証済み**: task-17で iPhone 15 Pro Simulator（iOS 17.0）上の `flutter run --debug` が成功。CocoaPods / Cargokit / Xcode build / FRB loader / SQLCipher DB作成まで到達し、`app/ios/Podfile.lock` とPods接続済みworkspace/projectを追加した。Swift Package Manager未対応警告は後続検討事項。

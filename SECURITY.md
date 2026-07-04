@@ -12,7 +12,7 @@ Released version support will be documented here once stable releases exist.
 
 Please do not report security vulnerabilities in public GitHub issues, pull requests, discussions, or comments.
 
-When this repository is public, the preferred reporting path is GitHub private vulnerability reporting. If the "Report a vulnerability" button is available on the Security tab, use that private channel and include:
+This repository is public, and the preferred reporting path is GitHub private vulnerability reporting. Use the "Report a vulnerability" button on the Security tab and include:
 
 - a short description of the issue and affected component;
 - the expected security impact;
@@ -20,7 +20,7 @@ When this repository is public, the preferred reporting path is GitHub private v
 - affected platform or environment;
 - whether the issue is already public or known to others.
 
-If GitHub private vulnerability reporting is not enabled or cannot be used, an alternate private contact must be finalized before the public repository launch. Do not invent or guess maintainer personal contact details; this repository intentionally leaves that contact as a launch-time maintainer decision until it is confirmed.
+If GitHub private vulnerability reporting cannot be used, do not publish vulnerability details in a public issue or pull request. Open a minimal public issue only to say that the private reporting channel is unavailable, without technical details, so maintainers can restore a private path.
 
 ## Scope
 
