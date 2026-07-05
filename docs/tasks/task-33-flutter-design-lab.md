@@ -1,7 +1,7 @@
 # task-33: Flutter Design Lab ── visual QA based design mock playground
 
-> ステータス: 未着手
-> 作業日: -
+> ステータス: 完了（2026-07-05）
+> 作業日: 2026-07-05
 
 ## 1. 背景とコンテキスト
 
@@ -90,20 +90,20 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 
 ## 6. 受け入れ基準
 
-- [ ] `sh app/tool/visual_qa.sh` で `design_lab_*.png` が3枚以上生成される。
-- [ ] 既存のvisual QA PNG（home/list/detail/trash/dialog等）も引き続き生成される。
-- [ ] 通常の `cd app && flutter test` ではvisual QA harnessがskipされ、Design LabがCI標準ゲートへ混入しない。
-- [ ] Design Labは本番route/provider/DB/FRB/Rust APIに依存しないtest-only widgetである。
-- [ ] Design Labは本番theme/font/spacingを使い、実際のFlutter制約内で表示される。
-- [ ] 3案の違いがスクリーンショット上で明確に比較できる。
-- [ ] 日本語/英語混在タイトル、長文、priority/due/completed表現が破綻しない。
-- [ ] 外部依存、新規画像アセット、本番i18nキーを追加していない。
-- [ ] `cd app && flutter analyze` が成功している。
-- [ ] `cd app && flutter test` が成功している。
-- [ ] `sh app/tool/check_hardcoded_strings.sh` が成功している。
-- [ ] `git diff --check` が成功している。
-- [ ] `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` が変更されていない。
-- [ ] `.github/` と `todori-private/` が変更されていない。
+- [x] `sh app/tool/visual_qa.sh` で `design_lab_*.png` が3枚以上生成される。
+- [x] 既存のvisual QA PNG（home/list/detail/trash/dialog等）も引き続き生成される。
+- [x] 通常の `cd app && flutter test` ではvisual QA harnessがskipされ、Design LabがCI標準ゲートへ混入しない。
+- [x] Design Labは本番route/provider/DB/FRB/Rust APIに依存しないtest-only widgetである。
+- [x] Design Labは本番theme/font/spacingを使い、実際のFlutter制約内で表示される。
+- [x] 3案の違いがスクリーンショット上で明確に比較できる。
+- [x] 日本語/英語混在タイトル、長文、priority/due/completed表現が破綻しない。
+- [x] 外部依存、新規画像アセット、本番i18nキーを追加していない。
+- [x] `cd app && flutter analyze` が成功している。
+- [x] `cd app && flutter test` が成功している。
+- [x] `sh app/tool/check_hardcoded_strings.sh` が成功している。
+- [x] `git diff --check` が成功している。
+- [x] `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` が変更されていない。
+- [x] `.github/` と `todori-private/` が変更されていない。
 
 ## 7. 制約・注意事項
 
@@ -126,3 +126,76 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` を変更していないこと
 - `.github/` と `todori-private/` を変更していないこと
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-05
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/PLAYBOOK.md`
+- `docs/tasks/DESIGN_PLAYBOOK.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/visual-direction.md`
+- `docs/tasks/task-29-product-experience-alignment.md`
+- `docs/tasks/task-30-design-mood-alignment.md`
+- `docs/tasks/task-32-task-list-interaction-refinement.md`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/support/fake_bridge_service.dart`
+
+### 実装結果
+
+- `app/test/visual_qa/design_lab_mocks.dart` を追加し、test-onlyの `DesignLabMockApp` と3種類のFlutterモックを実装した。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` にDesign Lab用のスクリーンショットtestを3件追加した。
+- `DesignLabMockApp` は本番 `buildTodoriTheme`、既存spacing、Material Icons、visual QAの実フォント読み込みを使う。
+- 本番route、provider、DB seed、FRB、Rust API、ARB、本番画面ファイルは変更していない。
+
+### 追加したDesign Lab PNG
+
+- `app/build/visual_qa/design_lab_today_calm.png`
+  - 狙い: 余白、大きなToday見出し、目立つNow領域を使い、静かで上品なToday面を比較する。
+  - 目視結果: 見出しと余白の印象が強く、現行より情緒寄り。カード存在感も比較対象として分かる。
+- `app/build/visual_qa/design_lab_today_dense.png`
+  - 狙い: Now/Later/Doneの切替と密度高めの行で、作業道具としてのToday面を比較する。
+  - 目視結果: 情報密度が上がり、タスク管理アプリらしい実用感が出る。文字崩れや重なりはなし。
+- `app/build/visual_qa/design_lab_smart_lists.png`
+  - 狙い: Todayをスマートリストとして扱う将来像を、Today/Upcoming/Inbox/Completedの仮想ビューと横断タスク一覧で比較する。
+  - 目視結果: Todayが単なる見出しではなく仮想ビューに見える。日本語/英語混在、priority/due/context表示は破綻なし。
+
+### 検証結果
+
+- `cd app && dart format test/visual_qa/design_lab_mocks.dart test/visual_qa/visual_qa_screenshots_test.dart`: 成功
+- `cd app && flutter analyze`: 成功（No issues found）
+- `cd app && flutter test`: 成功（38 passed / visual QA harness 1 skipped）
+- `sh app/tool/visual_qa.sh`: 成功（既存8枚 + Design Lab 3枚 = 11 screenshots）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `git diff --check`: 成功
+- `cd core && cargo fmt --all -- --check`: 成功
+- `cd core && cargo clippy --workspace -- -D warnings`: 成功
+- `cd core && cargo test --workspace`: 成功（Rust 74 tests passed）
+
+### スコープ確認
+
+- 本番UIの見た目は置き換えていない。
+- Todayスマートリストの仕様確定、DB query、FRB API、Rust API、domain/storage実装は行っていない。
+- 外部アイコンセットや新規pub依存は追加していない。
+- 新規画像アセットは追加していない。
+- 本番i18nキーは追加していない。
+- `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
+- `.github/` と `todori-private/` は変更していない。
+
+### 独立調査
+
+- subagent `Mendel` が既存visual QAの差し込み口を読み取り専用で確認し、Design Labはtest側に置くのが安全と報告した。
+- その方針どおり、Design Labは `app/test/visual_qa/` 配下だけに追加した。
+
+### 未解決事項
+
+- なし。

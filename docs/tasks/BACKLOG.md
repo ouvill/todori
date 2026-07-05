@@ -30,7 +30,8 @@
 - **design mood alignment完了済み**: task-30でLora/Interのブランドタイポグラフィを導入し、タスク行のStatus/Priorityチップ削除と相対日付化、行密度圧縮、円形チェックボックスを行った。Task detail画面のLocal protectionチップ削除とCreated at表示バグ修正も行った。before/afterスクショで参照画像の雰囲気への到達を確認済み。
 - **Trash visual refinement完了済み**: task-31でTrash行の削除日/期限日を短縮・相対日付文法へ揃え、visibleなPriorityチップをpriority dotへ置き換えた。FakeBridgeServiceの時刻seedを現実的なepoch millisecondsへ更新し、dark themeのpriority dot確認用 `home_tasks_dark.png` をvisual QAに追加した。
 - **Task list interaction refinement完了済み**: task-32で `/lists` の左方向transition、下部折りたたみ `Completed` セクション、タスク一覧のサブタスク進捗バッジ非表示、task row / Trash row / Task detail headerのpriority dot中央揃えを行った。
-- **テスト数**: Rust 74 / Flutter 38（task-32実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で8スクリーンショットを生成）。
+- **Flutter Design Lab完了済み**: task-33で本番route/provider/DB/FRB/Rust APIに触れず、visual QA上に `design_lab_today_calm.png` / `design_lab_today_dense.png` / `design_lab_smart_lists.png` を生成するtest-onlyモック基盤を追加した。
+- **テスト数**: Rust 74 / Flutter 38（task-33実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で11スクリーンショットを生成）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
@@ -40,7 +41,6 @@
 | 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
 | 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 4 | task-33 Flutter Design Lab | 本番UIを壊さずにToday/Task体験の複数Flutterモックをvisual QA PNGで比較できる実験場を作る | M3 polish follow-up | 出典: ユーザー要望（2026-07-05） |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

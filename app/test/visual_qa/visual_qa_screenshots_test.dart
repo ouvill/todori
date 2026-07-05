@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 
+import 'design_lab_mocks.dart';
 import '../support/fake_bridge_service.dart';
 
 const _visualQaEnvFlag = 'TODORI_VISUAL_QA';
@@ -158,6 +159,36 @@ void main() {
     await tester.tap(find.byKey(ValueKey('task-done-${parent.id}')));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'confirm_dialog');
+  });
+
+  testWidgets('design_lab_today_calm: spacious Today exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.calmToday),
+    );
+    await _screenshot(tester, 'design_lab_today_calm');
+  });
+
+  testWidgets('design_lab_today_dense: compact Today exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.denseToday),
+    );
+    await _screenshot(tester, 'design_lab_today_dense');
+  });
+
+  testWidgets('design_lab_smart_lists: Today as a smart-list exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.smartLists),
+    );
+    await _screenshot(tester, 'design_lab_smart_lists');
   });
 }
 
