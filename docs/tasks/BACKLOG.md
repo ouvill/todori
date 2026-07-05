@@ -39,6 +39,7 @@
 | 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
 | 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 4 | task-32 Task list interaction refinement | リスト画面の左方向遷移、Completed折りたたみ、サブタスク進捗バッジ非表示、priority dot中央揃え | M3 polish follow-up | 出典: ユーザー要望（2026-07-05） |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
