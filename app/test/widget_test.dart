@@ -72,6 +72,19 @@ void main() {
     expect(find.text('Inbox'), findsOneWidget);
   });
 
+  testWidgets('lists screen enters from the leading edge', (tester) async {
+    await _pumpAppWithSeedData(tester, listName: 'Inbox');
+
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    final slideOffsets = tester
+        .widgetList<SlideTransition>(find.byType(SlideTransition))
+        .map((transition) => transition.position.value.dx);
+    expect(slideOffsets.any((dx) => dx < 0), isTrue);
+  });
+
   testWidgets('tapping a list navigates to its task list', (tester) async {
     await _pumpAppWithSeedData(
       tester,
@@ -246,6 +259,15 @@ void main() {
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
     // Priority is conveyed by the dot + tooltip/semantics, not a text chip.
     expect(find.byTooltip('Priority: High'), findsOneWidget);
+    final titleFinder = find.textContaining('README screenshot');
+    final titleCenterY =
+        (tester.getTopLeft(titleFinder).dy +
+            tester.getBottomLeft(titleFinder).dy) /
+        2;
+    final dotCenterY = tester
+        .getCenter(find.byKey(ValueKey('task-priority-dot-${task.id}')))
+        .dy;
+    expect(dotCenterY, closeTo(titleCenterY, 8));
 
     await tester.tap(find.byIcon(Icons.edit_outlined));
     await tester.pumpAndSettle();
@@ -314,9 +336,15 @@ void main() {
     expect(active.single.status, 'done');
     expect(find.text('Task completed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
+    expect(find.text('Buy milk'), findsNothing);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('1 completed'), findsOneWidget);
 
-    final updatedCheckbox = tester.widget<Checkbox>(checkboxFinder);
-    expect(updatedCheckbox.value, isTrue);
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Buy milk'), findsOneWidget);
+    expect(checkboxFinder, findsNothing);
 
     await tester.tap(find.text('Undo'));
     await tester.pumpAndSettle();
@@ -325,6 +353,7 @@ void main() {
     expect(undone.single.status, 'todo');
     final undoneCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(undoneCheckbox.value, isFalse);
+    expect(find.text('Completed'), findsNothing);
   });
 
   testWidgets('task list move buttons reorder root tasks', (tester) async {
@@ -471,7 +500,7 @@ void main() {
     expect(find.byTooltip('Move task up'), findsWidgets);
   });
 
-  testWidgets('task list shows three-level subtasks with descendant progress', (
+  testWidgets('task list shows subtasks without descendant progress badges', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -498,17 +527,26 @@ void main() {
 
     expect(find.text('Plan launch'), findsOneWidget);
     expect(find.text('Draft checklist'), findsOneWidget);
-    expect(find.text('Review checklist'), findsOneWidget);
-    // Subtask progress is a compact "done/total" pill with no text prefix.
-    expect(find.text('1/2'), findsOneWidget);
-    expect(find.text('1/1'), findsOneWidget);
+    expect(find.text('Review checklist'), findsNothing);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('1/2'), findsNothing);
+    expect(find.text('1/1'), findsNothing);
     expect(
       find.byKey(ValueKey('task-hierarchy-guide-${child.id}')),
       findsOneWidget,
     );
     expect(
       find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
-      findsOneWidget,
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Review checklist'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
+      findsNothing,
     );
 
     final parentTop = tester.getTopLeft(find.text('Plan launch')).dy;

@@ -80,7 +80,7 @@ class TaskDetailScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       PriorityDot(
                         key: ValueKey('task-priority-dot-${task.id}'),
@@ -163,6 +163,7 @@ class TaskDetailScreen extends ConsumerWidget {
                           locale: locale,
                           task: subtask,
                           stats: subtaskStats,
+                          includeSubtaskProgress: false,
                         ),
                         onTap: () =>
                             context.push('/lists/$listId/tasks/${subtask.id}'),

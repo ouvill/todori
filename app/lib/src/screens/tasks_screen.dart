@@ -145,7 +145,7 @@ class TasksScreen extends ConsumerWidget {
   }
 }
 
-class _TasksBody extends StatelessWidget {
+class _TasksBody extends StatefulWidget {
   const _TasksBody({
     required this.listId,
     required this.listName,
@@ -176,10 +176,36 @@ class _TasksBody extends StatelessWidget {
   onMoveTask;
 
   @override
+  State<_TasksBody> createState() => _TasksBodyState();
+}
+
+class _TasksBodyState extends State<_TasksBody> {
+  bool _showCompleted = false;
+
+  @override
+  void didUpdateWidget(covariant _TasksBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_showCompleted && !widget.tasks.any(_isCompleted)) {
+      _showCompleted = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final nodes = flattenTaskTree(buildTaskTree(tasks, sortMode: sortMode));
-    if (!isHome && nodes.isEmpty) {
+    final activeTasks = widget.tasks
+        .where((task) => !_isCompleted(task))
+        .toList(growable: false);
+    final completedTasks = widget.tasks
+        .where(_isCompleted)
+        .toList(growable: false);
+    final activeNodes = flattenTaskTree(
+      buildTaskTree(activeTasks, sortMode: widget.sortMode),
+    );
+    final completedNodes = flattenTaskTree(
+      buildTaskTree(completedTasks, sortMode: widget.sortMode),
+    );
+    if (!widget.isHome && activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
         icon: Icons.checklist_outlined,
         title: l10n.tasksEmptyTitle,
@@ -187,91 +213,139 @@ class _TasksBody extends StatelessWidget {
       );
     }
 
-    final itemCount = isHome ? nodes.length + 2 : nodes.length;
+    final children = <Widget>[];
+    void addGap(double height) {
+      if (children.isNotEmpty) {
+        children.add(SizedBox(height: height));
+      }
+    }
+
+    if (widget.isHome) {
+      children.add(
+        _HomeTasksHeader(
+          listName: widget.listName ?? l10n.tasksTitle,
+          sortMenu: widget.sortMenu,
+          trashButton: widget.trashButton,
+        ),
+      );
+      addGap(AppSpacing.lg);
+      children.add(
+        _TaskSectionHeader(
+          pendingCount: _pendingCount(widget.tasks),
+          onCreateTask: widget.onCreateTask,
+        ),
+      );
+    }
+
+    for (final node in activeNodes) {
+      addGap(AppSpacing.sm);
+      children.add(
+        _buildTaskRow(context, node, activeTasks, isCompletedSection: false),
+      );
+    }
+
+    if (completedNodes.isNotEmpty) {
+      addGap(activeNodes.isEmpty ? AppSpacing.sm : AppSpacing.lg);
+      children.add(
+        _CompletedSectionHeader(
+          count: completedNodes.length,
+          isExpanded: _showCompleted,
+          onTap: () => setState(() => _showCompleted = !_showCompleted),
+        ),
+      );
+      if (_showCompleted) {
+        for (final node in completedNodes) {
+          addGap(AppSpacing.sm);
+          children.add(
+            _buildTaskRow(
+              context,
+              node,
+              completedTasks,
+              isCompletedSection: true,
+            ),
+          );
+        }
+      }
+    }
+
     return SafeArea(
-      top: isHome,
-      child: ListView.separated(
+      top: widget.isHome,
+      child: ListView(
         padding: EdgeInsets.fromLTRB(
           AppSpacing.md,
-          isHome ? AppSpacing.md : AppSpacing.md,
+          widget.isHome ? AppSpacing.md : AppSpacing.md,
           AppSpacing.md,
           AppSpacing.xl * 3,
         ),
-        itemCount: itemCount,
-        separatorBuilder: (context, index) {
-          if (isHome && index == 0) {
-            return const SizedBox(height: AppSpacing.lg);
-          }
-          return const SizedBox(height: AppSpacing.sm);
-        },
-        itemBuilder: (context, index) {
-          if (isHome && index == 0) {
-            return _HomeTasksHeader(
-              listName: listName ?? l10n.tasksTitle,
-              sortMenu: sortMenu,
-              trashButton: trashButton,
-            );
-          }
-          if (isHome && index == 1) {
-            return _TaskSectionHeader(
-              pendingCount: _pendingCount(tasks),
-              onCreateTask: onCreateTask,
-            );
-          }
-
-          final node = nodes[isHome ? index - 2 : index];
-          final task = node.task;
-          final stats = descendantStatsOf(task.id, tasks);
-          final showManualControls = !isHome && sortMode == TaskSortMode.manual;
-          final siblings = showManualControls
-              ? _siblingsOf(task, tasks)
-              : const <TaskDto>[];
-          final siblingIndex = siblings.indexWhere(
-            (sibling) => sibling.id == task.id,
-          );
-          return AppTaskRow(
-            key: ValueKey('task-row-${task.id}'),
-            checkboxKey: ValueKey('task-done-${task.id}'),
-            title: task.title,
-            isDone: task.status == 'done',
-            depth: node.depth,
-            priority: task.priority,
-            priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
-            prioritySemanticLabel: l10n.taskPriority(
-              taskPriorityLabel(l10n, task.priority),
-            ),
-            hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
-            metadata: taskMetadataItemsFor(
-              l10n: l10n,
-              locale: Localizations.localeOf(context).toLanguageTag(),
-              task: task,
-              stats: stats,
-            ),
-            trailing: showManualControls
-                ? _TaskReorderControls(
-                    task: task,
-                    siblings: siblings,
-                    siblingIndex: siblingIndex,
-                    onMove: ({required previousTaskId, required nextTaskId}) {
-                      return onMoveTask(
-                        task: task,
-                        previousTaskId: previousTaskId,
-                        nextTaskId: nextTaskId,
-                      );
-                    },
-                  )
-                : Icon(
-                    Icons.chevron_right,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            onToggleDone: () => onCompleteTask(task),
-            onTap: () => context.push('/lists/$listId/tasks/${task.id}'),
-          );
-        },
+        children: children,
       ),
     );
   }
+
+  Widget _buildTaskRow(
+    BuildContext context,
+    TaskTreeNode node,
+    List<TaskDto> taskScope, {
+    required bool isCompletedSection,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final task = node.task;
+    final stats = descendantStatsOf(task.id, widget.tasks);
+    final showManualControls =
+        !widget.isHome &&
+        !isCompletedSection &&
+        widget.sortMode == TaskSortMode.manual;
+    final siblings = showManualControls
+        ? _siblingsOf(task, taskScope)
+        : const <TaskDto>[];
+    final siblingIndex = siblings.indexWhere(
+      (sibling) => sibling.id == task.id,
+    );
+    return AppTaskRow(
+      key: ValueKey('task-row-${task.id}'),
+      checkboxKey: ValueKey('task-done-${task.id}'),
+      title: task.title,
+      isDone: task.status == 'done',
+      depth: node.depth,
+      priority: task.priority,
+      priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+      prioritySemanticLabel: l10n.taskPriority(
+        taskPriorityLabel(l10n, task.priority),
+      ),
+      hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+      metadata: taskMetadataItemsFor(
+        l10n: l10n,
+        locale: Localizations.localeOf(context).toLanguageTag(),
+        task: task,
+        stats: stats,
+        includeSubtaskProgress: false,
+      ),
+      trailing: showManualControls
+          ? _TaskReorderControls(
+              task: task,
+              siblings: siblings,
+              siblingIndex: siblingIndex,
+              onMove: ({required previousTaskId, required nextTaskId}) {
+                return widget.onMoveTask(
+                  task: task,
+                  previousTaskId: previousTaskId,
+                  nextTaskId: nextTaskId,
+                );
+              },
+            )
+          : Icon(
+              Icons.chevron_right,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+      onToggleDone: isCompletedSection
+          ? null
+          : () => widget.onCompleteTask(task),
+      onTap: () => context.push('/lists/${widget.listId}/tasks/${task.id}'),
+    );
+  }
 }
+
+bool _isCompleted(TaskDto task) => task.status == 'done';
 
 class _HomeTasksHeader extends StatelessWidget {
   const _HomeTasksHeader({
@@ -428,6 +502,89 @@ class _PendingBadge extends StatelessWidget {
           l10n.homePendingCount(count),
           style: theme.textTheme.labelLarge?.copyWith(
             color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompletedSectionHeader extends StatelessWidget {
+  const _CompletedSectionHeader({
+    required this.count,
+    required this.isExpanded,
+    required this.onTap,
+  });
+
+  final int count;
+  final bool isExpanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final tooltip = isExpanded
+        ? l10n.hideCompletedTasksTooltip
+        : l10n.showCompletedTasksTooltip;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const ValueKey('completed-section-toggle'),
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                AppSpacing.sm,
+                AppSpacing.xs,
+                AppSpacing.xs,
+                AppSpacing.xs,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      l10n.completedTasksTitle,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: colorScheme.outlineVariant),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Text(
+                        l10n.completedTasksCount(count),
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

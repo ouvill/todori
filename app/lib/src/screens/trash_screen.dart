@@ -139,7 +139,7 @@ class _TrashTaskRow extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               PriorityDot(
                                 key: ValueKey('trash-priority-dot-${task.id}'),

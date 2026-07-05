@@ -49,7 +49,7 @@
 | task-29 | 完了 | [task-29-product-experience-alignment.md](./task-29-product-experience-alignment.md) | Product experience alignment。起動直後をListsではなく既定リストのTasks体験へ寄せ、指定2枚のdesign directionに近いtask-first UIへ組み替える | task-20〜28と `docs/design/visual-direction.md` に依存。M3 polish follow-up |
 | task-30 | 完了 | [task-30-design-mood-alignment.md](./task-30-design-mood-alignment.md) | design mood alignment。ブランドタイポグラフィ(Lora/Inter)導入、タスク行メタデータのquieting、行密度圧縮、detail画面のLocal protectionチップ削除で参照画像の雰囲気へ寄せる | task-28/29と `docs/design/visual-direction.md`、visual QAスクショ基盤に依存。M3 polish follow-up |
 | task-31 | 完了 | [task-31-trash-visual-refinement.md](./task-31-trash-visual-refinement.md) | Trash visual refinement。Trash行の日付・priority表現をtask-30後の文法へ揃え、visual QA seedとダークテーマpriority dot検証を整える | task-23・task-30と `docs/design/visual-direction.md`、visual QAスクショ基盤に依存。M3 polish follow-up |
-| task-32 | 未着手 | [task-32-task-list-interaction-refinement.md](./task-32-task-list-interaction-refinement.md) | Task list interaction refinement。リスト画面の左方向遷移、Completed折りたたみ、サブタスク進捗バッジ非表示、priority dot中央揃えを行う | task-30〜31と `docs/design/visual-direction.md`、visual QAスクショ基盤に依存。M3 polish follow-up |
+| task-32 | 完了 | [task-32-task-list-interaction-refinement.md](./task-32-task-list-interaction-refinement.md) | Task list interaction refinement。リスト画面の左方向遷移、Completed折りたたみ、サブタスク進捗バッジ非表示、priority dot中央揃えを行う | task-30〜31と `docs/design/visual-direction.md`、visual QAスクショ基盤に依存。M3 polish follow-up |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

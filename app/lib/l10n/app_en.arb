@@ -30,6 +30,17 @@
       }
     }
   },
+  "completedTasksTitle": "Completed",
+  "completedTasksCount": "{count} completed",
+  "@completedTasksCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "showCompletedTasksTooltip": "Show completed tasks",
+  "hideCompletedTasksTooltip": "Hide completed tasks",
   "homeListMenuTooltip": "Open lists",
   "homeEmptyTitle": "Start with a list.",
   "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",

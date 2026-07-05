@@ -194,6 +194,30 @@ abstract class AppLocalizations {
   /// **'{count} pending'**
   String homePendingCount(int count);
 
+  /// No description provided for @completedTasksTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get completedTasksTitle;
+
+  /// No description provided for @completedTasksCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} completed'**
+  String completedTasksCount(int count);
+
+  /// No description provided for @showCompletedTasksTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show completed tasks'**
+  String get showCompletedTasksTooltip;
+
+  /// No description provided for @hideCompletedTasksTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide completed tasks'**
+  String get hideCompletedTasksTooltip;
+
   /// No description provided for @homeListMenuTooltip.
   ///
   /// In en, this message translates to:

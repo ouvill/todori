@@ -136,6 +136,7 @@ List<TaskMetadataItem> taskMetadataItemsFor({
   required SubtaskStats stats,
   bool includeNoDueDate = false,
   bool includeStatus = false,
+  bool includeSubtaskProgress = true,
 }) {
   final overdue = isTaskOverdue(task);
   return [
@@ -157,7 +158,7 @@ List<TaskMetadataItem> taskMetadataItemsFor({
               )
             : null,
       ),
-    if (stats.hasDescendants)
+    if (includeSubtaskProgress && stats.hasDescendants)
       TaskMetadataItem(
         icon: Icons.account_tree_outlined,
         label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
@@ -347,7 +348,7 @@ class AppTaskRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             PriorityDot(
                               key: priorityDotKey,

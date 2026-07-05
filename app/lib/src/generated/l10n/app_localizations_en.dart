@@ -61,6 +61,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get completedTasksTitle => 'Completed';
+
+  @override
+  String completedTasksCount(int count) {
+    return '$count completed';
+  }
+
+  @override
+  String get showCompletedTasksTooltip => 'Show completed tasks';
+
+  @override
+  String get hideCompletedTasksTooltip => 'Hide completed tasks';
+
+  @override
   String get homeListMenuTooltip => 'Open lists';
 
   @override

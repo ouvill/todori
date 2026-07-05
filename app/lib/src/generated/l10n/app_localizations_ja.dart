@@ -61,6 +61,20 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get completedTasksTitle => '完了済み';
+
+  @override
+  String completedTasksCount(int count) {
+    return '完了 $count件';
+  }
+
+  @override
+  String get showCompletedTasksTooltip => '完了済みタスクを表示';
+
+  @override
+  String get hideCompletedTasksTooltip => '完了済みタスクを隠す';
+
+  @override
   String get homeListMenuTooltip => 'リストを開く';
 
   @override
