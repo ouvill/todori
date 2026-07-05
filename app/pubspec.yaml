@@ -83,6 +83,7 @@ flutter:
   # serif used for Today/screen/section headings, Inter is the UI body
   # sans-serif used everywhere else. Both are bundled OFL assets (see
   # assets/fonts/{Lora,Inter}/OFL.txt), not the `google_fonts` package.
+  # Newsreader is currently registered for Design Lab typography experiments.
   fonts:
     - family: Lora
       fonts:
@@ -104,6 +105,14 @@ flutter:
           weight: 600
         - asset: assets/fonts/Inter/Inter-Bold.ttf
           weight: 700
+    - family: Newsreader
+      fonts:
+        - asset: assets/fonts/Newsreader/Newsreader-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Newsreader/Newsreader-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Newsreader/Newsreader-SemiBold.ttf
+          weight: 600
 
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package

@@ -1,7 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:todori/src/ui/theme.dart';
 
-enum DesignLabMock { calmToday, denseToday, smartLists }
+enum DesignLabMock { taskList, listOverview, focusTimer }
 
 class DesignLabMockApp extends StatelessWidget {
   const DesignLabMockApp({required this.mock, super.key});
@@ -14,9 +16,9 @@ class DesignLabMockApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
-        DesignLabMock.calmToday => const _CalmTodayMock(),
-        DesignLabMock.denseToday => const _DenseTodayMock(),
-        DesignLabMock.smartLists => const _SmartListsMock(),
+        DesignLabMock.taskList => const _TaskListMock(),
+        DesignLabMock.listOverview => const _ListOverviewMock(),
+        DesignLabMock.focusTimer => const _FocusTimerMock(),
       },
     );
   }
@@ -26,119 +28,205 @@ class _LabTask {
   const _LabTask({
     required this.title,
     required this.dueLabel,
-    required this.priority,
+    required this.accent,
+    this.subtasks = const [],
     this.contextLabel,
+    this.isSelected = false,
     this.isDone = false,
-    this.isOverdue = false,
   });
 
   final String title;
   final String dueLabel;
-  final int priority;
+  final Color accent;
+  final List<_LabSubtask> subtasks;
+  final String? contextLabel;
+  final bool isSelected;
+  final bool isDone;
+}
+
+class _LabSubtask {
+  const _LabSubtask({
+    required this.title,
+    required this.dueLabel,
+    this.contextLabel,
+    this.isDone = false,
+  });
+
+  final String title;
+  final String dueLabel;
   final String? contextLabel;
   final bool isDone;
-  final bool isOverdue;
 }
 
 const _tasks = [
   _LabTask(
-    title: '地図アプリのUI微調整を仕上げる',
+    title: 'Review design direction',
     dueLabel: 'Today',
-    priority: 2,
-    contextLabel: 'Inbox',
+    accent: _priorityCoral,
+    contextLabel: 'Design',
+    isSelected: true,
+    subtasks: [
+      _LabSubtask(title: 'Collect references', dueLabel: 'Today', isDone: true),
+      _LabSubtask(title: 'Define key screens', dueLabel: 'Today'),
+      _LabSubtask(
+        title: 'Align on visual rules',
+        dueLabel: 'Tomorrow',
+        contextLabel: 'UI',
+      ),
+    ],
   ),
   _LabTask(
-    title: 'Review checklist with design',
+    title: 'Draft restore flow',
     dueLabel: 'Today',
-    priority: 1,
-    contextLabel: 'Launch',
+    accent: _priorityAmber,
+    contextLabel: 'Product',
   ),
   _LabTask(
-    title: 'Renew passport before the trip',
-    dueLabel: 'Jul 1',
-    priority: 0,
+    title: 'Write release notes',
+    dueLabel: 'Sat, Jul 11',
+    accent: _priorityBlue,
+    contextLabel: 'Docs',
+  ),
+  _LabTask(
+    title: 'Plan grocery run',
+    dueLabel: 'Sun, Jul 12',
+    accent: _prioritySage,
     contextLabel: 'Personal',
-    isOverdue: true,
   ),
   _LabTask(
-    title: 'Draft the Q3 roadmap presentation for leadership',
-    dueLabel: 'Tomorrow',
-    priority: 3,
-    contextLabel: 'Work',
-  ),
-  _LabTask(
-    title: '朝会に参加する',
+    title: 'Archive finished notes',
     dueLabel: 'Completed',
-    priority: 0,
-    contextLabel: 'Work',
+    accent: _priorityGreen,
     isDone: true,
   ),
 ];
 
-class _CalmTodayMock extends StatelessWidget {
-  const _CalmTodayMock();
+class _LabList {
+  const _LabList({
+    required this.label,
+    required this.count,
+    required this.accent,
+    this.icon,
+    this.isSelected = false,
+  });
+
+  final String label;
+  final int count;
+  final Color accent;
+  final IconData? icon;
+  final bool isSelected;
+}
+
+const _smartLists = [
+  _LabList(
+    label: 'Today',
+    count: 8,
+    accent: _priorityAmber,
+    icon: Icons.wb_sunny_outlined,
+  ),
+  _LabList(label: 'Inbox', count: 3, accent: _prioritySage),
+  _LabList(label: 'Upcoming', count: 5, accent: _priorityAmber),
+  _LabList(label: 'Someday', count: 12, accent: Color(0xFF8F82C8)),
+];
+
+const _customLists = [
+  _LabList(label: 'Design', count: 7, accent: _priorityGreen, isSelected: true),
+  _LabList(label: 'Personal', count: 6, accent: Color(0xFF3C8DCE)),
+  _LabList(label: 'Work', count: 9, accent: Color(0xFFF18A3A)),
+  _LabList(label: 'Health', count: 4, accent: Color(0xFF66AA53)),
+  _LabList(label: 'Learning', count: 3, accent: Color(0xFFE95A8A)),
+];
+
+const _labPageIvory = Color(0xFFFAF8F2);
+const _labSurfaceWarm = Color(0xFFFEFDFB);
+const _labSoftIvory = Color(0xFFF6F6EF);
+const _taskPanelPadding = EdgeInsets.fromLTRB(
+  AppSpacing.sm,
+  AppSpacing.lg,
+  AppSpacing.sm,
+  AppSpacing.md,
+);
+const _taskCardPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 12);
+const _taskHeaderActionsPadding = EdgeInsets.symmetric(horizontal: 12);
+const _taskHeaderPadding = EdgeInsets.symmetric(horizontal: 12);
+const _taskTagPadding = EdgeInsets.symmetric(horizontal: 8, vertical: 2);
+const _taskPanelRadius = 20.0;
+const _taskCardGap = 2.0;
+const _taskBlockGap = AppSpacing.sm;
+const _taskInlineGap = AppSpacing.sm;
+const _taskMicroGap = AppSpacing.xs;
+const _taskCheckTopOffset = 10.0;
+const _taskPlayTopOffset = 2.0;
+const _taskPriorityDotSize = 7.0;
+const _taskControlStrokeWidth = 0.65;
+const _subtaskLineWidth = _taskCheckSize + _taskInlineGap;
+const _subtaskControlSize = 20.0;
+const _subtaskPlaySize = 28.0;
+const _subtaskConnectorHeight = _taskBlockGap;
+const _subtaskTitleFontSize = 12.5;
+const _subtaskTitleLineHeight = 1.16;
+const _subtaskTagHeight = 18.0;
+const _subtaskContentHeight =
+    _subtaskTitleFontSize * _subtaskTitleLineHeight +
+    _taskMicroGap +
+    _subtaskTagHeight;
+const _subtaskControlCenterY = _subtaskContentHeight / 2;
+const _subtaskRowHeight = _subtaskContentHeight;
+const _taskCheckSize = _subtaskControlSize;
+const _taskCheckIconSize = 12.0;
+
+class _TaskListMock extends StatelessWidget {
+  const _TaskListMock();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     return Scaffold(
-      backgroundColor: colorScheme.surfaceContainer,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon: const Icon(Icons.add),
-        label: const Text('Add task'),
-      ),
+      backgroundColor: _labPageIvory,
+      floatingActionButton: const _AddTaskButton(),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.md,
-            AppSpacing.lg,
+            0,
+            AppSpacing.sm,
+            0,
             AppSpacing.xl * 3,
           ),
           children: [
-            _IconToolbar(
-              leading: Icons.menu_rounded,
-              actions: const [Icons.search_rounded, Icons.tune_rounded],
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Text(
-              'Today',
-              style: theme.textTheme.displayLarge?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.w600,
-                height: 0.9,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Sun, Jul 5',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+            const Padding(
+              padding: _taskHeaderActionsPadding,
+              child: _TaskHeaderActions(),
             ),
             const SizedBox(height: AppSpacing.lg),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: const [
-                _SoftPill(icon: Icons.inbox_outlined, label: 'Inbox'),
-                _SoftPill(icon: Icons.radio_button_checked, label: '5 open'),
-              ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Text(
+                'Today',
+                style: theme.textTheme.displayMedium?.copyWith(
+                  fontFamily: 'Newsreader',
+                  color: colorScheme.primary,
+                  fontSize: 48,
+                  fontWeight: FontWeight.w400,
+                  height: 0.96,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Text(
+                'Mon, Jul 6',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
             ),
             const SizedBox(height: AppSpacing.xl),
-            _FocusBand(task: _tasks.first),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Next', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: AppSpacing.sm),
-            for (final task in _tasks.skip(1).where((task) => !task.isDone))
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _QuietTaskRow(task: task),
-              ),
-            const SizedBox(height: AppSpacing.sm),
-            const _CollapsedCompleted(count: 1),
+            _TasksPanel(tasks: _tasks),
+            const SizedBox(height: AppSpacing.md),
+            const _CompletedTodayRow(count: 1),
           ],
         ),
       ),
@@ -146,351 +234,116 @@ class _CalmTodayMock extends StatelessWidget {
   }
 }
 
-class _DenseTodayMock extends StatelessWidget {
-  const _DenseTodayMock();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Scaffold(
-      backgroundColor: colorScheme.surfaceContainer,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.xl,
-          ),
-          children: [
-            _IconToolbar(
-              leading: Icons.menu_rounded,
-              actions: const [Icons.add_rounded, Icons.swap_vert_rounded],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Today',
-                    style: theme.textTheme.displayMedium?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                      height: 0.92,
-                    ),
-                  ),
-                ),
-                const _CountBadge(label: '5 open'),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            const _SegmentedStrip(labels: ['Now', 'Later', 'Done']),
-            const SizedBox(height: AppSpacing.md),
-            _DenseSection(
-              title: 'Now',
-              tasks: _tasks.take(2).toList(growable: false),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            _DenseSection(
-              title: 'Later',
-              tasks: _tasks.skip(2).take(2).toList(growable: false),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            const _CollapsedCompleted(count: 1),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SmartListsMock extends StatelessWidget {
-  const _SmartListsMock();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Scaffold(
-      backgroundColor: colorScheme.surfaceContainer,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.md,
-            AppSpacing.lg,
-            AppSpacing.xl,
-          ),
-          children: [
-            const _IconToolbar(
-              leading: Icons.menu_rounded,
-              actions: [Icons.search_rounded, Icons.add_rounded],
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Text(
-              'Today',
-              style: theme.textTheme.displayMedium?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.w600,
-                height: 0.95,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'A focused view across lists',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            GridView.count(
-              crossAxisCount: 2,
-              mainAxisSpacing: AppSpacing.sm,
-              crossAxisSpacing: AppSpacing.sm,
-              childAspectRatio: 1.65,
-              physics: const NeverScrollableScrollPhysics(),
-              shrinkWrap: true,
-              children: const [
-                _SmartListTile(
-                  icon: Icons.today_outlined,
-                  label: 'Today',
-                  count: '5',
-                  accent: _priorityAmber,
-                ),
-                _SmartListTile(
-                  icon: Icons.calendar_month_outlined,
-                  label: 'Upcoming',
-                  count: '8',
-                  accent: _prioritySage,
-                ),
-                _SmartListTile(
-                  icon: Icons.inbox_outlined,
-                  label: 'Inbox',
-                  count: '12',
-                  accent: _priorityGreen,
-                ),
-                _SmartListTile(
-                  icon: Icons.check_circle_outline,
-                  label: 'Completed',
-                  count: '24',
-                  accent: _priorityCoral,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Text('Today plan', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: AppSpacing.sm),
-            for (final task in _tasks.where((task) => !task.isDone))
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _SmartTaskRow(task: task),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _IconToolbar extends StatelessWidget {
-  const _IconToolbar({required this.leading, required this.actions});
-
-  final IconData leading;
-  final List<IconData> actions;
+class _TaskHeaderActions extends StatelessWidget {
+  const _TaskHeaderActions();
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
-        _RoundIconButton(icon: leading),
-        const Spacer(),
-        for (final icon in actions) ...[
-          _RoundIconButton(icon: icon, quiet: true),
-          const SizedBox(width: AppSpacing.sm),
-        ],
+      children: const [
+        _QuietIconButton(icon: Icons.menu_rounded),
+        Spacer(),
+        _QuietIconButton(icon: Icons.tune_rounded),
+        SizedBox(width: AppSpacing.sm),
+        _QuietIconButton(icon: Icons.more_horiz_rounded),
       ],
     );
   }
 }
 
-class _RoundIconButton extends StatelessWidget {
-  const _RoundIconButton({required this.icon, this.quiet = false});
+class _TasksPanel extends StatelessWidget {
+  const _TasksPanel({required this.tasks});
 
-  final IconData icon;
-  final bool quiet;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return IconButton.filledTonal(
-      onPressed: () {},
-      icon: Icon(icon),
-      style: IconButton.styleFrom(
-        backgroundColor: quiet
-            ? colorScheme.surface.withValues(alpha: 0.62)
-            : colorScheme.surfaceContainerHighest,
-        foregroundColor: colorScheme.onSurface,
-        minimumSize: const Size(48, 48),
-      ),
-    );
-  }
-}
-
-class _FocusBand extends StatelessWidget {
-  const _FocusBand({required this.task});
-
-  final _LabTask task;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Now',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const _CheckCircle(),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(
-                    task.title,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.headlineSmall,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                _SoftPill(icon: Icons.event_outlined, label: task.dueLabel),
-                if (task.contextLabel != null)
-                  _SoftPill(
-                    icon: Icons.list_alt_outlined,
-                    label: task.contextLabel!,
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _QuietTaskRow extends StatelessWidget {
-  const _QuietTaskRow({required this.task});
-
-  final _LabTask task;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Row(
-          children: [
-            const _CheckCircle(),
-            const SizedBox(width: AppSpacing.sm),
-            _PriorityDot(priority: task.priority),
-            Expanded(
-              child: Text(
-                task.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.xs),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DenseSection extends StatelessWidget {
-  const _DenseSection({required this.title, required this.tasks});
-
-  final String title;
   final List<_LabTask> tasks;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final openTasks = tasks.where((task) => !task.isDone).toList();
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outlineVariant),
+        color: _labSurfaceWarm.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(_taskPanelRadius),
+        border: Border.symmetric(
+          horizontal: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+          ),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.sm,
-              AppSpacing.md,
-              AppSpacing.xs,
-            ),
-            child: Text(
-              title,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.primary,
+      child: Padding(
+        padding: _taskPanelPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: _taskHeaderPadding,
+              child: Row(
+                children: [
+                  Text(
+                    'Tasks',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontFamily: 'Newsreader',
+                      color: colorScheme.primary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const Spacer(),
+                  _SmallPill(label: '${openTasks.length} pending'),
+                ],
               ),
             ),
-          ),
-          for (var index = 0; index < tasks.length; index += 1) ...[
-            if (index > 0)
-              Divider(color: colorScheme.outlineVariant, height: 1),
-            _DenseTaskRow(task: tasks[index]),
+            const SizedBox(height: AppSpacing.sm),
+            for (var index = 0; index < openTasks.length; index += 1) ...[
+              _TaskCard(task: openTasks[index]),
+              if (index < openTasks.length - 1)
+                const SizedBox(height: _taskCardGap),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
-class _DenseTaskRow extends StatelessWidget {
-  const _DenseTaskRow({required this.task});
+class _TaskCard extends StatelessWidget {
+  const _TaskCard({required this.task});
+
+  final _LabTask task;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: task.isSelected
+            ? _labSoftIvory.withValues(alpha: 0.58)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: task.isSelected
+              ? colorScheme.primary.withValues(alpha: 0.18)
+              : colorScheme.outlineVariant.withValues(alpha: 0.36),
+        ),
+      ),
+      child: Padding(
+        padding: _taskCardPadding,
+        child: Column(
+          children: [
+            _TaskRow(task: task),
+            if (task.subtasks.isNotEmpty) ...[
+              _SubtaskTree(subtasks: task.subtasks),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskRow extends StatelessWidget {
+  const _TaskRow({required this.task});
 
   final _LabTask task;
 
@@ -498,35 +351,93 @@ class _DenseTaskRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final dueColor = task.isOverdue ? colorScheme.error : colorScheme.primary;
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: _taskCheckTopOffset),
+          child: _CheckCircle(
+            isDone: task.isDone,
+            dimension: _taskCheckSize,
+            checkSize: _taskCheckIconSize,
+          ),
+        ),
+        const SizedBox(width: _taskInlineGap),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                task.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: task.isDone
+                      ? colorScheme.onSurfaceVariant.withValues(alpha: 0.62)
+                      : colorScheme.onSurface.withValues(alpha: 0.74),
+                  decoration: task.isDone ? TextDecoration.lineThrough : null,
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w300,
+                  height: 1.18,
+                ),
+              ),
+              const SizedBox(height: _taskMicroGap),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: _taskMicroGap,
+                runSpacing: _taskMicroGap,
+                children: [
+                  _PriorityMark(color: task.accent, size: _taskPriorityDotSize),
+                  _TaskTagPill(label: task.dueLabel),
+                  if (task.contextLabel != null)
+                    _TaskTagPill(label: task.contextLabel!),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: _taskInlineGap),
+        Padding(
+          padding: const EdgeInsets.only(top: _taskPlayTopOffset),
+          child: _PlayButton(active: task.isSelected),
+        ),
+      ],
+    );
+  }
+}
+
+class _SubtaskTree extends StatelessWidget {
+  const _SubtaskTree({required this.subtasks});
+
+  final List<_LabSubtask> subtasks;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: _subtaskConnectorHeight + _subtaskRowHeight * subtasks.length,
+      child: Stack(
         children: [
-          const _CheckCircle(size: 28),
-          const SizedBox(width: AppSpacing.sm),
-          _PriorityDot(priority: task.priority),
-          Expanded(
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _SubtaskTreePainter(
+                color: colorScheme.primary.withValues(alpha: 0.36),
+                count: subtasks.length,
+              ),
+            ),
+          ),
+          Positioned(
+            top: _subtaskConnectorHeight,
+            left: 0,
+            right: 0,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  task.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '${task.dueLabel}  /  ${task.contextLabel ?? 'Inbox'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium?.copyWith(color: dueColor),
-                ),
+                for (final subtask in subtasks)
+                  SizedBox(
+                    height: _subtaskRowHeight,
+                    child: _SubtaskRow(subtask: subtask),
+                  ),
               ],
             ),
           ),
@@ -536,126 +447,75 @@ class _DenseTaskRow extends StatelessWidget {
   }
 }
 
-class _SmartTaskRow extends StatelessWidget {
-  const _SmartTaskRow({required this.task});
+class _SubtaskRow extends StatelessWidget {
+  const _SubtaskRow({required this.subtask});
 
-  final _LabTask task;
+  final _LabSubtask subtask;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _PriorityDot(priority: task.priority),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+    final textColor = subtask.isDone
+        ? colorScheme.onSurfaceVariant.withValues(alpha: 0.48)
+        : colorScheme.onSurface.withValues(alpha: 0.7);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(width: _subtaskLineWidth),
+        SizedBox(
+          height: _subtaskContentHeight,
+          child: Center(
+            child: _CheckCircle(
+              isDone: subtask.isDone,
+              dimension: _subtaskControlSize,
+              checkSize: 12,
+            ),
+          ),
+        ),
+        const SizedBox(width: _taskInlineGap),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                subtask.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: textColor,
+                  decoration: subtask.isDone
+                      ? TextDecoration.lineThrough
+                      : null,
+                  decorationColor: textColor,
+                  fontSize: _subtaskTitleFontSize,
+                  fontWeight: FontWeight.w300,
+                  height: _subtaskTitleLineHeight,
+                ),
+              ),
+              const SizedBox(height: _taskMicroGap),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: _taskMicroGap,
+                runSpacing: _taskMicroGap,
                 children: [
-                  Text(
-                    task.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Wrap(
-                    spacing: AppSpacing.xs,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      _MiniMeta(
-                        icon: Icons.event_outlined,
-                        label: task.dueLabel,
-                      ),
-                      if (task.contextLabel != null)
-                        _MiniMeta(
-                          icon: Icons.folder_outlined,
-                          label: task.contextLabel!,
-                        ),
-                    ],
-                  ),
+                  _TaskTagPill(label: subtask.dueLabel),
+                  if (subtask.contextLabel != null)
+                    _TaskTagPill(label: subtask.contextLabel!),
                 ],
               ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _SoftPill extends StatelessWidget {
-  const _SoftPill({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: colorScheme.primary),
-            const SizedBox(width: AppSpacing.xs),
-            Text(
-              label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.primary,
-              ),
+        const SizedBox(width: _taskInlineGap),
+        SizedBox(
+          height: _subtaskContentHeight,
+          child: Center(
+            child: _PlayButton(
+              active: false,
+              dimension: _subtaskPlaySize,
+              iconSize: 19,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniMeta extends StatelessWidget {
-  const _MiniMeta({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: colorScheme.primary),
-        const SizedBox(width: AppSpacing.xs),
-        Text(
-          label,
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: colorScheme.primary,
           ),
         ),
       ],
@@ -663,81 +523,88 @@ class _MiniMeta extends StatelessWidget {
   }
 }
 
-class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.label});
+class _SubtaskTreePainter extends CustomPainter {
+  const _SubtaskTreePainter({required this.color, required this.count});
 
-  final String label;
+  final Color color;
+  final int count;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
+  void paint(Canvas canvas, Size size) {
+    if (count <= 0) {
+      return;
+    }
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = _taskControlStrokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final x = _taskCheckSize / 2;
+    final firstY = _subtaskConnectorHeight + _subtaskControlCenterY;
+    final lastY = (count - 1) * _subtaskRowHeight + firstY;
+    canvas.drawLine(Offset(x, 0), Offset(x, lastY), paint);
+    for (var index = 0; index < count; index += 1) {
+      final y = index * _subtaskRowHeight + firstY;
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(_subtaskLineWidth - _taskMicroGap, y),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SubtaskTreePainter oldDelegate) {
+    return color != oldDelegate.color || count != oldDelegate.count;
   }
 }
 
-class _SegmentedStrip extends StatelessWidget {
-  const _SegmentedStrip({required this.labels});
-
-  final List<String> labels;
+class _FocusTimerMock extends StatelessWidget {
+  const _FocusTimerMock();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xs),
-        child: Row(
+    return Scaffold(
+      backgroundColor: _labPageIvory,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.sm,
+            AppSpacing.lg,
+            AppSpacing.xl,
+          ),
           children: [
-            for (var index = 0; index < labels.length; index += 1)
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: index == 0
-                        ? colorScheme.primaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.sm,
-                    ),
+            Row(
+              children: [
+                const _QuietIconButton(icon: Icons.arrow_back_rounded),
+                Expanded(
+                  child: Center(
                     child: Text(
-                      labels[index],
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: index == 0
-                            ? colorScheme.onPrimaryContainer
-                            : colorScheme.onSurfaceVariant,
+                      'Focus',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontFamily: 'Newsreader',
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ),
                 ),
-              ),
+                const _QuietIconButton(icon: Icons.more_horiz_rounded),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            const _FocusTimerRing(),
+            const SizedBox(height: AppSpacing.lg),
+            const _FocusTaskCard(),
+            const SizedBox(height: AppSpacing.md),
+            const _FocusActionRow(),
+            const SizedBox(height: AppSpacing.sm),
+            const _AddTimeButton(),
+            const SizedBox(height: AppSpacing.sm),
+            const _FocusEncouragementCard(),
           ],
         ),
       ),
@@ -745,8 +612,449 @@ class _SegmentedStrip extends StatelessWidget {
   }
 }
 
-class _CollapsedCompleted extends StatelessWidget {
-  const _CollapsedCompleted({required this.count});
+class _FocusTimerRing extends StatelessWidget {
+  const _FocusTimerRing();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Center(
+      child: SizedBox.square(
+        dimension: 292,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              painter: _FocusRingPainter(
+                trackColor: colorScheme.primary.withValues(alpha: 0.16),
+                progressColor: colorScheme.primary.withValues(alpha: 0.88),
+                progress: 0.82,
+              ),
+              child: const SizedBox.expand(),
+            ),
+            Positioned(
+              top: 2,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: _labSurfaceWarm,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colorScheme.primary, width: 4),
+                ),
+                child: const SizedBox.square(dimension: 22),
+              ),
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.eco_outlined,
+                  color: colorScheme.primary.withValues(alpha: 0.82),
+                  size: 28,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Focus time',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  '24:30',
+                  style: theme.textTheme.displayLarge?.copyWith(
+                    fontFamily: 'Newsreader',
+                    color: colorScheme.primary,
+                    fontSize: 64,
+                    fontWeight: FontWeight.w400,
+                    height: 0.95,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  '/ 25:00',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                const _FocusSessionPill(),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusRingPainter extends CustomPainter {
+  const _FocusRingPainter({
+    required this.trackColor,
+    required this.progressColor,
+    required this.progress,
+  });
+
+  final Color trackColor;
+  final Color progressColor;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final ringRect = rect.deflate(10);
+    final strokeWidth = 9.0;
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final progressPaint = Paint()
+      ..color = progressColor
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(ringRect, -math.pi / 2, math.pi * 2, false, trackPaint);
+    canvas.drawArc(
+      ringRect,
+      -math.pi / 2,
+      math.pi * 2 * progress,
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FocusRingPainter oldDelegate) {
+    return trackColor != oldDelegate.trackColor ||
+        progressColor != oldDelegate.progressColor ||
+        progress != oldDelegate.progress;
+  }
+}
+
+class _FocusSessionPill extends StatelessWidget {
+  const _FocusSessionPill();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSurfaceWarm.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.spa_outlined,
+              size: 16,
+              color: colorScheme.primary.withValues(alpha: 0.72),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              'Session 1 of 4',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusTaskCard extends StatelessWidget {
+  const _FocusTaskCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSurfaceWarm.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+        child: Column(
+          children: [
+            Text(
+              'Review design direction',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontFamily: 'Newsreader',
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w400,
+                height: 1.08,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            const _TaskTagPill(label: 'Design'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Divider(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.54),
+              ),
+            ),
+            Text(
+              'Steady progress, one thing at a time.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            const _FocusModeTabs(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusModeTabs extends StatelessWidget {
+  const _FocusModeTabs();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    const labels = ['Timer', 'Pomodoro', 'Stopwatch'];
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSurfaceWarm.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Row(
+        children: [
+          for (var index = 0; index < labels.length; index += 1) ...[
+            Expanded(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: index == 0
+                      ? colorScheme.primary.withValues(alpha: 0.08)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: index == 0
+                      ? Border.all(color: colorScheme.primary)
+                      : null,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: Text(
+                      labels[index],
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: index == 0
+                            ? colorScheme.primary
+                            : colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.72,
+                              ),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (index < labels.length - 1)
+              SizedBox(
+                height: 28,
+                child: VerticalDivider(
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.42),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusActionRow extends StatelessWidget {
+  const _FocusActionRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () {},
+            icon: const Icon(Icons.pause_rounded),
+            label: const Text('Pause'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colorScheme.primary,
+              minimumSize: const Size.fromHeight(54),
+              side: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+              ),
+              textStyle: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () {},
+            icon: const Icon(Icons.stop_rounded),
+            label: const Text('Finish'),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
+              minimumSize: const Size.fromHeight(54),
+              textStyle: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AddTimeButton extends StatelessWidget {
+  const _AddTimeButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return OutlinedButton.icon(
+      onPressed: () {},
+      icon: const Icon(Icons.add_rounded),
+      label: const Text('Add 5 min'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colorScheme.primary,
+        minimumSize: const Size.fromHeight(46),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.48),
+        ),
+        textStyle: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusEncouragementCard extends StatelessWidget {
+  const _FocusEncouragementCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSurfaceWarm.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withValues(alpha: 0.09),
+                shape: BoxShape.circle,
+              ),
+              child: SizedBox.square(
+                dimension: 42,
+                child: Icon(
+                  Icons.eco_rounded,
+                  color: colorScheme.primary.withValues(alpha: 0.76),
+                  size: 22,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "You've got this.",
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.76),
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Take a breath and keep going.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.68,
+                      ),
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddTaskButton extends StatelessWidget {
+  const _AddTaskButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return FilledButton.icon(
+      onPressed: () {},
+      icon: const Icon(Icons.add_rounded),
+      label: const Text('Add task'),
+      style: FilledButton.styleFrom(
+        backgroundColor: colorScheme.primary.withValues(alpha: 0.94),
+        foregroundColor: colorScheme.onPrimary,
+        minimumSize: const Size(138, 46),
+        textStyle: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w400,
+        ),
+      ),
+    );
+  }
+}
+
+class _CompletedTodayRow extends StatelessWidget {
+  const _CompletedTodayRow({required this.count});
 
   final int count;
 
@@ -754,80 +1062,67 @@ class _CollapsedCompleted extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: Row(
-        children: [
-          Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: colorScheme.onSurfaceVariant,
+    return Center(
+      child: TextButton.icon(
+        onPressed: () {},
+        icon: Icon(
+          Icons.keyboard_arrow_down_rounded,
+          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.48),
+          size: 18,
+        ),
+        label: Text(
+          'Completed today  $count',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.54),
+            fontWeight: FontWeight.w400,
           ),
-          const SizedBox(width: AppSpacing.xs),
-          Expanded(
-            child: Text(
-              'Completed',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Text(
-            '$count done',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _SmartListTile extends StatelessWidget {
-  const _SmartListTile({
-    required this.icon,
-    required this.label,
-    required this.count,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final String label;
-  final String count;
-  final Color accent;
+class _ListOverviewMock extends StatelessWidget {
+  const _ListOverviewMock();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Scaffold(
+      backgroundColor: _labPageIvory,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.lg,
+            AppSpacing.lg,
+            AppSpacing.xl,
+          ),
           children: [
-            Icon(icon, color: accent),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium,
+                    'Lists',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontFamily: 'Inter',
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                      height: 1,
+                    ),
                   ),
                 ),
-                Text(
-                  count,
-                  style: theme.textTheme.titleMedium?.copyWith(color: accent),
-                ),
+                const _ListHeaderIconButton(icon: Icons.search_rounded),
+                const SizedBox(width: AppSpacing.sm),
+                const _ListHeaderIconButton(icon: Icons.more_horiz_rounded),
               ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            _ListOverviewPanel(
+              smartLists: _smartLists,
+              customLists: _customLists,
             ),
           ],
         ),
@@ -836,47 +1131,484 @@ class _SmartListTile extends StatelessWidget {
   }
 }
 
-class _CheckCircle extends StatelessWidget {
-  const _CheckCircle({this.size = 34});
+class _ListOverviewPanel extends StatelessWidget {
+  const _ListOverviewPanel({
+    required this.smartLists,
+    required this.customLists,
+  });
 
-  final double size;
+  final List<_LabList> smartLists;
+  final List<_LabList> customLists;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      width: size,
-      height: size,
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: colorScheme.onSurfaceVariant, width: 2.3),
+        color: _labSurfaceWarm.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.78),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ListSectionLabel(
+              label: 'SMART LISTS',
+              trailing: Text(
+                '28',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            for (final list in smartLists)
+              _OverviewListRow(list: list, iconMode: _ListIconMode.symbol),
+            Divider(
+              height: AppSpacing.lg,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+            ),
+            const _ListSectionLabel(
+              label: 'CUSTOM LISTS',
+              trailing: Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            for (final list in customLists)
+              _OverviewListRow(list: list, iconMode: _ListIconMode.dot),
+            Divider(
+              height: AppSpacing.lg,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+            ),
+            const _NewListRow(),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _PriorityDot extends StatelessWidget {
-  const _PriorityDot({required this.priority});
+class _ListSectionLabel extends StatelessWidget {
+  const _ListSectionLabel({required this.label, required this.trailing});
 
-  final int priority;
+  final String label;
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
-    if (priority == 0) {
-      return const SizedBox(width: AppSpacing.sm);
-    }
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Padding(
-      padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: switch (priority) {
-            1 => _prioritySage,
-            2 => _priorityAmber,
-            _ => _priorityCoral,
-          },
-          shape: BoxShape.circle,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                letterSpacing: 1.1,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconTheme(
+            data: IconThemeData(color: colorScheme.primary),
+            child: trailing,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _ListIconMode { symbol, dot }
+
+class _OverviewListRow extends StatelessWidget {
+  const _OverviewListRow({required this.list, required this.iconMode});
+
+  final _LabList list;
+  final _ListIconMode iconMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final backgroundColor = list.isSelected
+        ? colorScheme.primaryContainer.withValues(alpha: 0.42)
+        : Colors.transparent;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: AppSpacing.xs,
         ),
-        child: const SizedBox(width: 12, height: 12),
+        child: Row(
+          children: [
+            _ListMark(list: list, mode: iconMode),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                list.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 0.94),
+                  fontWeight: list.isSelected
+                      ? FontWeight.w500
+                      : FontWeight.w400,
+                  height: 1.1,
+                ),
+              ),
+            ),
+            _ListCountBadge(count: list.count),
+            if (list.isSelected) ...[
+              const SizedBox(width: AppSpacing.sm),
+              Icon(
+                Icons.more_horiz_rounded,
+                color: colorScheme.primary.withValues(alpha: 0.86),
+                size: 22,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ListMark extends StatelessWidget {
+  const _ListMark({required this.list, required this.mode});
+
+  final _LabList list;
+  final _ListIconMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSoftIvory.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: SizedBox.square(
+        dimension: 48,
+        child: Center(
+          child: switch (mode) {
+            _ListIconMode.symbol when list.icon != null => Icon(
+              list.icon,
+              color: list.accent,
+              size: 24,
+            ),
+            _ListIconMode.symbol => _ListDot(accent: list.accent),
+            _ListIconMode.dot => _ListDot(accent: list.accent),
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ListHeaderIconButton extends StatelessWidget {
+  const _ListHeaderIconButton({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return IconButton(
+      onPressed: () {},
+      icon: Icon(icon, size: 27),
+      color: colorScheme.primary.withValues(alpha: 0.88),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(44, 44),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+}
+
+class _QuietIconButton extends StatelessWidget {
+  const _QuietIconButton({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return IconButton(
+      onPressed: () {},
+      icon: Icon(icon, size: 27),
+      color: colorScheme.primary.withValues(alpha: 0.88),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(44, 44),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+}
+
+class _CheckCircle extends StatelessWidget {
+  const _CheckCircle({
+    this.isDone = false,
+    this.dimension = 30,
+    this.checkSize = 16,
+  });
+
+  final bool isDone;
+  final double dimension;
+  final double checkSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDone ? colorScheme.primary : Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: colorScheme.primary.withValues(alpha: isDone ? 0.88 : 0.72),
+          width: _taskControlStrokeWidth,
+        ),
+      ),
+      child: SizedBox.square(
+        dimension: dimension,
+        child: isDone
+            ? Icon(
+                Icons.check_rounded,
+                color: colorScheme.onPrimary,
+                size: checkSize,
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+class _PriorityMark extends StatelessWidget {
+  const _PriorityMark({required this.color, this.size = 10});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: SizedBox.square(dimension: size),
+    );
+  }
+}
+
+class _PlayButton extends StatelessWidget {
+  const _PlayButton({
+    required this.active,
+    this.dimension = 36,
+    this.iconSize = 23,
+  });
+
+  final bool active;
+  final double dimension;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: active
+            ? colorScheme.primary.withValues(alpha: 0.92)
+            : _labSurfaceWarm.withValues(alpha: 0.72),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: colorScheme.primary.withValues(alpha: active ? 0.92 : 0.72),
+          width: _taskControlStrokeWidth,
+        ),
+      ),
+      child: SizedBox.square(
+        dimension: dimension,
+        child: IconButton(
+          onPressed: () {},
+          padding: EdgeInsets.zero,
+          icon: Icon(
+            Icons.play_arrow_rounded,
+            color: active ? colorScheme.onPrimary : colorScheme.primary,
+            size: iconSize,
+          ),
+          style: IconButton.styleFrom(
+            minimumSize: Size(dimension, dimension),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallPill extends StatelessWidget {
+  const _SmallPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSoftIvory.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: 3,
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.primary,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskTagPill extends StatelessWidget {
+  const _TaskTagPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSoftIvory.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.26),
+        ),
+      ),
+      child: Padding(
+        padding: _taskTagPadding,
+        child: Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: colorScheme.primary.withValues(alpha: 0.82),
+            fontSize: 10.5,
+            fontWeight: FontWeight.w400,
+            height: 1.12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ListDot extends StatelessWidget {
+  const _ListDot({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+      child: const SizedBox.square(dimension: 16),
+    );
+  }
+}
+
+class _ListCountBadge extends StatelessWidget {
+  const _ListCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _labSoftIvory.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: SizedBox(
+        width: 44,
+        height: 36,
+        child: Center(
+          child: Text(
+            '$count',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewListRow extends StatelessWidget {
+  const _NewListRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: _labSoftIvory.withValues(alpha: 0.84),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: SizedBox.square(
+              dimension: 48,
+              child: Icon(Icons.add_rounded, color: colorScheme.primary),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              'New list',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: colorScheme.onSurface.withValues(alpha: 0.94),
+                fontWeight: FontWeight.w400,
+                height: 1.1,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -886,3 +1618,4 @@ const _priorityGreen = Color(0xFF2F6F4E);
 const _prioritySage = Color(0xFFA9BFAE);
 const _priorityAmber = Color(0xFFF0B83F);
 const _priorityCoral = Color(0xFFE8755A);
+const _priorityBlue = Color(0xFF3D7FDB);

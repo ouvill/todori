@@ -161,34 +161,34 @@ void main() {
     await _screenshot(tester, 'confirm_dialog');
   });
 
-  testWidgets('design_lab_today_calm: spacious Today exploration', (
+  testWidgets('design_lab_task_list: focus timer task list exploration', (
     tester,
   ) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.calmToday),
+      const DesignLabMockApp(mock: DesignLabMock.taskList),
     );
-    await _screenshot(tester, 'design_lab_today_calm');
+    await _screenshot(tester, 'design_lab_task_list');
   });
 
-  testWidgets('design_lab_today_dense: compact Today exploration', (
+  testWidgets('design_lab_list_overview: smart and custom lists exploration', (
     tester,
   ) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.denseToday),
+      const DesignLabMockApp(mock: DesignLabMock.listOverview),
     );
-    await _screenshot(tester, 'design_lab_today_dense');
+    await _screenshot(tester, 'design_lab_list_overview');
   });
 
-  testWidgets('design_lab_smart_lists: Today as a smart-list exploration', (
+  testWidgets('design_lab_focus_timer: focus timer screen exploration', (
     tester,
   ) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.smartLists),
+      const DesignLabMockApp(mock: DesignLabMock.focusTimer),
     );
-    await _screenshot(tester, 'design_lab_smart_lists');
+    await _screenshot(tester, 'design_lab_focus_timer');
   });
 }
 
@@ -406,6 +406,10 @@ Future<void> _loadRealFonts() async {
   await _loadMaterialIconsFont();
   await _loadBrandFont(family: 'Inter', weightPaths: _interWeightPaths);
   await _loadBrandFont(family: 'Lora', weightPaths: _loraWeightPaths);
+  await _loadBrandFont(
+    family: 'Newsreader',
+    weightPaths: _newsreaderWeightPaths,
+  );
   await _loadCjkFallbackFont();
 }
 
@@ -421,6 +425,12 @@ const _loraWeightPaths = [
   'assets/fonts/Lora/Lora-Medium.ttf',
   'assets/fonts/Lora/Lora-SemiBold.ttf',
   'assets/fonts/Lora/Lora-Bold.ttf',
+];
+
+const _newsreaderWeightPaths = [
+  'assets/fonts/Newsreader/Newsreader-Regular.ttf',
+  'assets/fonts/Newsreader/Newsreader-Medium.ttf',
+  'assets/fonts/Newsreader/Newsreader-SemiBold.ttf',
 ];
 
 /// Must match the first entry of `_cjkFontFamilyFallback` in
