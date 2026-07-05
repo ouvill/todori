@@ -190,6 +190,50 @@ void main() {
     );
     await _screenshot(tester, 'design_lab_focus_timer');
   });
+
+  testWidgets('design_lab_task_detail: task detail exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskDetail),
+    );
+    await _screenshot(tester, 'design_lab_task_detail');
+  });
+
+  testWidgets('design_lab_task_create_sheet: task create sheet exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskCreateSheet),
+    );
+    await _screenshot(tester, 'design_lab_task_create_sheet');
+  });
+
+  testWidgets('design_lab_search: search exploration', (tester) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(const DesignLabMockApp(mock: DesignLabMock.search));
+    await _screenshot(tester, 'design_lab_search');
+  });
+
+  testWidgets('design_lab_settings: settings exploration', (tester) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.settings),
+    );
+    await _screenshot(tester, 'design_lab_settings');
+  });
+
+  testWidgets('design_lab_timer_setup: timer setup exploration', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.timerSetup),
+    );
+    await _screenshot(tester, 'design_lab_timer_setup');
+  });
 }
 
 /// Handles produced by [_seedRealisticData] so individual screenshot tests

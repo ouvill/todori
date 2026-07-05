@@ -3,7 +3,20 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:todori/src/ui/theme.dart';
 
-enum DesignLabMock { taskList, listOverview, focusTimer }
+part 'design_lab_task_create_sheet_mock.dart';
+part 'design_lab_task_detail_mock.dart';
+part 'design_lab_support_mocks.dart';
+
+enum DesignLabMock {
+  taskList,
+  listOverview,
+  focusTimer,
+  taskDetail,
+  taskCreateSheet,
+  search,
+  settings,
+  timerSetup,
+}
 
 class DesignLabMockApp extends StatelessWidget {
   const DesignLabMockApp({required this.mock, super.key});
@@ -19,6 +32,11 @@ class DesignLabMockApp extends StatelessWidget {
         DesignLabMock.taskList => const _TaskListMock(),
         DesignLabMock.listOverview => const _ListOverviewMock(),
         DesignLabMock.focusTimer => const _FocusTimerMock(),
+        DesignLabMock.taskDetail => const _TaskDetailMock(),
+        DesignLabMock.taskCreateSheet => const _TaskCreateSheetMock(),
+        DesignLabMock.search => const _SearchMock(),
+        DesignLabMock.settings => const _SettingsMock(),
+        DesignLabMock.timerSetup => const _TimerSetupMock(),
       },
     );
   }
@@ -161,10 +179,10 @@ const _taskPriorityDotSize = 7.0;
 const _taskControlStrokeWidth = 0.65;
 const _subtaskLineWidth = _taskCheckSize + _taskInlineGap;
 const _subtaskControlSize = 20.0;
-const _subtaskPlaySize = 28.0;
+const _subtaskPlaySize = 36.0;
 const _subtaskConnectorHeight = _taskBlockGap;
-const _subtaskTitleFontSize = 12.5;
-const _subtaskTitleLineHeight = 1.16;
+const _subtaskTitleFontSize = 15.5;
+const _subtaskTitleLineHeight = 1.18;
 const _subtaskTagHeight = 18.0;
 const _subtaskContentHeight =
     _subtaskTitleFontSize * _subtaskTitleLineHeight +
@@ -511,11 +529,7 @@ class _SubtaskRow extends StatelessWidget {
         SizedBox(
           height: _subtaskContentHeight,
           child: Center(
-            child: _PlayButton(
-              active: false,
-              dimension: _subtaskPlaySize,
-              iconSize: 19,
-            ),
+            child: _PlayButton(active: false, dimension: _subtaskPlaySize),
           ),
         ),
       ],
@@ -601,10 +615,6 @@ class _FocusTimerMock extends StatelessWidget {
             const _FocusTaskCard(),
             const SizedBox(height: AppSpacing.md),
             const _FocusActionRow(),
-            const SizedBox(height: AppSpacing.sm),
-            const _AddTimeButton(),
-            const SizedBox(height: AppSpacing.sm),
-            const _FocusEncouragementCard(),
           ],
         ),
       ),
@@ -790,7 +800,7 @@ class _FocusTaskCard extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
         child: Column(
           children: [
             Text(
@@ -804,86 +814,17 @@ class _FocusTaskCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
-            const _TaskTagPill(label: 'Design'),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: Divider(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.54),
-              ),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
+              children: const [
+                _TaskTagPill(label: 'Design'),
+                _TaskTagPill(label: 'Timer 25m'),
+              ],
             ),
-            Text(
-              'Steady progress, one thing at a time.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
-                fontWeight: FontWeight.w300,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            const _FocusModeTabs(),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _FocusModeTabs extends StatelessWidget {
-  const _FocusModeTabs();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    const labels = ['Timer', 'Pomodoro', 'Stopwatch'];
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: _labSurfaceWarm.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Row(
-        children: [
-          for (var index = 0; index < labels.length; index += 1) ...[
-            Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: index == 0
-                      ? colorScheme.primary.withValues(alpha: 0.08)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  border: index == 0
-                      ? Border.all(color: colorScheme.primary)
-                      : null,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Center(
-                    child: Text(
-                      labels[index],
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: index == 0
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.72,
-                              ),
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (index < labels.length - 1)
-              SizedBox(
-                height: 28,
-                child: VerticalDivider(
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.42),
-                ),
-              ),
-          ],
-        ],
       ),
     );
   }
@@ -932,100 +873,6 @@ class _FocusActionRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AddTimeButton extends StatelessWidget {
-  const _AddTimeButton();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return OutlinedButton.icon(
-      onPressed: () {},
-      icon: const Icon(Icons.add_rounded),
-      label: const Text('Add 5 min'),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: colorScheme.primary,
-        minimumSize: const Size.fromHeight(46),
-        side: BorderSide(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.48),
-        ),
-        textStyle: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w400,
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusEncouragementCard extends StatelessWidget {
-  const _FocusEncouragementCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: _labSurfaceWarm.withValues(alpha: 0.86),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Row(
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: 0.09),
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox.square(
-                dimension: 42,
-                child: Icon(
-                  Icons.eco_rounded,
-                  color: colorScheme.primary.withValues(alpha: 0.76),
-                  size: 22,
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "You've got this.",
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colorScheme.onSurface.withValues(alpha: 0.76),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Take a breath and keep going.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.68,
-                      ),
-                      fontWeight: FontWeight.w300,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1094,30 +941,34 @@ class _ListOverviewMock extends StatelessWidget {
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
+            0,
             AppSpacing.lg,
-            AppSpacing.lg,
-            AppSpacing.lg,
+            0,
             AppSpacing.xl,
           ),
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Lists',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontFamily: 'Inter',
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w500,
-                      height: 1,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Lists',
+                      style: theme.textTheme.displayMedium?.copyWith(
+                        fontFamily: 'Newsreader',
+                        color: colorScheme.primary,
+                        fontSize: 48,
+                        fontWeight: FontWeight.w400,
+                        height: 0.96,
+                      ),
                     ),
                   ),
-                ),
-                const _ListHeaderIconButton(icon: Icons.search_rounded),
-                const SizedBox(width: AppSpacing.sm),
-                const _ListHeaderIconButton(icon: Icons.more_horiz_rounded),
-              ],
+                  const _ListHeaderIconButton(icon: Icons.search_rounded),
+                  const SizedBox(width: AppSpacing.sm),
+                  const _ListHeaderIconButton(icon: Icons.more_horiz_rounded),
+                ],
+              ),
             ),
             const SizedBox(height: AppSpacing.lg),
             _ListOverviewPanel(
@@ -1147,7 +998,7 @@ class _ListOverviewPanel extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: _labSurfaceWarm.withValues(alpha: 0.86),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(_taskPanelRadius),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.78),
         ),
@@ -1163,7 +1014,7 @@ class _ListOverviewPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _ListSectionLabel(
-              label: 'SMART LISTS',
+              label: 'Smart Lists',
               trailing: Text(
                 '28',
                 style: theme.textTheme.labelLarge?.copyWith(
@@ -1179,7 +1030,7 @@ class _ListOverviewPanel extends StatelessWidget {
               color: colorScheme.outlineVariant.withValues(alpha: 0.72),
             ),
             const _ListSectionLabel(
-              label: 'CUSTOM LISTS',
+              label: 'Custom Lists',
               trailing: Icon(Icons.keyboard_arrow_down_rounded, size: 28),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -1217,10 +1068,12 @@ class _ListSectionLabel extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w600,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontFamily: 'Newsreader',
+                color: colorScheme.primary,
+                fontSize: 22,
+                fontWeight: FontWeight.w400,
+                height: 1.05,
               ),
             ),
           ),
@@ -1417,15 +1270,10 @@ class _PriorityMark extends StatelessWidget {
 }
 
 class _PlayButton extends StatelessWidget {
-  const _PlayButton({
-    required this.active,
-    this.dimension = 36,
-    this.iconSize = 23,
-  });
+  const _PlayButton({required this.active, this.dimension = 36});
 
   final bool active;
   final double dimension;
-  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1449,7 +1297,7 @@ class _PlayButton extends StatelessWidget {
           icon: Icon(
             Icons.play_arrow_rounded,
             color: active ? colorScheme.onPrimary : colorScheme.primary,
-            size: iconSize,
+            size: 23,
           ),
           style: IconButton.styleFrom(
             minimumSize: Size(dimension, dimension),
