@@ -91,31 +91,12 @@ class TaskDetailScreen extends ConsumerWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      PriorityDot(
-                        key: ValueKey('task-priority-dot-${task.id}'),
-                        priority: task.priority,
-                        semanticLabel: l10n.taskPriority(
-                          taskPriorityLabel(l10n, task.priority),
-                        ),
-                        isMuted: isTaskClosed(task),
-                      ),
-                      Expanded(
-                        child: _InlineTitleEditor(
-                          key: ValueKey('task-title-editor-${task.id}'),
-                          title: task.title,
-                          semanticLabel: l10n.editTaskTitleSemantics,
-                          onSave: (title) => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            title: title,
-                          ),
-                        ),
-                      ),
-                    ],
+                  _InlineTitleEditor(
+                    key: ValueKey('task-title-editor-${task.id}'),
+                    title: task.title,
+                    semanticLabel: l10n.editTaskTitleSemantics,
+                    onSave: (title) =>
+                        _updateTaskFields(context, ref, task, title: title),
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   _InlineNoteEditor(
@@ -805,11 +786,21 @@ class _EditableTaskMetadata extends StatelessWidget {
     return Wrap(
       spacing: AppSpacing.xs,
       runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _DetailPill(
           icon: taskStatusIcon(task.status),
           label: taskStatusLabel(l10n, task.status),
         ),
+        if (task.priority > 0)
+          PriorityDot(
+            key: ValueKey('task-priority-dot-${task.id}'),
+            priority: task.priority,
+            semanticLabel: l10n.taskPriority(
+              taskPriorityLabel(l10n, task.priority),
+            ),
+            isMuted: isTaskClosed(task),
+          ),
         _DetailPill(
           key: ValueKey('task-due-chip-${task.id}'),
           icon: Icons.event_outlined,
@@ -822,11 +813,19 @@ class _EditableTaskMetadata extends StatelessWidget {
           onTap: onSelectDueDate,
           trailing: onClearDueDate == null
               ? null
-              : IconButton(
-                  key: ValueKey('task-clear-due-${task.id}'),
-                  tooltip: l10n.clearDueDateButton,
-                  icon: const Icon(Icons.clear, size: 18),
-                  onPressed: onClearDueDate,
+              : SizedBox.square(
+                  dimension: 32,
+                  child: IconButton(
+                    key: ValueKey('task-clear-due-${task.id}'),
+                    tooltip: l10n.clearDueDateButton,
+                    icon: const Icon(Icons.clear, size: 16),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    onPressed: onClearDueDate,
+                  ),
                 ),
         ),
         PopupMenuButton<int>(
@@ -884,7 +883,7 @@ class _DetailPill extends StatelessWidget {
     final tint = emphasisColor ?? colorScheme.primary;
     final content = ConstrainedBox(
       constraints: BoxConstraints(
-        minHeight: trailing == null ? 0 : 48,
+        minHeight: 32,
         maxWidth: MediaQuery.sizeOf(context).width - 64,
       ),
       child: DecoratedBox(
@@ -900,9 +899,9 @@ class _DetailPill extends StatelessWidget {
         child: Padding(
           padding: EdgeInsetsDirectional.only(
             start: AppSpacing.sm,
-            top: trailing == null ? AppSpacing.xs : 0,
+            top: AppSpacing.xs,
             end: trailing == null ? AppSpacing.sm : 0,
-            bottom: trailing == null ? AppSpacing.xs : 0,
+            bottom: AppSpacing.xs,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

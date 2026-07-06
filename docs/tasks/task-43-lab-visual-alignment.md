@@ -1,7 +1,7 @@
 # task-43: Design Lab準拠のタスク一覧ビジュアル整合
 
-> ステータス: 未着手
-> 作業日: 未着手
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-07
 
 ## 1. 背景とコンテキスト
 
@@ -174,3 +174,118 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/DESIGN_PLAYBOOK.md`
+  - `docs/design/ui-spec.md` セクション2・3・4・5
+  - `docs/tasks/task-42-detail-inline-edit.md` 完了報告
+  - `app/test/visual_qa/design_lab_mocks.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/ui/theme.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/widget_test.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- 作業前退避:
+  - `mkdir -p app/build/visual_qa_before && find app/build/visual_qa -maxdepth 1 -type f -name '*.png' -exec cp -p {} app/build/visual_qa_before/ \; && find app/build/visual_qa_before -maxdepth 1 -type f -name '*.png' -print | wc -l`: exit 0
+  - 退避ファイル数: 31
+  - 退避先: `app/build/visual_qa_before/`
+- Tasks単一パネル化:
+  - `app/lib/src/screens/tasks_screen.dart` のhome表示で、active task row群を `_TasksPanel` 内へ移した。
+  - `_TasksPanel` は `Tasks` 見出し、pending pill、active row群を1つのsurface + 1px border内に置く。
+  - パネル内の行分離は `Divider` による薄い区切りを使い、home表示の `AppTaskRow` は `framed: false` で行ごとの外側borderを出さない。
+- priority dot:
+  - `app/lib/src/ui/task_components.dart` の `TaskMetadata` にpriority dot用slotを追加した。
+  - `AppTaskRow` のタイトル前 `PriorityDot` を削除し、metadata行の先頭へ移した。
+  - priority noneの場合は `PriorityDot` を生成しないため、metadata行の先頭は日付pillになる。
+  - `PriorityDot` のtooltip/semanticsは `l10n.taskPriority(...)` を継続して使う。
+  - `app/lib/src/screens/task_detail_screen.dart` の詳細タイトル脇 `PriorityDot` を削除し、詳細metadata行へ移した。
+- 通常行chevron:
+  - `app/lib/src/screens/tasks_screen.dart` の通常 `AppTaskRow.trailing` へ渡していた `Icons.chevron_right` を削除した。
+  - `app/lib/src/ui/task_components.dart` の `trailing ?? const Icon(Icons.chevron_right)` を削除した。
+  - 行の `InkWell.onTap` による詳細遷移は維持した。
+  - 手動並び替えモードの `_TaskReorderControls` は上下ボタンを維持し、末尾のchevronだけ削除した。
+- Add task pill:
+  - `app/lib/src/screens/tasks_screen.dart` のhome表示では `FloatingActionButton.extended` を下部 `bottomNavigationBar` 内の中央に配置した。
+  - tooltipは `l10n.newTaskTooltip`、labelは `l10n.addTaskButton` を継続して使う。
+- Closedセクション見出し:
+  - `app/lib/src/screens/tasks_screen.dart` の `_CompletedSectionHeader` を小さい1行表示へ変更した。
+  - 表示要素はchevron 1つ、`completedTasksTitle`、`completedTasksCount(count)`。
+  - `completed-section-toggle` key、tooltip、semantics button、開閉処理は維持した。
+- Archivedヘッダー:
+  - `app/lib/src/screens/lists_screen.dart` の `_ArchivedListsHeader` から左右2つのchevron表示を削除し、右端のchevron 1つにした。
+  - tooltip、semantics button、48px領域の右端アイコン、行全体のtap処理を維持した。
+- チップ高さ:
+  - `app/lib/src/screens/task_detail_screen.dart` の `_DetailPill` を `minHeight: 32` に揃えた。
+  - 期日クリアIconButtonを `SizedBox.square(dimension: 32)` 内に収め、他のdetail pillより背が高くならない構造にした。
+- `docs/design/ui-spec.md`:
+  - 変更していない。
+  - セクション3のタスク行、タスク一覧構造、Today/home、Task detail規範は本タスク実装後の構造と矛盾しないことを確認した。
+  - セクション5の既知の逸脱は「なし」のままであることを確認した。
+- l10n:
+  - ARBキーの追加・更新なし。
+  - `flutter gen-l10n` は実行していない。
+- widget test:
+  - `app/test/widget_test.dart` の `tapping a list navigates to its task list` に通常行chevron非表示の確認を追加した。
+  - `polished list, sort, detail, and dialog surfaces stay stable` のpriority dot確認を、タイトル横ではなくタイトル下metadata行にあることを確認する条件へ更新した。
+  - `archiving a list moves it to the archived section` にArchivedヘッダーのchevronが閉時/開時それぞれ1つであることの確認を追加した。
+  - `flutter test test/widget_test.dart`: exit 0（39 tests passed）
+- visual QA before/after:
+  - 参照モック: `app/build/visual_qa/design_lab_task_list.png`
+  - before: `app/build/visual_qa_before/home_tasks.png`
+  - after: `app/build/visual_qa/home_tasks.png`
+  - before: `app/build/visual_qa_before/home_tasks_ja.png`
+  - after: `app/build/visual_qa/home_tasks_ja.png`
+  - before: `app/build/visual_qa_before/wont_do_row.png`
+  - after: `app/build/visual_qa/wont_do_row.png`
+  - before: `app/build/visual_qa_before/lists.png`
+  - after: `app/build/visual_qa/lists.png`
+  - before: `app/build/visual_qa_before/lists_archived.png`
+  - after: `app/build/visual_qa/lists_archived.png`
+  - before: `app/build/visual_qa_before/task_detail.png`
+  - after: `app/build/visual_qa/task_detail.png`
+- visual QA目視比較結果:
+  - `home_tasks.png`: activeタスク行群が単一の `Tasks` パネル内にあり、行ごとの独立カードは表示されていない。priority dotはmetadata行の先頭にあり、通常行右端chevronは表示されていない。下中央に `Add task` pillが表示されている。
+  - `home_tasks_ja.png`: 日本語表示で単一 `Tasks` パネル、metadata行先頭dot、下中央pillが表示されている。主要テキスト同士の重なりは確認されなかった。
+  - `wont_do_row.png`: Closed見出しは1行表示で、chevronは1つ。Closed行の先頭コントロールとwont_do metadata pillが表示されている。
+  - `lists.png`: `Archived (1)` ヘッダーのchevronは1つ。
+  - `lists_archived.png`: 展開状態の `Archived (1)` ヘッダーのchevronは1つ。
+  - `task_detail.png`: 詳細タイトル脇にpriority dotはなく、priority dotはmetadata行に表示されている。期日クリアアイコンを含むチップ群の高さは同じ行高に収まっている。
+  - `design_lab_task_list.png` との比較: 本番afterは単一Tasksパネル、metadata行先頭dot、通常行chevronなし、下中央Add task pill、Closed見出し1行の構造を持つことを確認した。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0（56 passed、1 skipped）
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0（29 tests passed）
+  - `git diff --check`: exit 0
+- 検証時の環境対応:
+  - 初回 `flutter analyze` は `app/macos/Flutter/ephemeral/Packages/.packages` がディレクトリとして存在しFlutter toolが削除できずexit 1になった。
+  - 当該生成物を `/private/tmp/todori-task43-packages-dir-<timestamp>` へ退避し、`flutter analyze` を再実行してexit 0を確認した。
+- 変更ファイル一覧:
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/test/widget_test.dart`
+  - `docs/tasks/README.md`
+  - `docs/tasks/task-43-lab-visual-alignment.md`
+- Rust/domain/storage/FRB API:
+  - 変更していない。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は実行していない。
+- 未解決事項:
+  - なし。

@@ -35,20 +35,39 @@ class TaskMetadataItem {
 }
 
 class TaskMetadata extends StatelessWidget {
-  const TaskMetadata({super.key, required this.items});
+  const TaskMetadata({
+    super.key,
+    required this.items,
+    this.priority = 0,
+    this.priorityDotKey,
+    this.prioritySemanticLabel,
+    this.isPriorityMuted = false,
+  });
 
   final List<TaskMetadataItem> items;
+  final int priority;
+  final Key? priorityDotKey;
+  final String? prioritySemanticLabel;
+  final bool isPriorityMuted;
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
+    if (items.isEmpty && priority <= 0) {
       return const SizedBox.shrink();
     }
 
     return Wrap(
       spacing: AppSpacing.xs,
       runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        if (priority > 0)
+          PriorityDot(
+            key: priorityDotKey,
+            priority: priority,
+            semanticLabel: prioritySemanticLabel,
+            isMuted: isPriorityMuted,
+          ),
         for (final item in items)
           _MetadataPill(
             icon: item.icon,
@@ -265,6 +284,7 @@ class AppTaskRow extends StatelessWidget {
     this.prioritySemanticLabel,
     this.hierarchyGuideKey,
     this.toggleDoneTooltip,
+    this.framed = true,
     this.onToggleDone,
     this.trailing,
   });
@@ -279,6 +299,7 @@ class AppTaskRow extends StatelessWidget {
   final Key? hierarchyGuideKey;
   final String? toggleDoneTooltip;
   final List<TaskMetadataItem> metadata;
+  final bool framed;
   final VoidCallback? onToggleDone;
   final Widget? trailing;
   final VoidCallback onTap;
@@ -292,16 +313,20 @@ class AppTaskRow extends StatelessWidget {
         AppSpacing.md + ((effectiveDepth - 1) * AppSpacing.lg) + AppSpacing.sm;
 
     return Material(
-      color: isDone
+      color: !framed
+          ? Colors.transparent
+          : isDone
           ? colorScheme.surface.withValues(alpha: 0.72)
           : colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isDone
-              ? colorScheme.outlineVariant.withValues(alpha: 0.7)
-              : colorScheme.outlineVariant,
-        ),
+        side: framed
+            ? BorderSide(
+                color: isDone
+                    ? colorScheme.outlineVariant.withValues(alpha: 0.7)
+                    : colorScheme.outlineVariant,
+              )
+            : BorderSide.none,
       ),
       child: Stack(
         children: [
@@ -331,10 +356,9 @@ class AppTaskRow extends StatelessWidget {
               ),
             ),
           ],
-          // Density-compressed row (task-30): a metadata-less task is just
-          // the leading control, priority dot, and title on one line, with
-          // the trailing chevron/reorder control vertically centered at the
-          // row's end rather than pushed to its own stacked row.
+          // Density-compressed row (task-30/task-43): a metadata-less task is
+          // just the leading control and title; priority lives in the
+          // metadata row so wrapped titles keep a stable left edge.
           InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: onTap,
@@ -363,12 +387,6 @@ class AppTaskRow extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            PriorityDot(
-                              key: priorityDotKey,
-                              priority: priority,
-                              semanticLabel: prioritySemanticLabel,
-                              isMuted: isDone,
-                            ),
                             Expanded(
                               child: Text(
                                 title,
@@ -387,18 +405,30 @@ class AppTaskRow extends StatelessWidget {
                         ),
                         if (metadata.isNotEmpty) ...[
                           const SizedBox(height: AppSpacing.xs),
-                          TaskMetadata(items: metadata),
+                          TaskMetadata(
+                            items: metadata,
+                            priority: priority,
+                            priorityDotKey: priorityDotKey,
+                            prioritySemanticLabel: prioritySemanticLabel,
+                            isPriorityMuted: isDone,
+                          ),
+                        ] else if (priority > 0) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          TaskMetadata(
+                            items: const [],
+                            priority: priority,
+                            priorityDotKey: priorityDotKey,
+                            prioritySemanticLabel: prioritySemanticLabel,
+                            isPriorityMuted: isDone,
+                          ),
                         ],
                       ],
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
-                  SizedBox(
-                    height: 48,
-                    child: Center(
-                      child: trailing ?? const Icon(Icons.chevron_right),
-                    ),
-                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: AppSpacing.xs),
+                    SizedBox(height: 48, child: Center(child: trailing)),
+                  ],
                 ],
               ),
             ),
@@ -457,8 +487,8 @@ class _TaskRowLeading extends StatelessWidget {
   }
 }
 
-/// A small priority indicator dot shown next to a task title (row context)
-/// or a task detail heading. Uses the design-direction accent tokens
+/// A small priority indicator dot shown in a task metadata row. Uses the
+/// design-direction accent tokens
 /// (coral/amber/softSage) and always carries a [semanticLabel] + tooltip so
 /// priority meaning does not rely on color alone. Renders nothing for
 /// priority "none" (0), per the design direction's dot-only convention.
@@ -484,7 +514,6 @@ class PriorityDot extends StatelessWidget {
     final dot = Container(
       width: 11,
       height: 11,
-      margin: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
       decoration: BoxDecoration(
         color: isMuted ? color.withValues(alpha: 0.45) : color,
         shape: BoxShape.circle,

@@ -89,7 +89,6 @@ class TasksScreen extends ConsumerWidget {
             sortMode: sortMode,
             sortMenu: sortMenu,
             listActionsMenu: listActionsMenu,
-            onCreateTask: () => _createTask(context, ref),
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
@@ -105,17 +104,37 @@ class TasksScreen extends ConsumerWidget {
         },
       ),
       floatingActionButton: isHome
-          ? FloatingActionButton.extended(
-              onPressed: () => _createTask(context, ref),
-              tooltip: l10n.newTaskTooltip,
-              icon: const Icon(Icons.add),
-              label: Text(l10n.addTaskButton),
-            )
+          ? null
           : FloatingActionButton(
               onPressed: () => _createTask(context, ref),
               tooltip: l10n.newTaskTooltip,
               child: const Icon(Icons.add),
             ),
+      bottomNavigationBar: isHome
+          ? SafeArea(
+              top: false,
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                    AppSpacing.md,
+                  ),
+                  child: Align(
+                    heightFactor: 1,
+                    child: FloatingActionButton.extended(
+                      onPressed: () => _createTask(context, ref),
+                      tooltip: l10n.newTaskTooltip,
+                      icon: const Icon(Icons.add),
+                      label: Text(l10n.addTaskButton),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 
@@ -236,7 +255,6 @@ class _TasksBody extends StatefulWidget {
     required this.sortMode,
     required this.sortMenu,
     required this.listActionsMenu,
-    required this.onCreateTask,
     required this.onCompleteTask,
     required this.onReopenTask,
     required this.onMoveTask,
@@ -249,7 +267,6 @@ class _TasksBody extends StatefulWidget {
   final TaskSortMode sortMode;
   final Widget sortMenu;
   final Widget? listActionsMenu;
-  final VoidCallback onCreateTask;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function({
@@ -313,25 +330,31 @@ class _TasksBodyState extends State<_TasksBody> {
           listActionsMenu: widget.listActionsMenu,
         ),
       );
-      addGap(AppSpacing.lg);
-      children.add(
-        _TaskSectionHeader(
-          pendingCount: _pendingCount(widget.tasks),
-          onCreateTask: widget.onCreateTask,
-        ),
-      );
+      addGap(AppSpacing.xl);
     }
 
-    for (final node in activeNodes) {
-      addGap(AppSpacing.sm);
-      children.add(
+    final activeRows = [
+      for (final node in activeNodes)
         _buildTaskRow(
           context,
           node,
           activeReorderTasks,
           isCompletedSection: false,
+          framed: !widget.isHome,
+        ),
+    ];
+    if (widget.isHome) {
+      children.add(
+        _TasksPanel(
+          pendingCount: _pendingCount(widget.tasks),
+          rows: activeRows,
         ),
       );
+    } else {
+      for (final row in activeRows) {
+        addGap(AppSpacing.sm);
+        children.add(row);
+      }
     }
 
     if (completedNodes.isNotEmpty) {
@@ -377,6 +400,7 @@ class _TasksBodyState extends State<_TasksBody> {
     TaskTreeNode node,
     List<TaskDto> reorderScope, {
     required bool isCompletedSection,
+    bool framed = true,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final task = node.task;
@@ -414,6 +438,7 @@ class _TasksBodyState extends State<_TasksBody> {
         stats: stats,
         includeSubtaskProgress: false,
       ),
+      framed: framed,
       trailing: showManualControls
           ? _TaskReorderControls(
               task: task,
@@ -427,10 +452,7 @@ class _TasksBodyState extends State<_TasksBody> {
                 );
               },
             )
-          : Icon(
-              Icons.chevron_right,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+          : null,
       onToggleDone: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : isCompletedSection
@@ -532,41 +554,55 @@ class _HomeTasksHeader extends StatelessWidget {
   }
 }
 
-class _TaskSectionHeader extends StatelessWidget {
-  const _TaskSectionHeader({
-    required this.pendingCount,
-    required this.onCreateTask,
-  });
+class _TasksPanel extends StatelessWidget {
+  const _TasksPanel({required this.pendingCount, required this.rows});
 
   final int pendingCount;
-  final VoidCallback onCreateTask;
+  final List<Widget> rows;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    // Plain heading row (task-30): no card-in-card. The single pending pill
-    // here is the only place pending count is shown (the hero header above
-    // no longer repeats it).
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            l10n.homeTasksSectionTitle,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: colorScheme.primary,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.homeTasksSectionTitle,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ),
+                _PendingBadge(count: pendingCount),
+              ],
             ),
-          ),
+            if (rows.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              for (var index = 0; index < rows.length; index += 1) ...[
+                rows[index],
+                if (index < rows.length - 1)
+                  Divider(
+                    height: AppSpacing.md,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+                  ),
+              ],
+            ],
+          ],
         ),
-        _PendingBadge(count: pendingCount),
-        const SizedBox(width: AppSpacing.sm),
-        IconButton.filled(
-          icon: const Icon(Icons.add),
-          tooltip: l10n.newTaskTooltip,
-          onPressed: onCreateTask,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -634,46 +670,30 @@ class _CompletedSectionHeader extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             onTap: onTap,
             child: Padding(
-              padding: const EdgeInsetsDirectional.fromSTEB(
-                AppSpacing.sm,
-                AppSpacing.xs,
-                AppSpacing.xs,
-                AppSpacing.xs,
-              ),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     isExpanded
                         ? Icons.keyboard_arrow_up
                         : Icons.keyboard_arrow_down,
                     color: colorScheme.onSurfaceVariant,
+                    size: 18,
                   ),
                   const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Text(
-                      l10n.completedTasksTitle,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                  Text(
+                    l10n.completedTasksTitle,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xs,
-                      ),
-                      child: Text(
-                        l10n.completedTasksCount(count),
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    l10n.completedTasksCount(count),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -966,7 +986,6 @@ class _TaskReorderControls extends StatelessWidget {
                 }
               : null,
         ),
-        Icon(Icons.chevron_right, color: actionColor),
       ],
     );
   }

@@ -96,6 +96,7 @@ void main() {
     expect(find.text('Buy milk'), findsOneWidget);
     expect(find.byTooltip('Open lists'), findsOneWidget);
     expect(find.text('Add task'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
 
     await _openListFromHome(tester, 'Inbox');
 
@@ -241,18 +242,15 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
-    // Priority is conveyed by the dot + detail chip tooltip/semantics, not by
-    // reopening the removed edit dialog.
+    // Priority is conveyed in the metadata row, not beside the title or via
+    // the removed edit dialog.
     expect(find.byTooltip('Priority: High'), findsOneWidget);
     final titleFinder = find.textContaining('README screenshot');
-    final titleCenterY =
-        (tester.getTopLeft(titleFinder).dy +
-            tester.getBottomLeft(titleFinder).dy) /
-        2;
+    final titleBottomY = tester.getBottomLeft(titleFinder).dy;
     final dotCenterY = tester
         .getCenter(find.byKey(ValueKey('task-priority-dot-${task.id}')))
         .dy;
-    expect(dotCenterY, closeTo(titleCenterY, 8));
+    expect(dotCenterY, greaterThan(titleBottomY));
 
     expect(find.byIcon(Icons.edit_outlined), findsNothing);
     await tester.tap(titleFinder);
@@ -386,11 +384,13 @@ void main() {
 
     expect(find.text('Work'), findsNothing);
     expect(find.text('Archived (1)'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
     await tester.tap(find.byTooltip('Show archived lists'));
     await tester.pumpAndSettle();
 
     expect(find.text('Work'), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
     expect(find.text('Unarchive'), findsNothing);
   });
 
