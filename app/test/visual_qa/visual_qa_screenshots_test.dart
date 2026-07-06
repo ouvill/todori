@@ -33,6 +33,13 @@ const _outputDir = 'build/visual_qa';
 const _mobileLogicalSize = Size(390, 844);
 const _mobileDevicePixelRatio = 3.0;
 
+/// Downloaded (not committed) by `tool/fetch_lab_fonts.sh`; used only by the
+/// `design_lab_typo_d_ja_mincho_*` screenshots (D案). See
+/// `docs/design/ui-spec.md` セクション6.
+const _zenOldMinchoFontPath = 'build/lab_fonts/ZenOldMincho-SemiBold.ttf';
+
+bool get _zenOldMinchoFontAvailable => File(_zenOldMinchoFontPath).existsSync();
+
 void main() {
   if (!_visualQaEnabled) {
     test(
@@ -235,7 +242,51 @@ void main() {
     );
     await _screenshot(tester, 'design_lab_timer_setup');
   });
+
+  // Typography comparison: 4 variants x 2 screens (Today task list, Focus
+  // timer). See `docs/design/ui-spec.md` セクション6 note and
+  // `design_lab_mocks.dart`'s `DesignLabTypoVariant`/`DesignLabTypography`.
+  for (final variant in DesignLabTypoVariant.values) {
+    final variantId = _typoVariantIds[variant]!;
+    if (variant == DesignLabTypoVariant.jaMinchoD &&
+        !_zenOldMinchoFontAvailable) {
+      test(
+        'design_lab_typo_$variantId: skipped, Zen Old Mincho font not '
+        'available',
+        () {},
+        skip:
+            'Run `sh tool/fetch_lab_fonts.sh` (or `sh tool/visual_qa.sh`, '
+            'which calls it first) with network access to download Zen Old '
+            'Mincho to $_zenOldMinchoFontPath; D案 screenshots are skipped '
+            'without it.',
+      );
+      continue;
+    }
+    for (final screen in DesignLabTypoScreen.values) {
+      final screenId = _typoScreenIds[screen]!;
+      final name = 'design_lab_typo_${variantId}_$screenId';
+      testWidgets('$name: typography comparison', (tester) async {
+        _setMobileViewport(tester);
+        await tester.pumpWidget(
+          DesignLabTypoMockApp(variant: variant, screen: screen),
+        );
+        await _screenshot(tester, name);
+      });
+    }
+  }
 }
+
+const _typoVariantIds = {
+  DesignLabTypoVariant.newsreaderA: 'a_newsreader',
+  DesignLabTypoVariant.loraB: 'b_lora',
+  DesignLabTypoVariant.sansOnlyC: 'c_sans_only',
+  DesignLabTypoVariant.jaMinchoD: 'd_ja_mincho',
+};
+
+const _typoScreenIds = {
+  DesignLabTypoScreen.today: 'today',
+  DesignLabTypoScreen.focus: 'focus',
+};
 
 /// Handles produced by [_seedRealisticData] so individual screenshot tests
 /// can navigate to a specific seeded task without hardcoding titles twice.
@@ -458,7 +509,22 @@ Future<void> _loadRealFonts() async {
     family: 'Newsreader',
     weightPaths: _newsreaderWeightPaths,
   );
+  await _loadZenOldMinchoFont();
   await _loadCjkFallbackFont();
+}
+
+/// Loads the Design Lab-only Zen Old Mincho font (D案 Today heading) if
+/// `tool/fetch_lab_fonts.sh` has downloaded it. Never committed to the repo
+/// (see `docs/design/ui-spec.md` セクション6); the
+/// `design_lab_typo_d_ja_mincho_*` tests skip themselves via
+/// [_zenOldMinchoFontAvailable] when this file is missing.
+Future<void> _loadZenOldMinchoFont() async {
+  if (!_zenOldMinchoFontAvailable) {
+    return;
+  }
+  final loader = FontLoader('ZenOldMincho');
+  await _addFontFile(loader, _zenOldMinchoFontPath);
+  await loader.load();
 }
 
 const _interWeightPaths = [

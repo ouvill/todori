@@ -43,6 +43,245 @@ class DesignLabMockApp extends StatelessWidget {
   }
 }
 
+/// Typography variants explored by the `design_lab_typo_*` screenshots (see
+/// `docs/design/ui-spec.md` セクション6 note on Newsreader / タイポグラフィ比較).
+///
+/// Each variant only changes font family / weight / letter-spacing (and, for
+/// `jaMincho`, the heading copy); layout, spacing, colors, and every other
+/// mock stay identical across variants so the four screenshots are a fair
+/// side-by-side comparison of typography alone.
+enum DesignLabTypoVariant { newsreaderA, loraB, sansOnlyC, jaMinchoD }
+
+/// The two screens reused for the typography comparison: the Today task
+/// list (`_TaskListMock`) and the running Focus timer (`_FocusTimerMock`).
+enum DesignLabTypoScreen { today, focus }
+
+/// Renders one (variant, screen) pair of the typography comparison using the
+/// existing Today task list / Focus timer mocks with [_LabTypography]
+/// injected.
+class DesignLabTypoMockApp extends StatelessWidget {
+  const DesignLabTypoMockApp({
+    required this.variant,
+    required this.screen,
+    super.key,
+  });
+
+  final DesignLabTypoVariant variant;
+  final DesignLabTypoScreen screen;
+
+  @override
+  Widget build(BuildContext context) {
+    final typography = _typographyFor(variant);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: buildTodoriTheme(Brightness.light),
+      home: switch (screen) {
+        DesignLabTypoScreen.today => _TaskListMock(typography: typography),
+        DesignLabTypoScreen.focus => _FocusTimerMock(typography: typography),
+      },
+    );
+  }
+}
+
+/// A single role's font-family/weight/letter-spacing override, applied on
+/// top of a base [TextTheme] style via [apply]. Every field is explicit
+/// (rather than nullable-and-inherited) because `buildTodoriTheme` already
+/// bakes Lora into several base `TextTheme` roles (`displayMedium`,
+/// `displayLarge`, `headlineSmall`); an explicit family here is required to
+/// actually get Inter for the sans-only variants.
+class _LabTypoOverride {
+  const _LabTypoOverride({
+    required this.fontFamily,
+    required this.fontWeight,
+    this.letterSpacing,
+  });
+
+  final String fontFamily;
+  final FontWeight fontWeight;
+  final double? letterSpacing;
+
+  TextStyle apply(TextStyle base) => base.copyWith(
+    fontFamily: fontFamily,
+    fontWeight: fontWeight,
+    letterSpacing: letterSpacing,
+  );
+}
+
+/// Typography configuration threaded through `_TaskListMock` /
+/// `_FocusTimerMock` so the same layout can be screenshotted under several
+/// font choices. [_typoLegacyDefault] reproduces the mocks' original,
+/// hardcoded-Newsreader-everywhere styling so existing `design_lab_task_list`
+/// / `design_lab_focus_timer` screenshots stay pixel-identical.
+class _LabTypography {
+  const _LabTypography({
+    required this.todayHeading,
+    required this.tasksHeadline,
+    required this.focusTitle,
+    required this.timerDigit,
+    required this.focusCardTitle,
+    this.todayHeadingText = 'Today',
+    this.focusTitleText = 'Focus',
+    this.focusCardTitleText = 'Review design direction',
+    this.taskTitles,
+  });
+
+  /// The "Today" home header (`displayMedium`, 48px) -- always serif when a
+  /// variant has any serif at all.
+  final _LabTypoOverride todayHeading;
+
+  /// The "Tasks" section headline inside `_TasksPanel` (`headlineSmall`,
+  /// 22px).
+  final _LabTypoOverride tasksHeadline;
+
+  /// The Focus screen's title-bar text (`titleLarge`).
+  final _LabTypoOverride focusTitle;
+
+  /// The running timer's large digit readout (`displayLarge`, 64px) --
+  /// always serif when a variant has any serif at all.
+  final _LabTypoOverride timerDigit;
+
+  /// The selected task's title on the Focus screen's task card
+  /// (`headlineSmall`) -- a "card内タスクタイトル", always Inter per
+  /// `docs/design/ui-spec.md` セクション2 タイポグラフィ表.
+  final _LabTypoOverride focusCardTitle;
+
+  final String todayHeadingText;
+  final String focusTitleText;
+  final String focusCardTitleText;
+
+  /// Overrides for `_tasks`' titles, in the same order, used by the
+  /// `jaMincho` variant to show Japanese task titles. `null` keeps the
+  /// original English/Japanese-mixed titles.
+  final List<String>? taskTitles;
+}
+
+const _typoLegacyDefault = _LabTypography(
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  tasksHeadline: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  timerDigit: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  focusCardTitle: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+);
+
+/// A案: serif (Newsreader) restricted to the Today heading and timer digit
+/// only (both ≥28px, at most 1-2 spots per screen); every other heading
+/// (section headline, Focus title, card task title) is Inter.
+const _typoNewsreaderA = _LabTypography(
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  tasksHeadline: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
+  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  timerDigit: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  focusCardTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w600,
+  ),
+);
+
+/// B案: current production typography (`buildTodoriTheme`), where Lora
+/// reaches the AppBar/section headings too. Comparison baseline.
+const _typoLoraB = _LabTypography(
+  todayHeading: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w600),
+  tasksHeadline: _LabTypoOverride(
+    fontFamily: 'Lora',
+    fontWeight: FontWeight.w700,
+  ),
+  focusTitle: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w700),
+  timerDigit: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w600),
+  focusCardTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w600,
+  ),
+);
+
+/// C案: no serif anywhere. Hierarchy comes from weight/letter-spacing only.
+const _typoSansOnlyC = _LabTypography(
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.5,
+  ),
+  tasksHeadline: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
+  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  timerDigit: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+    letterSpacing: -1,
+  ),
+  focusCardTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w600,
+  ),
+);
+
+/// D案: same serif range as A案 (Today heading + timer digit only), but the
+/// Today heading's Japanese copy renders in Zen Old Mincho (see
+/// `tool/fetch_lab_fonts.sh`) and the other headings/task titles switch to
+/// Japanese copy rendered in Inter (+ CJK fallback).
+const _typoJaMinchoD = _LabTypography(
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'ZenOldMincho',
+    fontWeight: FontWeight.w600,
+  ),
+  tasksHeadline: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w400,
+  ),
+  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w400),
+  timerDigit: _LabTypoOverride(
+    fontFamily: 'Newsreader',
+    fontWeight: FontWeight.w400,
+  ),
+  focusCardTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w600,
+  ),
+  todayHeadingText: '今日',
+  focusTitleText: 'フォーカス',
+  focusCardTitleText: 'デザイン方向性をレビュー',
+  taskTitles: [
+    'デザイン方向性をレビュー',
+    '復元フローの下書きを作成',
+    'リリースノートを書く',
+    '買い物リストの計画を立てる',
+    '完了メモをアーカイブ',
+  ],
+);
+
+_LabTypography _typographyFor(DesignLabTypoVariant variant) =>
+    switch (variant) {
+      DesignLabTypoVariant.newsreaderA => _typoNewsreaderA,
+      DesignLabTypoVariant.loraB => _typoLoraB,
+      DesignLabTypoVariant.sansOnlyC => _typoSansOnlyC,
+      DesignLabTypoVariant.jaMinchoD => _typoJaMinchoD,
+    };
+
 class _LabTask {
   const _LabTask({
     required this.title,
@@ -61,6 +300,16 @@ class _LabTask {
   final String? contextLabel;
   final bool isSelected;
   final bool isDone;
+
+  _LabTask withTitle(String title) => _LabTask(
+    title: title,
+    dueLabel: dueLabel,
+    accent: accent,
+    subtasks: subtasks,
+    contextLabel: contextLabel,
+    isSelected: isSelected,
+    isDone: isDone,
+  );
 }
 
 class _LabSubtask {
@@ -195,12 +444,20 @@ const _taskCheckSize = _subtaskControlSize;
 const _taskCheckIconSize = 12.0;
 
 class _TaskListMock extends StatelessWidget {
-  const _TaskListMock();
+  const _TaskListMock({this.typography = _typoLegacyDefault});
+
+  final _LabTypography typography;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final tasks = typography.taskTitles == null
+        ? _tasks
+        : [
+            for (var i = 0; i < _tasks.length; i += 1)
+              _tasks[i].withTitle(typography.taskTitles![i]),
+          ];
     return Scaffold(
       backgroundColor: _labPageIvory,
       floatingActionButton: const _AddTaskButton(),
@@ -221,14 +478,14 @@ class _TaskListMock extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Text(
-                'Today',
-                style: theme.textTheme.displayMedium?.copyWith(
-                  fontFamily: 'Newsreader',
-                  color: colorScheme.primary,
-                  fontSize: 48,
-                  fontWeight: FontWeight.w400,
-                  height: 0.96,
-                ),
+                typography.todayHeadingText,
+                style: typography.todayHeading
+                    .apply(theme.textTheme.displayMedium!)
+                    .copyWith(
+                      color: colorScheme.primary,
+                      fontSize: 48,
+                      height: 0.96,
+                    ),
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -243,7 +500,7 @@ class _TaskListMock extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
-            _TasksPanel(tasks: _tasks),
+            _TasksPanel(tasks: tasks, typography: typography),
             const SizedBox(height: AppSpacing.md),
             const _CompletedTodayRow(count: 1),
           ],
@@ -271,9 +528,13 @@ class _TaskHeaderActions extends StatelessWidget {
 }
 
 class _TasksPanel extends StatelessWidget {
-  const _TasksPanel({required this.tasks});
+  const _TasksPanel({
+    required this.tasks,
+    this.typography = _typoLegacyDefault,
+  });
 
   final List<_LabTask> tasks;
+  final _LabTypography typography;
 
   @override
   Widget build(BuildContext context) {
@@ -301,12 +562,9 @@ class _TasksPanel extends StatelessWidget {
                 children: [
                   Text(
                     'Tasks',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontFamily: 'Newsreader',
-                      color: colorScheme.primary,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w400,
-                    ),
+                    style: typography.tasksHeadline
+                        .apply(theme.textTheme.headlineSmall!)
+                        .copyWith(color: colorScheme.primary, fontSize: 22),
                   ),
                   const Spacer(),
                   _SmallPill(label: '${openTasks.length} pending'),
@@ -575,7 +833,9 @@ class _SubtaskTreePainter extends CustomPainter {
 }
 
 class _FocusTimerMock extends StatelessWidget {
-  const _FocusTimerMock();
+  const _FocusTimerMock({this.typography = _typoLegacyDefault});
+
+  final _LabTypography typography;
 
   @override
   Widget build(BuildContext context) {
@@ -598,12 +858,10 @@ class _FocusTimerMock extends StatelessWidget {
                 Expanded(
                   child: Center(
                     child: Text(
-                      'Focus',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontFamily: 'Newsreader',
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w400,
-                      ),
+                      typography.focusTitleText,
+                      style: typography.focusTitle
+                          .apply(theme.textTheme.titleLarge!)
+                          .copyWith(color: colorScheme.primary),
                     ),
                   ),
                 ),
@@ -611,9 +869,9 @@ class _FocusTimerMock extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
-            const _FocusTimerRing(),
+            _FocusTimerRing(typography: typography),
             const SizedBox(height: AppSpacing.lg),
-            const _FocusTaskCard(),
+            _FocusTaskCard(typography: typography),
             const SizedBox(height: AppSpacing.md),
             const _FocusActionRow(),
           ],
@@ -624,7 +882,9 @@ class _FocusTimerMock extends StatelessWidget {
 }
 
 class _FocusTimerRing extends StatelessWidget {
-  const _FocusTimerRing();
+  const _FocusTimerRing({this.typography = _typoLegacyDefault});
+
+  final _LabTypography typography;
 
   @override
   Widget build(BuildContext context) {
@@ -674,13 +934,13 @@ class _FocusTimerRing extends StatelessWidget {
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   '24:30',
-                  style: theme.textTheme.displayLarge?.copyWith(
-                    fontFamily: 'Newsreader',
-                    color: colorScheme.primary,
-                    fontSize: 64,
-                    fontWeight: FontWeight.w400,
-                    height: 0.95,
-                  ),
+                  style: typography.timerDigit
+                      .apply(theme.textTheme.displayLarge!)
+                      .copyWith(
+                        color: colorScheme.primary,
+                        fontSize: 64,
+                        height: 0.95,
+                      ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
@@ -786,7 +1046,9 @@ class _FocusSessionPill extends StatelessWidget {
 }
 
 class _FocusTaskCard extends StatelessWidget {
-  const _FocusTaskCard();
+  const _FocusTaskCard({this.typography = _typoLegacyDefault});
+
+  final _LabTypography typography;
 
   @override
   Widget build(BuildContext context) {
@@ -805,14 +1067,11 @@ class _FocusTaskCard extends StatelessWidget {
         child: Column(
           children: [
             Text(
-              'Review design direction',
+              typography.focusCardTitleText,
               textAlign: TextAlign.center,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontFamily: 'Newsreader',
-                color: colorScheme.primary,
-                fontWeight: FontWeight.w400,
-                height: 1.08,
-              ),
+              style: typography.focusCardTitle
+                  .apply(theme.textTheme.headlineSmall!)
+                  .copyWith(color: colorScheme.primary, height: 1.08),
             ),
             const SizedBox(height: AppSpacing.sm),
             Wrap(

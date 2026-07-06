@@ -13,4 +13,6 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+sh tool/fetch_lab_fonts.sh || echo "visual_qa: WARNING: tool/fetch_lab_fonts.sh failed; continuing without it." >&2
+
 TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
