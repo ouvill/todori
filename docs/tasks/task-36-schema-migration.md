@@ -145,3 +145,74 @@ TodoriのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（`docs/03_技術仕様書.md` との矛盾、FRB/Flutter層へ影響が出た場合の理由、task-37/task-38へ渡す注意点を含む）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだ/確認したファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/task-36-schema-migration.md`
+  - `docs/02_機能仕様書.md` F-07 / F-09
+  - `docs/03_技術仕様書.md` ローカルDB / SQLCipher / Device Key関連
+  - `docs/05_設計判断記録.md` ADR-009
+  - `docs/design/ui-spec.md` 裁定済み事項
+  - `docs/tasks/task-02-sqlcipher-poc.md`
+  - `docs/tasks/task-06-storage-repositories.md`
+  - `docs/tasks/task-07-device-key.md`
+  - `docs/tasks/task-23-trash-restore-ui.md`
+  - `docs/tasks/task-35-list-rename.md`
+  - `core/storage/src/schema.sql`
+  - `core/storage/src/lib.rs`
+  - `app/rust/src/api.rs`
+- 実装したスキーマバージョン:
+  - `BASELINE_SCHEMA_VERSION = 1`
+  - `pub const LATEST_SCHEMA_VERSION: i32 = 2`
+  - `core/storage/src/schema.sql` はv1 baselineとして扱い、`archived_at` は追加していない。
+  - v2 migration `add_lists_archived_at` で `ALTER TABLE lists ADD COLUMN archived_at INTEGER NULL;` を実行する。
+- DB種別ごとの扱い:
+  - 新規DB: SQLCipher鍵設定後、v1 baselineを作成し、`user_version = 1` 設定後にv2 migrationを適用して `user_version = 2` にする。
+  - legacy `user_version = 0` DB: user tableがある場合はv1 baseline互換の必須table/columnを確認し、互換ならv1相当として `user_version = 1` に昇格後、v2へ進める。
+  - 既存v1 DB: `user_version = 1` からv2 migrationを適用する。
+  - 最新版DB: `user_version = 2` の場合はmigrationを適用しない。
+  - 未対応新版DB: `user_version > LATEST_SCHEMA_VERSION` の場合は自動ダウングレードせず `StorageError::UnsupportedSchemaVersion` を返す。
+- エラー分類:
+  - 誤鍵またはSQLCipher DBとして読めない状態: `StorageError::InvalidDatabaseKey`
+  - 未対応新版: `StorageError::UnsupportedSchemaVersion { found, latest }`
+  - baseline v1互換でない `user_version = 0` DB: `StorageError::IncompatibleSchema`
+  - migration適用失敗: `StorageError::MigrationFailed { target_version, migration, source }`
+  - SQLCipher鍵、Device Key、導出鍵はエラーメッセージへ含めていない。
+- 途中失敗ロールバックのテスト方法と結果:
+  - `failed_migration_rolls_back_archived_at_and_user_version` で、v1 DBに対して `ALTER TABLE lists ADD COLUMN archived_at INTEGER NULL;` 後に存在しないtableを参照する失敗注入migrationを実行した。
+  - 結果: `StorageError::MigrationFailed` を返し、`PRAGMA user_version` は `1` のまま、`PRAGMA table_info(lists)` に `archived_at` は残らなかった。
+- 追加/更新した `core/storage` テスト:
+  - 更新: `encrypted_database_rejects_wrong_key_on_query` で誤鍵が `StorageError::InvalidDatabaseKey` になることを確認。
+  - 追加: `new_database_is_created_via_baseline_and_migrated_to_latest_schema`
+  - 追加: `v1_database_migrates_to_v2_and_preserves_existing_data`
+  - 追加: `legacy_user_version_zero_v1_database_is_promoted_and_migrated`
+  - 追加: `latest_schema_reopen_does_not_reapply_migrations`
+  - 追加: `failed_migration_rolls_back_archived_at_and_user_version`
+  - 追加: `unsupported_newer_schema_version_is_rejected`
+  - `cargo test -p todori-storage`: exit 0、20 tests passed
+- `PRAGMA` で確認した証拠:
+  - 新規DB / v1 DB / legacy `user_version = 0` DBのテストで `PRAGMA user_version = 2` を確認。
+  - 新規DB / v1 DB / legacy `user_version = 0` DBのテストで `PRAGMA table_info(lists)` に `archived_at` が存在し、typeが `INTEGER`、notnullが `0` であることを確認。
+  - 最新版DB再オープンテストで `PRAGMA schema_version`、`PRAGMA user_version`、`archived_at` column数が再オープン前後で変わらないことを確認。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、解析前に停止。
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、テスト実行前に停止。
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `core/storage/src/lib.rs`
+  - `docs/tasks/task-36-schema-migration.md`
+- 未解決事項:
+  - `docs/03_技術仕様書.md` の `lists` 定義には `archived_at` が記載されていない。本タスクでは仕様書変更禁止のため未変更。
+  - `docs/03_技術仕様書.md` は `tasks.deleted_at` による論理削除/tombstoneを記載しているが、ADR-009では将来migration経由で廃止予定とされている。本タスクでは `tasks.deleted_at` は変更していない。
+  - `List` / `ListDto` / `ListRepository` APIには `archived_at` を反映していない。task-37で扱う。
+  - FRB/Flutter層は変更していない。`open_encrypted` の公開シグネチャは変更していない。

@@ -5,11 +5,19 @@
 
 use std::{path::Path, str::FromStr};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use thiserror::Error;
 use todori_domain::{List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
+const BASELINE_SCHEMA_VERSION: i32 = 1;
+pub const LATEST_SCHEMA_VERSION: i32 = 2;
+
+const MIGRATIONS: &[Migration] = &[Migration {
+    target_version: 2,
+    name: "add_lists_archived_at",
+    apply: add_lists_archived_at,
+}];
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -27,8 +35,30 @@ pub enum StorageError {
     UndoConsumed(Uuid),
     #[error("task changed after undo was created: {0}")]
     UndoConflict(Uuid),
+    #[error("database cannot be read with the provided SQLCipher key")]
+    InvalidDatabaseKey,
+    #[error("unsupported database schema version: found {found}, latest supported {latest}")]
+    UnsupportedSchemaVersion { found: i32, latest: i32 },
+    #[error("incompatible database schema: {0}")]
+    IncompatibleSchema(String),
+    #[error(
+        "failed to migrate database schema to version {target_version} ({migration}): {source}"
+    )]
+    MigrationFailed {
+        target_version: i32,
+        migration: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+}
+
+#[derive(Clone, Copy)]
+struct Migration {
+    target_version: i32,
+    name: &'static str,
+    apply: fn(&Transaction<'_>) -> rusqlite::Result<()>,
 }
 
 /// Undo対象のタスク操作種別。
@@ -75,13 +105,228 @@ pub trait ListRepository {
     fn list_all(&self) -> Result<Vec<List>, StorageError>;
 }
 
-/// Opens a SQLCipher encrypted SQLite database and ensures the PoC schema exists.
+/// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
 pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, StorageError> {
-    let connection = Connection::open(path)?;
+    let mut connection = Connection::open(path)?;
+    apply_sqlcipher_key(&connection, key)?;
+    ensure_schema(&mut connection, MIGRATIONS)?;
+    Ok(connection)
+}
+
+fn apply_sqlcipher_key(connection: &Connection, key: &[u8; 32]) -> Result<(), StorageError> {
     let key_hex = hex::encode(key);
     connection.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))?;
-    connection.execute_batch(SCHEMA)?;
-    Ok(connection)
+    Ok(())
+}
+
+fn ensure_schema(
+    connection: &mut Connection,
+    migrations: &[Migration],
+) -> Result<(), StorageError> {
+    let mut user_version =
+        read_user_version(connection).map_err(|_| StorageError::InvalidDatabaseKey)?;
+    if user_version > LATEST_SCHEMA_VERSION {
+        return Err(StorageError::UnsupportedSchemaVersion {
+            found: user_version,
+            latest: LATEST_SCHEMA_VERSION,
+        });
+    }
+
+    if user_version == 0 {
+        user_version = ensure_baseline_schema(connection)?;
+    }
+
+    if user_version > LATEST_SCHEMA_VERSION {
+        return Err(StorageError::UnsupportedSchemaVersion {
+            found: user_version,
+            latest: LATEST_SCHEMA_VERSION,
+        });
+    }
+
+    apply_pending_migrations(connection, user_version, migrations)?;
+    Ok(())
+}
+
+fn read_user_version(connection: &Connection) -> rusqlite::Result<i32> {
+    connection.query_row("PRAGMA user_version", [], |row| row.get(0))
+}
+
+fn ensure_baseline_schema(connection: &mut Connection) -> Result<i32, StorageError> {
+    if has_user_schema_objects(connection)? {
+        validate_baseline_v1_schema(connection)?;
+    }
+
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(SCHEMA)?;
+    set_user_version(&transaction, BASELINE_SCHEMA_VERSION)?;
+    transaction.commit()?;
+
+    Ok(BASELINE_SCHEMA_VERSION)
+}
+
+fn apply_pending_migrations(
+    connection: &mut Connection,
+    current_version: i32,
+    migrations: &[Migration],
+) -> Result<(), StorageError> {
+    if current_version == LATEST_SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    let pending = migrations
+        .iter()
+        .filter(|migration| migration.target_version > current_version)
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        return Err(StorageError::IncompatibleSchema(format!(
+            "missing migration from version {current_version} to {LATEST_SCHEMA_VERSION}"
+        )));
+    }
+
+    for (expected_version, migration) in (current_version + 1..).zip(pending.iter()) {
+        if migration.target_version != expected_version {
+            return Err(StorageError::IncompatibleSchema(format!(
+                "missing migration to version {expected_version}"
+            )));
+        }
+    }
+
+    let transaction = connection.transaction()?;
+    let mut final_migration = pending[0];
+    for migration in pending {
+        final_migration = migration;
+        (migration.apply)(&transaction).map_err(|source| StorageError::MigrationFailed {
+            target_version: migration.target_version,
+            migration: migration.name,
+            source,
+        })?;
+        set_user_version(&transaction, migration.target_version).map_err(|source| {
+            StorageError::MigrationFailed {
+                target_version: migration.target_version,
+                migration: migration.name,
+                source,
+            }
+        })?;
+    }
+    transaction
+        .commit()
+        .map_err(|source| StorageError::MigrationFailed {
+            target_version: final_migration.target_version,
+            migration: final_migration.name,
+            source,
+        })?;
+
+    Ok(())
+}
+
+fn set_user_version(connection: &Connection, version: i32) -> rusqlite::Result<()> {
+    connection.execute_batch(&format!("PRAGMA user_version = {version};"))
+}
+
+fn add_lists_archived_at(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch("ALTER TABLE lists ADD COLUMN archived_at INTEGER NULL;")
+}
+
+fn has_user_schema_objects(connection: &Connection) -> Result<bool, StorageError> {
+    let count: i64 = connection.query_row(
+        "SELECT count(*)
+         FROM sqlite_master
+         WHERE type IN ('table', 'view')
+           AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+fn validate_baseline_v1_schema(connection: &Connection) -> Result<(), StorageError> {
+    for (table, required_columns) in BASELINE_V1_COLUMNS {
+        let columns = table_columns(connection, table)?;
+        if columns.is_empty() {
+            return Err(StorageError::IncompatibleSchema(format!(
+                "missing baseline v1 table {table}"
+            )));
+        }
+
+        for required_column in *required_columns {
+            if !columns.iter().any(|column| column == required_column) {
+                return Err(StorageError::IncompatibleSchema(format!(
+                    "missing baseline v1 column {table}.{required_column}"
+                )));
+            }
+        }
+    }
+
+    let list_columns = table_columns(connection, "lists")?;
+    if list_columns.iter().any(|column| column == "archived_at") {
+        return Err(StorageError::IncompatibleSchema(
+            "lists.archived_at exists while user_version is 0".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+const BASELINE_V1_COLUMNS: &[(&str, &[&str])] = &[
+    (
+        "tasks",
+        &[
+            "id",
+            "list_id",
+            "parent_task_id",
+            "title",
+            "note",
+            "status",
+            "priority",
+            "due_at",
+            "scheduled_at",
+            "estimated_minutes",
+            "sort_order",
+            "completed_at",
+            "closed_reason",
+            "deleted_at",
+            "assignee",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "lists",
+        &[
+            "id",
+            "name",
+            "color",
+            "icon",
+            "org_id",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "task_undo_entries",
+        &[
+            "id",
+            "operation_type",
+            "task_id",
+            "list_id",
+            "before_snapshot",
+            "after_updated_at",
+            "after_deleted_at",
+            "after_completed_at",
+            "created_at",
+            "consumed_at",
+        ],
+    ),
+    ("tasks_fts", &["title", "note"]),
+];
+
+fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>, StorageError> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(columns)
 }
 
 /// SQLite-backed implementation of [`TaskRepository`].
@@ -638,6 +883,66 @@ mod tests {
         }
     }
 
+    fn open_raw_encrypted(path: &Path, key: &[u8; 32]) -> Connection {
+        let connection = Connection::open(path).unwrap();
+        apply_sqlcipher_key(&connection, key).unwrap();
+        connection
+    }
+
+    fn create_baseline_v1_database(path: &Path, key: &[u8; 32], set_version: bool) {
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        transaction.execute_batch(SCHEMA).unwrap();
+        if set_version {
+            set_user_version(&transaction, BASELINE_SCHEMA_VERSION).unwrap();
+        }
+        transaction.commit().unwrap();
+    }
+
+    fn archived_at_column(connection: &Connection) -> Option<(String, i32)> {
+        let mut statement = connection.prepare("PRAGMA table_info(lists)").unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .find_map(|(name, column_type, not_null)| {
+                (name == "archived_at").then_some((column_type, not_null))
+            })
+    }
+
+    fn count_archived_at_columns(connection: &Connection) -> usize {
+        let mut statement = connection.prepare("PRAGMA table_info(lists)").unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .filter(|column| column == "archived_at")
+            .count()
+    }
+
+    fn schema_version(connection: &Connection) -> i32 {
+        connection
+            .query_row("PRAGMA schema_version", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn failing_archived_at_migration(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+        transaction.execute_batch(
+            "ALTER TABLE lists ADD COLUMN archived_at INTEGER NULL;
+             SELECT value FROM missing_failure_injection_table;",
+        )
+    }
+
     #[test]
     fn encrypted_database_reopens_with_correct_key() {
         let file = NamedTempFile::new().unwrap();
@@ -666,7 +971,11 @@ mod tests {
 
         let result = open_encrypted(file.path(), &WRONG_KEY);
 
-        assert!(result.is_err());
+        match result {
+            Err(StorageError::InvalidDatabaseKey) => {}
+            Err(error) => panic!("expected invalid database key error, got {error}"),
+            Ok(_) => panic!("database opened with wrong key"),
+        }
     }
 
     #[test]
@@ -734,6 +1043,158 @@ mod tests {
             .unwrap();
 
         assert_eq!(hits, 1);
+    }
+
+    #[test]
+    fn new_database_is_created_via_baseline_and_migrated_to_latest_schema() {
+        let file = NamedTempFile::new().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            archived_at_column(&connection),
+            Some(("INTEGER".to_string(), 0))
+        );
+    }
+
+    #[test]
+    fn v1_database_migrates_to_v2_and_preserves_existing_data() {
+        let file = NamedTempFile::new().unwrap();
+        create_baseline_v1_database(file.path(), &KEY, true);
+
+        let list = sample_list("a0");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteListRepository::new(connection);
+            repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            archived_at_column(&connection),
+            Some(("INTEGER".to_string(), 0))
+        );
+        assert_eq!(
+            SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .get(list.id)
+                .unwrap(),
+            list
+        );
+        assert_eq!(
+            SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .get(task.id)
+                .unwrap(),
+            task
+        );
+    }
+
+    #[test]
+    fn legacy_user_version_zero_v1_database_is_promoted_and_migrated() {
+        let file = NamedTempFile::new().unwrap();
+        create_baseline_v1_database(file.path(), &KEY, false);
+
+        let list = sample_list("legacy");
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteListRepository::new(connection);
+            repository.insert(list.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            archived_at_column(&connection),
+            Some(("INTEGER".to_string(), 0))
+        );
+        assert_eq!(
+            SqliteListRepository::new(connection).get(list.id).unwrap(),
+            list
+        );
+    }
+
+    #[test]
+    fn latest_schema_reopen_does_not_reapply_migrations() {
+        let file = NamedTempFile::new().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let before_schema_version = schema_version(&connection);
+        let before_user_version = read_user_version(&connection).unwrap();
+        let before_archived_at_count = count_archived_at_columns(&connection);
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(read_user_version(&connection).unwrap(), before_user_version);
+        assert_eq!(schema_version(&connection), before_schema_version);
+        assert_eq!(
+            count_archived_at_columns(&connection),
+            before_archived_at_count
+        );
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_archived_at_and_user_version() {
+        let file = NamedTempFile::new().unwrap();
+        create_baseline_v1_database(file.path(), &KEY, true);
+        let mut connection = open_raw_encrypted(file.path(), &KEY);
+        let failing_migrations = &[Migration {
+            target_version: 2,
+            name: "failing_archived_at",
+            apply: failing_archived_at_migration,
+        }];
+
+        let result =
+            apply_pending_migrations(&mut connection, BASELINE_SCHEMA_VERSION, failing_migrations);
+
+        assert!(matches!(
+            result,
+            Err(StorageError::MigrationFailed {
+                target_version: 2,
+                migration: "failing_archived_at",
+                ..
+            })
+        ));
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            BASELINE_SCHEMA_VERSION
+        );
+        assert_eq!(archived_at_column(&connection), None);
+    }
+
+    #[test]
+    fn unsupported_newer_schema_version_is_rejected() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_raw_encrypted(file.path(), &KEY);
+        set_user_version(&connection, LATEST_SCHEMA_VERSION + 1).unwrap();
+        drop(connection);
+
+        let result = open_encrypted(file.path(), &KEY);
+
+        assert!(matches!(
+            result,
+            Err(StorageError::UnsupportedSchemaVersion { found, latest })
+                if found == LATEST_SCHEMA_VERSION + 1 && latest == LATEST_SCHEMA_VERSION
+        ));
     }
 
     #[test]
