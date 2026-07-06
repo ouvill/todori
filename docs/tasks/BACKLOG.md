@@ -81,3 +81,4 @@
 ## 要人間判断
 
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
+- リストの型の区別（プロジェクト型=完了・アーカイブしうる大タスク / エリア型=継続する生活領域）と、リスト完了・アーカイブ概念の導入是非。Phase 3検討。出典: 2026-07-07人間コメント（task-35削除セマンティクス検討時）。
