@@ -41,23 +41,25 @@
 
 | Role | 使用箇所 | TextTheme | フォント | Weight | 色 |
 |---|---|---|---|---|---|
-| AppBarタイトル | Tasks/TaskDetail画面のAppBar `title` | `titleLarge`（AppBarThemeの`titleTextStyle`経由） | Lora | w700 | `colorScheme.primary` |
-| Todayヘッダー見出し | Homeの「Today」大見出し | `displayMedium` | Lora | w600（呼び出し側で明示上書き、line-height 0.95） | `colorScheme.primary` |
+| AppBarタイトル | Tasks/TaskDetail画面のAppBar `title` | `titleLarge`（AppBarThemeの`titleTextStyle`経由） | Inter | w700 | `colorScheme.primary` |
+| Todayヘッダー見出し | Homeの「Today」大見出し | `displayMedium` | Newsreader（欧文）＋ システム和文セリフフォールバック（`fontFamilyFallback`に`'Hiragino Mincho ProN'`等） | w600（呼び出し側で明示上書き、line-height 0.95） | `colorScheme.primary` |
 | Today日付サブタイトル | 「Today」下の日付行 | `titleMedium` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant` |
 | リスト名pill | Homeのリスト名チップ文字 | `labelMedium` | Inter | w600（テーマ既定） | `colorScheme.primary` |
-| セクション見出し（Tasks） | 「Tasks」セクション見出し行 | `headlineSmall` | Lora | w700（テーマ既定） | `colorScheme.primary`（呼び出し側で上書き。テーマ既定は`onSurface`） |
+| セクション見出し（Tasks） | 「Tasks」セクション見出し行 | `headlineSmall` | Inter | w700（テーマ既定） | `colorScheme.primary`（呼び出し側で上書き。テーマ既定は`onSurface`） |
 | 完了セクション見出し | 「Completed」折りたたみ見出し | `titleMedium` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant` |
-| リスト一覧の行タイトル | `/lists` の各リスト名 | `titleLarge` | Inter（Lora上書きなし） | w600（呼び出し側で明示） | `colorScheme.onSurface` |
+| リスト一覧の行タイトル | `/lists` の各リスト名 | `titleLarge` | Inter | w600（呼び出し側で明示） | `colorScheme.onSurface` |
 | タスク行タイトル | `AppTaskRow` のタイトル | `titleMedium` | Inter | w600（テーマ既定） | 未完了=`onSurface` / 完了=`onSurfaceVariant`+取り消し線 |
-| タスク詳細タイトル | Task detail見出し | `headlineSmall` | Lora | w700（テーマ既定） | `colorScheme.onSurface`（上書きなし） |
+| タスク詳細タイトル | Task detail見出し | `headlineSmall` | Inter | w700（テーマ既定） | `colorScheme.onSurface`（上書きなし） |
 | タスク詳細メモ | note本文 | `bodyLarge` | Inter | 既定 | `colorScheme.onSurfaceVariant`（line-height 1.35） |
 | メタデータpill文字 | `TaskMetadata`のpillラベル | `labelMedium` | Inter | w600（テーマ既定） | `colorScheme.primary`、または`emphasisColor`（例: 期限切れcoral） |
 | Subtasks小見出し | 詳細画面の「Subtasks」 | `titleMedium` | Inter | w600（テーマ既定） | 既定色（上書きなし） |
 | 作成日キャプション | 詳細画面のcreated at | `bodySmall` | Inter | 既定 | `colorScheme.onSurfaceVariant` |
 
-- 基準フォント: `fontFamily: 'Inter'`（`ThemeData`既定）。Lora明示上書きは `displayLarge/displayMedium/displaySmall/headlineMedium/headlineSmall` のみ。`titleLarge`・`titleMedium`・`labelMedium`・本文系はLora化しない。
-- 日本語グリフはLora/Interにバンドルされないため、`fontFamilyFallback = ['Hiragino Sans', 'Noto Sans CJK JP', 'Noto Sans JP']` を経由してプラットフォームフォールバックへ委ねる（新規日本語フォント追加はしない、task-30の決定）。
+- 基準フォント: `fontFamily: 'Inter'`（`ThemeData`既定）。Newsreaderのセリフ上書きは `displayMedium`（Todayヘッダー）のみで、**28px級以上かつ1画面1〜2箇所**の規則を厳守する（2026-07-06タイポ裁定）。`titleLarge`・`headlineSmall`・`titleMedium`・`labelMedium`・本文系はセリフ化しない。
+- 日本語グリフはNewsreader/Interにバンドルされないため、`fontFamilyFallback` を経由してプラットフォームフォールバックへ委ねる（新規日本語フォント同梱はしない、2026-07-06タイポ裁定）。Todayヘッダーの和文は明朝系フォールバック（`'Hiragino Mincho ProN'`等）、その他Inter適用箇所の和文は角ゴシック系フォールバック（`'Hiragino Sans'`等）を使う。
 - ビューポート幅に応じた文字サイズのスケーリングはしない。プラットフォームのテキストスケーリングと折返しに委ねる。
+
+> この表は2026-07-06タイポ裁定後の目標状態である。本番反映はtask-34。反映完了までの間、実装と本表の差分はtask-34のスコープであり、他タスクで独自にタイポを変更してはならない。
 
 ### 角丸（Radius、現行値をcanon化）
 
@@ -158,9 +160,14 @@
 
 - **2026-07-06 人間裁定**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、**calm発展形の単一方向**（現行 `design_lab_task_list.png` 等の8画面）へ集約された。dense案・smart lists単独案はclosed。smart listsの概念は `design_lab_list_overview` に吸収済み。以後のセッションはこの3案比較を再開しない。本番への反映は別タスクの指示書で範囲を定めて行う。
 - **2026-07-06 人間裁定**: 本番アイコンセットとして `lucide_icons_flutter` を採用する。本番反映時は全画面で Lucide に統一し、Material Icons と同一画面で混在させない。tooltip/semanticsは維持する。反映は別タスクの指示書で行う。
+- **2026-07-06 人間裁定（タイポグラフィ）**: Design Labの4案比較（A: Newsreader範囲制限 / B: Lora現行 / C: オールInter / D: A+和文明朝）の結果、**D案の構成を採用**する。ただし和文明朝フォントは容量とロケール（欧米展開時に不要）の理由で**同梱しない**。和文はシステムフォントのセリフ（Apple系: ヒラギノ明朝 ProN）へフォールバックし、明朝非搭載OS（Android標準等）ではシステム標準書体へ自然に劣化することを許容する。具体構成:
+  - ディスプレイ書体: Newsreader（欧文、既存同梱アセット）＋ システム和文セリフフォールバック
+  - セリフの適用範囲: **28px級以上かつ1画面1〜2箇所のみ**（現行画面ではToday見出しのみ。将来のタイマー数字も対象）
+  - AppBarタイトル・セクション見出し（Tasks等）・タスク/詳細タイトル・本文: すべてInter
+  - Loraは本番から退役（decommission）。アセットはDesign Lab比較用にリポジトリへ残すが、pubspecのfonts定義から外し、アプリには同梱しない
+  - Zen Old MinchoはLab実験専用（同梱しない、`app/tool/fetch_lab_fonts.sh` 経由）
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 
 - タスク行右側のaffordance: chevron継続か、将来のFocus開始ボタンか（Focus timer実装時に決定）。
-- Newsreaderフォントの扱い（Design Lab実験用。本番はLora/Interのまま）。
 - ダークモードの正式トークン（priority dot固定hexのコントラスト含む）。

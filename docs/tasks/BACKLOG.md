@@ -32,6 +32,7 @@
 - **Task list interaction refinement完了済み**: task-32で `/lists` の左方向transition、下部折りたたみ `Completed` セクション、タスク一覧のサブタスク進捗バッジ非表示、task row / Trash row / Task detail headerのpriority dot中央揃えを行った。
 - **Flutter Design Lab完了済み**: task-33で本番route/provider/DB/FRB/Rust APIに触れず、visual QA上に `design_lab_today_calm.png` / `design_lab_today_dense.png` / `design_lab_smart_lists.png` を生成するtest-onlyモック基盤を追加した。
 - Design Lab方向性裁定済み（2026-07-06人間裁定: calm発展形の単一方向へ集約。詳細は `docs/design/ui-spec.md` 裁定済み事項参照）。
+- タイポグラフィ裁定済み（2026-07-06人間裁定: D案構成採用・和文はシステムフォント・Lora退役。詳細はui-spec.md）。
 - **テスト数**: Rust 74 / Flutter 38（task-33実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で11スクリーンショットを生成）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
@@ -39,11 +40,12 @@
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 4 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない）。出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） | 軽量レーン | 軽量レーン対象 |
-| 5 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
+| 1 | typography rollout（task-34） | Newsreader範囲制限＋システム和文セリフを本番theme.dartへ反映し、Loraをpubspecから外す（アセットは比較用に残す） | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項。指示書: `docs/tasks/task-34-typography-rollout.md` |
+| 2 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 3 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 4 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 5 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない）。出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） | 軽量レーン | 軽量レーン対象 |
+| 6 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
