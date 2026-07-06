@@ -351,6 +351,122 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('archiving a list moves it to the archived section', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createList(name: 'Work', sortOrder: 'a1');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+
+    await tester.tap(find.byTooltip('List actions').at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+
+    expect((await fake.getLists()).map((list) => list.name), ['Inbox']);
+    expect((await fake.getArchivedLists()).map((list) => list.name), ['Work']);
+    expect(find.text('Work'), findsNothing);
+    expect(find.text('Archived (1)'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Show archived lists'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('Unarchive'), findsNothing);
+  });
+
+  testWidgets('unarchiving a list returns it to the active list section', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+    await fake.archiveList(listId: work.id);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+    await tester.tap(find.byTooltip('Show archived lists'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('List actions').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unarchive'));
+    await tester.pumpAndSettle();
+
+    expect((await fake.getArchivedLists()), isEmpty);
+    expect((await fake.getLists()).map((list) => list.name), ['Inbox', 'Work']);
+    expect(find.text('Archived (1)'), findsNothing);
+    expect(find.text('Work'), findsOneWidget);
+  });
+
+  testWidgets('default inbox does not expose archive action', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createList(name: 'Work', sortOrder: 'a1');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+
+    await tester.tap(find.byTooltip('List actions').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('Archive'), findsNothing);
+  });
+
+  testWidgets('archived section is hidden when there are no archived lists', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createList(name: 'Work', sortOrder: 'a1');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+
+    expect(find.textContaining('Archived'), findsNothing);
+    expect(find.byTooltip('Show archived lists'), findsNothing);
+  });
+
+  testWidgets('archived lists still navigate to their task screen', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final archive = await fake.createList(name: 'Archive me', sortOrder: 'a1');
+    await fake.createTask(listId: archive.id, title: 'Kept history task');
+    await fake.archiveList(listId: archive.id);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+    await tester.tap(find.byTooltip('Show archived lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive me'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tasks'), findsOneWidget);
+    expect(find.text('Kept history task'), findsOneWidget);
+    expect(find.text('Edit task'), findsNothing);
+  });
+
   testWidgets('checking a task marks it done through the bridge service', (
     tester,
   ) async {

@@ -47,6 +47,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get renameListTitle => 'Rename list';
 
   @override
+  String get archiveListMenuItem => 'Archive';
+
+  @override
+  String get unarchiveListMenuItem => 'Unarchive';
+
+  @override
+  String archivedListsSectionTitle(int count) {
+    return 'Archived ($count)';
+  }
+
+  @override
+  String get showArchivedListsTooltip => 'Show archived lists';
+
+  @override
+  String get hideArchivedListsTooltip => 'Hide archived lists';
+
+  @override
   String get nameLabel => 'Name';
 
   @override

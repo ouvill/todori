@@ -7,10 +7,11 @@ use std::{
 
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
-    delete_task as domain_delete_task, fractional_index_after, fractional_index_between, new_list,
-    new_task, rename_list as domain_rename_list, restore_task as domain_restore_task,
-    transition_task, update_due_at, update_note, update_priority, update_title,
-    validate_parent_for, List, Task, TaskStatus, Uuid,
+    archive_list as domain_archive_list, delete_task as domain_delete_task, fractional_index_after,
+    fractional_index_between, new_list, new_task, rename_list as domain_rename_list,
+    restore_task as domain_restore_task, transition_task, unarchive_list as domain_unarchive_list,
+    update_due_at, update_note, update_priority, update_title, validate_parent_for, List, Task,
+    TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
@@ -33,6 +34,7 @@ pub struct ListDto {
     pub icon: String,
     pub org_id: Option<String>,
     pub sort_order: String,
+    pub archived_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -145,12 +147,51 @@ pub fn get_lists() -> Result<Vec<ListDto>, String> {
     })
 }
 
+pub fn get_archived_lists() -> Result<Vec<ListDto>, String> {
+    with_list_repository(|repository| {
+        repository
+            .list_archived()
+            .map_err(|error| error.to_string())
+            .map(|lists| lists.into_iter().map(list_to_dto).collect())
+    })
+}
+
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
         let updated = domain_rename_list(list, name, now_ms).map_err(|error| error.to_string())?;
+        repository
+            .update(updated.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(list_to_dto(updated))
+    })
+}
+
+pub fn archive_list(list_id: String) -> Result<ListDto, String> {
+    let list_id = parse_uuid(&list_id)?;
+    let now_ms = now_ms()?;
+    with_list_repository(|repository| {
+        let list = repository.get(list_id).map_err(|error| error.to_string())?;
+        if list.archived_at.is_none() && is_default_inbox(repository, list.id)? {
+            return Err("default inbox cannot be archived".to_string());
+        }
+
+        let updated = domain_archive_list(list, now_ms).map_err(|error| error.to_string())?;
+        repository
+            .update(updated.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(list_to_dto(updated))
+    })
+}
+
+pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
+    let list_id = parse_uuid(&list_id)?;
+    let now_ms = now_ms()?;
+    with_list_repository(|repository| {
+        let list = repository.get(list_id).map_err(|error| error.to_string())?;
+        let updated = domain_unarchive_list(list, now_ms).map_err(|error| error.to_string())?;
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
@@ -455,6 +496,13 @@ fn load_reorder_boundary(
     Ok(boundary)
 }
 
+fn is_default_inbox(repository: &SqliteListRepository, list_id: Uuid) -> Result<bool, String> {
+    repository
+        .list_all()
+        .map_err(|error| error.to_string())
+        .map(|lists| lists.first().is_some_and(|list| list.id == list_id))
+}
+
 fn status_to_string(status: TaskStatus) -> String {
     match status {
         TaskStatus::Todo => "todo",
@@ -473,6 +521,7 @@ fn list_to_dto(list: List) -> ListDto {
         icon: list.icon,
         org_id: list.org_id.map(|id| id.to_string()),
         sort_order: list.sort_order,
+        archived_at: list.archived_at,
         created_at: list.created_at,
         updated_at: list.updated_at,
     }

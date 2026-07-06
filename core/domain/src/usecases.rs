@@ -81,6 +81,7 @@ pub fn new_list(name: String, sort_order: String, now_ms: i64) -> Result<List, D
         icon: "list".to_string(),
         org_id: None,
         sort_order,
+        archived_at: None,
         created_at: now_ms,
         updated_at: now_ms,
     })
@@ -215,6 +216,28 @@ pub fn rename_list(mut list: List, name: String, now_ms: i64) -> Result<List, Do
 
     list.name = name;
     list.updated_at = now_ms;
+    Ok(list)
+}
+
+/// リストをアーカイブする。
+///
+/// 既にアーカイブ済みの場合は、呼び出し側のリトライを安全にするため冪等に成功させる。
+pub fn archive_list(mut list: List, now_ms: i64) -> Result<List, DomainError> {
+    if list.archived_at.is_none() {
+        list.archived_at = Some(now_ms);
+        list.updated_at = now_ms;
+    }
+    Ok(list)
+}
+
+/// アーカイブ済みリストを通常リストへ戻す。
+///
+/// アーカイブされていない場合は、呼び出し側のリトライを安全にするため冪等に成功させる。
+pub fn unarchive_list(mut list: List, now_ms: i64) -> Result<List, DomainError> {
+    if list.archived_at.is_some() {
+        list.archived_at = None;
+        list.updated_at = now_ms;
+    }
     Ok(list)
 }
 
@@ -505,6 +528,7 @@ mod tests {
         assert_eq!(list.icon, "list");
         assert_eq!(list.org_id, None);
         assert_eq!(list.sort_order, "a0");
+        assert_eq!(list.archived_at, None);
         assert_eq!(list.created_at, NOW);
         assert_eq!(list.updated_at, NOW);
     }
@@ -534,6 +558,44 @@ mod tests {
             rename_list(list, "\t".to_string(), LATER),
             Err(DomainError::EmptyName)
         );
+    }
+
+    #[test]
+    fn archive_list_sets_archived_at_and_updated_at() {
+        let list = new_list("Work".to_string(), "a1".to_string(), NOW).unwrap();
+        let archived = archive_list(list, LATER).unwrap();
+
+        assert_eq!(archived.archived_at, Some(LATER));
+        assert_eq!(archived.updated_at, LATER);
+    }
+
+    #[test]
+    fn archive_list_is_idempotent_when_already_archived() {
+        let list = new_list("Work".to_string(), "a1".to_string(), NOW).unwrap();
+        let archived = archive_list(list, LATER).unwrap();
+        let archived_again = archive_list(archived, LATER + 1).unwrap();
+
+        assert_eq!(archived_again.archived_at, Some(LATER));
+        assert_eq!(archived_again.updated_at, LATER);
+    }
+
+    #[test]
+    fn unarchive_list_clears_archived_at_and_updates_updated_at() {
+        let list = new_list("Work".to_string(), "a1".to_string(), NOW).unwrap();
+        let archived = archive_list(list, LATER).unwrap();
+        let unarchived = unarchive_list(archived, LATER + 1).unwrap();
+
+        assert_eq!(unarchived.archived_at, None);
+        assert_eq!(unarchived.updated_at, LATER + 1);
+    }
+
+    #[test]
+    fn unarchive_list_is_idempotent_when_not_archived() {
+        let list = new_list("Work".to_string(), "a1".to_string(), NOW).unwrap();
+        let unarchived = unarchive_list(list, LATER).unwrap();
+
+        assert_eq!(unarchived.archived_at, None);
+        assert_eq!(unarchived.updated_at, NOW);
     }
 
     #[test]

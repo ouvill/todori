@@ -94,10 +94,20 @@ void main() {
 
   testWidgets('lists: list management screen with two lists', (tester) async {
     _setMobileViewport(tester);
-    await _seedRealisticData(tester);
+    await _seedArchivedListData(tester);
     await tester.tap(find.byTooltip('Open lists'));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'lists');
+  });
+
+  testWidgets('lists_archived: archived section expanded', (tester) async {
+    _setMobileViewport(tester);
+    await _seedArchivedListData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Show archived lists'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'lists_archived');
   });
 
   testWidgets('task_detail: parent task with three subtasks', (tester) async {
@@ -428,6 +438,19 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   );
 }
 
+Future<void> _seedArchivedListData(WidgetTester tester) async {
+  final fake = FakeBridgeService();
+  await fake.createList(name: 'Inbox', sortOrder: 'a0');
+  final work = await fake.createList(name: '仕事', sortOrder: 'a1');
+  await fake.createTask(listId: work.id, title: '四半期レビュー資料を作成する');
+  await fake.archiveList(listId: work.id);
+
+  await tester.pumpWidget(
+    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+  );
+  await tester.pumpAndSettle();
+}
+
 /// Scrolls [title] into view (if needed) and taps it to open task detail.
 ///
 /// Uses [WidgetTester.scrollUntilVisible] rather than [ensureVisible]
@@ -678,9 +701,7 @@ const _minchoFallbackFamily = 'Hiragino Mincho ProN';
 
 /// macOS's bundled Japanese serif, used to render `home_tasks_ja`'s "今日"
 /// Today heading in the serif fallback the production theme declares.
-const _minchoFallbackPaths = [
-  '/System/Library/Fonts/ヒラギノ明朝 ProN.ttc',
-];
+const _minchoFallbackPaths = ['/System/Library/Fonts/ヒラギノ明朝 ProN.ttc'];
 
 /// Registers a single Japanese-capable serif system font under
 /// [_minchoFallbackFamily] (see [_loadCjkFallbackFont] for why a dedicated,

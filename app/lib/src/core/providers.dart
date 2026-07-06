@@ -49,11 +49,40 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.renameList(listId: listId, name: name);
     ref.invalidateSelf();
   }
+
+  /// Archives `listId` and refreshes active and archived list collections.
+  Future<void> archiveList(String listId) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.archiveList(listId: listId);
+    ref.invalidateSelf();
+    ref.invalidate(archivedListsProvider);
+  }
 }
 
 final listsProvider = AsyncNotifierProvider<ListsNotifier, List<ListDto>>(
   ListsNotifier.new,
 );
+
+/// Manages archived lists shown in the collapsed archive section.
+class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
+  @override
+  FutureOr<List<ListDto>> build() {
+    return ref.watch(bridgeServiceProvider).getArchivedLists();
+  }
+
+  /// Restores `listId` and refreshes archived and active list collections.
+  Future<void> unarchiveList(String listId) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.unarchiveList(listId: listId);
+    ref.invalidateSelf();
+    ref.invalidate(listsProvider);
+  }
+}
+
+final archivedListsProvider =
+    AsyncNotifierProvider<ArchivedListsNotifier, List<ListDto>>(
+      ArchivedListsNotifier.new,
+    );
 
 /// Keeps the selected task display order in memory for the current app
 /// session. Phase 1 intentionally does not persist this value to storage.

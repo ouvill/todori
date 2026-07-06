@@ -1,5 +1,8 @@
 # task-37: リストのアーカイブ/アーカイブ解除
 
+> ステータス: 完了（2026-07-07実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07改訂の `docs/02_機能仕様書.md` F-09 は、リストをアーカイブ/アーカイブ解除でき、アーカイブ時もリストのデータおよび完了済みタスクを含む履歴を完全に保全すると定めている。`docs/05_設計判断記録.md` ADR-009 は、ゴミ箱を廃止し、削除は恒久削除とし、履歴の保全経路をアーカイブへ一本化する判断を記録している。
@@ -175,3 +178,143 @@ task-36で `core/storage` のマイグレーションランナーと `lists.arch
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（`docs/03_技術仕様書.md` との矛盾、アーカイブ済みタスク編集制限、ログブックUI、task-38へ渡す注意点を含む）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/02_機能仕様書.md` F-09
+  - `docs/03_技術仕様書.md`
+  - `docs/05_設計判断記録.md` ADR-009
+  - `docs/design/ui-spec.md`
+  - `docs/tasks/task-35-list-rename.md`
+  - `docs/tasks/task-36-schema-migration.md`
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/lib.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- F-09改訂・ADR-009から読み取ったアーカイブのセマンティクス:
+  - リストはアーカイブ/アーカイブ解除できる。
+  - アーカイブ済みリストは通常のリスト一覧から分離して表示する。
+  - アーカイブ時、リスト本体、配下タスク、完了済みタスクを含む履歴は削除・改変しない。
+  - 履歴の保全経路はアーカイブであり、ゴミ箱撤去と恒久削除移行はtask-38の範囲である。
+- domain実装:
+  - `List` に `archived_at: Option<i64>` を追加した。
+  - `new_list` は `archived_at = None` を設定する。
+  - `archive_list(list, now_ms)` は `archived_at` が `None` の場合だけ `Some(now_ms)` と `updated_at = now_ms` を設定する。
+  - `unarchive_list(list, now_ms)` は `archived_at` が `Some` の場合だけ `None` と `updated_at = now_ms` を設定する。
+  - archive/unarchiveはいずれも同じ操作の再実行時に既存の `archived_at` / `updated_at` を変更しない冪等動作とした。
+  - `todori_domain` root exportへ `archive_list` / `unarchive_list` を追加した。
+  - 既定インボックス保護は単体の `List` では判定できないため、Rust API層とUI/fake層で `sort_order` 最小の通常リストを基準に実装した。
+- storage実装:
+  - `ListRepository` に `list_archived()` を追加した。
+  - `SqliteListRepository::get` / `insert` / `update` / `row_to_list` に `archived_at` の読み書きを追加した。
+  - `list_all()` は `WHERE archived_at IS NULL ORDER BY sort_order ASC` の通常一覧取得に変更した。
+  - `list_archived()` は `WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, sort_order ASC` でアーカイブ済み一覧を取得する。
+  - `LATEST_SCHEMA_VERSION` とmigrationは変更していない。
+- Rust bridge / FRB:
+  - `ListDto` に `archived_at: Option<i64>` を追加した。
+  - `pub fn get_archived_lists() -> Result<Vec<ListDto>, String>` を追加した。
+  - `pub fn archive_list(list_id: String) -> Result<ListDto, String>` を追加した。
+  - `pub fn unarchive_list(list_id: String) -> Result<ListDto, String>` を追加した。
+  - `get_lists()` はstorageの `list_all()` 経由で非アーカイブリストのみ返す。
+  - `archive_list` は対象が非アーカイブで、かつ通常一覧の先頭リストの場合に `default inbox cannot be archived` を返す。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は標準PATHではFlutter SDK cache書き込み不可によりexit 1。
+  - 同じコマンドを `/private/tmp/todori-frb-fakebin` の `flutter --version` 一時ラッパーをPATH先頭に置いて再実行し、exit 0、出力 `Done!`。内部の `dart fix` / `dart format` はFlutter SDK cache書き込み不可で警告失敗したため、同梱Dart SDKで `dart format lib/src/rust` を別途実行した。
+  - FRB生成差分は `app/rust/src/frb_generated.rs`、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`。
+- Dart側実装:
+  - `BridgeService` / `FrbBridgeService` に `getArchivedLists`、`archiveList`、`unarchiveList` を追加した。
+  - `ListsNotifier.archiveList` は実行後に `listsProvider` と `archivedListsProvider` をinvalidateする。
+  - `ArchivedListsNotifier` / `archivedListsProvider` を追加し、`unarchiveList` 実行後に `archivedListsProvider` と `listsProvider` をinvalidateする。
+  - `FakeBridgeService` は `getLists()` で非アーカイブのみ返し、`getArchivedLists()` でアーカイブ済みのみ返す。
+  - `FakeBridgeService.archiveList` は非アーカイブの既定インボックス（通常一覧の先頭）を拒否し、既にアーカイブ済みの場合は変更せず返す。
+  - `FakeBridgeService.unarchiveList` は未アーカイブの場合は変更せず返す。
+- UI実装:
+  - Lists画面は通常リストとアーカイブ済みリストを分離して描画する。
+  - 通常リスト行の三点メニューへ、既定インボックス以外で `Archive` / `アーカイブ` を追加した。
+  - 既定インボックス行にはアーカイブ操作を表示しない。
+  - アーカイブ済みリストが1件以上の場合だけ、件数付きの折りたたみセクションを表示する。
+  - アーカイブ済みセクションは初期状態で閉じる。
+  - アーカイブ済みリスト行の三点メニューから `Unarchive` / `アーカイブ解除` を実行する。
+  - アーカイブ済みリスト行のタップは既存の `/lists/:id/tasks` 遷移を使う。
+  - 新規UIでも既存画面のMaterial Icons暫定状態に合わせて `Icons.archive_outlined` 等を使った。Lucide移行は別バックログ対象。
+- l10n:
+  - `archiveListMenuItem`
+  - `unarchiveListMenuItem`
+  - `archivedListsSectionTitle`
+  - `showArchivedListsTooltip`
+  - `hideArchivedListsTooltip`
+  - `flutter gen-l10n` は標準wrapperではFlutter SDK cache書き込み不可によりexit 1。
+  - `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true /Users/youhei/workspaces/sdk/flutter/bin/cache/dart-sdk/bin/dart /Users/youhei/workspaces/sdk/flutter/packages/flutter_tools/bin/flutter_tools.dart --suppress-analytics gen-l10n` はexit 0。
+- 追加/更新したテスト:
+  - domain: `archive_list_sets_archived_at_and_updated_at`
+  - domain: `archive_list_is_idempotent_when_already_archived`
+  - domain: `unarchive_list_clears_archived_at_and_updates_updated_at`
+  - domain: `unarchive_list_is_idempotent_when_not_archived`
+  - storage: `sqlite_list_repository_roundtrips_and_lists_by_sort_order` で `archived_at` 永続化、`list_all()` 非アーカイブ除外、`list_archived()` 取得を確認するよう更新した。
+  - widget: `archiving a list moves it to the archived section`
+  - widget: `unarchiving a list returns it to the active list section`
+  - widget: `default inbox does not expose archive action`
+  - widget: `archived section is hidden when there are no archived lists`
+  - widget: `archived lists still navigate to their task screen`
+  - visual QA: `lists_archived` スクリーンショットtestを追加し、`lists` はアーカイブ済みセクション閉状態を撮るseedに変更した。
+- visual QA:
+  - 作業前に `app/build/visual_qa/*.png` 25件を `app/build/visual_qa_before/` へコピーした。
+  - before: `app/build/visual_qa_before/lists.png`
+  - after予定: `app/build/visual_qa/lists.png`
+  - expanded予定: `app/build/visual_qa/lists_archived.png`
+  - `sh app/tool/visual_qa.sh`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、visual QA test実行前に停止。
+  - 直接実行 `TODORI_VISUAL_QA=1 ... flutter_tools.dart test test/visual_qa/visual_qa_screenshots_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
+  - `app/build/visual_qa/lists_archived.png` は生成されていない。
+  - after画像の目視確認は実施していない。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: 1回目exit 101（`todori_domain` root export漏れ）。`core/domain/src/lib.rs` 修正後の再実行はexit 0。
+  - `cargo test --workspace`: exit 0。Rust tests 84 passed。
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0。
+  - `cd app && flutter analyze`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、解析前に停止。
+  - 直接実行 `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics analyze`: exit 0、`No issues found!`
+  - `cd app && flutter test`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、テスト実行前に停止。
+  - 直接実行 `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics test test/widget_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/rust/src/api.rs`
+  - `app/rust/src/frb_generated.rs`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/lib.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `docs/tasks/task-37-list-archive.md`
+- 未解決事項:
+  - `docs/03_技術仕様書.md` の `lists` 定義には `archived_at` が記載されていない。本タスクでは仕様書変更禁止のため未変更。
+  - `docs/03_技術仕様書.md` は `tasks.deleted_at` による論理削除/tombstoneを記載しているが、ADR-009では将来migration経由で廃止予定とされている。本タスクでは `tasks.deleted_at` は変更していない。
+  - 既定インボックス自動プロビジョニングと、既定インボックスを永続的に識別するスキーマ列は未実装。
+  - アーカイブ済みリスト内タスクの編集制限は新設していない。
+  - ログブック/振り返りUIは未実装。
+  - task-38では、ゴミ箱撤去、恒久削除移行、削除Undo廃止、`tasks.deleted_at` 整理時に、アーカイブ済みリストが通常一覧から除外される前提を確認する。
+  - Flutter wrapperのSDK cache書き込み制約と、Flutter test/visual QAのlocalhost bind制約により、`flutter test` とvisual QA PNG再生成・目視確認はこの環境では未実施。

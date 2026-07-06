@@ -35,7 +35,28 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<List<ListDto>> getLists() async => List.unmodifiable(_lists);
+  Future<List<ListDto>> getLists() async {
+    final active = _lists
+        .where((list) => list.archivedAt == null)
+        .toList(growable: false);
+    active.sort(_compareLists);
+    return List.unmodifiable(active);
+  }
+
+  @override
+  Future<List<ListDto>> getArchivedLists() async {
+    final archived = _lists
+        .where((list) => list.archivedAt != null)
+        .toList(growable: false);
+    archived.sort((a, b) {
+      final archivedAt = b.archivedAt!.compareTo(a.archivedAt!);
+      if (archivedAt != 0) {
+        return archivedAt;
+      }
+      return a.sortOrder.compareTo(b.sortOrder);
+    });
+    return List.unmodifiable(archived);
+  }
 
   @override
   Future<ListDto> renameList({
@@ -54,7 +75,44 @@ class FakeBridgeService implements BridgeService {
       icon: list.icon,
       orgId: list.orgId,
       sortOrder: list.sortOrder,
+      archivedAt: list.archivedAt,
       createdAt: list.createdAt,
+      updatedAt: list.updatedAt + _fakeMinuteMs,
+    );
+    _lists[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<ListDto> archiveList({required String listId}) async {
+    final index = _lists.indexWhere((list) => list.id == listId);
+    final list = _lists[index];
+    if (list.archivedAt == null && _isDefaultInbox(list)) {
+      throw Exception('default inbox cannot be archived');
+    }
+    if (list.archivedAt != null) {
+      return list;
+    }
+    final updatedAt = list.updatedAt + _fakeMinuteMs;
+    final updated = _copyList(
+      list,
+      archivedAt: updatedAt,
+      updatedAt: updatedAt,
+    );
+    _lists[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<ListDto> unarchiveList({required String listId}) async {
+    final index = _lists.indexWhere((list) => list.id == listId);
+    final list = _lists[index];
+    if (list.archivedAt == null) {
+      return list;
+    }
+    final updated = _copyList(
+      list,
+      clearArchivedAt: true,
       updatedAt: list.updatedAt + _fakeMinuteMs,
     );
     _lists[index] = updated;
@@ -310,6 +368,14 @@ class FakeBridgeService implements BridgeService {
       ),
     );
   }
+
+  bool _isDefaultInbox(ListDto list) {
+    final active = _lists
+        .where((candidate) => candidate.archivedAt == null)
+        .toList(growable: false);
+    active.sort(_compareLists);
+    return active.isNotEmpty && active.first.id == list.id;
+  }
 }
 
 final int _fakeClockBaseMs = DateTime.utc(2026, 7, 1, 9).millisecondsSinceEpoch;
@@ -411,6 +477,34 @@ int _compareTasks(TaskDto a, TaskDto b) {
     return sortOrder;
   }
   return a.id.compareTo(b.id);
+}
+
+int _compareLists(ListDto a, ListDto b) {
+  final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+  if (sortOrder != 0) {
+    return sortOrder;
+  }
+  return a.id.compareTo(b.id);
+}
+
+ListDto _copyList(
+  ListDto list, {
+  String? name,
+  int? archivedAt,
+  bool clearArchivedAt = false,
+  int? updatedAt,
+}) {
+  return ListDto(
+    id: list.id,
+    name: name ?? list.name,
+    color: list.color,
+    icon: list.icon,
+    orgId: list.orgId,
+    sortOrder: list.sortOrder,
+    archivedAt: clearArchivedAt ? null : archivedAt ?? list.archivedAt,
+    createdAt: list.createdAt,
+    updatedAt: updatedAt ?? list.updatedAt,
+  );
 }
 
 const _sortAlphabet =

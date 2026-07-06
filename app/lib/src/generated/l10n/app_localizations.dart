@@ -170,6 +170,36 @@ abstract class AppLocalizations {
   /// **'Rename list'**
   String get renameListTitle;
 
+  /// No description provided for @archiveListMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get archiveListMenuItem;
+
+  /// No description provided for @unarchiveListMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Unarchive'**
+  String get unarchiveListMenuItem;
+
+  /// No description provided for @archivedListsSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived ({count})'**
+  String archivedListsSectionTitle(int count);
+
+  /// No description provided for @showArchivedListsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show archived lists'**
+  String get showArchivedListsTooltip;
+
+  /// No description provided for @hideArchivedListsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide archived lists'**
+  String get hideArchivedListsTooltip;
+
   /// No description provided for @nameLabel.
   ///
   /// In en, this message translates to:

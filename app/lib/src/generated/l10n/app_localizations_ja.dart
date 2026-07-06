@@ -47,6 +47,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get renameListTitle => 'リスト名を変更';
 
   @override
+  String get archiveListMenuItem => 'アーカイブ';
+
+  @override
+  String get unarchiveListMenuItem => 'アーカイブ解除';
+
+  @override
+  String archivedListsSectionTitle(int count) {
+    return 'アーカイブ済み（$count件）';
+  }
+
+  @override
+  String get showArchivedListsTooltip => 'アーカイブ済みリストを表示';
+
+  @override
+  String get hideArchivedListsTooltip => 'アーカイブ済みリストを隠す';
+
+  @override
   String get nameLabel => '名前';
 
   @override

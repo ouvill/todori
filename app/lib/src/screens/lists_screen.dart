@@ -19,6 +19,7 @@ class ListsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final listsAsync = ref.watch(listsProvider);
+    final archivedListsAsync = ref.watch(archivedListsProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -27,10 +28,26 @@ class ListsScreen extends ConsumerWidget {
           error: (error, stackTrace) =>
               AppErrorState(message: l10n.failedToLoadLists(error.toString())),
           data: (lists) {
-            return _ListsManagementView(
-              lists: lists,
-              onCreateList: () => _createList(context, ref),
-              onRenameList: (list) => _renameList(context, ref, list),
+            return archivedListsAsync.when(
+              loading: () => _ListsManagementView(
+                lists: lists,
+                archivedLists: const [],
+                onCreateList: () => _createList(context, ref),
+                onRenameList: (list) => _renameList(context, ref, list),
+                onArchiveList: (list) => _archiveList(ref, list),
+                onUnarchiveList: (list) => _unarchiveList(ref, list),
+              ),
+              error: (error, stackTrace) => AppErrorState(
+                message: l10n.failedToLoadLists(error.toString()),
+              ),
+              data: (archivedLists) => _ListsManagementView(
+                lists: lists,
+                archivedLists: archivedLists,
+                onCreateList: () => _createList(context, ref),
+                onRenameList: (list) => _renameList(context, ref, list),
+                onArchiveList: (list) => _archiveList(ref, list),
+                onUnarchiveList: (list) => _unarchiveList(ref, list),
+              ),
             );
           },
         ),
@@ -75,18 +92,39 @@ class ListsScreen extends ConsumerWidget {
     }
     await ref.read(listsProvider.notifier).renameList(list.id, trimmedName);
   }
+
+  Future<void> _archiveList(WidgetRef ref, ListDto list) async {
+    await ref.read(listsProvider.notifier).archiveList(list.id);
+  }
+
+  Future<void> _unarchiveList(WidgetRef ref, ListDto list) async {
+    await ref.read(archivedListsProvider.notifier).unarchiveList(list.id);
+  }
 }
 
-class _ListsManagementView extends StatelessWidget {
+class _ListsManagementView extends StatefulWidget {
   const _ListsManagementView({
     required this.lists,
+    required this.archivedLists,
     required this.onCreateList,
     required this.onRenameList,
+    required this.onArchiveList,
+    required this.onUnarchiveList,
   });
 
   final List<ListDto> lists;
+  final List<ListDto> archivedLists;
   final VoidCallback onCreateList;
   final ValueChanged<ListDto> onRenameList;
+  final ValueChanged<ListDto> onArchiveList;
+  final ValueChanged<ListDto> onUnarchiveList;
+
+  @override
+  State<_ListsManagementView> createState() => _ListsManagementViewState();
+}
+
+class _ListsManagementViewState extends State<_ListsManagementView> {
+  bool _archivedExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +173,7 @@ class _ListsManagementView extends StatelessWidget {
                 ),
                 child: _SectionLabel(label: l10n.listsSectionTitle),
               ),
-              if (lists.isEmpty)
+              if (widget.lists.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   child: AppEmptyState(
@@ -145,25 +183,52 @@ class _ListsManagementView extends StatelessWidget {
                   ),
                 )
               else
-                for (var index = 0; index < lists.length; index += 1) ...[
+                for (var index = 0; index < widget.lists.length; index += 1)
                   _ListManagementRow(
                     icon: index == 0
                         ? Icons.wb_sunny_outlined
                         : Icons.circle_outlined,
                     color: _listAccent(colorScheme, index),
-                    title: lists[index].name,
+                    title: widget.lists[index].name,
                     onTap: () =>
-                        context.push('/lists/${lists[index].id}/tasks'),
-                    onRename: () => onRenameList(lists[index]),
+                        context.push('/lists/${widget.lists[index].id}/tasks'),
+                    onRename: () => widget.onRenameList(widget.lists[index]),
+                    onArchive: index == 0
+                        ? null
+                        : () => widget.onArchiveList(widget.lists[index]),
                   ),
-                ],
               Divider(color: colorScheme.outlineVariant),
               _ListManagementRow(
                 icon: Icons.add,
                 color: colorScheme.primary,
                 title: l10n.homeNewListButton,
-                onTap: onCreateList,
+                onTap: widget.onCreateList,
               ),
+              if (widget.archivedLists.isNotEmpty) ...[
+                Divider(color: colorScheme.outlineVariant),
+                _ArchivedListsHeader(
+                  count: widget.archivedLists.length,
+                  expanded: _archivedExpanded,
+                  onTap: () =>
+                      setState(() => _archivedExpanded = !_archivedExpanded),
+                ),
+                if (_archivedExpanded)
+                  for (
+                    var index = 0;
+                    index < widget.archivedLists.length;
+                    index += 1
+                  )
+                    _ListManagementRow(
+                      icon: Icons.archive_outlined,
+                      color: colorScheme.onSurfaceVariant,
+                      title: widget.archivedLists[index].name,
+                      onTap: () => context.push(
+                        '/lists/${widget.archivedLists[index].id}/tasks',
+                      ),
+                      onUnarchive: () =>
+                          widget.onUnarchiveList(widget.archivedLists[index]),
+                    ),
+              ],
             ],
           ),
         ),
@@ -191,6 +256,68 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+class _ArchivedListsHeader extends StatelessWidget {
+  const _ArchivedListsHeader({
+    required this.count,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final int count;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: Center(
+                child: Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                l10n.archivedListsSectionTitle(count),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: expanded
+                  ? l10n.hideArchivedListsTooltip
+                  : l10n.showArchivedListsTooltip,
+              onPressed: onTap,
+              icon: Icon(
+                expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ListManagementRow extends StatelessWidget {
   const _ListManagementRow({
     required this.icon,
@@ -198,6 +325,8 @@ class _ListManagementRow extends StatelessWidget {
     required this.title,
     required this.onTap,
     this.onRename,
+    this.onArchive,
+    this.onUnarchive,
   });
 
   final IconData icon;
@@ -205,6 +334,8 @@ class _ListManagementRow extends StatelessWidget {
   final String title;
   final VoidCallback onTap;
   final VoidCallback? onRename;
+  final VoidCallback? onArchive;
+  final VoidCallback? onUnarchive;
 
   @override
   Widget build(BuildContext context) {
@@ -244,7 +375,7 @@ class _ListManagementRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (onRename != null)
+            if (_hasActions)
               SizedBox(
                 width: 48,
                 height: 48,
@@ -258,13 +389,31 @@ class _ListManagementRow extends StatelessWidget {
                     switch (action) {
                       case _ListRowAction.rename:
                         onRename!();
+                        break;
+                      case _ListRowAction.archive:
+                        onArchive!();
+                        break;
+                      case _ListRowAction.unarchive:
+                        onUnarchive!();
+                        break;
                     }
                   },
                   itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: _ListRowAction.rename,
-                      child: Text(l10n.renameListMenuItem),
-                    ),
+                    if (onRename != null)
+                      PopupMenuItem(
+                        value: _ListRowAction.rename,
+                        child: Text(l10n.renameListMenuItem),
+                      ),
+                    if (onArchive != null)
+                      PopupMenuItem(
+                        value: _ListRowAction.archive,
+                        child: Text(l10n.archiveListMenuItem),
+                      ),
+                    if (onUnarchive != null)
+                      PopupMenuItem(
+                        value: _ListRowAction.unarchive,
+                        child: Text(l10n.unarchiveListMenuItem),
+                      ),
                   ],
                 ),
               ),
@@ -274,9 +423,12 @@ class _ListManagementRow extends StatelessWidget {
       ),
     );
   }
+
+  bool get _hasActions =>
+      onRename != null || onArchive != null || onUnarchive != null;
 }
 
-enum _ListRowAction { rename }
+enum _ListRowAction { rename, archive, unarchive }
 
 Color _listAccent(ColorScheme colorScheme, int index) {
   final accents = [

@@ -103,6 +103,7 @@ pub trait ListRepository {
     fn insert(&mut self, list: List) -> Result<(), StorageError>;
     fn update(&mut self, list: List) -> Result<(), StorageError>;
     fn list_all(&self) -> Result<Vec<List>, StorageError>;
+    fn list_archived(&self) -> Result<Vec<List>, StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -635,7 +636,8 @@ impl ListRepository for SqliteListRepository {
         let list = self
             .connection
             .query_row(
-                "SELECT id, name, color, icon, org_id, sort_order, created_at, updated_at
+                "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                        created_at, updated_at
                  FROM lists
                  WHERE id = ?1",
                 [id.to_string()],
@@ -649,9 +651,10 @@ impl ListRepository for SqliteListRepository {
     fn insert(&mut self, list: List) -> Result<(), StorageError> {
         self.connection.execute(
             "INSERT INTO lists (
-                id, name, color, icon, org_id, sort_order, created_at, updated_at
+                id, name, color, icon, org_id, sort_order, archived_at,
+                created_at, updated_at
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
             )",
             params![
                 list.id.to_string(),
@@ -660,6 +663,7 @@ impl ListRepository for SqliteListRepository {
                 list.icon,
                 list.org_id.map(|id| id.to_string()),
                 list.sort_order,
+                list.archived_at,
                 list.created_at,
                 list.updated_at,
             ],
@@ -675,8 +679,9 @@ impl ListRepository for SqliteListRepository {
                  icon = ?4,
                  org_id = ?5,
                  sort_order = ?6,
-                 created_at = ?7,
-                 updated_at = ?8
+                 archived_at = ?7,
+                 created_at = ?8,
+                 updated_at = ?9
              WHERE id = ?1",
             params![
                 list.id.to_string(),
@@ -685,6 +690,7 @@ impl ListRepository for SqliteListRepository {
                 list.icon,
                 list.org_id.map(|id| id.to_string()),
                 list.sort_order,
+                list.archived_at,
                 list.created_at,
                 list.updated_at,
             ],
@@ -699,9 +705,26 @@ impl ListRepository for SqliteListRepository {
 
     fn list_all(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, color, icon, org_id, sort_order, created_at, updated_at
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    created_at, updated_at
              FROM lists
+             WHERE archived_at IS NULL
              ORDER BY sort_order ASC",
+        )?;
+        let lists = statement
+            .query_map([], row_to_list)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(lists)
+    }
+
+    fn list_archived(&self) -> Result<Vec<List>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    created_at, updated_at
+             FROM lists
+             WHERE archived_at IS NOT NULL
+             ORDER BY archived_at DESC, sort_order ASC",
         )?;
         let lists = statement
             .query_map([], row_to_list)?
@@ -722,8 +745,9 @@ fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
         icon: row.get(3)?,
         org_id: parse_optional_uuid(org_id, 4)?,
         sort_order: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        archived_at: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -878,6 +902,7 @@ mod tests {
             icon: "list".to_string(),
             org_id: None,
             sort_order: sort_order.to_string(),
+            archived_at: None,
             created_at: 1_799_000_000_000,
             updated_at: 1_799_000_000_000,
         }
@@ -897,6 +922,28 @@ mod tests {
             set_user_version(&transaction, BASELINE_SCHEMA_VERSION).unwrap();
         }
         transaction.commit().unwrap();
+    }
+
+    fn insert_baseline_v1_list(connection: &Connection, list: &List) {
+        connection
+            .execute(
+                "INSERT INTO lists (
+                    id, name, color, icon, org_id, sort_order, created_at, updated_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+                )",
+                params![
+                    list.id.to_string(),
+                    list.name,
+                    list.color,
+                    list.icon,
+                    list.org_id.map(|id| id.to_string()),
+                    list.sort_order,
+                    list.created_at,
+                    list.updated_at,
+                ],
+            )
+            .unwrap();
     }
 
     fn archived_at_column(connection: &Connection) -> Option<(String, i32)> {
@@ -1071,8 +1118,7 @@ mod tests {
         task.list_id = list.id;
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
-            let mut repository = SqliteListRepository::new(connection);
-            repository.insert(list.clone()).unwrap();
+            insert_baseline_v1_list(&connection, &list);
         }
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
@@ -1112,8 +1158,7 @@ mod tests {
         let list = sample_list("legacy");
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
-            let mut repository = SqliteListRepository::new(connection);
-            repository.insert(list.clone()).unwrap();
+            insert_baseline_v1_list(&connection, &list);
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -1227,6 +1272,7 @@ mod tests {
         first.icon = "star".to_string();
         first.org_id = Some(Uuid::now_v7());
         first.sort_order = "c0".to_string();
+        first.archived_at = Some(1_799_000_001_000);
         first.updated_at += 1_000;
         repository.update(first.clone()).unwrap();
 
@@ -1238,7 +1284,16 @@ mod tests {
                 .into_iter()
                 .map(|list| list.id)
                 .collect::<Vec<_>>(),
-            vec![second.id, first.id]
+            vec![second.id]
+        );
+        assert_eq!(
+            repository
+                .list_archived()
+                .unwrap()
+                .into_iter()
+                .map(|list| list.id)
+                .collect::<Vec<_>>(),
+            vec![first.id]
         );
     }
 

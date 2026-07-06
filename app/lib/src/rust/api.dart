@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `is_default_inbox`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -34,8 +34,17 @@ Future<ListDto> createList({required String name, required String sortOrder}) =>
 
 Future<List<ListDto>> getLists() => RustLib.instance.api.crateApiGetLists();
 
+Future<List<ListDto>> getArchivedLists() =>
+    RustLib.instance.api.crateApiGetArchivedLists();
+
 Future<ListDto> renameList({required String listId, required String name}) =>
     RustLib.instance.api.crateApiRenameList(listId: listId, name: name);
+
+Future<ListDto> archiveList({required String listId}) =>
+    RustLib.instance.api.crateApiArchiveList(listId: listId);
+
+Future<ListDto> unarchiveList({required String listId}) =>
+    RustLib.instance.api.crateApiUnarchiveList(listId: listId);
 
 /// Creates a task at the end of its sibling group using a domain-generated
 /// fractional `sort_order`.
@@ -108,6 +117,7 @@ class ListDto {
   final String icon;
   final String? orgId;
   final String sortOrder;
+  final PlatformInt64? archivedAt;
   final PlatformInt64 createdAt;
   final PlatformInt64 updatedAt;
 
@@ -118,6 +128,7 @@ class ListDto {
     required this.icon,
     this.orgId,
     required this.sortOrder,
+    this.archivedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -130,6 +141,7 @@ class ListDto {
       icon.hashCode ^
       orgId.hashCode ^
       sortOrder.hashCode ^
+      archivedAt.hashCode ^
       createdAt.hashCode ^
       updatedAt.hashCode;
 
@@ -144,6 +156,7 @@ class ListDto {
           icon == other.icon &&
           orgId == other.orgId &&
           sortOrder == other.sortOrder &&
+          archivedAt == other.archivedAt &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
 }

@@ -16,14 +16,23 @@ abstract class BridgeService {
     required String sortOrder,
   });
 
-  /// Returns all lists.
+  /// Returns active, non-archived lists.
   Future<List<rust_api.ListDto>> getLists();
+
+  /// Returns archived lists.
+  Future<List<rust_api.ListDto>> getArchivedLists();
 
   /// Renames a list.
   Future<rust_api.ListDto> renameList({
     required String listId,
     required String name,
   });
+
+  /// Archives a list.
+  Future<rust_api.ListDto> archiveList({required String listId});
+
+  /// Restores an archived list to the active list collection.
+  Future<rust_api.ListDto> unarchiveList({required String listId});
 
   /// Creates a task at the end of its sibling group.
   Future<rust_api.TaskDto> createTask({
@@ -89,10 +98,22 @@ class FrbBridgeService implements BridgeService {
   Future<List<rust_api.ListDto>> getLists() => rust_api.getLists();
 
   @override
+  Future<List<rust_api.ListDto>> getArchivedLists() =>
+      rust_api.getArchivedLists();
+
+  @override
   Future<rust_api.ListDto> renameList({
     required String listId,
     required String name,
   }) => rust_api.renameList(listId: listId, name: name);
+
+  @override
+  Future<rust_api.ListDto> archiveList({required String listId}) =>
+      rust_api.archiveList(listId: listId);
+
+  @override
+  Future<rust_api.ListDto> unarchiveList({required String listId}) =>
+      rust_api.unarchiveList(listId: listId);
 
   @override
   Future<rust_api.TaskDto> createTask({

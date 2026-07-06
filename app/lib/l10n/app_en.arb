@@ -19,6 +19,18 @@
   "listActionsTooltip": "List actions",
   "renameListMenuItem": "Rename",
   "renameListTitle": "Rename list",
+  "archiveListMenuItem": "Archive",
+  "unarchiveListMenuItem": "Unarchive",
+  "archivedListsSectionTitle": "Archived ({count})",
+  "@archivedListsSectionTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "showArchivedListsTooltip": "Show archived lists",
+  "hideArchivedListsTooltip": "Hide archived lists",
   "nameLabel": "Name",
   "cancelButton": "Cancel",
   "createButton": "Create",
