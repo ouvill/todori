@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/ui/theme.dart';
 
 part 'design_lab_task_create_sheet_mock.dart';
@@ -140,7 +141,7 @@ const _smartLists = [
     label: 'Today',
     count: 8,
     accent: _priorityAmber,
-    icon: Icons.wb_sunny_outlined,
+    icon: LucideIcons.sun300,
   ),
   _LabList(label: 'Inbox', count: 3, accent: _prioritySage),
   _LabList(label: 'Upcoming', count: 5, accent: _priorityAmber),
@@ -259,11 +260,11 @@ class _TaskHeaderActions extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: const [
-        _QuietIconButton(icon: Icons.menu_rounded),
+        _QuietIconButton(icon: LucideIcons.menu300),
         Spacer(),
-        _QuietIconButton(icon: Icons.tune_rounded),
+        _QuietIconButton(icon: LucideIcons.slidersHorizontal300),
         SizedBox(width: AppSpacing.sm),
-        _QuietIconButton(icon: Icons.more_horiz_rounded),
+        _QuietIconButton(icon: LucideIcons.moreHorizontal300),
       ],
     );
   }
@@ -593,7 +594,7 @@ class _FocusTimerMock extends StatelessWidget {
           children: [
             Row(
               children: [
-                const _QuietIconButton(icon: Icons.arrow_back_rounded),
+                const _QuietIconButton(icon: LucideIcons.arrowLeft300),
                 Expanded(
                   child: Center(
                     child: Text(
@@ -606,7 +607,7 @@ class _FocusTimerMock extends StatelessWidget {
                     ),
                   ),
                 ),
-                const _QuietIconButton(icon: Icons.more_horiz_rounded),
+                const _QuietIconButton(icon: LucideIcons.moreHorizontal300),
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -658,7 +659,7 @@ class _FocusTimerRing extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  Icons.eco_outlined,
+                  LucideIcons.leaf300,
                   color: colorScheme.primary.withValues(alpha: 0.82),
                   size: 28,
                 ),
@@ -765,7 +766,7 @@ class _FocusSessionPill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.spa_outlined,
+              LucideIcons.sprout300,
               size: 16,
               color: colorScheme.primary.withValues(alpha: 0.72),
             ),
@@ -842,7 +843,7 @@ class _FocusActionRow extends StatelessWidget {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: () {},
-            icon: const Icon(Icons.pause_rounded),
+            icon: const Icon(LucideIcons.pause300),
             label: const Text('Pause'),
             style: OutlinedButton.styleFrom(
               foregroundColor: colorScheme.primary,
@@ -860,7 +861,7 @@ class _FocusActionRow extends StatelessWidget {
         Expanded(
           child: FilledButton.icon(
             onPressed: () {},
-            icon: const Icon(Icons.stop_rounded),
+            icon: const Icon(LucideIcons.stopCircle300),
             label: const Text('Finish'),
             style: FilledButton.styleFrom(
               backgroundColor: colorScheme.primary,
@@ -886,7 +887,7 @@ class _AddTaskButton extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return FilledButton.icon(
       onPressed: () {},
-      icon: const Icon(Icons.add_rounded),
+      icon: const Icon(LucideIcons.plus300),
       label: const Text('Add task'),
       style: FilledButton.styleFrom(
         backgroundColor: colorScheme.primary.withValues(alpha: 0.94),
@@ -913,7 +914,7 @@ class _CompletedTodayRow extends StatelessWidget {
       child: TextButton.icon(
         onPressed: () {},
         icon: Icon(
-          Icons.keyboard_arrow_down_rounded,
+          LucideIcons.chevronDown300,
           color: colorScheme.onSurfaceVariant.withValues(alpha: 0.48),
           size: 18,
         ),
@@ -964,9 +965,11 @@ class _ListOverviewMock extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const _ListHeaderIconButton(icon: Icons.search_rounded),
+                  const _ListHeaderIconButton(icon: LucideIcons.search300),
                   const SizedBox(width: AppSpacing.sm),
-                  const _ListHeaderIconButton(icon: Icons.more_horiz_rounded),
+                  const _ListHeaderIconButton(
+                    icon: LucideIcons.moreHorizontal300,
+                  ),
                 ],
               ),
             ),
@@ -1031,7 +1034,7 @@ class _ListOverviewPanel extends StatelessWidget {
             ),
             const _ListSectionLabel(
               label: 'Custom Lists',
-              trailing: Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+              trailing: Icon(LucideIcons.chevronDown300, size: 28),
             ),
             const SizedBox(height: AppSpacing.xs),
             for (final list in customLists)
@@ -1134,7 +1137,7 @@ class _OverviewListRow extends StatelessWidget {
             if (list.isSelected) ...[
               const SizedBox(width: AppSpacing.sm),
               Icon(
-                Icons.more_horiz_rounded,
+                LucideIcons.moreHorizontal300,
                 color: colorScheme.primary.withValues(alpha: 0.86),
                 size: 22,
               ),
@@ -1244,7 +1247,7 @@ class _CheckCircle extends StatelessWidget {
         dimension: dimension,
         child: isDone
             ? Icon(
-                Icons.check_rounded,
+                LucideIcons.check300,
                 color: colorScheme.onPrimary,
                 size: checkSize,
               )
@@ -1296,8 +1299,10 @@ class _PlayButton extends StatelessWidget {
           padding: EdgeInsets.zero,
           icon: Icon(
             Icons.play_arrow_rounded,
-            color: active ? colorScheme.onPrimary : colorScheme.primary,
-            size: 23,
+            color: active
+                ? colorScheme.onPrimary
+                : colorScheme.primary.withValues(alpha: 0.92),
+            size: 27,
           ),
           style: IconButton.styleFrom(
             minimumSize: Size(dimension, dimension),
@@ -1442,7 +1447,7 @@ class _NewListRow extends StatelessWidget {
             ),
             child: SizedBox.square(
               dimension: 48,
-              child: Icon(Icons.add_rounded, color: colorScheme.primary),
+              child: Icon(LucideIcons.plus300, color: colorScheme.primary),
             ),
           ),
           const SizedBox(width: AppSpacing.md),

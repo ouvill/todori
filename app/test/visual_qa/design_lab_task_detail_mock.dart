@@ -47,7 +47,7 @@ class _TaskDetailTopBar extends StatelessWidget {
         TextButton.icon(
           onPressed: () {},
           icon: Icon(
-            Icons.arrow_back_rounded,
+            LucideIcons.arrowLeft300,
             color: colorScheme.primary.withValues(alpha: 0.9),
             size: 22,
           ),
@@ -65,7 +65,7 @@ class _TaskDetailTopBar extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        const _QuietIconButton(icon: Icons.more_vert_rounded),
+        const _QuietIconButton(icon: LucideIcons.moreVertical300),
       ],
     );
   }
@@ -134,27 +134,27 @@ class _TaskDetailMetaChips extends StatelessWidget {
           runSpacing: AppSpacing.xs,
           children: [
             _TaskDetailSetChip(
-              icon: Icons.inbox_outlined,
+              icon: LucideIcons.inbox300,
               label: 'List',
               value: 'Design',
             ),
             _TaskDetailSetChip(
-              icon: Icons.today_outlined,
+              icon: LucideIcons.calendarDays300,
               label: 'Due',
               value: 'Today',
             ),
             _TaskDetailSetChip(
-              icon: Icons.schedule_rounded,
+              icon: LucideIcons.clock300,
               label: 'Plan',
               value: '14:00',
             ),
             _TaskDetailSetChip(
-              icon: Icons.hourglass_empty_rounded,
+              icon: LucideIcons.hourglass300,
               label: 'Estimate',
               value: '45m',
             ),
             _TaskDetailSetChip(
-              icon: Icons.label_outline_rounded,
+              icon: LucideIcons.tag300,
               label: 'Tag',
               value: 'UI',
             ),
@@ -172,12 +172,9 @@ class _TaskDetailMetaChips extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             clipBehavior: Clip.none,
             children: const [
-              _TaskDetailAddChip(
-                icon: Icons.notifications_none,
-                label: 'Reminder',
-              ),
+              _TaskDetailAddChip(icon: LucideIcons.bell300, label: 'Reminder'),
               SizedBox(width: AppSpacing.xs),
-              _TaskDetailAddChip(icon: Icons.repeat_rounded, label: 'Repeat'),
+              _TaskDetailAddChip(icon: LucideIcons.repeat300, label: 'Repeat'),
             ],
           ),
         ),
@@ -205,10 +202,10 @@ class _TaskDetailSetChip extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: _labSurfaceWarm.withValues(alpha: 0.48),
+        color: _labSurfaceWarm.withValues(alpha: 0.64),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.3),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.44),
           width: _taskControlStrokeWidth,
         ),
       ),
@@ -221,7 +218,7 @@ class _TaskDetailSetChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 15,
-                color: colorScheme.primary.withValues(alpha: 0.72),
+                color: colorScheme.primary.withValues(alpha: 0.84),
               )
             else
               _PriorityMark(color: dotColor!, size: 7),
@@ -229,8 +226,8 @@ class _TaskDetailSetChip extends StatelessWidget {
             RichText(
               text: TextSpan(
                 style: theme.textTheme.labelMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.58),
-                  fontWeight: FontWeight.w300,
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.68),
+                  fontWeight: FontWeight.w400,
                   height: 1.0,
                 ),
                 children: [
@@ -238,7 +235,7 @@ class _TaskDetailSetChip extends StatelessWidget {
                   TextSpan(
                     text: value,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: colorScheme.onSurface.withValues(alpha: 0.75),
+                      color: colorScheme.onSurface.withValues(alpha: 0.84),
                       fontWeight: FontWeight.w400,
                       height: 1.0,
                     ),
@@ -248,9 +245,9 @@ class _TaskDetailSetChip extends StatelessWidget {
             ),
             const SizedBox(width: 3),
             Icon(
-              Icons.keyboard_arrow_down_rounded,
+              LucideIcons.chevronDown300,
               size: 16,
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.42),
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.54),
             ),
           ],
         ),
@@ -286,7 +283,7 @@ class _TaskDetailFocusFab extends StatelessWidget {
         child: Icon(
           Icons.play_arrow_rounded,
           color: colorScheme.onPrimary,
-          size: 30,
+          size: 34,
         ),
       ),
     );
@@ -305,10 +302,10 @@ class _TaskDetailAddChip extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: _labSoftIvory.withValues(alpha: 0.48),
+        color: _labSoftIvory.withValues(alpha: 0.62),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.24),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.38),
           width: _taskControlStrokeWidth,
         ),
       ),
@@ -318,22 +315,22 @@ class _TaskDetailAddChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.add_rounded,
+              LucideIcons.plus300,
               size: 15,
-              color: colorScheme.primary.withValues(alpha: 0.7),
+              color: colorScheme.primary.withValues(alpha: 0.82),
             ),
             const SizedBox(width: 3),
             Icon(
               icon,
               size: 14,
-              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
             ),
             const SizedBox(width: 7),
             Text(
               label,
               style: theme.textTheme.labelMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.74),
-                fontWeight: FontWeight.w300,
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
+                fontWeight: FontWeight.w400,
                 height: 1.0,
               ),
             ),
@@ -403,7 +400,7 @@ class _TaskDetailAddSubtaskButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.add_rounded,
+              LucideIcons.plus300,
               size: 17,
               color: colorScheme.primary.withValues(alpha: 0.72),
             ),
@@ -447,13 +444,13 @@ class _TaskDetailActivityList extends StatelessWidget {
     return const Column(
       children: [
         _TaskDetailActivityItem(
-          icon: Icons.add_circle_outline_rounded,
+          icon: LucideIcons.circlePlus300,
           label: 'Created',
           value: 'Jul 2, 2026',
         ),
         SizedBox(height: AppSpacing.xs),
         _TaskDetailActivityItem(
-          icon: Icons.update_rounded,
+          icon: LucideIcons.refreshCw300,
           label: 'Autosaved',
           value: 'Today at 09:24',
         ),

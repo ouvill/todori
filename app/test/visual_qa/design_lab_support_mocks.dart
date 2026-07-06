@@ -22,9 +22,9 @@ class _SearchMock extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Row(
                 children: [
-                  _QuietIconButton(icon: Icons.arrow_back_rounded),
+                  _QuietIconButton(icon: LucideIcons.arrowLeft300),
                   Spacer(),
-                  _QuietIconButton(icon: Icons.tune_rounded),
+                  _QuietIconButton(icon: LucideIcons.slidersHorizontal300),
                 ],
               ),
             ),
@@ -57,20 +57,20 @@ class _SearchMock extends StatelessWidget {
                 runSpacing: AppSpacing.xs,
                 children: const [
                   _SupportFilterChip(
-                    icon: Icons.today_outlined,
+                    icon: LucideIcons.calendarDays300,
                     label: 'Due this week',
                     selected: true,
                   ),
                   _SupportFilterChip(
-                    icon: Icons.eco_outlined,
+                    icon: LucideIcons.leaf300,
                     label: 'Focus-ready',
                   ),
                   _SupportFilterChip(
-                    icon: Icons.check_circle_outline_rounded,
+                    icon: LucideIcons.circleCheck300,
                     label: 'Completed',
                   ),
                   _SupportFilterChip(
-                    icon: Icons.folder_outlined,
+                    icon: LucideIcons.folder300,
                     label: 'Design',
                   ),
                 ],
@@ -107,9 +107,9 @@ class _SettingsMock extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Row(
                 children: [
-                  _QuietIconButton(icon: Icons.arrow_back_rounded),
+                  _QuietIconButton(icon: LucideIcons.arrowLeft300),
                   Spacer(),
-                  _QuietIconButton(icon: Icons.more_horiz_rounded),
+                  _QuietIconButton(icon: LucideIcons.moreHorizontal300),
                 ],
               ),
             ),
@@ -145,19 +145,19 @@ class _SettingsMock extends StatelessWidget {
               label: 'APP',
               rows: [
                 _SettingsRowData(
-                  icon: Icons.sync_rounded,
+                  icon: LucideIcons.refreshCw300,
                   title: 'Sync',
                   detail: 'Last updated 2 min ago',
                   accent: _priorityBlue,
                 ),
                 _SettingsRowData(
-                  icon: Icons.lock_outline_rounded,
+                  icon: LucideIcons.lock300,
                   title: 'Security',
                   detail: 'Device key protected',
                   accent: _priorityGreen,
                 ),
                 _SettingsRowData(
-                  icon: Icons.palette_outlined,
+                  icon: LucideIcons.palette300,
                   title: 'Appearance',
                   detail: 'Warm ivory, system light',
                   accent: _priorityAmber,
@@ -169,19 +169,19 @@ class _SettingsMock extends StatelessWidget {
               label: 'PREFERENCES',
               rows: [
                 _SettingsRowData(
-                  icon: Icons.notifications_none_rounded,
+                  icon: LucideIcons.bell300,
                   title: 'Notifications',
                   detail: 'Daily planning at 9:00',
                   accent: _priorityCoral,
                 ),
                 _SettingsRowData(
-                  icon: Icons.timer_outlined,
+                  icon: LucideIcons.timer300,
                   title: 'Focus timer',
                   detail: '25 min default',
                   accent: _prioritySage,
                 ),
                 _SettingsRowData(
-                  icon: Icons.language_rounded,
+                  icon: LucideIcons.languages300,
                   title: 'Language',
                   detail: 'English',
                   accent: Color(0xFF8F82C8),
@@ -215,7 +215,7 @@ class _TimerSetupMock extends StatelessWidget {
           children: [
             Row(
               children: [
-                const _QuietIconButton(icon: Icons.close_rounded),
+                const _QuietIconButton(icon: LucideIcons.x300),
                 Expanded(
                   child: Center(
                     child: Text(
@@ -228,7 +228,7 @@ class _TimerSetupMock extends StatelessWidget {
                     ),
                   ),
                 ),
-                const _QuietIconButton(icon: Icons.more_horiz_rounded),
+                const _QuietIconButton(icon: LucideIcons.moreHorizontal300),
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -262,7 +262,7 @@ class _SupportSearchField extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              Icons.search_rounded,
+              LucideIcons.search300,
               color: colorScheme.primary.withValues(alpha: 0.72),
               size: 22,
             ),
@@ -312,7 +312,7 @@ class _TimerSetupRing extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
-                  Icons.timer_outlined,
+                  LucideIcons.timer300,
                   color: colorScheme.primary.withValues(alpha: 0.76),
                   size: 28,
                 ),
@@ -518,26 +518,26 @@ class _SupportResultsPanel extends StatelessWidget {
             _SupportSectionHeader(label: 'RESULTS'),
             SizedBox(height: AppSpacing.xs),
             _SupportResultRow(
-              icon: Icons.check_circle_outline_rounded,
+              icon: LucideIcons.circleCheck300,
               title: 'Review design direction',
               detail: 'Task - Today - Design',
               accent: _priorityCoral,
             ),
             _SupportResultRow(
-              icon: Icons.folder_outlined,
+              icon: LucideIcons.folder300,
               title: 'Design',
               detail: 'List - 7 open tasks',
               accent: _priorityGreen,
             ),
             _SupportResultRow(
-              icon: Icons.task_alt_rounded,
+              icon: LucideIcons.circleCheckBig300,
               title: 'Collect references',
               detail: 'Completed - Today',
               accent: _prioritySage,
               completed: true,
             ),
             _SupportResultRow(
-              icon: Icons.timer_outlined,
+              icon: LucideIcons.timer300,
               title: 'Draft restore flow',
               detail: 'Task - Focus-ready',
               accent: _priorityAmber,
@@ -630,7 +630,7 @@ class _SupportResultRow extends StatelessWidget {
             ),
           ),
           Icon(
-            Icons.chevron_right_rounded,
+            LucideIcons.chevronRight300,
             color: colorScheme.onSurfaceVariant.withValues(alpha: 0.44),
           ),
         ],
@@ -832,7 +832,7 @@ class _SettingsRow extends StatelessWidget {
             ),
           ),
           Icon(
-            Icons.chevron_right_rounded,
+            LucideIcons.chevronRight300,
             color: colorScheme.onSurfaceVariant.withValues(alpha: 0.44),
           ),
         ],

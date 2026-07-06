@@ -11,6 +11,7 @@
 //
 // Usage: `sh tool/visual_qa.sh` from `app/`, or directly:
 //   TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -427,6 +428,8 @@ Future<void> _screenshot(WidgetTester tester, String name) async {
 ///
 /// - Material Icons come from the Flutter SDK cache (`$FLUTTER_ROOT`), so
 ///   icon glyphs (checkboxes, chevrons, the FAB `+`, etc.) render correctly.
+/// - Lucide Icons come from the hosted package cache and are registered under
+///   the package-qualified font family used by `IconData(fontPackage: ...)`.
 /// - The bundled brand typefaces (`assets/fonts/Lora`, `assets/fonts/Inter`;
 ///   see `app/pubspec.yaml` `fonts:` and `docs/design/visual-direction.md`)
 ///   are registered under their real family names, each weight in turn, so
@@ -448,6 +451,7 @@ Future<void> _screenshot(WidgetTester tester, String name) async {
 ///   renders Japanese here.)
 Future<void> _loadRealFonts() async {
   await _loadMaterialIconsFont();
+  await _loadLucideIconsFont();
   await _loadBrandFont(family: 'Inter', weightPaths: _interWeightPaths);
   await _loadBrandFont(family: 'Lora', weightPaths: _loraWeightPaths);
   await _loadBrandFont(
@@ -502,6 +506,45 @@ Future<void> _loadMaterialIconsFont() async {
     'MaterialIcons-Regular.otf',
   );
   await loader.load();
+}
+
+Future<void> _loadLucideIconsFont() async {
+  final packageRoot = await _packageRootPath('lucide_icons_flutter');
+  if (packageRoot == null) {
+    return;
+  }
+  final fontPath = '$packageRoot/assets/build_font/LucideVariable-w300.ttf';
+  for (final family in const [
+    'packages/lucide_icons_flutter/Lucide300',
+    'Lucide300',
+  ]) {
+    final loader = FontLoader(family);
+    if (await _addFontFile(loader, fontPath)) {
+      await loader.load();
+    }
+  }
+}
+
+Future<String?> _packageRootPath(String packageName) async {
+  final packageConfigFile = File('.dart_tool/package_config.json');
+  if (!packageConfigFile.existsSync()) {
+    return null;
+  }
+  final config =
+      jsonDecode(await packageConfigFile.readAsString())
+          as Map<String, Object?>;
+  final packages = config['packages'] as List<Object?>;
+  for (final package in packages.cast<Map<String, Object?>>()) {
+    if (package['name'] != packageName) {
+      continue;
+    }
+    final rootUri = Uri.parse(package['rootUri']! as String);
+    final resolvedRoot = rootUri.hasScheme
+        ? rootUri
+        : packageConfigFile.parent.uri.resolveUri(rootUri);
+    return resolvedRoot.toFilePath();
+  }
+  return null;
 }
 
 /// Registers every bundled weight for [family] on **one** [FontLoader]
