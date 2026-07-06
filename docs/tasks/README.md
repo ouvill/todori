@@ -53,6 +53,7 @@
 | task-33 | 完了 | [task-33-flutter-design-lab.md](./task-33-flutter-design-lab.md) | Flutter Design Lab。visual QA上で本番UIを壊さずにToday/Task体験の複数モックをPNG比較できる実験場を作る | task-28〜32と `docs/design/visual-direction.md`、visual QAスクショ基盤に依存。M3 polish follow-up |
 | task-34 | 完了 | [task-34-typography-rollout.md](./task-34-typography-rollout.md) | typography rollout。2026-07-06タイポ裁定（Newsreader範囲制限＋システム和文セリフ、Lora退役）を本番へ反映する | task-30・task-33の成果物と`docs/design/ui-spec.md`裁定済み事項に依存。M3 polish follow-up |
 | task-35 | 完了 | [task-35-list-rename.md](./task-35-list-rename.md) | リスト名称変更。domain→storage→bridge→Dart→UIの縦貫通で、M3-01完了条件の残りのうち名称変更のみを実装する（削除は2026-07-07人間裁定によるセマンティクス変更のためtask-37へ分離） | task-08〜10の成果物に依存。BACKLOG優先度付きバックログ#1 |
+| task-36 | 未着手 | [task-36-schema-migration.md](./task-36-schema-migration.md) | DBスキーママイグレーション機構。`core/storage` に `PRAGMA user_version` ベースのバージョニングとマイグレーションランナーを整備し、v2で `lists.archived_at` を追加する | task-35の完了状態に依存。task-37（リストのアーカイブ/解除）の前提 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
