@@ -145,7 +145,7 @@
 2. 新しい色・角丸・サイズ・影・面色を発明しない。トークンにない値が必要になったら実装を止め、完了報告の未解決事項に書く。
 3. 同じ情報を2箇所に出さない。
 4. チップは1行に2個まで。
-5. アイコンはMaterial標準を使う。lucide等の別アイコンセットの本番導入は依存追加＝人間承認が必要な設計判断（セクション6参照）。
+5. アイコンは Lucide（`lucide_icons_flutter`）に統一する（2026-07-06裁定）。本番反映完了までの間、既存Material Iconsは暫定として残ってよいが、新規実装や置き換え時にMaterialとLucideを同一画面へ混在させて追加しない。
 6. 整列は基準（1行目センター/行全体センター/baseline）を明示して実装する。
 7. 参照画像（`assets/brand/generated/`）と本書が矛盾したら本書が優先する。本書に穴があれば、タスク内では最も保守的な解（=削る側）を取り、完了報告の未解決事項でspec追記を提案する。
 
@@ -157,10 +157,10 @@
 ## 裁定済み事項
 
 - **2026-07-06 人間裁定**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、**calm発展形の単一方向**（現行 `design_lab_task_list.png` 等の8画面）へ集約された。dense案・smart lists単独案はclosed。smart listsの概念は `design_lab_list_overview` に吸収済み。以後のセッションはこの3案比較を再開しない。本番への反映は別タスクの指示書で範囲を定めて行う。
+- **2026-07-06 人間裁定**: 本番アイコンセットとして `lucide_icons_flutter` を採用する。本番反映時は全画面で Lucide に統一し、Material Icons と同一画面で混在させない。tooltip/semanticsは維持する。反映は別タスクの指示書で行う。
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 
 - タスク行右側のaffordance: chevron継続か、将来のFocus開始ボタンか（Focus timer実装時に決定）。
-- `lucide_icons_flutter` の本番採用可否（現状はDesign Lab実験用。依存追加の人間承認が未実施なら要確認）。
 - Newsreaderフォントの扱い（Design Lab実験用。本番はLora/Interのまま）。
 - ダークモードの正式トークン（priority dot固定hexのコントラスト含む）。
