@@ -154,9 +154,12 @@
 - 本番タスク行のpriority dotとチェックボックスが、多行タイトル時にタイトル1行目と整列していない（2026-07-06 親レビューで確認。修正タスク対象。セクション3の整列規則参照）。
 - Trash画面の日付が絶対表記のまま（`docs/tasks/BACKLOG.md`既載）。
 
+## 裁定済み事項
+
+- **2026-07-06 人間裁定**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、**calm発展形の単一方向**（現行 `design_lab_task_list.png` 等の8画面）へ集約された。dense案・smart lists単独案はclosed。smart listsの概念は `design_lab_list_overview` に吸収済み。以後のセッションはこの3案比較を再開しない。本番への反映は別タスクの指示書で範囲を定めて行う。
+
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 
-- Design Lab 3案（calm/dense/smart lists）のどれを本番Todayの次形態として採用するか。
 - タスク行右側のaffordance: chevron継続か、将来のFocus開始ボタンか（Focus timer実装時に決定）。
 - `lucide_icons_flutter` の本番採用可否（現状はDesign Lab実験用。依存追加の人間承認が未実施なら要確認）。
 - Newsreaderフォントの扱い（Design Lab実験用。本番はLora/Interのまま）。

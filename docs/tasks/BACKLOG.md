@@ -31,6 +31,7 @@
 - **Trash visual refinement完了済み**: task-31でTrash行の削除日/期限日を短縮・相対日付文法へ揃え、visibleなPriorityチップをpriority dotへ置き換えた。FakeBridgeServiceの時刻seedを現実的なepoch millisecondsへ更新し、dark themeのpriority dot確認用 `home_tasks_dark.png` をvisual QAに追加した。
 - **Task list interaction refinement完了済み**: task-32で `/lists` の左方向transition、下部折りたたみ `Completed` セクション、タスク一覧のサブタスク進捗バッジ非表示、task row / Trash row / Task detail headerのpriority dot中央揃えを行った。
 - **Flutter Design Lab完了済み**: task-33で本番route/provider/DB/FRB/Rust APIに触れず、visual QA上に `design_lab_today_calm.png` / `design_lab_today_dense.png` / `design_lab_smart_lists.png` を生成するtest-onlyモック基盤を追加した。
+- Design Lab方向性裁定済み（2026-07-06人間裁定: calm発展形の単一方向へ集約。詳細は `docs/design/ui-spec.md` 裁定済み事項参照）。
 - **テスト数**: Rust 74 / Flutter 38（task-33実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で11スクリーンショットを生成）。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
@@ -61,6 +62,5 @@
 
 ## 要人間判断
 
-- Design Lab 3案（calm/dense/smart lists）のどれを本番Todayの次形態として採用するか。出典: task-33完了報告 / `docs/design/ui-spec.md` セクション6。
 - `lucide_icons_flutter` の本番採用可否（現状はDesign Lab実験用。依存追加は人間承認が必要な設計判断）。出典: task-33完了報告 / `docs/design/ui-spec.md` セクション6。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
