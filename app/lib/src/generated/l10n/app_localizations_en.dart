@@ -248,10 +248,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get taskActionsTooltip => 'Task actions';
 
   @override
+  String get completeTaskTooltip => 'Mark task done';
+
+  @override
   String get markTaskDoneMenuItem => 'Mark done';
 
   @override
   String get markTaskWontDoMenuItem => 'Mark won\'t do';
+
+  @override
+  String get reopenTaskTooltip => 'Reopen task';
 
   @override
   String get reopenTaskMenuItem => 'Reopen';

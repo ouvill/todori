@@ -518,6 +518,12 @@ abstract class AppLocalizations {
   /// **'Task actions'**
   String get taskActionsTooltip;
 
+  /// No description provided for @completeTaskTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark task done'**
+  String get completeTaskTooltip;
+
   /// No description provided for @markTaskDoneMenuItem.
   ///
   /// In en, this message translates to:
@@ -529,6 +535,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mark won\'t do'**
   String get markTaskWontDoMenuItem;
+
+  /// No description provided for @reopenTaskTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Reopen task'**
+  String get reopenTaskTooltip;
 
   /// No description provided for @reopenTaskMenuItem.
   ///

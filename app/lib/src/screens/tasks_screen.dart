@@ -68,6 +68,7 @@ class TasksScreen extends ConsumerWidget {
             sortMenu: sortMenu,
             onCreateTask: () => _createTask(context, ref),
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
+            onReopenTask: (task) => _reopenTask(ref, task),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
                   .read(tasksProvider(listId).notifier)
@@ -136,6 +137,10 @@ class TasksScreen extends ConsumerWidget {
     }
     await _showLatestUndoSnackBar(context);
   }
+
+  Future<void> _reopenTask(WidgetRef ref, TaskDto task) {
+    return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
+  }
 }
 
 class _TasksBody extends StatefulWidget {
@@ -148,6 +153,7 @@ class _TasksBody extends StatefulWidget {
     required this.sortMenu,
     required this.onCreateTask,
     required this.onCompleteTask,
+    required this.onReopenTask,
     required this.onMoveTask,
   });
 
@@ -159,6 +165,7 @@ class _TasksBody extends StatefulWidget {
   final Widget sortMenu;
   final VoidCallback onCreateTask;
   final Future<void> Function(TaskDto task) onCompleteTask;
+  final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function({
     required TaskDto task,
     required String? previousTaskId,
@@ -176,7 +183,7 @@ class _TasksBodyState extends State<_TasksBody> {
   @override
   void didUpdateWidget(covariant _TasksBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_showCompleted && !widget.tasks.any(isTaskClosed)) {
+    if (_showCompleted && !_hasClosedRoot(widget.tasks)) {
       _showCompleted = false;
     }
   }
@@ -184,18 +191,19 @@ class _TasksBodyState extends State<_TasksBody> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final activeTasks = widget.tasks
+    final roots = buildTaskTree(widget.tasks, sortMode: widget.sortMode);
+    final activeRoots = roots
+        .where((node) => !isTaskClosed(node.task))
+        .toList(growable: false);
+    final completedRoots = roots
+        .where((node) => isTaskClosed(node.task))
+        .toList(growable: false);
+    final activeNodes = flattenTaskTree(activeRoots);
+    final completedNodes = flattenTaskTree(completedRoots);
+    final activeReorderTasks = activeNodes
+        .map((node) => node.task)
         .where((task) => !isTaskClosed(task))
         .toList(growable: false);
-    final completedTasks = widget.tasks
-        .where(isTaskClosed)
-        .toList(growable: false);
-    final activeNodes = flattenTaskTree(
-      buildTaskTree(activeTasks, sortMode: widget.sortMode),
-    );
-    final completedNodes = flattenTaskTree(
-      buildTaskTree(completedTasks, sortMode: widget.sortMode),
-    );
     if (!widget.isHome && activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
         icon: Icons.checklist_outlined,
@@ -230,7 +238,12 @@ class _TasksBodyState extends State<_TasksBody> {
     for (final node in activeNodes) {
       addGap(AppSpacing.sm);
       children.add(
-        _buildTaskRow(context, node, activeTasks, isCompletedSection: false),
+        _buildTaskRow(
+          context,
+          node,
+          activeReorderTasks,
+          isCompletedSection: false,
+        ),
       );
     }
 
@@ -238,7 +251,7 @@ class _TasksBodyState extends State<_TasksBody> {
       addGap(activeNodes.isEmpty ? AppSpacing.sm : AppSpacing.lg);
       children.add(
         _CompletedSectionHeader(
-          count: completedNodes.length,
+          count: completedRoots.length,
           isExpanded: _showCompleted,
           onTap: () => setState(() => _showCompleted = !_showCompleted),
         ),
@@ -250,7 +263,7 @@ class _TasksBodyState extends State<_TasksBody> {
             _buildTaskRow(
               context,
               node,
-              completedTasks,
+              const <TaskDto>[],
               isCompletedSection: true,
             ),
           );
@@ -275,7 +288,7 @@ class _TasksBodyState extends State<_TasksBody> {
   Widget _buildTaskRow(
     BuildContext context,
     TaskTreeNode node,
-    List<TaskDto> taskScope, {
+    List<TaskDto> reorderScope, {
     required bool isCompletedSection,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -284,9 +297,10 @@ class _TasksBodyState extends State<_TasksBody> {
     final showManualControls =
         !widget.isHome &&
         !isCompletedSection &&
+        !isTaskClosed(task) &&
         widget.sortMode == TaskSortMode.manual;
     final siblings = showManualControls
-        ? _siblingsOf(task, taskScope)
+        ? _siblingsOf(task, reorderScope)
         : const <TaskDto>[];
     final siblingIndex = siblings.indexWhere(
       (sibling) => sibling.id == task.id,
@@ -303,6 +317,9 @@ class _TasksBodyState extends State<_TasksBody> {
         taskPriorityLabel(l10n, task.priority),
       ),
       hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+      toggleDoneTooltip: isTaskClosed(task)
+          ? l10n.reopenTaskTooltip
+          : l10n.completeTaskTooltip,
       metadata: taskMetadataItemsFor(
         l10n: l10n,
         locale: Localizations.localeOf(context).toLanguageTag(),
@@ -327,7 +344,9 @@ class _TasksBodyState extends State<_TasksBody> {
               Icons.chevron_right,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-      onToggleDone: isCompletedSection
+      onToggleDone: isTaskClosed(task)
+          ? () => widget.onReopenTask(task)
+          : isCompletedSection
           ? null
           : () => widget.onCompleteTask(task),
       onTap: () => context.push('/lists/${widget.listId}/tasks/${task.id}'),
@@ -575,7 +594,16 @@ class _CompletedSectionHeader extends StatelessWidget {
 }
 
 int _pendingCount(List<TaskDto> tasks) {
-  return tasks.where((task) => !isTaskClosed(task)).length;
+  final activeRoots = buildTaskTree(
+    tasks,
+  ).where((node) => !isTaskClosed(node.task));
+  return flattenTaskTree(
+    activeRoots.toList(growable: false),
+  ).where((node) => !isTaskClosed(node.task)).length;
+}
+
+bool _hasClosedRoot(List<TaskDto> tasks) {
+  return buildTaskTree(tasks).any((node) => isTaskClosed(node.task));
 }
 
 class _TaskSortMenu extends StatelessWidget {

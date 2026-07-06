@@ -264,6 +264,7 @@ class AppTaskRow extends StatelessWidget {
     this.priorityDotKey,
     this.prioritySemanticLabel,
     this.hierarchyGuideKey,
+    this.toggleDoneTooltip,
     this.onToggleDone,
     this.trailing,
   });
@@ -276,6 +277,7 @@ class AppTaskRow extends StatelessWidget {
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
   final Key? hierarchyGuideKey;
+  final String? toggleDoneTooltip;
   final List<TaskMetadataItem> metadata;
   final VoidCallback? onToggleDone;
   final Widget? trailing;
@@ -349,6 +351,7 @@ class AppTaskRow extends StatelessWidget {
                   _TaskRowLeading(
                     checkboxKey: checkboxKey,
                     isDone: isDone,
+                    tooltip: toggleDoneTooltip,
                     onToggleDone: onToggleDone,
                   ),
                   const SizedBox(width: AppSpacing.xs),
@@ -411,16 +414,18 @@ class _TaskRowLeading extends StatelessWidget {
     required this.isDone,
     required this.onToggleDone,
     this.checkboxKey,
+    this.tooltip,
   });
 
   final bool isDone;
   final VoidCallback? onToggleDone;
   final Key? checkboxKey;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return SizedBox(
+    final control = SizedBox(
       width: 48,
       height: 48,
       child: Center(
@@ -437,9 +442,17 @@ class _TaskRowLeading extends StatelessWidget {
                 key: checkboxKey,
                 value: isDone,
                 shape: const CircleBorder(),
-                onChanged: isDone ? null : (_) => onToggleDone?.call(),
+                onChanged: (_) => onToggleDone?.call(),
               ),
       ),
+    );
+    final label = tooltip;
+    if (label == null) {
+      return control;
+    }
+    return Tooltip(
+      message: label,
+      child: Semantics(label: label, button: true, child: control),
     );
   }
 }

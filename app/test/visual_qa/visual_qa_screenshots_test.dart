@@ -385,6 +385,35 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     dueAt: today,
   );
 
+  const parentWithSubtasksTitle = 'Plan the product launch event';
+  final launch = await fake.createTask(
+    listId: homeListId,
+    title: parentWithSubtasksTitle,
+  );
+  await fake.updateTask(
+    taskId: launch.id,
+    title: launch.title,
+    note: '',
+    priority: 2,
+    dueAt: today,
+  );
+  final checklist = await fake.createTask(
+    listId: homeListId,
+    title: 'Draft the launch checklist',
+    parentTaskId: launch.id,
+  );
+  await fake.setTaskStatus(taskId: checklist.id, status: 'done');
+  await fake.createTask(
+    listId: homeListId,
+    title: 'Review checklist with design',
+    parentTaskId: launch.id,
+  );
+  await fake.createTask(
+    listId: homeListId,
+    title: 'デザインレビューのフィードバックを反映する',
+    parentTaskId: launch.id,
+  );
+
   const longTitle =
       'Draft the Q3 roadmap presentation for the leadership offsite meeting '
       'next week';
@@ -429,35 +458,6 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: 'Replace the planning spreadsheet',
   );
   await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
-
-  const parentWithSubtasksTitle = 'Plan the product launch event';
-  final launch = await fake.createTask(
-    listId: homeListId,
-    title: parentWithSubtasksTitle,
-  );
-  await fake.updateTask(
-    taskId: launch.id,
-    title: launch.title,
-    note: '',
-    priority: 2,
-    dueAt: today,
-  );
-  final checklist = await fake.createTask(
-    listId: homeListId,
-    title: 'Draft the launch checklist',
-    parentTaskId: launch.id,
-  );
-  await fake.setTaskStatus(taskId: checklist.id, status: 'done');
-  await fake.createTask(
-    listId: homeListId,
-    title: 'Review checklist with design',
-    parentTaskId: launch.id,
-  );
-  await fake.createTask(
-    listId: homeListId,
-    title: 'デザインレビューのフィードバックを反映する',
-    parentTaskId: launch.id,
-  );
 
   await fake.createTask(listId: workListId, title: '四半期レビュー資料を作成する');
 

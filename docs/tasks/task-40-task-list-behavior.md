@@ -147,3 +147,89 @@ task-39で `done` / `wont_do` から `todo` への再オープンは詳細画面
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/DESIGN_PLAYBOOK.md`
+  - `docs/design/ui-spec.md` セクション3
+  - `docs/tasks/task-39-wont-do-reopen.md` 完了報告
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/src/core/task_tree.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/visual_qa/design_lab_mocks.dart`
+  - `app/tool/visual_qa.sh`
+- 作業前退避:
+  - `rsync -a --include='*/' --include='*.png' --exclude='*' app/build/visual_qa/ app/build/visual_qa_before/`: exit 0
+  - 退避先: `app/build/visual_qa_before/`
+- 一覧再オープンの実装箇所:
+  - `app/lib/src/screens/tasks_screen.dart` で `TasksScreen._reopenTask` を追加し、一覧行の先頭コントロールから `tasksProvider(listId).notifier.setStatus(task.id, 'todo')` を呼ぶようにした。
+  - `done` / `wont_do` はどちらも `isTaskClosed(task)` 経由で再オープン対象にした。
+  - 再オープン処理では `showAppConfirmDialog` と `_showLatestUndoSnackBar` を呼んでいない。
+- Closedセクション抽出:
+  - `buildTaskTree(widget.tasks, sortMode: widget.sortMode)` のルートノードを、ルートタスクの `done` / `wont_do` 状態で active / Closed に分けるようにした。
+  - 開いているルートタスク配下のサブタスクは、状態に関わらず active 側のツリーへ残すようにした。
+  - 親ルートがClosedの場合は、子孫を含むツリーをClosedセクションへ表示するようにした。
+  - Closedセクション件数は `completedRoots.length` を使うようにした。
+  - Homeのpending数は activeルート配下に表示される未完了タスクを数えるようにした。
+- 閉じたサブタスク表示:
+  - `AppTaskRow` の `isDone` は `done` / `wont_do` に対して引き続きtrueになり、muted + 取り消し線表示を使う。
+  - `wont_do` は既存の `Won't do` / `対応しない` metadata pill で `done` と区別する。
+- 並び替え:
+  - 手動並び替えコントロールは `!isTaskClosed(task)` の行だけに表示するようにした。
+  - sibling判定は activeツリー内の開いているタスクだけを対象にした。
+- 追加・更新したl10nキー:
+  - `completeTaskTooltip`
+  - `reopenTaskTooltip`
+  - `flutter gen-l10n`: exit 0
+- 追加・更新したwidget test:
+  - `checking a task marks it done through the bridge service`: Closed行の先頭コントロールが再オープン操作として有効である確認を追加。
+  - `done root row leading control reopens without undo`: `done` ルート行の先頭コントロールで `todo` へ戻り、確認ダイアログ/Undoスナックバーが表示されないことを確認。
+  - `wont_do root row leading control reopens without undo`: `wont_do` ルート行の先頭コントロールで `todo` へ戻り、確認ダイアログ/Undoスナックバーが表示されないことを確認。
+  - `wont_do row is closed, struck through, and labeled`: Closed行の再オープンtooltip確認を追加。
+  - `task list keeps closed subtasks under their open parent`: `done` / `wont_do` サブタスクが親配下に残り、取り消し線と `Won't do` pill が表示されることを確認。
+  - `closed parent moves its whole tree to root-based closed count`: Closed親のツリー全体がClosedセクションへ移り、件数がルート基準になることを確認。
+  - `flutter test test/widget_test.dart`: exit 0（37 passed）
+- visual QA:
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart` の realistic seed で `Plan the product launch event` と完了済み `Draft the launch checklist` が `home_tasks` 系のファーストビューに入る順序へ変更した。
+  - `sh app/tool/visual_qa.sh`: exit 0（28 passed）
+  - `app/build/visual_qa/home_tasks.png`: `Draft the launch checklist` が `Plan the product launch event` の直下に取り消し線付きで表示されていることを目視確認した。
+  - `app/build/visual_qa/home_tasks_ja.png`: 同じ親子関係と取り消し線表示を目視確認した。
+  - `app/build/visual_qa/home_tasks_dark.png`: 同じ親子関係と取り消し線表示を目視確認した。
+  - `app/build/visual_qa/wont_do_row.png`: Closedセクションに `2 closed`、`Replace the planning spreadsheet` の取り消し線、`Won't do` pill、`Send weekly notes` の取り消し線が表示されていることを目視確認した。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0（54 passed、visual QA harness 1 skipped）
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0（28 passed）
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `docs/tasks/task-40-task-list-behavior.md`
+- Rust/domain/APIシグネチャ:
+  - Rust/domain/APIシグネチャは変更していない。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は実行していない。
+- 未解決事項:
+  - `app/build/visual_qa/home_tasks.png` / `home_tasks_ja.png` / `home_tasks_dark.png` / `wont_do_row.png` の右上に赤いoverflow indicatorが写っている。同じ位置のindicatorは作業前に退避した `app/build/visual_qa_before/home_tasks.png` にも写っている。

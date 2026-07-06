@@ -247,10 +247,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get taskActionsTooltip => 'タスク操作';
 
   @override
+  String get completeTaskTooltip => 'タスクを完了にする';
+
+  @override
   String get markTaskDoneMenuItem => '完了にする';
 
   @override
   String get markTaskWontDoMenuItem => '対応しない';
+
+  @override
+  String get reopenTaskTooltip => 'タスクを再オープン';
 
   @override
   String get reopenTaskMenuItem => '再オープン';

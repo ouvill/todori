@@ -528,7 +528,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(checkboxFinder, findsNothing);
+    final doneCheckbox = tester.widget<Checkbox>(checkboxFinder);
+    expect(doneCheckbox.value, isTrue);
+    expect(doneCheckbox.onChanged, isNotNull);
+    expect(find.byTooltip('Reopen task'), findsOneWidget);
 
     await tester.tap(find.text('Undo'));
     await tester.pumpAndSettle();
@@ -538,6 +541,69 @@ void main() {
     final undoneCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(undoneCheckbox.value, isFalse);
     expect(find.text('Closed'), findsNothing);
+  });
+
+  testWidgets('done root row leading control reopens without undo', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(listId: listId, title: 'Done task');
+    await fake.setTaskStatus(taskId: task.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Done task'), findsOneWidget);
+    expect(find.byTooltip('Reopen task'), findsOneWidget);
+
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: listId);
+    expect(tasks.single.status, 'todo');
+    expect(find.text('Done task'), findsOneWidget);
+    expect(find.text('Undo'), findsNothing);
+    expect(find.text('Complete parent task?'), findsNothing);
+    expect(find.text('Closed'), findsNothing);
+    expect(find.byTooltip('Mark task done'), findsOneWidget);
+  });
+
+  testWidgets('wont_do root row leading control reopens without undo', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(listId: listId, title: 'Skipped task');
+    await fake.setTaskStatus(taskId: task.id, status: 'wont_do');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Skipped task'), findsOneWidget);
+    expect(find.text("Won't do"), findsOneWidget);
+    expect(find.byTooltip('Reopen task'), findsOneWidget);
+
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: listId);
+    expect(tasks.single.status, 'todo');
+    expect(find.text('Skipped task'), findsOneWidget);
+    expect(find.text("Won't do"), findsNothing);
+    expect(find.text('Undo'), findsNothing);
+    expect(find.text('Closed'), findsNothing);
+    expect(find.byTooltip('Mark task done'), findsOneWidget);
   });
 
   testWidgets(
@@ -631,6 +697,7 @@ void main() {
 
     expect(find.text('Skipped task'), findsOneWidget);
     expect(find.text("Won't do"), findsOneWidget);
+    expect(find.byTooltip('Reopen task'), findsOneWidget);
     final title = tester.widget<Text>(find.text('Skipped task'));
     expect(title.style?.decoration, TextDecoration.lineThrough);
   });
@@ -779,7 +846,7 @@ void main() {
     expect(find.byTooltip('Move task up'), findsWidgets);
   });
 
-  testWidgets('task list shows subtasks without descendant progress badges', (
+  testWidgets('task list keeps closed subtasks under their open parent', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -791,12 +858,18 @@ void main() {
       title: 'Draft checklist',
       parentTaskId: parent.id,
     );
-    final grandchild = await fake.createTask(
+    final doneGrandchild = await fake.createTask(
       listId: listId,
       title: 'Review checklist',
       parentTaskId: child.id,
     );
-    await fake.setTaskStatus(taskId: grandchild.id, status: 'done');
+    await fake.setTaskStatus(taskId: doneGrandchild.id, status: 'done');
+    final wontDoChild = await fake.createTask(
+      listId: listId,
+      title: 'Skip launch microsite',
+      parentTaskId: parent.id,
+    );
+    await fake.setTaskStatus(taskId: wontDoChild.id, status: 'wont_do');
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -806,8 +879,10 @@ void main() {
 
     expect(find.text('Plan launch'), findsOneWidget);
     expect(find.text('Draft checklist'), findsOneWidget);
-    expect(find.text('Review checklist'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Review checklist'), findsOneWidget);
+    expect(find.text('Skip launch microsite'), findsOneWidget);
+    expect(find.text("Won't do"), findsOneWidget);
+    expect(find.text('Closed'), findsNothing);
     expect(find.text('1/2'), findsNothing);
     expect(find.text('1/1'), findsNothing);
     expect(
@@ -815,24 +890,85 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
-      findsNothing,
+      find.byKey(ValueKey('task-hierarchy-guide-${doneGrandchild.id}')),
+      findsOneWidget,
     );
-
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Review checklist'), findsOneWidget);
     expect(
-      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
-      findsNothing,
+      find.byKey(ValueKey('task-hierarchy-guide-${wontDoChild.id}')),
+      findsOneWidget,
     );
 
     final parentTop = tester.getTopLeft(find.text('Plan launch')).dy;
     final childTop = tester.getTopLeft(find.text('Draft checklist')).dy;
     final grandchildTop = tester.getTopLeft(find.text('Review checklist')).dy;
+    final wontDoTop = tester.getTopLeft(find.text('Skip launch microsite')).dy;
     expect(parentTop, lessThan(childTop));
     expect(childTop, lessThan(grandchildTop));
+    expect(parentTop, lessThan(wontDoTop));
+
+    final doneTitle = tester.widget<Text>(find.text('Review checklist'));
+    final wontDoTitle = tester.widget<Text>(find.text('Skip launch microsite'));
+    expect(doneTitle.style?.decoration, TextDecoration.lineThrough);
+    expect(wontDoTitle.style?.decoration, TextDecoration.lineThrough);
+    expect(find.byTooltip('Reopen task'), findsNWidgets(2));
+    expect(find.byTooltip('Move task up'), findsWidgets);
+  });
+
+  testWidgets('closed parent moves its whole tree to root-based closed count', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final activeParent = await fake.createTask(
+      listId: listId,
+      title: 'Active parent',
+    );
+    final activeDoneChild = await fake.createTask(
+      listId: listId,
+      title: 'Done child under active parent',
+      parentTaskId: activeParent.id,
+    );
+    await fake.setTaskStatus(taskId: activeDoneChild.id, status: 'done');
+    final closedParent = await fake.createTask(
+      listId: listId,
+      title: 'Closed parent',
+    );
+    await fake.setTaskStatus(taskId: closedParent.id, status: 'done');
+    final openChild = await fake.createTask(
+      listId: listId,
+      title: 'Open child under closed parent',
+      parentTaskId: closedParent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
+
+    expect(find.text('Active parent'), findsOneWidget);
+    expect(find.text('Done child under active parent'), findsOneWidget);
+    expect(find.text('Closed parent'), findsNothing);
+    expect(find.text('Open child under closed parent'), findsNothing);
+    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('1 closed'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Closed parent'), findsOneWidget);
+    expect(find.text('Open child under closed parent'), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${openChild.id}')),
+      findsOneWidget,
+    );
+
+    final closedParentTop = tester.getTopLeft(find.text('Closed parent')).dy;
+    final openChildTop = tester
+        .getTopLeft(find.text('Open child under closed parent'))
+        .dy;
+    expect(closedParentTop, lessThan(openChildTop));
   });
 
   testWidgets('condition sort keeps subtasks under their parent', (
