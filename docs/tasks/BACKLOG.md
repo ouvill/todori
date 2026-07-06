@@ -41,6 +41,7 @@
 | 1 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
 | 2 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
 | 3 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 4 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない）。出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） | 軽量レーン | 軽量レーン対象 |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -60,4 +61,6 @@
 
 ## 要人間判断
 
-（現在なし。補充セッションが仕様判断を要する項目を見つけたらここに追記する）
+- Design Lab 3案（calm/dense/smart lists）のどれを本番Todayの次形態として採用するか。出典: task-33完了報告 / `docs/design/ui-spec.md` セクション6。
+- `lucide_icons_flutter` の本番採用可否（現状はDesign Lab実験用。依存追加は人間承認が必要な設計判断）。出典: task-33完了報告 / `docs/design/ui-spec.md` セクション6。
+- タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。

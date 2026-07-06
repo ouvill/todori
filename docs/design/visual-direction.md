@@ -3,6 +3,8 @@
 > Status: design source for later UI tasks
 > Last updated: 2026-07-04
 
+実装時の具体値と判断規則は `ui-spec.md` に拘束仕様として定義されている。実装判断は ui-spec.md を優先すること。
+
 This document is the public design source for Todori's Phase 1 UI work after
 task-22. Image mocks are direction references, not pixel-perfect acceptance
 criteria. Later Flutter tasks should preserve the product judgment here while
