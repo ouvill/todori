@@ -6,6 +6,7 @@
 
 - **Phase 1 / M1（コア層）: 完了。** task-05（`core/domain` ユースケース） / task-06（`core/storage` リポジトリ） / task-07（Device Key抽象）。
 - **Phase 1 / M2（ブリッジとUI骨格）: 完了。** task-08（ブリッジAPI公開） / task-09（Riverpod + go_router 画面骨格） / task-10（i18n en/ja） / task-11（CI整備）。macOSデスクトップ実行はcargokitで確立済みで、Phase 1品質ゲートはGitHub Actionsへ追加済み。
+- **Phase 1 / M3（機能完成）: 完了（2026-07-07）。** M3-01〜M3-05の完了条件を充足済み（M3-01はtask-35改名+task-38削除、M3-04はtask-39で完了。削除の意味論は2026-07-07仕様改訂ADR-009に基づく）。
 - **PoC完了済み**: task-01（OPAQUE） / task-02（SQLCipher） / task-03（FRB垂直貫通） / task-04（Phase1計画書の作成）。
 - **OSS公開前監査完了済み**: task-12（秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性の棚卸し）。現在のGitHub repositoryはpublicであり、quiet public / pre-releaseとして扱う。
 - **public/private分割方針完了済み**: task-13（public repoを主、private repoを非公開資料側とする分類と移行計画）。実分割はtask-14で完了済み。
@@ -44,27 +45,27 @@
 - **DBスキーママイグレーション機構合格済み**: task-36は migration runner と `lists.archived_at` v2 マイグレーションを実装し、2026-07-07親レビューで合格済み。`core/storage` テストは20件成功。
 - **リストアーカイブUI合格済み**: task-37（リストのアーカイブ/アーカイブ解除）は2026-07-07親レビューで合格済み。
 - **ゴミ箱廃止・恒久削除合格済み**: task-38は2026-07-07親レビューで合格済み。Flutter 47件、Rust全スイート、削除確認スクリーンショット確認済み。
+- **wont_do / 再オープンUI合格済み**: task-39は2026-07-07親レビューで合格済み。Flutter 51件、Rust全スイート、`wont_do_row.png` スクリーンショット確認済み。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | wont_do / 再オープンのUIステータス遷移（task-39） | `wont_do`（やらないことにする）と再オープンのステータス遷移をUIから実行できるようにする。禁止遷移は表示上選べないこと | M3-04 | 出典: M3-04（現行UIはラベル表示のみ。domain/Rust側にはwont_doが存在。2026-07-06親棚卸しで確認） |
-| 2 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない） | 軽量レーン | 出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） |
-| 3 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
-| 4 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 5 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 6 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 7 | 設定値の永続化機構とF-01 UIモード設定の保存口 | 設定値を永続化する仕組みを用意し、F-01のUIモード選択の保存口を実装する | M4 | 出典: Phase1計画書§1（F-01「設定値の保存口のみ用意」）。通知設定・UIモードの前提。2026-07-06親棚卸しで確認 |
-| 8 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
-| 9 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | |
-| 10 | 日付・時刻表記のロケール準拠リファクタ | 固定パターン `DateFormat('EEE, MMM d')` 等をskeleton API（`yMMMEd`等）へ置換し、ホストのロケール設定に従う | M4系 | 出典: 2026-07-06人間指示（`docs/design/ui-spec.md`参照）。ja表示「月, 7月 6」の不自然さもこれで解消 |
-| 11 | オンボーディング/初回起動体験 | 範囲設計のplannerタスクから開始する。DK復旧不可の注意表示（計画書§5リスク表）を含む。マスコットの利用はvisual-direction.mdの方針に従う | M4系 | 出典: 2026-07-06人間裁定（要人間判断→確定） |
-| 12 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | |
-| 13 | Phase 1リリース前にthemeModeをライト固定 | ダークモード正式対応まではアプリの`themeMode`をlight固定にする。dark系トークン・コードは残置し、priority dot固定hexのコントラスト検証等の磨き込みはダークモード対応再開時（裁定により直近スコープ外）に行う | M5系 | 出典: 2026-07-06人間裁定 |
-| 14 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | |
-| 15 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | |
-| 16 | SQLCipherクロスビルドのiOS/Android CI検証 | iOS/AndroidのSQLCipherビルド差分をCIで継続検証する | Phase1計画書§6 | |
+| 1 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない） | 軽量レーン | 出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） |
+| 2 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
+| 3 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 4 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 5 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 6 | 設定値の永続化機構とF-01 UIモード設定の保存口 | 設定値を永続化する仕組みを用意し、F-01のUIモード選択の保存口を実装する | M4 | 出典: Phase1計画書§1（F-01「設定値の保存口のみ用意」）。通知設定・UIモードの前提。2026-07-06親棚卸しで確認 |
+| 7 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
+| 8 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | |
+| 9 | 日付・時刻表記のロケール準拠リファクタ | 固定パターン `DateFormat('EEE, MMM d')` 等をskeleton API（`yMMMEd`等）へ置換し、ホストのロケール設定に従う | M4系 | 出典: 2026-07-06人間指示（`docs/design/ui-spec.md`参照）。ja表示「月, 7月 6」の不自然さもこれで解消 |
+| 10 | オンボーディング/初回起動体験 | 範囲設計のplannerタスクから開始する。DK復旧不可の注意表示（計画書§5リスク表）を含む。マスコットの利用はvisual-direction.mdの方針に従う | M4系 | 出典: 2026-07-06人間裁定（要人間判断→確定） |
+| 11 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | |
+| 12 | Phase 1リリース前にthemeModeをライト固定 | ダークモード正式対応まではアプリの`themeMode`をlight固定にする。dark系トークン・コードは残置し、priority dot固定hexのコントラスト検証等の磨き込みはダークモード対応再開時（裁定により直近スコープ外）に行う | M5系 | 出典: 2026-07-06人間裁定 |
+| 13 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | |
+| 14 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | |
+| 15 | SQLCipherクロスビルドのiOS/Android CI検証 | iOS/AndroidのSQLCipherビルド差分をCIで継続検証する | Phase1計画書§6 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
