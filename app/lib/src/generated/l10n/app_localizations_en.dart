@@ -196,6 +196,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get addNotePlaceholder => 'Add note';
+
+  @override
+  String get editTaskTitleSemantics => 'Edit task title';
+
+  @override
+  String get editTaskNoteSemantics => 'Edit task note';
+
+  @override
+  String get changeDueDateTooltip => 'Change due date';
+
+  @override
+  String get changePriorityTooltip => 'Change priority';
+
+  @override
   String get subtasksTitle => 'Subtasks';
 
   @override

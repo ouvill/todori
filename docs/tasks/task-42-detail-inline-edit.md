@@ -1,6 +1,7 @@
 # task-42: 詳細画面インライン編集
 
-> ステータス: 未着手
+> ステータス: 完了（`## 9. 完了報告` 追記済み）
+> 作業日: 2026-07-07
 
 ## 1. 背景とコンテキスト
 
@@ -161,3 +162,118 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/DESIGN_PLAYBOOK.md`
+  - `docs/design/ui-spec.md` セクション2・3・4
+  - `docs/tasks/task-18-task-editing-ui.md` 完了報告
+  - `docs/tasks/task-26-undo.md` 完了報告
+  - `docs/tasks/task-40-task-list-behavior.md` 完了報告
+  - `docs/tasks/task-41-list-nav-simplify.md` 完了報告
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/ui/dialogs.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/src/ui/theme.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/visual_qa/design_lab_task_detail_mock.dart`
+  - `app/test/visual_qa/design_lab_task_create_sheet_mock.dart`
+  - `app/tool/visual_qa.sh`
+- 作業前退避:
+  - `mkdir -p app/build/visual_qa_before`: exit 0
+  - `cp -p app/build/visual_qa/*.png app/build/visual_qa_before/`: exit 0
+  - 退避先: `app/build/visual_qa_before/`
+- 撤去した編集導線:
+  - `TaskDetailScreen` の AppBar から `Icons.edit_outlined` の編集 `IconButton` を削除した。
+  - `_editTask` helper を削除した。
+  - `_EditTaskDialog` と `_EditTaskDialogState` を削除した。
+  - `Task actions` overflow は維持し、`Mark done` / `Mark won't do` / `Reopen` / `Delete` の既存分岐を残した。
+- タイトルインライン編集:
+  - `app/lib/src/screens/task_detail_screen.dart` に `_InlineTitleEditor` を追加した。
+  - タイトル表示をタップすると `TextField` へ切り替える。
+  - 編集開始時は既存タイトルを controller に入れ、全選択状態にする。
+  - `TextInputAction.done` の submit とフォーカス喪失で保存処理を呼ぶ。
+  - submit 時に `TextEditingValue.composing` が有効かつ非collapsedの場合は保存しない。
+  - trim後の空文字は `updateTask` を呼ばず、元タイトルへ戻す。
+  - タイトルTextFieldは既存の `headlineSmall` を使い、複数行表示できる設定にした。
+- ノートインライン編集:
+  - `app/lib/src/screens/task_detail_screen.dart` に `_InlineNoteEditor` を追加した。
+  - ノート表示またはプレースホルダをタップすると複数行 `TextField` へ切り替える。
+  - フォーカス喪失で保存処理を呼ぶ。
+  - 空ノートは空文字として保存し、保存後はプレースホルダ表示へ戻る。
+  - プレースホルダ文言は `addNotePlaceholder`（en: `Add note`, ja: `ノートを追加`）。
+- 期日・優先度チップ編集:
+  - `app/lib/src/screens/task_detail_screen.dart` に `_EditableTaskMetadata` と `_DetailPill` を追加した。
+  - 期日チップは `showDatePicker` を開き、選択日をローカル日付の 00:00 epoch milliseconds として `updateTask` へ渡す。
+  - 期日ありのチップ内に `clearDueDateButton` tooltip の clear `IconButton` を表示し、押下時に `dueAt: null` で保存する。
+  - 優先度チップは `PopupMenuButton<int>` で `None` / `Low` / `Medium` / `High` を表示し、選択値 `0..3` を `updateTask` へ渡す。
+  - status、due、priority、subtask progress の最大4チップ構成にした。
+- `updateTask` / `update_task` と編集Undoの接続:
+  - `_updateTaskFields` から `tasksProvider(listId).notifier.updateTask(...)` を呼ぶ。
+  - 保存後に既存の `_showLatestUndoSnackBar` を呼ぶ。
+  - widget test `inline title editing shows undo and restores previous title` で保存後の `Undo` 押下により fake bridge 上のタイトルが保存前へ戻ることを確認した。
+- 追加・更新したl10nキー:
+  - `addNotePlaceholder`
+  - `editTaskTitleSemantics`
+  - `editTaskNoteSemantics`
+  - `changeDueDateTooltip`
+  - `changePriorityTooltip`
+  - `flutter gen-l10n`: exit 0
+- 追加・更新したwidget test:
+  - 更新: `polished list, sort, detail, and dialog surfaces stay stable`
+    - 編集アイコンと編集ダイアログが表示されず、タイトルタップで `task-title-inline-field` が出ることを確認。
+  - 追加/更新: `inline editing updates detail, list, and fake bridge state`
+    - タイトル、ノート、優先度のインライン編集結果を詳細表示、一覧表示、fake bridge 状態で確認。
+  - 追加/更新: `inline title editing shows undo and restores previous title`
+    - タイトル保存後のUndoで保存前タイトルへ戻ることを確認。
+  - 追加/更新: `empty inline title is discarded without saving`
+    - 空白タイトル確定時に fake bridge のタイトルが変わらず、保存SnackBarが出ないことを確認。
+  - 追加: `due date chip sets and clears due date immediately`
+    - 期日チップから `DatePickerDialog` を開いて保存し、clearボタンで `dueAt` が `null` に戻ることを確認。
+  - `flutter test test/widget_test.dart`: exit 0（39 tests passed）
+- visual QA:
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart` の `task_edit_dialog` ケースを削除し、`task_detail_editing` ケースを追加した。
+  - `sh app/tool/visual_qa.sh`: exit 0（29 tests passed）
+  - before: `app/build/visual_qa_before/task_detail.png`
+  - after: `app/build/visual_qa/task_detail.png`
+  - editing: `app/build/visual_qa/task_detail_editing.png`
+  - 目視確認結果:
+    - `app/build/visual_qa/task_detail.png`: 右上編集アイコンは表示されず、右上overflowは表示されている。`Add note`、期日チップ、優先度チップ、期日クリアアイコンが表示されている。
+    - `app/build/visual_qa/task_detail_editing.png`: タイトルが複数行TextFieldとして表示され、同一画面内にnote、metadata、Subtasksが表示されている。
+    - `app/build/visual_qa_before/task_detail.png`: 右上編集アイコンが表示されている。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0（56 passed、1 skipped）
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0（29 tests passed）
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `docs/tasks/task-42-detail-inline-edit.md`
+- Rust/domain/storage/FRB API:
+  - 変更していない。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は実行していない。
+- 未解決事項:
+  - 日本語IME変換中のEnter/確定の実機挙動はwidget testで直接検証していない。実装では title submit 時に `TextEditingValue.composing` が有効かつ非collapsedの場合は保存しない分岐を入れた。
+  - `app/build/visual_qa/task_detail.png` / `task_detail_editing.png` の右上に赤いoverflow indicatorが写っている。同じ位置のindicatorは作業前に退避した `app/build/visual_qa_before/task_detail.png` にも写っている。

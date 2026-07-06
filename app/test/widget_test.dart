@@ -241,7 +241,8 @@ void main() {
 
     expect(find.text('Task detail'), findsOneWidget);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
-    // Priority is conveyed by the dot + tooltip/semantics, not a text chip.
+    // Priority is conveyed by the dot + detail chip tooltip/semantics, not by
+    // reopening the removed edit dialog.
     expect(find.byTooltip('Priority: High'), findsOneWidget);
     final titleFinder = find.textContaining('README screenshot');
     final titleCenterY =
@@ -253,13 +254,17 @@ void main() {
         .dy;
     expect(dotCenterY, closeTo(titleCenterY, 8));
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    await tester.tap(titleFinder);
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit task'), findsOneWidget);
-    expect(find.byType(TextFormField), findsNWidgets(2));
-    expect(find.text('Cancel'), findsOneWidget);
-    expect(find.text('Save'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      findsOneWidget,
+    );
+    expect(find.text('Edit task'), findsNothing);
+    expect(find.text('Cancel'), findsNothing);
+    expect(find.text('Save'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -1243,7 +1248,7 @@ void main() {
     },
   );
 
-  testWidgets('editing a task updates detail, list, and fake bridge state', (
+  testWidgets('inline editing updates detail, list, and fake bridge state', (
     tester,
   ) async {
     final fake = await _pumpAppWithSeedData(
@@ -1255,22 +1260,46 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(find.byTooltip('Task actions'), findsOneWidget);
+
+    await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).at(0), 'Buy oat milk');
-    await tester.enterText(find.byType(TextFormField).at(1), 'Shelf-stable');
-    await tester.tap(find.text('None'));
+    expect(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      'Buy oat milk',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add note'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('task-note-inline-field')),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('task-note-inline-field')),
+      'Shelf-stable',
+    );
+    await tester.tap(find.text('Subtasks'));
+    await tester.pumpAndSettle();
+
+    final listId = (await fake.getLists()).first.id;
+    final task = (await fake.getTasks(listId: listId)).single;
+    await tester.tap(find.byKey(ValueKey('task-priority-chip-${task.id}')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('High').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(find.text('Buy oat milk'), findsOneWidget);
     expect(find.text('Shelf-stable'), findsOneWidget);
     expect(find.byTooltip('Priority: High'), findsOneWidget);
 
-    final listId = (await fake.getLists()).first.id;
     final active = await fake.getTasks(listId: listId);
     expect(active.single.title, 'Buy oat milk');
     expect(active.single.note, 'Shelf-stable');
@@ -1285,7 +1314,7 @@ void main() {
     );
   });
 
-  testWidgets('editing a task shows undo and restores previous fields', (
+  testWidgets('inline title editing shows undo and restores previous title', (
     tester,
   ) async {
     final fake = await _pumpAppWithSeedData(
@@ -1297,11 +1326,13 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).at(0), 'Buy oat milk');
-    await tester.enterText(find.byType(TextFormField).at(1), 'Shelf-stable');
-    await tester.tap(find.text('Save'));
+    await tester.enterText(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      'Buy oat milk',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     expect(find.text('Task saved.'), findsOneWidget);
@@ -1312,18 +1343,14 @@ void main() {
 
     expect(find.text('Undone.'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('Shelf-stable'), findsNothing);
 
     final listId = (await fake.getLists()).first.id;
     final active = await fake.getTasks(listId: listId);
     expect(active.single.title, 'Buy milk');
-    expect(active.single.note, '');
   });
 
-  testWidgets('empty title in edit dialog shows validation error', (
-    tester,
-  ) async {
-    await _pumpAppWithSeedData(
+  testWidgets('empty inline title is discarded without saving', (tester) async {
+    final fake = await _pumpAppWithSeedData(
       tester,
       listName: 'Inbox',
       taskTitle: 'Buy milk',
@@ -1332,14 +1359,56 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).first, '   ');
-    await tester.tap(find.text('Save'));
+    await tester.enterText(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      '   ',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
-    expect(find.text('Title is required.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('task-title-inline-field')), findsNothing);
     expect(find.text('Buy milk'), findsWidgets);
+
+    final listId = (await fake.getLists()).first.id;
+    final active = await fake.getTasks(listId: listId);
+    expect(active.single.title, 'Buy milk');
+    expect(find.text('Task saved.'), findsNothing);
+  });
+
+  testWidgets('due date chip sets and clears due date immediately', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    final listId = (await fake.getLists()).first.id;
+    final task = (await fake.getTasks(listId: listId)).single;
+
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('task-due-chip-${task.id}')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    var active = await fake.getTasks(listId: listId);
+    expect(active.single.dueAt, isNotNull);
+    expect(find.text('Task saved.'), findsOneWidget);
+
+    await tester.tap(find.byKey(ValueKey('task-clear-due-${task.id}')));
+    await tester.pumpAndSettle();
+
+    active = await fake.getTasks(listId: listId);
+    expect(active.single.dueAt, isNull);
+    expect(find.text('No due date'), findsOneWidget);
   });
 
   testWidgets('task delete confirms irreversible deletion and removes task', (

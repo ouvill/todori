@@ -195,6 +195,21 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get addNotePlaceholder => 'ノートを追加';
+
+  @override
+  String get editTaskTitleSemantics => 'タスクのタイトルを編集';
+
+  @override
+  String get editTaskNoteSemantics => 'タスクのノートを編集';
+
+  @override
+  String get changeDueDateTooltip => '期限日を変更';
+
+  @override
+  String get changePriorityTooltip => '優先度を変更';
+
+  @override
   String get subtasksTitle => 'サブタスク';
 
   @override

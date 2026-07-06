@@ -138,6 +138,11 @@
       }
     }
   },
+  "addNotePlaceholder": "Add note",
+  "editTaskTitleSemantics": "Edit task title",
+  "editTaskNoteSemantics": "Edit task note",
+  "changeDueDateTooltip": "Change due date",
+  "changePriorityTooltip": "Change priority",
   "subtasksTitle": "Subtasks",
   "subtasksEmpty": "No subtasks yet.",
   "addSubtaskButton": "Add subtask",

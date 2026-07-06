@@ -42,19 +42,6 @@ class TaskDetailScreen extends ConsumerWidget {
               if (task == null) {
                 return const SizedBox.shrink();
               }
-              return IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: l10n.editTaskTooltip,
-                onPressed: () => _editTask(context, ref, task),
-              );
-            },
-            orElse: () => const SizedBox.shrink(),
-          ),
-          detailAsync.maybeWhen(
-            data: (task) {
-              if (task == null) {
-                return const SizedBox.shrink();
-              }
               return PopupMenuButton<_TaskDetailAction>(
                 tooltip: l10n.taskActionsTooltip,
                 onSelected: (action) {
@@ -116,32 +103,48 @@ class TaskDetailScreen extends ConsumerWidget {
                         isMuted: isTaskClosed(task),
                       ),
                       Expanded(
-                        child: Text(
-                          task.title,
-                          style: theme.textTheme.headlineSmall,
+                        child: _InlineTitleEditor(
+                          key: ValueKey('task-title-editor-${task.id}'),
+                          title: task.title,
+                          semanticLabel: l10n.editTaskTitleSemantics,
+                          onSave: (title) => _updateTaskFields(
+                            context,
+                            ref,
+                            task,
+                            title: title,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  if (task.note.isNotEmpty) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      task.note,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+                  const SizedBox(height: AppSpacing.sm),
+                  _InlineNoteEditor(
+                    key: ValueKey('task-note-editor-${task.id}'),
+                    note: task.note,
+                    placeholder: l10n.addNotePlaceholder,
+                    semanticLabel: l10n.editTaskNoteSemantics,
+                    onSave: (note) =>
+                        _updateTaskFields(context, ref, task, note: note),
+                  ),
                   const SizedBox(height: AppSpacing.md),
-                  TaskMetadata(
-                    items: taskMetadataItemsFor(
-                      l10n: l10n,
-                      locale: locale,
-                      task: task,
-                      stats: stats,
-                      includeNoDueDate: true,
-                      includeStatus: true,
+                  _EditableTaskMetadata(
+                    task: task,
+                    stats: stats,
+                    locale: locale,
+                    onSelectDueDate: () => _selectDueDate(context, ref, task),
+                    onClearDueDate: task.dueAt == null
+                        ? null
+                        : () => _updateTaskFields(
+                            context,
+                            ref,
+                            task,
+                            dueAt: null,
+                          ),
+                    onPrioritySelected: (priority) => _updateTaskFields(
+                      context,
+                      ref,
+                      task,
+                      priority: priority,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
@@ -232,31 +235,84 @@ class TaskDetailScreen extends ConsumerWidget {
         .createTask(title.trim(), parentTaskId: task.id);
   }
 
-  Future<void> _editTask(
+  Future<bool> _updateTaskFields(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task, {
+    String? title,
+    String? note,
+    int? priority,
+    Object? dueAt = _unchangedDueAt,
+  }) async {
+    final nextTitle = title ?? task.title;
+    final nextNote = note ?? task.note;
+    final nextPriority = priority ?? task.priority;
+    final nextDueAt = identical(dueAt, _unchangedDueAt)
+        ? task.dueAt
+        : dueAt as int?;
+
+    if (nextTitle == task.title &&
+        nextNote == task.note &&
+        nextPriority == task.priority &&
+        nextDueAt == task.dueAt) {
+      return true;
+    }
+
+    try {
+      await ref
+          .read(tasksProvider(listId).notifier)
+          .updateTask(
+            taskId: task.id,
+            title: nextTitle,
+            note: nextNote,
+            priority: nextPriority,
+            dueAt: nextDueAt,
+          );
+      if (context.mounted) {
+        await _showLatestUndoSnackBar(context);
+      }
+      return true;
+    } catch (error) {
+      if (context.mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.failedToSaveTask(error.toString())),
+            margin: const EdgeInsets.all(AppSpacing.md),
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<void> _selectDueDate(
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
   ) async {
-    final saved = await showDialog<bool>(
+    final initialDate = task.dueAt == null
+        ? DateTime.now()
+        : DateTime.fromMillisecondsSinceEpoch(task.dueAt!).toLocal();
+    final picked = await showDatePicker(
       context: context,
-      builder: (context) => _EditTaskDialog(
-        task: task,
-        onSave: ({required title, required note, required priority, dueAt}) {
-          return ref
-              .read(tasksProvider(listId).notifier)
-              .updateTask(
-                taskId: task.id,
-                title: title,
-                note: note,
-                priority: priority,
-                dueAt: dueAt,
-              );
-        },
-      ),
+      initialDate: initialDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
     );
-    if (saved == true && context.mounted) {
-      await _showLatestUndoSnackBar(context);
+    if (picked == null || !context.mounted) {
+      return;
     }
+    await _updateTaskFields(
+      context,
+      ref,
+      task,
+      dueAt: DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+      ).millisecondsSinceEpoch,
+    );
   }
 
   Future<void> _deleteTask(
@@ -431,199 +487,457 @@ TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
   return null;
 }
 
-class _EditTaskDialog extends StatefulWidget {
-  const _EditTaskDialog({required this.task, required this.onSave});
+const Object _unchangedDueAt = Object();
 
-  final TaskDto task;
-  final Future<void> Function({
-    required String title,
-    required String note,
-    required int priority,
-    required int? dueAt,
-  })
-  onSave;
+class _InlineTitleEditor extends StatefulWidget {
+  const _InlineTitleEditor({
+    super.key,
+    required this.title,
+    required this.semanticLabel,
+    required this.onSave,
+  });
+
+  final String title;
+  final String semanticLabel;
+  final Future<bool> Function(String title) onSave;
 
   @override
-  State<_EditTaskDialog> createState() => _EditTaskDialogState();
+  State<_InlineTitleEditor> createState() => _InlineTitleEditorState();
 }
 
-class _EditTaskDialogState extends State<_EditTaskDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _titleController;
-  late final TextEditingController _noteController;
-  late int _priority;
-  late int? _dueAt;
-  String? _error;
+class _InlineTitleEditorState extends State<_InlineTitleEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  bool _editing = false;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.task.title);
-    _noteController = TextEditingController(text: widget.task.note);
-    _priority = widget.task.priority;
-    _dueAt = widget.task.dueAt;
+    _controller = TextEditingController(text: widget.title);
+    _focusNode = FocusNode();
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineTitleEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.title != widget.title) {
+      _controller.text = widget.title;
+    }
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _noteController.dispose();
+    _focusNode.removeListener(_handleFocusChange);
+    _focusNode.dispose();
+    _controller.dispose();
     super.dispose();
+  }
+
+  void _handleFocusChange() {
+    if (_editing && !_focusNode.hasFocus) {
+      unawaited(_commit());
+    }
+  }
+
+  void _startEditing() {
+    if (_editing) {
+      return;
+    }
+    setState(() {
+      _editing = true;
+      _controller.text = widget.title;
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
+  }
+
+  bool get _hasComposingRange {
+    final range = _controller.value.composing;
+    return range.isValid && !range.isCollapsed;
+  }
+
+  Future<void> _commit({bool fromSubmitted = false}) async {
+    if (_saving) {
+      return;
+    }
+    if (fromSubmitted && _hasComposingRange) {
+      return;
+    }
+    final nextTitle = _controller.text.trim();
+    if (nextTitle.isEmpty) {
+      _controller.text = widget.title;
+      if (mounted) {
+        setState(() => _editing = false);
+      }
+      return;
+    }
+    if (nextTitle == widget.title) {
+      if (mounted) {
+        setState(() => _editing = false);
+      }
+      return;
+    }
+    setState(() => _saving = true);
+    final saved = await widget.onSave(nextTitle);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _editing = !saved;
+    });
+    if (!saved) {
+      _focusNode.requestFocus();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    if (_editing) {
+      return TextField(
+        key: const ValueKey('task-title-inline-field'),
+        controller: _controller,
+        focusNode: _focusNode,
+        enabled: !_saving,
+        autofocus: true,
+        minLines: 1,
+        maxLines: null,
+        style: theme.textTheme.headlineSmall,
+        decoration: const InputDecoration(
+          isDense: true,
+          contentPadding: EdgeInsets.all(AppSpacing.sm),
+        ),
+        keyboardType: TextInputType.multiline,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => unawaited(_commit(fromSubmitted: true)),
+        onTapOutside: (_) => _focusNode.unfocus(),
+      );
+    }
 
-    return AlertDialog(
-      scrollable: true,
-      title: Text(l10n.editTaskTitle),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextFormField(
-              controller: _titleController,
-              autofocus: true,
-              decoration: InputDecoration(labelText: l10n.titleLabel),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return l10n.titleRequiredError;
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            TextFormField(
-              controller: _noteController,
-              decoration: InputDecoration(labelText: l10n.noteLabel),
-              minLines: 2,
-              maxLines: 4,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            DropdownButtonFormField<int>(
-              initialValue: _priority,
-              decoration: InputDecoration(labelText: l10n.priorityLabel),
-              items: [
-                DropdownMenuItem(value: 0, child: Text(l10n.priorityNone)),
-                DropdownMenuItem(value: 1, child: Text(l10n.priorityLow)),
-                DropdownMenuItem(value: 2, child: Text(l10n.priorityMedium)),
-                DropdownMenuItem(value: 3, child: Text(l10n.priorityHigh)),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _priority = value);
-                }
-              },
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(l10n.dueDateLabel),
-            const SizedBox(height: AppSpacing.xs),
-            Text(l10n.taskDueAt(formatDueDate(l10n, _dueAt))),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.event_outlined),
-                  label: Text(l10n.setDueDateButton),
-                  onPressed: _saving ? null : () => _selectDueDate(context),
-                ),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.clear),
-                  label: Text(l10n.clearDueDateButton),
-                  onPressed: _saving
-                      ? null
-                      : () => setState(() => _dueAt = null),
-                ),
-              ],
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                l10n.failedToSaveTask(_error!),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
+    return Semantics(
+      button: true,
+      label: widget.semanticLabel,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _startEditing,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Text(widget.title, style: theme.textTheme.headlineSmall),
         ),
-      ),
-      actions: [
-        Wrap(
-          alignment: WrapAlignment.end,
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          children: [
-            TextButton(
-              onPressed: _saving ? null : () => Navigator.of(context).pop(),
-              child: Text(l10n.cancelButton),
-            ),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: Text(l10n.saveButton),
-            ),
-          ],
-        ),
-      ],
-      actionsPadding: const EdgeInsetsDirectional.fromSTEB(
-        AppSpacing.md,
-        0,
-        AppSpacing.md,
-        AppSpacing.md,
       ),
     );
   }
+}
 
-  Future<void> _selectDueDate(BuildContext context) async {
-    final initialDate = _dueAt == null
-        ? DateTime.now()
-        : DateTime.fromMillisecondsSinceEpoch(_dueAt!).toLocal();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) {
-      setState(() {
-        _dueAt = DateTime(
-          picked.year,
-          picked.month,
-          picked.day,
-        ).millisecondsSinceEpoch;
-      });
+class _InlineNoteEditor extends StatefulWidget {
+  const _InlineNoteEditor({
+    super.key,
+    required this.note,
+    required this.placeholder,
+    required this.semanticLabel,
+    required this.onSave,
+  });
+
+  final String note;
+  final String placeholder;
+  final String semanticLabel;
+  final Future<bool> Function(String note) onSave;
+
+  @override
+  State<_InlineNoteEditor> createState() => _InlineNoteEditorState();
+}
+
+class _InlineNoteEditorState extends State<_InlineNoteEditor> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  bool _editing = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.note);
+    _focusNode = FocusNode();
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineNoteEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.note != widget.note) {
+      _controller.text = widget.note;
     }
   }
 
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) {
+  @override
+  void dispose() {
+    _focusNode.removeListener(_handleFocusChange);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChange() {
+    if (_editing && !_focusNode.hasFocus) {
+      unawaited(_commit());
+    }
+  }
+
+  void _startEditing() {
+    if (_editing) {
       return;
     }
     setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await widget.onSave(
-        title: _titleController.text.trim(),
-        note: _noteController.text,
-        priority: _priority,
-        dueAt: _dueAt,
+      _editing = true;
+      _controller.text = widget.note;
+      _controller.selection = TextSelection.collapsed(
+        offset: _controller.text.length,
       );
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        Navigator.of(context).pop(true);
+        _focusNode.requestFocus();
       }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = error.toString();
-        });
-      }
+    });
+  }
+
+  Future<void> _commit() async {
+    if (_saving) {
+      return;
     }
+    final nextNote = _controller.text;
+    if (nextNote == widget.note) {
+      if (mounted) {
+        setState(() => _editing = false);
+      }
+      return;
+    }
+    setState(() => _saving = true);
+    final saved = await widget.onSave(nextNote);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _editing = !saved;
+    });
+    if (!saved) {
+      _focusNode.requestFocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final noteStyle = theme.textTheme.bodyLarge?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+      height: 1.35,
+    );
+    if (_editing) {
+      return TextField(
+        key: const ValueKey('task-note-inline-field'),
+        controller: _controller,
+        focusNode: _focusNode,
+        enabled: !_saving,
+        autofocus: true,
+        minLines: 2,
+        maxLines: 6,
+        style: noteStyle,
+        decoration: InputDecoration(
+          labelText: AppLocalizations.of(context)!.noteLabel,
+          isDense: true,
+          contentPadding: const EdgeInsets.all(AppSpacing.sm),
+        ),
+        keyboardType: TextInputType.multiline,
+        onTapOutside: (_) => _focusNode.unfocus(),
+      );
+    }
+
+    final text = widget.note.isEmpty ? widget.placeholder : widget.note;
+    return Semantics(
+      button: true,
+      label: widget.semanticLabel,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _startEditing,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Text(text, style: noteStyle),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditableTaskMetadata extends StatelessWidget {
+  const _EditableTaskMetadata({
+    required this.task,
+    required this.stats,
+    required this.locale,
+    required this.onSelectDueDate,
+    required this.onClearDueDate,
+    required this.onPrioritySelected,
+  });
+
+  final TaskDto task;
+  final SubtaskStats stats;
+  final String locale;
+  final VoidCallback onSelectDueDate;
+  final VoidCallback? onClearDueDate;
+  final ValueChanged<int> onPrioritySelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final overdue = isTaskOverdue(task);
+    final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        _DetailPill(
+          icon: taskStatusIcon(task.status),
+          label: taskStatusLabel(l10n, task.status),
+        ),
+        _DetailPill(
+          key: ValueKey('task-due-chip-${task.id}'),
+          icon: Icons.event_outlined,
+          label: dueLabel,
+          tooltip: task.dueAt == null
+              ? l10n.setDueDateButton
+              : l10n.changeDueDateTooltip,
+          semanticLabel: overdue ? l10n.taskDueOverdue(dueLabel) : null,
+          emphasisColor: overdue ? priorityDotColor(3) : null,
+          onTap: onSelectDueDate,
+          trailing: onClearDueDate == null
+              ? null
+              : IconButton(
+                  key: ValueKey('task-clear-due-${task.id}'),
+                  tooltip: l10n.clearDueDateButton,
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: onClearDueDate,
+                ),
+        ),
+        PopupMenuButton<int>(
+          key: ValueKey('task-priority-chip-${task.id}'),
+          tooltip: l10n.changePriorityTooltip,
+          onSelected: onPrioritySelected,
+          itemBuilder: (context) => [
+            PopupMenuItem(value: 0, child: Text(l10n.priorityNone)),
+            PopupMenuItem(value: 1, child: Text(l10n.priorityLow)),
+            PopupMenuItem(value: 2, child: Text(l10n.priorityMedium)),
+            PopupMenuItem(value: 3, child: Text(l10n.priorityHigh)),
+          ],
+          child: _DetailPill(
+            icon: Icons.flag_outlined,
+            label: taskPriorityLabel(l10n, task.priority),
+            semanticLabel: l10n.taskPriority(
+              taskPriorityLabel(l10n, task.priority),
+            ),
+          ),
+        ),
+        if (stats.hasDescendants)
+          _DetailPill(
+            icon: Icons.account_tree_outlined,
+            label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
+          ),
+      ],
+    );
+  }
+}
+
+class _DetailPill extends StatelessWidget {
+  const _DetailPill({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.tooltip,
+    this.semanticLabel,
+    this.emphasisColor,
+    this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? tooltip;
+  final String? semanticLabel;
+  final Color? emphasisColor;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final tint = emphasisColor ?? colorScheme.primary;
+    final content = ConstrainedBox(
+      constraints: BoxConstraints(
+        minHeight: trailing == null ? 0 : 48,
+        maxWidth: MediaQuery.sizeOf(context).width - 64,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: emphasisColor != null
+                ? emphasisColor!.withValues(alpha: 0.6)
+                : colorScheme.outlineVariant.withValues(alpha: 0.72),
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: AppSpacing.sm,
+            top: trailing == null ? AppSpacing.xs : 0,
+            end: trailing == null ? AppSpacing.sm : 0,
+            bottom: trailing == null ? AppSpacing.xs : 0,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: tint),
+              const SizedBox(width: AppSpacing.xs),
+              Flexible(
+                child: Text(
+                  label,
+                  softWrap: true,
+                  style: theme.textTheme.labelMedium?.copyWith(color: tint),
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+        ),
+      ),
+    );
+    final wrapped = onTap == null
+        ? content
+        : Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onTap,
+              child: content,
+            ),
+          );
+    final semantics = semanticLabel == null
+        ? wrapped
+        : Semantics(label: semanticLabel, child: wrapped);
+    if (tooltip == null) {
+      return semantics;
+    }
+    return Tooltip(message: tooltip!, child: semantics);
   }
 }

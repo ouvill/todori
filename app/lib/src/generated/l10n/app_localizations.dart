@@ -422,6 +422,36 @@ abstract class AppLocalizations {
   /// **'Created at: {createdAt}'**
   String taskCreatedAt(String createdAt);
 
+  /// No description provided for @addNotePlaceholder.
+  ///
+  /// In en, this message translates to:
+  /// **'Add note'**
+  String get addNotePlaceholder;
+
+  /// No description provided for @editTaskTitleSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task title'**
+  String get editTaskTitleSemantics;
+
+  /// No description provided for @editTaskNoteSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit task note'**
+  String get editTaskNoteSemantics;
+
+  /// No description provided for @changeDueDateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Change due date'**
+  String get changeDueDateTooltip;
+
+  /// No description provided for @changePriorityTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Change priority'**
+  String get changePriorityTooltip;
+
   /// No description provided for @subtasksTitle.
   ///
   /// In en, this message translates to:

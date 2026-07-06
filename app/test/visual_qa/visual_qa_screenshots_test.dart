@@ -163,15 +163,15 @@ void main() {
     await _screenshot(tester, 'task_detail');
   });
 
-  testWidgets('task_edit_dialog: edit dialog open over task detail', (
+  testWidgets('task_detail_editing: inline title editing on task detail', (
     tester,
   ) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
     await _openTask(tester, seed.parentWithSubtasksTitle);
-    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.tap(find.text(seed.parentWithSubtasksTitle));
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'task_edit_dialog');
+    await _screenshot(tester, 'task_detail_editing');
   });
 
   testWidgets('delete_task_confirm: permanent task delete warning', (
