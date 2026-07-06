@@ -86,9 +86,11 @@ class DesignLabTypoMockApp extends StatelessWidget {
 /// A single role's font-family/weight/letter-spacing override, applied on
 /// top of a base [TextTheme] style via [apply]. Every field is explicit
 /// (rather than nullable-and-inherited) because `buildTodoriTheme` already
-/// bakes Lora into several base `TextTheme` roles (`displayMedium`,
-/// `displayLarge`, `headlineSmall`); an explicit family here is required to
-/// actually get Inter for the sans-only variants.
+/// bakes Newsreader into `displayMedium` (the Today heading); an explicit
+/// family here is required so every variant -- including 案A, which shares
+/// production's Newsreader-scoped-to-heading direction but is not
+/// byte-identical to it (see [_typoNewsreaderA]) -- renders each role
+/// deliberately rather than inheriting that default.
 class _LabTypoOverride {
   const _LabTypoOverride({
     required this.fontFamily,
@@ -201,8 +203,10 @@ const _typoNewsreaderA = _LabTypography(
   ),
 );
 
-/// B案: current production typography (`buildTodoriTheme`), where Lora
-/// reaches the AppBar/section headings too. Comparison baseline.
+/// B案: the pre-2026-07-06 production typography, where Lora reached the
+/// AppBar/section headings too. Decommissioned from the shipped app by
+/// task-34; kept here only as a comparison baseline against 案A (the
+/// direction that replaced it).
 const _typoLoraB = _LabTypography(
   todayHeading: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w600),
   tasksHeadline: _LabTypoOverride(

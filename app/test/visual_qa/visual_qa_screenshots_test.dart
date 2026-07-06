@@ -62,6 +62,16 @@ void main() {
     await _screenshot(tester, 'home_tasks');
   });
 
+  testWidgets(
+    'home_tasks_ja: root with a realistic mixed task list, ja locale',
+    (tester) async {
+      _setMobileViewport(tester);
+      _useJaLocale(tester);
+      await _seedRealisticData(tester);
+      await _screenshot(tester, 'home_tasks_ja');
+    },
+  );
+
   testWidgets('home_tasks_dark: dark priority dot contrast check', (
     tester,
   ) async {
@@ -448,6 +458,17 @@ void _useDarkPlatformBrightness(WidgetTester tester) {
   addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 }
 
+/// Forces the ja locale so `home_tasks_ja` renders Japanese UI strings (and,
+/// per the 2026-07-06 typography ruling, the "今日" Today heading through
+/// the `Hiragino Mincho ProN` serif fallback registered in
+/// [_loadMinchoFallbackFont]).
+void _useJaLocale(WidgetTester tester) {
+  tester.platformDispatcher.localeTestValue = const Locale('ja');
+  tester.platformDispatcher.localesTestValue = const [Locale('ja')];
+  addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+  addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+}
+
 /// Rasterizes the whole app (including any open dialog/overlay) to a PNG at
 /// `build/visual_qa/$name.png`. Deliberately does *not* use
 /// [matchesGoldenFile]; there is no reference image to diff against, this is
@@ -481,25 +502,33 @@ Future<void> _screenshot(WidgetTester tester, String name) async {
 ///   icon glyphs (checkboxes, chevrons, the FAB `+`, etc.) render correctly.
 /// - Lucide Icons come from the hosted package cache and are registered under
 ///   the package-qualified font family used by `IconData(fontPackage: ...)`.
-/// - The bundled brand typefaces (`assets/fonts/Lora`, `assets/fonts/Inter`;
-///   see `app/pubspec.yaml` `fonts:` and `docs/design/visual-direction.md`)
-///   are registered under their real family names, each weight in turn, so
-///   the "Today"/screen-title serif (Lora) and UI body sans (Inter) render
-///   as designed instead of falling back to the test harness's tofu boxes.
-/// - A macOS system font that can render Japanese glyphs is registered under
-///   the `Hiragino Sans` family -- the same name `theme.dart` declares in
+/// - The bundled brand typefaces (`assets/fonts/Newsreader`,
+///   `assets/fonts/Inter`; see `app/pubspec.yaml` `fonts:` and
+///   `docs/design/ui-spec.md` セクション2) are registered under their real
+///   family names, each weight in turn, so the Today heading serif
+///   (Newsreader) and UI body sans (Inter) render as designed instead of
+///   falling back to the test harness's tofu boxes. `assets/fonts/Lora` is
+///   also registered (see [_loraWeightPaths]) purely for the Design Lab B案
+///   comparison screenshots -- it is intentionally not declared in
+///   `app/pubspec.yaml` `fonts:` since Lora is decommissioned from the
+///   shipped app (2026-07-06 typography ruling).
+/// - Two macOS system fonts that can render Japanese glyphs are registered:
+///   a gothic one under the `Hiragino Sans` family (used as the fallback for
+///   every Inter text role) and a serif one under the `Hiragino Mincho
+///   ProN` family (used only as the fallback for the Newsreader Today
+///   heading) -- the same names `theme.dart` declares in each style's
 ///   `fontFamilyFallback` -- so mixed Japanese/English seed data resolves
-///   Japanese glyphs through that *separate* family instead of tofu.
+///   Japanese glyphs through those *separate* families instead of tofu.
 ///
 ///   (Registering the Japanese font as extra same-family candidates on
-///   'Inter'/'Lora' directly, as `FontLoader`'s docs suggest is possible,
-///   was tried first and did not work here: once a family has multiple
-///   candidates of different declared weights, Skia's style matching picks
-///   the closest-weight *Latin* candidate for a run and does not appear to
-///   retry sibling candidates in that family for glyphs it lacks. Routing
-///   Japanese through `fontFamilyFallback` -- a separate, single-typeface
-///   family that Flutter tries per missing glyph -- is what actually
-///   renders Japanese here.)
+///   'Inter'/'Newsreader' directly, as `FontLoader`'s docs suggest is
+///   possible, was tried first and did not work here: once a family has
+///   multiple candidates of different declared weights, Skia's style
+///   matching picks the closest-weight *Latin* candidate for a run and does
+///   not appear to retry sibling candidates in that family for glyphs it
+///   lacks. Routing Japanese through `fontFamilyFallback` -- a separate,
+///   single-typeface family that Flutter tries per missing glyph -- is what
+///   actually renders Japanese here.)
 Future<void> _loadRealFonts() async {
   await _loadMaterialIconsFont();
   await _loadLucideIconsFont();
@@ -511,6 +540,7 @@ Future<void> _loadRealFonts() async {
   );
   await _loadZenOldMinchoFont();
   await _loadCjkFallbackFont();
+  await _loadMinchoFallbackFont();
 }
 
 /// Loads the Design Lab-only Zen Old Mincho font (D案 Today heading) if
@@ -633,6 +663,31 @@ Future<void> _loadBrandFont({
 Future<void> _loadCjkFallbackFont() async {
   final loader = FontLoader(_cjkFallbackFamily);
   for (final path in _cjkFallbackPaths) {
+    if (await _addFontFile(loader, path)) {
+      break;
+    }
+  }
+  await loader.load();
+}
+
+/// Must match the first entry of `_serifCjkFontFamilyFallback` in
+/// `lib/src/ui/theme.dart` -- the Today heading's serif-specific Japanese
+/// fallback (distinct from [_cjkFallbackFamily], which every other Inter
+/// text role uses).
+const _minchoFallbackFamily = 'Hiragino Mincho ProN';
+
+/// macOS's bundled Japanese serif, used to render `home_tasks_ja`'s "今日"
+/// Today heading in the serif fallback the production theme declares.
+const _minchoFallbackPaths = [
+  '/System/Library/Fonts/ヒラギノ明朝 ProN.ttc',
+];
+
+/// Registers a single Japanese-capable serif system font under
+/// [_minchoFallbackFamily] (see [_loadCjkFallbackFont] for why a dedicated,
+/// single-candidate family is used).
+Future<void> _loadMinchoFallbackFont() async {
+  final loader = FontLoader(_minchoFallbackFamily);
+  for (final path in _minchoFallbackPaths) {
     if (await _addFontFile(loader, path)) {
       break;
     }

@@ -80,22 +80,16 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # Brand typography (task-30 design mood alignment): Lora is the display
-  # serif used for Today/screen/section headings, Inter is the UI body
-  # sans-serif used everywhere else. Both are bundled OFL assets (see
-  # assets/fonts/{Lora,Inter}/OFL.txt), not the `google_fonts` package.
-  # Newsreader is currently registered for Design Lab typography experiments.
+  # Brand typography (2026-07-06 typography ruling, docs/design/ui-spec.md
+  # 裁定済み事項): Inter is the UI body sans-serif used everywhere except the
+  # Today heading, which uses the Newsreader display serif (scoped to
+  # `displayMedium` only, see app/lib/src/ui/theme.dart). Both are bundled
+  # OFL assets (see assets/fonts/{Newsreader,Inter}/OFL.txt), not the
+  # `google_fonts` package. Lora has been decommissioned from the shipped
+  # app; its asset files remain under assets/fonts/Lora/ for Design Lab
+  # comparison screenshots only (test/visual_qa/) and are intentionally not
+  # declared here.
   fonts:
-    - family: Lora
-      fonts:
-        - asset: assets/fonts/Lora/Lora-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/Lora/Lora-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/Lora/Lora-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Lora/Lora-Bold.ttf
-          weight: 700
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter/Inter-Regular.ttf

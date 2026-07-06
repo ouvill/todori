@@ -17,22 +17,38 @@ const _darkSurface = Color(0xFF101510);
 const _darkSurfaceContainer = Color(0xFF182019);
 const _darkSurfaceContainerHigh = Color(0xFF223025);
 
-/// The bundled brand fonts (`assets/fonts/Lora`, `assets/fonts/Inter`) only
-/// ship Latin glyphs, per task-30's "no new Japanese font" decision --
-/// Japanese continues to render through the platform's own fallback. This
-/// list makes that fallback explicit rather than implicit: real devices
-/// normally resolve missing glyphs to a system CJK font automatically even
-/// without this, but declaring it here is harmless when the family isn't
-/// present (Flutter simply skips it) and it is also what lets the
-/// `visual_qa` screenshot harness -- which runs in an isolated `flutter
-/// test` environment with no automatic system font fallback -- render
-/// Japanese seed data by registering a real Hiragino font under the
+/// The bundled brand fonts (`assets/fonts/Newsreader`, `assets/fonts/Inter`)
+/// only ship Latin glyphs, per the 2026-07-06 typography ruling (see
+/// `docs/design/ui-spec.md` 裁定済み事項) that Japanese continues to render
+/// through the platform's own fallback rather than bundling a new Japanese
+/// font. This list makes that fallback explicit rather than implicit: real
+/// devices normally resolve missing glyphs to a system CJK font
+/// automatically even without this, but declaring it here is harmless when
+/// the family isn't present (Flutter simply skips it) and it is also what
+/// lets the `visual_qa` screenshot harness -- which runs in an isolated
+/// `flutter test` environment with no automatic system font fallback --
+/// render Japanese seed data by registering a real Hiragino font under the
 /// `Hiragino Sans` family name (see
 /// `test/visual_qa/visual_qa_screenshots_test.dart`).
+///
+/// This is the sans-serif fallback used for the `Inter` base font family
+/// (every text role except [displayMedium]'s Today heading).
 const _cjkFontFamilyFallback = <String>[
   'Hiragino Sans',
   'Noto Sans CJK JP',
   'Noto Sans JP',
+];
+
+/// Japanese fallback for the `Newsreader` display serif used by the
+/// `displayMedium` text style (the Today heading) only. Apple platforms
+/// resolve this to the serif ヒラギノ明朝 ProN; OSes without a bundled
+/// Japanese serif (e.g. stock Android) fall through to their own default
+/// body font, which is an accepted degradation per the 2026-07-06
+/// typography ruling.
+const _serifCjkFontFamilyFallback = <String>[
+  'Hiragino Mincho ProN',
+  'Noto Serif CJK JP',
+  'Noto Serif JP',
 ];
 
 ThemeData buildTodoriTheme(Brightness brightness) {
@@ -73,11 +89,12 @@ ThemeData buildTodoriTheme(Brightness brightness) {
   final base = ThemeData(
     colorScheme: colorScheme,
     useMaterial3: true,
-    // Inter is the UI body typeface (see `assets/fonts/Inter`); Lora is
-    // layered on top for display/headline styles and the AppBar title
-    // below. `fontFamilyFallback` applies to every style derived from this
-    // `ThemeData` (including the Lora overrides below, since `copyWith`
-    // preserves it), covering Japanese glyphs neither brand font ships.
+    // Inter is the UI body typeface (see `assets/fonts/Inter`) and covers
+    // every text role except `displayMedium` (the Today heading, overridden
+    // below to Newsreader). `fontFamilyFallback` applies to every style
+    // derived from this `ThemeData` (since `copyWith` preserves it unless a
+    // style explicitly sets its own), covering Japanese glyphs Inter does
+    // not ship.
     fontFamily: 'Inter',
     fontFamilyFallback: _cjkFontFamilyFallback,
   );
@@ -89,7 +106,6 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       backgroundColor: colorScheme.surfaceContainer,
       foregroundColor: colorScheme.onSurface,
       titleTextStyle: base.textTheme.titleLarge?.copyWith(
-        fontFamily: 'Lora',
         color: colorScheme.primary,
         fontWeight: FontWeight.w700,
       ),
@@ -137,16 +153,19 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
     ),
     textTheme: base.textTheme.copyWith(
-      // Lora (brand display serif) covers Today/screen/section headings;
-      // everything else stays on the base Inter body typeface.
-      displayLarge: base.textTheme.displayLarge?.copyWith(fontFamily: 'Lora'),
-      displayMedium: base.textTheme.displayMedium?.copyWith(fontFamily: 'Lora'),
-      displaySmall: base.textTheme.displaySmall?.copyWith(fontFamily: 'Lora'),
-      headlineMedium: base.textTheme.headlineMedium?.copyWith(
-        fontFamily: 'Lora',
+      // Newsreader (brand display serif) is scoped to `displayMedium` only
+      // -- the Today heading -- per the 2026-07-06 typography ruling
+      // ("28px級以上かつ1画面1〜2箇所" rule, `docs/design/ui-spec.md`
+      // セクション2). Its Japanese fallback is the system serif
+      // (`_serifCjkFontFamilyFallback`), distinct from the sans-serif
+      // fallback the rest of the app inherits from `ThemeData.fontFamily`.
+      // Every other role stays on the base Inter typeface.
+      displayMedium: base.textTheme.displayMedium?.copyWith(
+        fontFamily: 'Newsreader',
+        fontFamilyFallback: _serifCjkFontFamilyFallback,
+        fontWeight: FontWeight.w600,
       ),
       headlineSmall: base.textTheme.headlineSmall?.copyWith(
-        fontFamily: 'Lora',
         color: colorScheme.onSurface,
         fontWeight: FontWeight.w700,
       ),

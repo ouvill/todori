@@ -384,8 +384,8 @@ class _HomeTasksHeader extends StatelessWidget {
         const SizedBox(height: AppSpacing.xl),
         Text(
           l10n.todayTitle,
-          // Lora display serif, kept to a moderate w600 weight per the
-          // design direction (avoid a too-heavy serif+bold combination).
+          // Newsreader display serif, kept to a moderate w600 weight per
+          // the design direction (avoid a too-heavy serif+bold combination).
           style: theme.textTheme.displayMedium?.copyWith(
             color: colorScheme.primary,
             fontWeight: FontWeight.w600,
