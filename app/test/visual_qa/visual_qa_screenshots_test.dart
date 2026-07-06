@@ -136,6 +136,26 @@ void main() {
     await _screenshot(tester, 'lists_archived');
   });
 
+  testWidgets('list_actions_menu: opened list overflow menu', (tester) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final work = await fake.createList(name: '仕事', sortOrder: 'a1');
+    await fake.createTask(listId: work.id, title: '四半期レビュー資料を作成する');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仕事'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'list_actions_menu');
+  });
+
   testWidgets('task_detail: parent task with three subtasks', (tester) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
@@ -184,7 +204,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open lists'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('List actions').last);
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();

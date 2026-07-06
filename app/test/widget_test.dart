@@ -298,33 +298,49 @@ void main() {
     expect((await fake.getLists()).map((list) => list.name), contains('Work'));
   });
 
-  testWidgets('renaming the first list updates the fake bridge service', (
+  testWidgets('list rows expose navigation without row actions or chevrons', (
     tester,
   ) async {
-    final fake = await _pumpAppWithSeedData(tester, listName: 'Inbox');
+    await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
     await _openListsScreen(tester);
-    await tester.tap(find.byTooltip('List actions').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Rename'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Personal');
-    await tester.tap(find.text('Save'));
+
+    expect(find.byTooltip('List actions'), findsNothing);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(find.text('New list'), findsOneWidget);
+
+    await tester.tap(find.text('Inbox'));
     await tester.pumpAndSettle();
 
-    final lists = await fake.getLists();
-    expect(lists.first.name, 'Personal');
-    expect(find.text('Personal'), findsOneWidget);
-    expect(find.text('Inbox'), findsNothing);
+    expect(find.text('Tasks'), findsOneWidget);
   });
+
+  testWidgets(
+    'renaming the first list from the task screen updates the fake bridge service',
+    (tester) async {
+      final fake = await _pumpAppWithSeedData(tester, listName: 'Inbox');
+
+      await tester.tap(find.byTooltip('List actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Personal');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final lists = await fake.getLists();
+      expect(lists.first.name, 'Personal');
+      expect(find.text('Personal'), findsOneWidget);
+      expect(find.text('Inbox'), findsNothing);
+    },
+  );
 
   testWidgets('rename dialog handles a long list name', (tester) async {
     _useNarrowDynamicTypeView(tester);
     const longListName = 'とても長い既定インボックス名 with a long English project label';
     await _pumpAppWithSeedData(tester, listName: longListName);
 
-    await _openListsScreen(tester);
-    await tester.tap(find.byTooltip('List actions').first);
+    await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
@@ -347,14 +363,22 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('List actions').at(1));
+    await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Archive'));
     await tester.pumpAndSettle();
 
     expect((await fake.getLists()).map((list) => list.name), ['Inbox']);
     expect((await fake.getArchivedLists()).map((list) => list.name), ['Work']);
+    expect(find.text('Archive'), findsNothing);
+    expect(find.text('Unarchive'), findsNothing);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Work'), findsNothing);
     expect(find.text('Archived (1)'), findsOneWidget);
 
@@ -380,14 +404,20 @@ void main() {
     await _openListsScreen(tester);
     await tester.tap(find.byTooltip('Show archived lists'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('List actions').last);
+    await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Unarchive'));
     await tester.pumpAndSettle();
 
     expect((await fake.getArchivedLists()), isEmpty);
     expect((await fake.getLists()).map((list) => list.name), ['Inbox', 'Work']);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Archived (1)'), findsNothing);
     expect(find.text('Work'), findsOneWidget);
   });
@@ -401,9 +431,8 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await _openListsScreen(tester);
 
-    await tester.tap(find.byTooltip('List actions').first);
+    await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
 
     expect(find.text('Rename'), findsOneWidget);
@@ -429,8 +458,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       await _openListsScreen(tester);
+      await tester.tap(find.text('Work'));
+      await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('List actions').at(1));
+      await tester.tap(find.byTooltip('List actions'));
       await tester.pumpAndSettle();
 
       expect(find.text('Archive'), findsOneWidget);
@@ -495,6 +526,10 @@ void main() {
 
     expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Kept history task'), findsOneWidget);
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Unarchive'), findsOneWidget);
+    expect(find.text('Archive'), findsNothing);
     expect(find.text('Edit task'), findsNothing);
   });
 

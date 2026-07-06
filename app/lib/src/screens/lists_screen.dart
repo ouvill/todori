@@ -33,10 +33,6 @@ class ListsScreen extends ConsumerWidget {
                 lists: lists,
                 archivedLists: const [],
                 onCreateList: () => _createList(context, ref),
-                onRenameList: (list) => _renameList(context, ref, list),
-                onArchiveList: (list) => _archiveList(ref, list),
-                onDeleteList: (list) => _deleteList(context, ref, list),
-                onUnarchiveList: (list) => _unarchiveList(ref, list),
               ),
               error: (error, stackTrace) => AppErrorState(
                 message: l10n.failedToLoadLists(error.toString()),
@@ -45,10 +41,6 @@ class ListsScreen extends ConsumerWidget {
                 lists: lists,
                 archivedLists: archivedLists,
                 onCreateList: () => _createList(context, ref),
-                onRenameList: (list) => _renameList(context, ref, list),
-                onArchiveList: (list) => _archiveList(ref, list),
-                onDeleteList: (list) => _deleteList(context, ref, list),
-                onUnarchiveList: (list) => _unarchiveList(ref, list),
               ),
             );
           },
@@ -71,63 +63,6 @@ class ListsScreen extends ConsumerWidget {
     }
     await ref.read(listsProvider.notifier).createList(name.trim());
   }
-
-  Future<void> _renameList(
-    BuildContext context,
-    WidgetRef ref,
-    ListDto list,
-  ) async {
-    final l10n = AppLocalizations.of(context)!;
-    final name = await showAppTextInputDialog(
-      context: context,
-      title: l10n.renameListTitle,
-      label: l10n.nameLabel,
-      cancelLabel: l10n.cancelButton,
-      submitLabel: l10n.saveButton,
-      initialValue: list.name,
-    );
-    final trimmedName = name?.trim();
-    if (trimmedName == null ||
-        trimmedName.isEmpty ||
-        trimmedName == list.name) {
-      return;
-    }
-    await ref.read(listsProvider.notifier).renameList(list.id, trimmedName);
-  }
-
-  Future<void> _archiveList(WidgetRef ref, ListDto list) async {
-    await ref.read(listsProvider.notifier).archiveList(list.id);
-  }
-
-  Future<void> _deleteList(
-    BuildContext context,
-    WidgetRef ref,
-    ListDto list,
-  ) async {
-    final l10n = AppLocalizations.of(context)!;
-    final taskCount = await ref
-        .read(listsProvider.notifier)
-        .countTasks(list.id);
-    if (!context.mounted) {
-      return;
-    }
-    final confirmed = await showAppConfirmDialog(
-      context: context,
-      title: l10n.deleteListDialogTitle(list.name),
-      message: l10n.deleteListDialogMessage(taskCount),
-      cancelLabel: l10n.cancelButton,
-      confirmLabel: l10n.deleteButton,
-      isDestructive: true,
-    );
-    if (!confirmed) {
-      return;
-    }
-    await ref.read(listsProvider.notifier).deleteList(list.id);
-  }
-
-  Future<void> _unarchiveList(WidgetRef ref, ListDto list) async {
-    await ref.read(archivedListsProvider.notifier).unarchiveList(list.id);
-  }
 }
 
 class _ListsManagementView extends StatefulWidget {
@@ -135,19 +70,11 @@ class _ListsManagementView extends StatefulWidget {
     required this.lists,
     required this.archivedLists,
     required this.onCreateList,
-    required this.onRenameList,
-    required this.onArchiveList,
-    required this.onDeleteList,
-    required this.onUnarchiveList,
   });
 
   final List<ListDto> lists;
   final List<ListDto> archivedLists;
   final VoidCallback onCreateList;
-  final ValueChanged<ListDto> onRenameList;
-  final ValueChanged<ListDto> onArchiveList;
-  final ValueChanged<ListDto> onDeleteList;
-  final ValueChanged<ListDto> onUnarchiveList;
 
   @override
   State<_ListsManagementView> createState() => _ListsManagementViewState();
@@ -222,13 +149,6 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                     title: widget.lists[index].name,
                     onTap: () =>
                         context.push('/lists/${widget.lists[index].id}/tasks'),
-                    onRename: () => widget.onRenameList(widget.lists[index]),
-                    onArchive: index == 0
-                        ? null
-                        : () => widget.onArchiveList(widget.lists[index]),
-                    onDelete: index == 0
-                        ? null
-                        : () => widget.onDeleteList(widget.lists[index]),
                   ),
               Divider(color: colorScheme.outlineVariant),
               _ListManagementRow(
@@ -258,8 +178,6 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                       onTap: () => context.push(
                         '/lists/${widget.archivedLists[index].id}/tasks',
                       ),
-                      onUnarchive: () =>
-                          widget.onUnarchiveList(widget.archivedLists[index]),
                     ),
               ],
             ],
@@ -357,24 +275,15 @@ class _ListManagementRow extends StatelessWidget {
     required this.color,
     required this.title,
     required this.onTap,
-    this.onRename,
-    this.onArchive,
-    this.onDelete,
-    this.onUnarchive,
   });
 
   final IconData icon;
   final Color color;
   final String title;
   final VoidCallback onTap;
-  final VoidCallback? onRename;
-  final VoidCallback? onArchive;
-  final VoidCallback? onDelete;
-  final VoidCallback? onUnarchive;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     return InkWell(
@@ -410,71 +319,12 @@ class _ListManagementRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (_hasActions)
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: PopupMenuButton<_ListRowAction>(
-                  tooltip: l10n.listActionsTooltip,
-                  icon: Icon(
-                    Icons.more_horiz,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  onSelected: (action) {
-                    switch (action) {
-                      case _ListRowAction.rename:
-                        onRename!();
-                        break;
-                      case _ListRowAction.archive:
-                        onArchive!();
-                        break;
-                      case _ListRowAction.delete:
-                        onDelete!();
-                        break;
-                      case _ListRowAction.unarchive:
-                        onUnarchive!();
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (onRename != null)
-                      PopupMenuItem(
-                        value: _ListRowAction.rename,
-                        child: Text(l10n.renameListMenuItem),
-                      ),
-                    if (onArchive != null)
-                      PopupMenuItem(
-                        value: _ListRowAction.archive,
-                        child: Text(l10n.archiveListMenuItem),
-                      ),
-                    if (onDelete != null)
-                      PopupMenuItem(
-                        value: _ListRowAction.delete,
-                        child: Text(l10n.deleteListMenuItem),
-                      ),
-                    if (onUnarchive != null)
-                      PopupMenuItem(
-                        value: _ListRowAction.unarchive,
-                        child: Text(l10n.unarchiveListMenuItem),
-                      ),
-                  ],
-                ),
-              ),
-            Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),
           ],
         ),
       ),
     );
   }
-
-  bool get _hasActions =>
-      onRename != null ||
-      onArchive != null ||
-      onDelete != null ||
-      onUnarchive != null;
 }
-
-enum _ListRowAction { rename, archive, delete, unarchive }
 
 Color _listAccent(ColorScheme colorScheme, int index) {
   final accents = [

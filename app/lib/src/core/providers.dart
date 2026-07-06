@@ -48,6 +48,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.renameList(listId: listId, name: name);
     ref.invalidateSelf();
+    ref.invalidate(archivedListsProvider);
   }
 
   /// Archives `listId` and refreshes active and archived list collections.

@@ -35,7 +35,18 @@ class TasksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final tasksAsync = ref.watch(tasksProvider(listId));
+    final listsAsync = ref.watch(listsProvider);
+    final archivedListsAsync = ref.watch(archivedListsProvider);
     final sortMode = ref.watch(taskSortModeProvider(listId));
+    final activeLists = listsAsync.value;
+    final archivedLists = archivedListsAsync.value;
+    final currentList =
+        _findList(listId, activeLists) ?? _findList(listId, archivedLists);
+    final defaultInboxId = activeLists == null || activeLists.isEmpty
+        ? null
+        : activeLists.first.id;
+    final isDefaultInbox =
+        currentList?.archivedAt == null && defaultInboxId == listId;
 
     final sortMenu = _TaskSortMenu(
       selectedMode: sortMode,
@@ -43,6 +54,16 @@ class TasksScreen extends ConsumerWidget {
         ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
       },
     );
+    final listActionsMenu = currentList == null
+        ? null
+        : _ListActionsMenu(
+            list: currentList,
+            isDefaultInbox: isDefaultInbox,
+            onRename: () => _renameList(context, ref, currentList),
+            onArchive: () => _archiveList(ref, currentList),
+            onUnarchive: () => _unarchiveList(ref, currentList),
+            onDelete: () => _deleteList(context, ref, currentList),
+          );
 
     return Scaffold(
       appBar: isHome
@@ -50,6 +71,7 @@ class TasksScreen extends ConsumerWidget {
           : AppBar(
               title: Text(l10n.tasksTitle),
               actions: [
+                ?listActionsMenu,
                 sortMenu,
                 const SizedBox(width: AppSpacing.sm),
               ],
@@ -66,6 +88,7 @@ class TasksScreen extends ConsumerWidget {
             tasks: tasks,
             sortMode: sortMode,
             sortMenu: sortMenu,
+            listActionsMenu: listActionsMenu,
             onCreateTask: () => _createTask(context, ref),
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
@@ -141,6 +164,67 @@ class TasksScreen extends ConsumerWidget {
   Future<void> _reopenTask(WidgetRef ref, TaskDto task) {
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
   }
+
+  Future<void> _renameList(
+    BuildContext context,
+    WidgetRef ref,
+    ListDto list,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = await showAppTextInputDialog(
+      context: context,
+      title: l10n.renameListTitle,
+      label: l10n.nameLabel,
+      cancelLabel: l10n.cancelButton,
+      submitLabel: l10n.saveButton,
+      initialValue: list.name,
+    );
+    final trimmedName = name?.trim();
+    if (trimmedName == null ||
+        trimmedName.isEmpty ||
+        trimmedName == list.name) {
+      return;
+    }
+    await ref.read(listsProvider.notifier).renameList(list.id, trimmedName);
+  }
+
+  Future<void> _archiveList(WidgetRef ref, ListDto list) {
+    return ref.read(listsProvider.notifier).archiveList(list.id);
+  }
+
+  Future<void> _unarchiveList(WidgetRef ref, ListDto list) {
+    return ref.read(archivedListsProvider.notifier).unarchiveList(list.id);
+  }
+
+  Future<void> _deleteList(
+    BuildContext context,
+    WidgetRef ref,
+    ListDto list,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final taskCount = await ref
+        .read(listsProvider.notifier)
+        .countTasks(list.id);
+    if (!context.mounted) {
+      return;
+    }
+    final confirmed = await showAppConfirmDialog(
+      context: context,
+      title: l10n.deleteListDialogTitle(list.name),
+      message: l10n.deleteListDialogMessage(taskCount),
+      cancelLabel: l10n.cancelButton,
+      confirmLabel: l10n.deleteButton,
+      isDestructive: true,
+    );
+    if (!confirmed) {
+      return;
+    }
+    await ref.read(listsProvider.notifier).deleteList(list.id);
+    if (!context.mounted) {
+      return;
+    }
+    context.go('/lists');
+  }
 }
 
 class _TasksBody extends StatefulWidget {
@@ -151,6 +235,7 @@ class _TasksBody extends StatefulWidget {
     required this.tasks,
     required this.sortMode,
     required this.sortMenu,
+    required this.listActionsMenu,
     required this.onCreateTask,
     required this.onCompleteTask,
     required this.onReopenTask,
@@ -163,6 +248,7 @@ class _TasksBody extends StatefulWidget {
   final List<TaskDto> tasks;
   final TaskSortMode sortMode;
   final Widget sortMenu;
+  final Widget? listActionsMenu;
   final VoidCallback onCreateTask;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
@@ -224,6 +310,7 @@ class _TasksBodyState extends State<_TasksBody> {
         _HomeTasksHeader(
           listName: widget.listName ?? l10n.tasksTitle,
           sortMenu: widget.sortMenu,
+          listActionsMenu: widget.listActionsMenu,
         ),
       );
       addGap(AppSpacing.lg);
@@ -355,10 +442,15 @@ class _TasksBodyState extends State<_TasksBody> {
 }
 
 class _HomeTasksHeader extends StatelessWidget {
-  const _HomeTasksHeader({required this.listName, required this.sortMenu});
+  const _HomeTasksHeader({
+    required this.listName,
+    required this.sortMenu,
+    required this.listActionsMenu,
+  });
 
   final String listName;
   final Widget sortMenu;
+  final Widget? listActionsMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -379,6 +471,7 @@ class _HomeTasksHeader extends StatelessWidget {
               onPressed: () => context.push('/lists'),
             ),
             const Spacer(),
+            ?listActionsMenu,
             sortMenu,
           ],
         ),
@@ -591,6 +684,86 @@ class _CompletedSectionHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ListActionsMenu extends StatelessWidget {
+  const _ListActionsMenu({
+    required this.list,
+    required this.isDefaultInbox,
+    required this.onRename,
+    required this.onArchive,
+    required this.onUnarchive,
+    required this.onDelete,
+  });
+
+  final ListDto list;
+  final bool isDefaultInbox;
+  final Future<void> Function() onRename;
+  final Future<void> Function() onArchive;
+  final Future<void> Function() onUnarchive;
+  final Future<void> Function() onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isArchived = list.archivedAt != null;
+    return PopupMenuButton<_ListAction>(
+      key: const ValueKey('list-actions-menu'),
+      icon: const Icon(Icons.more_horiz),
+      tooltip: l10n.listActionsTooltip,
+      onSelected: (action) {
+        switch (action) {
+          case _ListAction.rename:
+            unawaited(onRename());
+            break;
+          case _ListAction.archive:
+            unawaited(onArchive());
+            break;
+          case _ListAction.unarchive:
+            unawaited(onUnarchive());
+            break;
+          case _ListAction.delete:
+            unawaited(onDelete());
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _ListAction.rename,
+          child: Text(l10n.renameListMenuItem),
+        ),
+        if (!isDefaultInbox && !isArchived)
+          PopupMenuItem(
+            value: _ListAction.archive,
+            child: Text(l10n.archiveListMenuItem),
+          ),
+        if (!isDefaultInbox && isArchived)
+          PopupMenuItem(
+            value: _ListAction.unarchive,
+            child: Text(l10n.unarchiveListMenuItem),
+          ),
+        if (!isDefaultInbox)
+          PopupMenuItem(
+            value: _ListAction.delete,
+            child: Text(l10n.deleteListMenuItem),
+          ),
+      ],
+    );
+  }
+}
+
+enum _ListAction { rename, archive, unarchive, delete }
+
+ListDto? _findList(String listId, List<ListDto>? lists) {
+  if (lists == null) {
+    return null;
+  }
+  for (final list in lists) {
+    if (list.id == listId) {
+      return list;
+    }
+  }
+  return null;
 }
 
 int _pendingCount(List<TaskDto> tasks) {
