@@ -167,8 +167,8 @@
   - AppBarタイトル・セクション見出し（Tasks等）・タスク/詳細タイトル・本文: すべてInter
   - Loraは本番から退役（decommission）。アセットはDesign Lab比較用にリポジトリへ残すが、pubspecのfonts定義から外し、アプリには同梱しない
   - Zen Old MinchoはLab実験専用（同梱しない、`app/tool/fetch_lab_fonts.sh` 経由）
+- **2026-07-06 人間裁定（ダークモード）**: ダークモードは対応方針だが直近スコープ外。Phase 1リリースはライトモードのみを正式サポートし、リリース前にthemeModeをlight固定する。dark系トークン・コードは残置し、正式対応の再開はBACKLOGで管理する。それまで新規UI実装はライトモードでの検証のみを必須とする。
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 
 - タスク行右側のaffordance: chevron継続か、将来のFocus開始ボタンか（Focus timer実装時に決定）。
-- ダークモードの正式トークン（priority dot固定hexのコントラスト含む）。
