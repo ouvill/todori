@@ -314,6 +314,43 @@ void main() {
     expect((await fake.getLists()).map((list) => list.name), contains('Work'));
   });
 
+  testWidgets('renaming the first list updates the fake bridge service', (
+    tester,
+  ) async {
+    final fake = await _pumpAppWithSeedData(tester, listName: 'Inbox');
+
+    await _openListsScreen(tester);
+    await tester.tap(find.byTooltip('List actions').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Personal');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final lists = await fake.getLists();
+    expect(lists.first.name, 'Personal');
+    expect(find.text('Personal'), findsOneWidget);
+    expect(find.text('Inbox'), findsNothing);
+  });
+
+  testWidgets('rename dialog handles a long list name', (tester) async {
+    _useNarrowDynamicTypeView(tester);
+    const longListName = 'とても長い既定インボックス名 with a long English project label';
+    await _pumpAppWithSeedData(tester, listName: longListName);
+
+    await _openListsScreen(tester);
+    await tester.tap(find.byTooltip('List actions').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    expect(textField.controller?.text, longListName);
+    expect(find.text('Rename list'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('checking a task marks it done through the bridge service', (
     tester,
   ) async {

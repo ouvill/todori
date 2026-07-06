@@ -152,6 +152,24 @@ abstract class AppLocalizations {
   /// **'New list'**
   String get newListTitle;
 
+  /// No description provided for @listActionsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'List actions'**
+  String get listActionsTooltip;
+
+  /// No description provided for @renameListMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get renameListMenuItem;
+
+  /// No description provided for @renameListTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename list'**
+  String get renameListTitle;
+
   /// No description provided for @nameLabel.
   ///
   /// In en, this message translates to:

@@ -38,6 +38,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get newListTitle => 'New list';
 
   @override
+  String get listActionsTooltip => 'List actions';
+
+  @override
+  String get renameListMenuItem => 'Rename';
+
+  @override
+  String get renameListTitle => 'Rename list';
+
+  @override
   String get nameLabel => 'Name';
 
   @override

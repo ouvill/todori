@@ -38,6 +38,30 @@ class FakeBridgeService implements BridgeService {
   Future<List<ListDto>> getLists() async => List.unmodifiable(_lists);
 
   @override
+  Future<ListDto> renameList({
+    required String listId,
+    required String name,
+  }) async {
+    if (name.trim().isEmpty) {
+      throw Exception('list name must not be empty');
+    }
+    final index = _lists.indexWhere((list) => list.id == listId);
+    final list = _lists[index];
+    final updated = ListDto(
+      id: list.id,
+      name: name,
+      color: list.color,
+      icon: list.icon,
+      orgId: list.orgId,
+      sortOrder: list.sortOrder,
+      createdAt: list.createdAt,
+      updatedAt: list.updatedAt + _fakeMinuteMs,
+    );
+    _lists[index] = updated;
+    return updated;
+  }
+
+  @override
   Future<TaskDto> createTask({
     required String listId,
     required String title,

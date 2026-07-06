@@ -19,6 +19,12 @@ abstract class BridgeService {
   /// Returns all lists.
   Future<List<rust_api.ListDto>> getLists();
 
+  /// Renames a list.
+  Future<rust_api.ListDto> renameList({
+    required String listId,
+    required String name,
+  });
+
   /// Creates a task at the end of its sibling group.
   Future<rust_api.TaskDto> createTask({
     required String listId,
@@ -81,6 +87,12 @@ class FrbBridgeService implements BridgeService {
 
   @override
   Future<List<rust_api.ListDto>> getLists() => rust_api.getLists();
+
+  @override
+  Future<rust_api.ListDto> renameList({
+    required String listId,
+    required String name,
+  }) => rust_api.renameList(listId: listId, name: name);
 
   @override
   Future<rust_api.TaskDto> createTask({

@@ -8,8 +8,9 @@ use std::{
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
     delete_task as domain_delete_task, fractional_index_after, fractional_index_between, new_list,
-    new_task, restore_task as domain_restore_task, transition_task, update_due_at, update_note,
-    update_priority, update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
+    new_task, rename_list as domain_rename_list, restore_task as domain_restore_task,
+    transition_task, update_due_at, update_note, update_priority, update_title,
+    validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
@@ -141,6 +142,19 @@ pub fn get_lists() -> Result<Vec<ListDto>, String> {
             .list_all()
             .map_err(|error| error.to_string())
             .map(|lists| lists.into_iter().map(list_to_dto).collect())
+    })
+}
+
+pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
+    let list_id = parse_uuid(&list_id)?;
+    let now_ms = now_ms()?;
+    with_list_repository(|repository| {
+        let list = repository.get(list_id).map_err(|error| error.to_string())?;
+        let updated = domain_rename_list(list, name, now_ms).map_err(|error| error.to_string())?;
+        repository
+            .update(updated.clone())
+            .map_err(|error| error.to_string())?;
+        Ok(list_to_dto(updated))
     })
 }
 

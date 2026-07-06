@@ -34,6 +34,9 @@ Future<ListDto> createList({required String name, required String sortOrder}) =>
 
 Future<List<ListDto>> getLists() => RustLib.instance.api.crateApiGetLists();
 
+Future<ListDto> renameList({required String listId, required String name}) =>
+    RustLib.instance.api.crateApiRenameList(listId: listId, name: name);
+
 /// Creates a task at the end of its sibling group using a domain-generated
 /// fractional `sort_order`.
 Future<TaskDto> createTask({

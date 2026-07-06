@@ -30,6 +30,7 @@ class ListsScreen extends ConsumerWidget {
             return _ListsManagementView(
               lists: lists,
               onCreateList: () => _createList(context, ref),
+              onRenameList: (list) => _renameList(context, ref, list),
             );
           },
         ),
@@ -51,13 +52,41 @@ class ListsScreen extends ConsumerWidget {
     }
     await ref.read(listsProvider.notifier).createList(name.trim());
   }
+
+  Future<void> _renameList(
+    BuildContext context,
+    WidgetRef ref,
+    ListDto list,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = await showAppTextInputDialog(
+      context: context,
+      title: l10n.renameListTitle,
+      label: l10n.nameLabel,
+      cancelLabel: l10n.cancelButton,
+      submitLabel: l10n.saveButton,
+      initialValue: list.name,
+    );
+    final trimmedName = name?.trim();
+    if (trimmedName == null ||
+        trimmedName.isEmpty ||
+        trimmedName == list.name) {
+      return;
+    }
+    await ref.read(listsProvider.notifier).renameList(list.id, trimmedName);
+  }
 }
 
 class _ListsManagementView extends StatelessWidget {
-  const _ListsManagementView({required this.lists, required this.onCreateList});
+  const _ListsManagementView({
+    required this.lists,
+    required this.onCreateList,
+    required this.onRenameList,
+  });
 
   final List<ListDto> lists;
   final VoidCallback onCreateList;
+  final ValueChanged<ListDto> onRenameList;
 
   @override
   Widget build(BuildContext context) {
@@ -125,6 +154,7 @@ class _ListsManagementView extends StatelessWidget {
                     title: lists[index].name,
                     onTap: () =>
                         context.push('/lists/${lists[index].id}/tasks'),
+                    onRename: () => onRenameList(lists[index]),
                   ),
                 ],
               Divider(color: colorScheme.outlineVariant),
@@ -167,15 +197,18 @@ class _ListManagementRow extends StatelessWidget {
     required this.color,
     required this.title,
     required this.onTap,
+    this.onRename,
   });
 
   final IconData icon;
   final Color color;
   final String title;
   final VoidCallback onTap;
+  final VoidCallback? onRename;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     return InkWell(
@@ -202,6 +235,8 @@ class _ListManagementRow extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 softWrap: true,
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: colorScheme.onSurface,
@@ -209,6 +244,30 @@ class _ListManagementRow extends StatelessWidget {
                 ),
               ),
             ),
+            if (onRename != null)
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: PopupMenuButton<_ListRowAction>(
+                  tooltip: l10n.listActionsTooltip,
+                  icon: Icon(
+                    Icons.more_horiz,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _ListRowAction.rename:
+                        onRename!();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: _ListRowAction.rename,
+                      child: Text(l10n.renameListMenuItem),
+                    ),
+                  ],
+                ),
+              ),
             Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),
           ],
         ),
@@ -216,6 +275,8 @@ class _ListManagementRow extends StatelessWidget {
     );
   }
 }
+
+enum _ListRowAction { rename }
 
 Color _listAccent(ColorScheme colorScheme, int index) {
   final accents = [

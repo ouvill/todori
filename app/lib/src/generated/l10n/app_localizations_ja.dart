@@ -38,6 +38,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get newListTitle => '新しいリスト';
 
   @override
+  String get listActionsTooltip => 'リスト操作';
+
+  @override
+  String get renameListMenuItem => '名称変更';
+
+  @override
+  String get renameListTitle => 'リスト名を変更';
+
+  @override
   String get nameLabel => '名前';
 
   @override

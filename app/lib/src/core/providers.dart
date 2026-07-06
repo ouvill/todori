@@ -42,6 +42,13 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.createList(name: name, sortOrder: sortOrder);
     ref.invalidateSelf();
   }
+
+  /// Renames `listId` and refreshes [listsProvider].
+  Future<void> renameList(String listId, String name) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.renameList(listId: listId, name: name);
+    ref.invalidateSelf();
+  }
 }
 
 final listsProvider = AsyncNotifierProvider<ListsNotifier, List<ListDto>>(

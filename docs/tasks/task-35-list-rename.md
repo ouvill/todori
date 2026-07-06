@@ -1,5 +1,8 @@
 # task-35: リスト名称変更 ── M3-01完了条件の残り(1/2)
 
+> ステータス: 完了（2026-07-07実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-06のPhase1計画とのギャップ棚卸し（`docs/tasks/BACKLOG.md` 優先度付きバックログ #1）で、M3-01完了条件（リスト作成/名称変更/削除）のうち**作成のみ**実装済みであることが判明した。出典: `docs/tasks/BACKLOG.md` 「現在地」節、および優先度付きバックログ表の #1（「リスト名称変更UI」「出典: M3-01完了条件（作成/名称変更/削除のうち作成のみ実装済み。2026-07-06親棚卸しで確認）」）。
@@ -155,3 +158,101 @@
 - before/afterの `lists.png` 保存パスと目視確認結果
 - 品質ゲートの実行結果一覧
 - 未解決事項（既定インボックス自動プロビジョニングの要否等を含む）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/task-35-list-rename.md`
+  - `docs/02_機能仕様書.md` F-09
+  - `docs/design/ui-spec.md`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/ui/dialogs.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- F-09から読み取った名称変更セマンティクス・既定インボックス保護:
+  - F-09は複数リスト、リストの名前・色・アイコン設定、初期状態の「インボックス」リストを定めている。
+  - F-09に既定インボックスの名称変更禁止条件は記載されていない。
+  - 本タスク指示書の暫定解どおり、既定インボックスは `list_all()` の先頭リスト（`sort_order` 最小）として扱い、名称変更を許可した。
+  - 既定インボックス自動プロビジョニング、削除、アーカイブ、スキーマ列追加は実装していない。
+- `core/domain` 確認結果:
+  - `core/domain/src/usecases.rs` に `rename_list(mut list: List, name: String, now_ms: i64) -> Result<List, DomainError>` が実装済みであることを確認した。
+  - 既存単体テスト `rename_list_changes_name_and_updated_at` / `rename_list_rejects_empty_name` を確認した。
+- `core/storage` 確認結果:
+  - `ListRepository::update` は `name` と `updated_at` を含む `lists` 行更新を実行していることを確認した。
+  - 既存単体テスト `sqlite_list_repository_roundtrips_and_lists_by_sort_order` が `name` 更新後の `get` を確認していることを確認した。
+- `app/rust/src/api.rs` 追加内容:
+  - `pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String>`
+  - `todori_domain::rename_list` は `domain_rename_list` として import した。
+  - API内で `repository.get(list_id)`、`domain_rename_list(list, name, now_ms)`、`repository.update(updated.clone())`、`list_to_dto(updated)` を実行する。
+- FRB / l10n 生成:
+  - 実行: `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`
+  - 結果: exit 0、出力 `Done!`
+  - 生成差分: `app/rust/src/frb_generated.rs`、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`
+  - 実行: `flutter gen-l10n`
+  - 結果: exit 0
+  - 生成差分: `app/lib/src/generated/l10n/app_localizations.dart`、`app/lib/src/generated/l10n/app_localizations_en.dart`、`app/lib/src/generated/l10n/app_localizations_ja.dart`
+- Dart側変更:
+  - `BridgeService` / `FrbBridgeService` に `renameList({required String listId, required String name})` を追加した。
+  - `FakeBridgeService` に `renameList` を追加し、対象リストの `name` と `updatedAt` を更新するようにした。
+  - `ListsNotifier` に `renameList(String listId, String name)` を追加し、bridge call後に `ref.invalidateSelf()` を実行するようにした。
+  - `showAppTextInputDialog` に `initialValue` を追加した。
+  - Lists画面の既存リスト行に `PopupMenuButton` の改名メニューを追加し、作成行には追加していない。
+  - Lists画面のリスト名表示は `maxLines: 2`、`TextOverflow.ellipsis` を指定した。
+- l10nキー:
+  - `listActionsTooltip`
+  - `renameListMenuItem`
+  - `renameListTitle`
+- widget test:
+  - 追加: `renaming the first list updates the fake bridge service`
+  - 追加: `rename dialog handles a long list name`
+  - 実行: `cd app && flutter test test/widget_test.dart`
+  - 結果: exit 0、25 tests passed
+- visual QA:
+  - 作業前: `app/build/visual_qa/` は存在しなかったため、`sh app/tool/visual_qa.sh` を実行して生成した `app/build/visual_qa/` を `app/build/visual_qa_before/` へ移動した。
+  - before: `app/build/visual_qa_before/lists.png`
+  - after: `app/build/visual_qa/lists.png`
+  - 実行: `sh app/tool/visual_qa.sh`
+  - 結果: exit 0、25 tests passed
+  - 目視確認結果: beforeは既存リスト行にchevronのみ表示。afterは既存2リスト行に三点メニューとchevronを表示し、`New list` 行に三点メニューは表示していない。after画像で行テキスト、三点メニュー、chevron、区切り線の重なりは見えなかった。
+- 品質ゲート:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0、Rust tests 74 passed
+  - `cd app && flutter analyze`: exit 0、No issues found
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0、40 tests passed、visual QA harness 1 skipped
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `git diff --check`: exit 0
+- 変更ファイル:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/ui/dialogs.dart`
+  - `app/rust/src/api.rs`
+  - `app/rust/src/frb_generated.rs`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `docs/tasks/README.md`
+  - `docs/tasks/task-35-list-rename.md`
+- 未解決事項:
+  - F-09が想定する既定インボックス自動プロビジョニングは未実装。
+  - 既定インボックスを永続的に識別するスキーマ列は未実装。
+  - リスト削除、リストアーカイブ、リスト並び替えは未実装。

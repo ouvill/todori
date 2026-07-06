@@ -7,6 +7,7 @@ Future<String?> showAppTextInputDialog({
   required String label,
   required String cancelLabel,
   required String submitLabel,
+  String? initialValue,
 }) {
   return showDialog<String>(
     context: context,
@@ -15,6 +16,7 @@ Future<String?> showAppTextInputDialog({
       label: label,
       cancelLabel: cancelLabel,
       submitLabel: submitLabel,
+      initialValue: initialValue,
     ),
   );
 }
@@ -63,19 +65,31 @@ class _AppTextInputDialog extends StatefulWidget {
     required this.label,
     required this.cancelLabel,
     required this.submitLabel,
+    this.initialValue,
   });
 
   final String title;
   final String label;
   final String cancelLabel;
   final String submitLabel;
+  final String? initialValue;
 
   @override
   State<_AppTextInputDialog> createState() => _AppTextInputDialogState();
 }
 
 class _AppTextInputDialogState extends State<_AppTextInputDialog> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+    _controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _controller.text.length,
+    );
+  }
 
   @override
   void dispose() {
