@@ -33,19 +33,30 @@
 - **Flutter Design Lab完了済み**: task-33で本番route/provider/DB/FRB/Rust APIに触れず、visual QA上に `design_lab_today_calm.png` / `design_lab_today_dense.png` / `design_lab_smart_lists.png` を生成するtest-onlyモック基盤を追加した。
 - Design Lab方向性裁定済み（2026-07-06人間裁定: calm発展形の単一方向へ集約。詳細は `docs/design/ui-spec.md` 裁定済み事項参照）。
 - タイポグラフィ裁定済み（2026-07-06人間裁定: D案構成採用・和文はシステムフォント・Lora退役。詳細はui-spec.md）。
+- **typography rollout完了済み**: task-34でNewsreader範囲制限＋システム和文セリフを本番`theme.dart`へ反映し、Loraをpubspecから外した（アセットは比較用に残置）。
 - **テスト数**: Rust 74 / Flutter 38（task-33実装セッション時点の値。visual QA harnessは `TODORI_VISUAL_QA=1` で11スクリーンショットを生成）。
+- **Phase1計画とのギャップ棚卸し（2026-07-06親棚卸し）**: `docs/07_Phase1計画書.md` のマイルストーン表と実装状況を突き合わせ、リスト名称変更/削除UI（M3-01）とwont_do/再オープンのUIステータス遷移（M3-04）が未実装であることを確認した。バックログへ反映済み。
 - **実行エージェント運用**: 「docs/tasks/指示書 → codex実装 → 品質ゲート → 完了報告追記 → コミット」のループが確立済み（task-05〜10で実績あり）。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | typography rollout（task-34） | Newsreader範囲制限＋システム和文セリフを本番theme.dartへ反映し、Loraをpubspecから外す（アセットは比較用に残す） | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項。指示書: `docs/tasks/task-34-typography-rollout.md` |
-| 2 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
-| 3 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
-| 4 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
-| 5 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない）。出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） | 軽量レーン | 軽量レーン対象 |
-| 6 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
+| 1 | リスト名称変更・削除UI | リスト作成に加え、名称変更・削除をUIから実行できるようにする（必要ならbridge API追加も含む） | M3-01 | 出典: M3-01完了条件（作成/名称変更/削除のうち作成のみ実装済み。2026-07-06親棚卸しで確認） |
+| 2 | wont_do / 再オープンのUIステータス遷移 | `done` / `wont_do` / 再オープンの各ステータス遷移をUIから実行できるようにする。禁止遷移は表示上選べないこと | M3-04 | 出典: M3-04（現行UIはラベル表示のみ。domain/Rust側にはwont_doが存在。2026-07-06親棚卸しで確認） |
+| 3 | タスク行のdot/チェック整列修正 | priority dotとチェックをタイトル1行目とセンター整列させる（行全体センターではない） | 軽量レーン | 出典: 親レビュー2026-07-06（`docs/design/ui-spec.md` セクション5「既知の逸脱」参照） |
+| 4 | 本番UIのアイコンをLucideへ統一 | `app/lib/` 全画面のMaterial IconsをLucide（`lucide_icons_flutter`）へ置き換える。同一画面でMaterialとLucideを混在させない。tooltip/semanticsは維持する | 軽量レーン | 出典: 2026-07-06人間裁定 / `docs/design/ui-spec.md` 裁定済み事項 |
+| 5 | FTS5検索の配線 | `tasks_fts` の同期トリガー、またはアプリ層更新 + 検索API + （UIはPhase 3送り） | M1-02残課題 | task-02の完了報告「やらないこと」参照 |
+| 6 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項 |
+| 7 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | |
+| 8 | 設定値の永続化機構とF-01 UIモード設定の保存口 | 設定値を永続化する仕組みを用意し、F-01のUIモード選択の保存口を実装する | M4 | 出典: Phase1計画書§1（F-01「設定値の保存口のみ用意」）。通知設定・UIモードの前提。2026-07-06親棚卸しで確認 |
+| 9 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
+| 10 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | |
+| 11 | 日付・時刻表記のロケール準拠リファクタ | 固定パターン `DateFormat('EEE, MMM d')` 等をskeleton API（`yMMMEd`等）へ置換し、ホストのロケール設定に従う | M4系 | 出典: 2026-07-06人間指示（`docs/design/ui-spec.md`参照）。ja表示「月, 7月 6」の不自然さもこれで解消 |
+| 12 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | |
+| 13 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | |
+| 14 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | |
+| 15 | SQLCipherクロスビルドのiOS/Android CI検証 | iOS/AndroidのSQLCipherビルド差分をCIで継続検証する | Phase1計画書§6 | |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -66,3 +77,6 @@
 ## 要人間判断
 
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
+- 初回起動体験/オンボーディングの要否と範囲（Phase1計画書のマイルストーン表に項目が存在しない。App Store提出時の初回体験・DK復旧不可の注意表示（計画書§5リスク表）をどこで扱うか）。出典: 2026-07-06親棚卸し。
+- ダークモードのPhase 1リリース基準（対応を仕上げる/ライトのみで出す）。priority dot固定hexのコントラスト問題も従属する。出典: `docs/design/ui-spec.md` セクション6未決事項。
+- DBスキーママイグレーション方針のリリース前確認（ストア公開後のスキーマ変更に備えるバージョニングが技術仕様書でカバーされているかの確認と、不足時の対応）。出典: 2026-07-06親棚卸し。
