@@ -57,6 +57,8 @@
 | task-37 | 完了 | [task-37-list-archive.md](./task-37-list-archive.md) | リストのアーカイブ/アーカイブ解除。F-09改訂・ADR-009に準拠し、完了履歴を保全したまま通常一覧から分離する | task-36の完了状態に依存。task-38（ゴミ箱廃止と恒久削除移行）の前提 |
 | task-38 | 完了 | [task-38-trash-removal.md](./task-38-trash-removal.md) | ゴミ箱廃止と恒久削除への移行。trash UI/route/APIを撤去し、タスク・リスト削除を物理DELETE＋不可逆警告の追加確認へ移行する | task-37（リストのアーカイブ/解除）の完了状態に依存。ADR-009 / F-07改訂 / docs/03改訂準拠 |
 | task-39 | 完了 | [task-39-wont-do-reopen.md](./task-39-wont-do-reopen.md) | `wont_do`（やらないことにする）と再オープンをUIから実行できるようにし、F-06のステータス遷移を画面上に配線する | task-38の完了状態に依存。M3-04完了条件の残り |
+| task-40 | 未着手 | [task-40-task-list-behavior.md](./task-40-task-list-behavior.md) | タスク一覧でClosed行の先頭コントロールから再オープンできるようにし、閉じたサブタスクを親の下に残す | task-39の完了状態に依存。2026-07-07ドッグフーディング項目2・3 |
+| task-41 | 未着手 | [task-41-list-nav-simplify.md](./task-41-list-nav-simplify.md) | リスト一覧行を純粋なナビゲーション行へ単純化し、リスト操作を開いたリスト画面右上overflowへ移設する | task-38の完了状態に依存。2026-07-07ドッグフーディング項目1 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

@@ -1,7 +1,7 @@
 # Todori UI Spec ── 拘束力のある具体値と判断規則
 
 > Status: binding implementation spec
-> Last updated: 2026-07-06
+> Last updated: 2026-07-07
 
 `docs/design/visual-direction.md` は方向性と哲学を扱う。本書は**実装時に従う具体値と判断規則**を定める。両者が矛盾した場合は本書が優先する。本書の変更は設計タスク（またはドッグフーディング/親レビュー起点のタスク）経由でのみ行う。実装エージェントが自己判断で本書を書き換えてはならない。
 
@@ -129,6 +129,12 @@
 
 完了行の表現: チェックはfilled/mutedのcheck_circle系アイコン、タイトルはstrikethrough + `onSurfaceVariant`、行の面（Material color）はやや不透明度を下げて背景に沈める（現行実装は`surface.withValues(alpha: 0.72)`、borderも`outlineVariant.withValues(alpha: 0.7)`）。
 
+Closed（`done` / `wont_do`）状態のルートタスク行の先頭コントロールをタップすると、確認ダイアログなしで `todo` へ再オープンする。これは2026-07-07ドッグフーディング由来の規則であり、既存の完了時Undoスナックバー動線とは独立した操作である。
+
+### タスク一覧構造
+
+Closedセクションに入るのはルートタスクのみ。サブタスクは状態に関わらず常に親の下に表示し、閉じたサブタスクは muted + 取り消し線で親にぶら下がる。ツリーごとClosedへ移動するのは親自身が閉じたときだけ。この規則は2026-07-07ドッグフーディング由来であり、サブタスク関係を一覧上で失わないための構造規範である。
+
 ### チップ/pill
 
 - 情報表示専用。ボタンとして機能させない（画面が明示的にinteractiveにする場合を除く）。
@@ -138,6 +144,7 @@
 ### 画面規範
 
 - **Today/home**: 上部バー（メニュー/ソート） → Today見出し + 日付サブタイトル → リスト名pill → Tasksセクション行（見出し + pending pill + 追加ボタン。pending表示はここ1箇所のみ） → タスク行リスト → Add task FAB。
+- **リスト一覧**: 行は純粋なナビゲーション行とし、行内に操作メニューやchevronを置かない。リスト単位の操作（改名/アーカイブ/削除）は、そのリストを開いた画面の右上overflowメニューに置く。既定インボックスでは保護対象操作（削除/アーカイブ）をメニューに表示しない。この規則は2026-07-07ドッグフーディング由来である。
 - **Task detail**: タイトル（Lora、カード囲みなし） → note（あれば） → メタデータチップ最大4（詳細画面のみstatusチップ追加を許容） → created（`bodySmall`キャプション） → Subtasks小見出し → サブタスク行 → actions。ロック/暗号化の常設表現は禁止（`visual-direction.md` Security Signal参照）。
 - **Dialog**: 文章主体、装飾なし。destructiveのみcoralを使う。
 
