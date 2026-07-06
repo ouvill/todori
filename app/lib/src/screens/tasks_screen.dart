@@ -176,7 +176,7 @@ class _TasksBodyState extends State<_TasksBody> {
   @override
   void didUpdateWidget(covariant _TasksBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_showCompleted && !widget.tasks.any(_isCompleted)) {
+    if (_showCompleted && !widget.tasks.any(isTaskClosed)) {
       _showCompleted = false;
     }
   }
@@ -185,10 +185,10 @@ class _TasksBodyState extends State<_TasksBody> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final activeTasks = widget.tasks
-        .where((task) => !_isCompleted(task))
+        .where((task) => !isTaskClosed(task))
         .toList(growable: false);
     final completedTasks = widget.tasks
-        .where(_isCompleted)
+        .where(isTaskClosed)
         .toList(growable: false);
     final activeNodes = flattenTaskTree(
       buildTaskTree(activeTasks, sortMode: widget.sortMode),
@@ -295,7 +295,7 @@ class _TasksBodyState extends State<_TasksBody> {
       key: ValueKey('task-row-${task.id}'),
       checkboxKey: ValueKey('task-done-${task.id}'),
       title: task.title,
-      isDone: task.status == 'done',
+      isDone: isTaskClosed(task),
       depth: node.depth,
       priority: task.priority,
       priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
@@ -334,8 +334,6 @@ class _TasksBodyState extends State<_TasksBody> {
     );
   }
 }
-
-bool _isCompleted(TaskDto task) => task.status == 'done';
 
 class _HomeTasksHeader extends StatelessWidget {
   const _HomeTasksHeader({required this.listName, required this.sortMenu});
@@ -577,7 +575,7 @@ class _CompletedSectionHeader extends StatelessWidget {
 }
 
 int _pendingCount(List<TaskDto> tasks) {
-  return tasks.where((task) => task.status != 'done').length;
+  return tasks.where((task) => !isTaskClosed(task)).length;
 }
 
 class _TaskSortMenu extends StatelessWidget {
@@ -684,7 +682,7 @@ Future<void> _applyUndo(
 
 String _undoMessage(AppLocalizations l10n, String operationType) {
   return switch (operationType) {
-    'complete' => l10n.undoCompleteMessage,
+    'complete' => l10n.undoCloseMessage,
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,
   };

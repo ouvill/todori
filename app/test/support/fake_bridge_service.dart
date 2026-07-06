@@ -215,15 +215,20 @@ class FakeBridgeService implements BridgeService {
   }) async {
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final before = _tasks[index];
+    if (!_canTransition(before.status, status)) {
+      throw Exception('invalid task status transition');
+    }
     final updatedAt = before.updatedAt + _fakeMinuteMs;
     final updated = before._copyWith(
       status: status,
       completedAt: status == 'done' ? updatedAt : null,
-      closedReason: closedReason,
+      closedReason: status == 'wont_do' ? closedReason : null,
+      clearCompletedAt: status != 'done',
+      clearClosedReason: status != 'wont_do',
       updatedAt: updatedAt,
     );
     _tasks[index] = updated;
-    if (status == 'done') {
+    if (status == 'done' || status == 'wont_do') {
       _recordUndo(operationType: 'complete', before: before, after: updated);
     }
     return updated;
@@ -385,6 +390,23 @@ class FakeBridgeService implements BridgeService {
   }
 }
 
+bool _canTransition(String current, String next) {
+  if (current == next) {
+    return false;
+  }
+  return switch ((current, next)) {
+    ('todo', 'in_progress') ||
+    ('todo', 'done') ||
+    ('todo', 'wont_do') ||
+    ('in_progress', 'todo') ||
+    ('in_progress', 'done') ||
+    ('in_progress', 'wont_do') ||
+    ('done', 'todo') ||
+    ('wont_do', 'todo') => true,
+    _ => false,
+  };
+}
+
 final int _fakeClockBaseMs = DateTime.utc(2026, 7, 1, 9).millisecondsSinceEpoch;
 
 const int _fakeMinuteMs = Duration.millisecondsPerMinute;
@@ -433,6 +455,8 @@ extension _TaskDtoCopy on TaskDto {
     int? deletedAt,
     String? sortOrder,
     int? updatedAt,
+    bool clearCompletedAt = false,
+    bool clearClosedReason = false,
   }) {
     return TaskDto(
       id: id,
@@ -446,8 +470,10 @@ extension _TaskDtoCopy on TaskDto {
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
       sortOrder: sortOrder ?? this.sortOrder,
-      completedAt: completedAt ?? this.completedAt,
-      closedReason: closedReason ?? this.closedReason,
+      completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+      closedReason: clearClosedReason
+          ? null
+          : closedReason ?? this.closedReason,
       deletedAt: deletedAt ?? this.deletedAt,
       assignee: assignee,
       createdAt: createdAt,

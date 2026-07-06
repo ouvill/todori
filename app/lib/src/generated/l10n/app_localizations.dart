@@ -269,25 +269,25 @@ abstract class AppLocalizations {
   /// No description provided for @completedTasksTitle.
   ///
   /// In en, this message translates to:
-  /// **'Completed'**
+  /// **'Closed'**
   String get completedTasksTitle;
 
   /// No description provided for @completedTasksCount.
   ///
   /// In en, this message translates to:
-  /// **'{count} completed'**
+  /// **'{count} closed'**
   String completedTasksCount(int count);
 
   /// No description provided for @showCompletedTasksTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Show completed tasks'**
+  /// **'Show closed tasks'**
   String get showCompletedTasksTooltip;
 
   /// No description provided for @hideCompletedTasksTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Hide completed tasks'**
+  /// **'Hide closed tasks'**
   String get hideCompletedTasksTooltip;
 
   /// No description provided for @homeListMenuTooltip.
@@ -464,6 +464,18 @@ abstract class AppLocalizations {
   /// **'This task has incomplete subtasks. Completing it will not complete its subtasks.'**
   String get completeTaskDialogMessage;
 
+  /// No description provided for @wontDoTaskDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Close parent as won\'t do?'**
+  String get wontDoTaskDialogTitle;
+
+  /// No description provided for @wontDoTaskDialogMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This task has incomplete subtasks. Closing it as won\'t do will not close its subtasks.'**
+  String get wontDoTaskDialogMessage;
+
   /// No description provided for @continueButton.
   ///
   /// In en, this message translates to:
@@ -505,6 +517,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Task actions'**
   String get taskActionsTooltip;
+
+  /// No description provided for @markTaskDoneMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark done'**
+  String get markTaskDoneMenuItem;
+
+  /// No description provided for @markTaskWontDoMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark won\'t do'**
+  String get markTaskWontDoMenuItem;
+
+  /// No description provided for @reopenTaskMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Reopen'**
+  String get reopenTaskMenuItem;
 
   /// No description provided for @editTaskTitle.
   ///
@@ -619,6 +649,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Task completed.'**
   String get undoCompleteMessage;
+
+  /// No description provided for @undoCloseMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Task closed.'**
+  String get undoCloseMessage;
 
   /// No description provided for @undoEditMessage.
   ///

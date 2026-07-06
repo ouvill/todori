@@ -518,11 +518,11 @@ void main() {
 
     final active = await fake.getTasks(listId: listId);
     expect(active.single.status, 'done');
-    expect(find.text('Task completed.'), findsOneWidget);
+    expect(find.text('Task closed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
     expect(find.text('Buy milk'), findsNothing);
-    expect(find.text('Completed'), findsOneWidget);
-    expect(find.text('1 completed'), findsOneWidget);
+    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('1 closed'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
@@ -537,7 +537,102 @@ void main() {
     expect(undone.single.status, 'todo');
     final undoneCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(undoneCheckbox.value, isFalse);
-    expect(find.text('Completed'), findsNothing);
+    expect(find.text('Closed'), findsNothing);
+  });
+
+  testWidgets(
+    'detail menu marks wont_do, reopens it, and hides invalid transitions',
+    (tester) async {
+      final fake = await _pumpAppWithSeedData(
+        tester,
+        listName: 'Inbox',
+        taskTitle: 'Buy milk',
+      );
+
+      await tester.tap(find.text('Buy milk'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mark done'), findsOneWidget);
+      expect(find.text("Mark won't do"), findsOneWidget);
+      expect(find.text('Reopen'), findsNothing);
+
+      await tester.tap(find.text("Mark won't do"));
+      await tester.pumpAndSettle();
+
+      final listId = (await fake.getLists()).first.id;
+      var active = await fake.getTasks(listId: listId);
+      expect(active.single.status, 'wont_do');
+      expect(find.text('Task closed.'), findsOneWidget);
+      expect(find.text('Undo'), findsOneWidget);
+      expect(find.text("Won't do"), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reopen'), findsOneWidget);
+      expect(find.text('Mark done'), findsNothing);
+      expect(find.text("Mark won't do"), findsNothing);
+      expect(find.text('In progress'), findsNothing);
+
+      await tester.tap(find.text('Reopen'));
+      await tester.pumpAndSettle();
+
+      active = await fake.getTasks(listId: listId);
+      expect(active.single.status, 'todo');
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mark done'), findsOneWidget);
+      expect(find.text("Mark won't do"), findsOneWidget);
+    },
+  );
+
+  testWidgets('detail menu hides done to wont_do transition', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(listId: listId, title: 'Done task');
+    await fake.setTaskStatus(taskId: task.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done task'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Task actions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reopen'), findsOneWidget);
+    expect(find.text("Mark won't do"), findsNothing);
+    expect(find.text('In progress'), findsNothing);
+  });
+
+  testWidgets('wont_do row is closed, struck through, and labeled', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final skipped = await fake.createTask(
+      listId: listId,
+      title: 'Skipped task',
+    );
+    await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Skipped task'), findsOneWidget);
+    expect(find.text("Won't do"), findsOneWidget);
+    final title = tester.widget<Text>(find.text('Skipped task'));
+    expect(title.style?.decoration, TextDecoration.lineThrough);
   });
 
   testWidgets('task list move buttons reorder root tasks', (tester) async {
@@ -712,7 +807,7 @@ void main() {
     expect(find.text('Plan launch'), findsOneWidget);
     expect(find.text('Draft checklist'), findsOneWidget);
     expect(find.text('Review checklist'), findsNothing);
-    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('Closed'), findsOneWidget);
     expect(find.text('1/2'), findsNothing);
     expect(find.text('1/1'), findsNothing);
     expect(
@@ -927,6 +1022,56 @@ void main() {
     },
   );
 
+  testWidgets(
+    'incomplete descendants require confirmation before parent wont_do',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Parent task',
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Child task',
+        parentTaskId: parent.id,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Parent task'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("Mark won't do"));
+      await tester.pumpAndSettle();
+
+      expect(find.text("Close parent as won't do?"), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      var active = await fake.getTasks(listId: listId);
+      expect(active.singleWhere((task) => task.id == parent.id).status, 'todo');
+
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("Mark won't do"));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      active = await fake.getTasks(listId: listId);
+      expect(
+        active.singleWhere((task) => task.id == parent.id).status,
+        'wont_do',
+      );
+      expect(active.singleWhere((task) => task.id == child.id).status, 'todo');
+    },
+  );
+
   testWidgets('editing a task updates detail, list, and fake bridge state', (
     tester,
   ) async {
@@ -1122,7 +1267,7 @@ void main() {
       await tester.tap(find.byKey(ValueKey('task-done-${next.id}')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Task completed.'), findsOneWidget);
+      expect(find.text('Task closed.'), findsOneWidget);
       expect(find.text('Undo'), findsOneWidget);
     },
   );

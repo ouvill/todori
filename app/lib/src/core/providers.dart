@@ -172,10 +172,18 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   }
 
   /// Transitions `taskId` to `status` and refreshes the task list.
-  Future<void> setStatus(String taskId, String status) async {
+  Future<void> setStatus(
+    String taskId,
+    String status, {
+    String? closedReason,
+  }) async {
     final bridge = ref.read(bridgeServiceProvider);
-    await bridge.setTaskStatus(taskId: taskId, status: status);
-    if (status == 'done') {
+    await bridge.setTaskStatus(
+      taskId: taskId,
+      status: status,
+      closedReason: closedReason,
+    );
+    if (status == 'done' || status == 'wont_do') {
       ref.invalidate(latestTaskUndoProvider);
     }
     ref.invalidateSelf();

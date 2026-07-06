@@ -173,3 +173,111 @@ domain/Rust層には `TaskStatus::WontDo`、`transition_task`、`set_task_status
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/02_機能仕様書.md` F-06
+  - `docs/design/ui-spec.md`
+  - `docs/tasks/task-38-trash-removal.md` 完了報告
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/usecases.rs`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- F-06から読み取ったステータス遷移ルール:
+  - 許可: `todo` / `in_progress` -> `done` / `wont_do`
+  - 許可: `done` / `wont_do` -> `todo`
+  - 非表示にした禁止遷移: `done` <-> `wont_do`
+  - 非表示にした禁止遷移: `done` / `wont_do` -> `in_progress`
+- `app/rust/src/api.rs` のUndo履歴作成条件:
+  - `set_task_status` で `status == TaskStatus::Done` の場合だけ `update_with_undo(..., TaskUndoOperation::Complete, ...)` を使っていた条件を、`TaskStatus::Done` または `TaskStatus::WontDo` の場合へ変更した。
+- `TaskUndoOperation` の扱い:
+  - 新operationは追加していない。
+  - `done` / `wont_do` の閉じる操作を既存 `TaskUndoOperation::Complete` で扱った。
+- Dart provider / FakeBridgeService / TaskDetail / Task row表示の変更内容:
+  - `TasksNotifier.setStatus` に任意の `closedReason` 引数を追加し、`done` / `wont_do` で `latestTaskUndoProvider` をinvalidateするようにした。
+  - `FakeBridgeService.setTaskStatus` にdomainと同じ遷移可否判定を追加し、`wont_do` 遷移時もUndo履歴を `complete` operationとして記録するようにした。
+  - `FakeBridgeService` の `TaskDto` copy helperに `completedAt` / `closedReason` をnullへ戻すフラグを追加した。
+  - Task detailのoverflow menuに、`todo` / `in_progress` 向けの `Mark done` / `Mark won't do`、`done` / `wont_do` 向けの `Reopen` を追加した。
+  - Task detailのoverflow menuではステータス操作を上、区切りを挟んで削除操作を下に置いた。
+  - 未完了サブタスクを持つ親を `wont_do` にする場合、確認ダイアログを表示するようにした。
+  - `done` / `wont_do` を閉じたタスクとして一覧の折りたたみセクションへ入れ、セクション表示を `Closed` / `closed` に変更した。
+  - `wont_do` 行は閉じた行の表示（muted + 取り消し線）に加え、`Won't do` / `対応しない` のpillを表示するようにした。
+  - `isTaskOverdue` は `done` / `wont_do` を期限超過表示対象外にした。
+- 追加・更新したl10nキー:
+  - `wontDoTaskDialogTitle`
+  - `wontDoTaskDialogMessage`
+  - `markTaskDoneMenuItem`
+  - `markTaskWontDoMenuItem`
+  - `reopenTaskMenuItem`
+  - `undoCloseMessage`
+  - `completedTasksTitle`
+  - `completedTasksCount`
+  - `showCompletedTasksTooltip`
+  - `hideCompletedTasksTooltip`
+- 追加・更新したtest:
+  - `app/test/widget_test.dart`
+    - `detail menu marks wont_do, reopens it, and hides invalid transitions`
+    - `detail menu hides done to wont_do transition`
+    - `wont_do row is closed, struck through, and labeled`
+    - `incomplete descendants require confirmation before parent wont_do`
+    - 既存の完了Undo/閉じたセクション文言期待値を `Task closed.` / `Closed` / `{count} closed` へ更新
+  - `app/test/core_usecases_test.dart`
+    - `complete and edit undo roundtrip through Rust bridge` に `wont_do` 遷移後の `getLatestTaskUndo` と `undoTaskOperation` の確認を追加
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+    - `wont_do_row` スクリーンショットを追加
+    - realistic seedに `wont_do` タスクを追加
+- 個別実行したtest結果:
+  - `cd app && flutter test test/widget_test.dart`: 34 tests passed
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test test/core_usecases_test.dart`: 14 tests passed
+- visual QAスクリーンショット:
+  - 保存パス: `app/build/visual_qa/wont_do_row.png`
+  - 目視確認結果: `Closed` セクション内に `Replace the planning spreadsheet` の取り消し線表示、`Won't do` pill、`Send weekly notes` の取り消し線表示がある。
+  - 退避済みbefore PNG: `app/build/visual_qa_before/`
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0（Rust tests: crypto 17、domain 39、storage 22、sync 4）
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0（51 passed、visual QA harness 1 skipped）
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0（28 tests passed）
+  - `git diff --check`: exit 0
+- FRB再生成:
+  - Rust APIシグネチャは変更していない。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は実行していない。
+- 変更ファイル一覧:
+  - `app/rust/src/api.rs`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `docs/tasks/task-39-wont-do-reopen.md`
+- 未解決事項:
+  - `app/build/visual_qa/wont_do_row.png` の右上にFlutterの赤いoverflow indicatorが写っている。同じ位置のindicatorは作業前に退避した `app/build/visual_qa_before/home_tasks.png` にも写っている。

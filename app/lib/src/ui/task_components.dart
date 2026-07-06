@@ -140,11 +140,9 @@ List<TaskMetadataItem> taskMetadataItemsFor({
 }) {
   final overdue = isTaskOverdue(task);
   return [
-    if (includeStatus)
+    if (includeStatus || task.status == 'wont_do')
       TaskMetadataItem(
-        icon: task.status == 'done'
-            ? Icons.check_circle_outline
-            : Icons.radio_button_unchecked,
+        icon: taskStatusIcon(task.status),
         label: taskStatusLabel(l10n, task.status),
       ),
     if (task.dueAt != null || includeNoDueDate)
@@ -224,7 +222,7 @@ String formatRelativeDueDate(AppLocalizations l10n, String locale, int? dueAt) {
 /// [TaskMetadataItem.semanticLabel]).
 bool isTaskOverdue(TaskDto task) {
   final dueAt = task.dueAt;
-  if (dueAt == null || task.status == 'done') {
+  if (dueAt == null || isTaskClosed(task)) {
     return false;
   }
   final due = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
@@ -232,6 +230,18 @@ bool isTaskOverdue(TaskDto task) {
   final today = DateTime.now();
   final todayDate = DateTime(today.year, today.month, today.day);
   return dueDate.isBefore(todayDate);
+}
+
+bool isTaskClosed(TaskDto task) =>
+    task.status == 'done' || task.status == 'wont_do';
+
+IconData taskStatusIcon(String status) {
+  return switch (status) {
+    'done' => Icons.check_circle_outline,
+    'wont_do' => Icons.do_not_disturb_on_outlined,
+    'in_progress' => Icons.timelapse_outlined,
+    _ => Icons.radio_button_unchecked,
+  };
 }
 
 /// Formats an absolute epoch-millisecond timestamp (e.g. `Task.createdAt`)

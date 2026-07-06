@@ -103,18 +103,18 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get completedTasksTitle => 'Completed';
+  String get completedTasksTitle => 'Closed';
 
   @override
   String completedTasksCount(int count) {
-    return '$count completed';
+    return '$count closed';
   }
 
   @override
-  String get showCompletedTasksTooltip => 'Show completed tasks';
+  String get showCompletedTasksTooltip => 'Show closed tasks';
 
   @override
-  String get hideCompletedTasksTooltip => 'Hide completed tasks';
+  String get hideCompletedTasksTooltip => 'Hide closed tasks';
 
   @override
   String get homeListMenuTooltip => 'Open lists';
@@ -220,6 +220,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'This task has incomplete subtasks. Completing it will not complete its subtasks.';
 
   @override
+  String get wontDoTaskDialogTitle => 'Close parent as won\'t do?';
+
+  @override
+  String get wontDoTaskDialogMessage =>
+      'This task has incomplete subtasks. Closing it as won\'t do will not close its subtasks.';
+
+  @override
   String get continueButton => 'Continue';
 
   @override
@@ -239,6 +246,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get taskActionsTooltip => 'Task actions';
+
+  @override
+  String get markTaskDoneMenuItem => 'Mark done';
+
+  @override
+  String get markTaskWontDoMenuItem => 'Mark won\'t do';
+
+  @override
+  String get reopenTaskMenuItem => 'Reopen';
 
   @override
   String get editTaskTitle => 'Edit task';
@@ -301,6 +317,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get undoCompleteMessage => 'Task completed.';
+
+  @override
+  String get undoCloseMessage => 'Task closed.';
 
   @override
   String get undoEditMessage => 'Task saved.';

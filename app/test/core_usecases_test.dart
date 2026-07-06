@@ -304,6 +304,19 @@ void main() {
     final completeRestored = await undoTaskOperation(undoId: completeUndo.id);
     expect(completeRestored.status, 'todo');
     expect(completeRestored.completedAt, isNull);
+
+    final wontDoTask = await createTask(listId: list.id, title: 'Wont do undo');
+    await setTaskStatus(
+      taskId: wontDoTask.id,
+      status: 'wont_do',
+      closedReason: 'not planned',
+    );
+    final wontDoUndo = await getLatestTaskUndo();
+    expect(wontDoUndo!.operationType, 'complete');
+    expect(wontDoUndo.taskId, wontDoTask.id);
+    final wontDoRestored = await undoTaskOperation(undoId: wontDoUndo.id);
+    expect(wontDoRestored.status, 'todo');
+    expect(wontDoRestored.closedReason, isNull);
   });
 
   test('deleteTask permanently deletes descendants without undo', () async {

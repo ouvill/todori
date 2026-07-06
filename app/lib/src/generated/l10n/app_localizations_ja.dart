@@ -103,18 +103,18 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get completedTasksTitle => '完了済み';
+  String get completedTasksTitle => 'クローズ済み';
 
   @override
   String completedTasksCount(int count) {
-    return '完了 $count件';
+    return 'クローズ $count件';
   }
 
   @override
-  String get showCompletedTasksTooltip => '完了済みタスクを表示';
+  String get showCompletedTasksTooltip => 'クローズ済みタスクを表示';
 
   @override
-  String get hideCompletedTasksTooltip => '完了済みタスクを隠す';
+  String get hideCompletedTasksTooltip => 'クローズ済みタスクを隠す';
 
   @override
   String get homeListMenuTooltip => 'リストを開く';
@@ -219,6 +219,13 @@ class AppLocalizationsJa extends AppLocalizations {
       'このタスクには未完了のサブタスクがあります。親タスクを完了しても、サブタスクは自動では完了しません。';
 
   @override
+  String get wontDoTaskDialogTitle => '親タスクを対応しないとして閉じますか？';
+
+  @override
+  String get wontDoTaskDialogMessage =>
+      'このタスクには未完了のサブタスクがあります。親タスクを対応しないとして閉じても、サブタスクは自動では閉じられません。';
+
+  @override
   String get continueButton => '続行';
 
   @override
@@ -238,6 +245,15 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get taskActionsTooltip => 'タスク操作';
+
+  @override
+  String get markTaskDoneMenuItem => '完了にする';
+
+  @override
+  String get markTaskWontDoMenuItem => '対応しない';
+
+  @override
+  String get reopenTaskMenuItem => '再オープン';
 
   @override
   String get editTaskTitle => 'タスクを編集';
@@ -299,6 +315,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get undoCompleteMessage => 'タスクを完了しました。';
+
+  @override
+  String get undoCloseMessage => 'タスクを閉じました。';
 
   @override
   String get undoEditMessage => 'タスクを保存しました。';

@@ -59,16 +59,18 @@ class TaskDetailScreen extends ConsumerWidget {
                 tooltip: l10n.taskActionsTooltip,
                 onSelected: (action) {
                   switch (action) {
+                    case _TaskDetailAction.markDone:
+                      unawaited(_setTaskStatus(context, ref, task, 'done'));
+                    case _TaskDetailAction.markWontDo:
+                      unawaited(_setTaskStatus(context, ref, task, 'wont_do'));
+                    case _TaskDetailAction.reopen:
+                      unawaited(_setTaskStatus(context, ref, task, 'todo'));
                     case _TaskDetailAction.delete:
                       unawaited(_deleteTask(context, ref, task));
                   }
                 },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: _TaskDetailAction.delete,
-                    child: Text(l10n.deleteTaskMenuItem),
-                  ),
-                ],
+                itemBuilder: (context) =>
+                    _taskDetailMenuItems(l10n: l10n, task: task),
               );
             },
             orElse: () => const SizedBox.shrink(),
@@ -111,7 +113,7 @@ class TaskDetailScreen extends ConsumerWidget {
                         semanticLabel: l10n.taskPriority(
                           taskPriorityLabel(l10n, task.priority),
                         ),
-                        isMuted: task.status == 'done',
+                        isMuted: isTaskClosed(task),
                       ),
                       Expanded(
                         child: Text(
@@ -169,7 +171,7 @@ class TaskDetailScreen extends ConsumerWidget {
                       final subtaskStats = descendantStatsOf(subtask.id, tasks);
                       return AppTaskRow(
                         title: subtask.title,
-                        isDone: subtask.status == 'done',
+                        isDone: isTaskClosed(subtask),
                         depth: 1,
                         priority: subtask.priority,
                         priorityDotKey: ValueKey(
@@ -288,9 +290,81 @@ class TaskDetailScreen extends ConsumerWidget {
       context.pop();
     }
   }
+
+  Future<void> _setTaskStatus(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+    String status,
+  ) async {
+    if (status == 'done' || status == 'wont_do') {
+      final tasks = await ref.read(tasksProvider(listId).future);
+      if (!context.mounted) {
+        return;
+      }
+      if (hasIncompleteDescendants(task.id, tasks)) {
+        final l10n = AppLocalizations.of(context)!;
+        final confirmed = await showAppConfirmDialog(
+          context: context,
+          title: status == 'wont_do'
+              ? l10n.wontDoTaskDialogTitle
+              : l10n.completeTaskDialogTitle,
+          message: status == 'wont_do'
+              ? l10n.wontDoTaskDialogMessage
+              : l10n.completeTaskDialogMessage,
+          cancelLabel: l10n.cancelButton,
+          confirmLabel: l10n.continueButton,
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+    }
+
+    await ref.read(tasksProvider(listId).notifier).setStatus(task.id, status);
+    if (context.mounted && (status == 'done' || status == 'wont_do')) {
+      await _showLatestUndoSnackBar(context);
+    }
+  }
 }
 
-enum _TaskDetailAction { delete }
+enum _TaskDetailAction { markDone, markWontDo, reopen, delete }
+
+List<PopupMenuEntry<_TaskDetailAction>> _taskDetailMenuItems({
+  required AppLocalizations l10n,
+  required TaskDto task,
+}) {
+  final items = <PopupMenuEntry<_TaskDetailAction>>[];
+  if (task.status == 'todo' || task.status == 'in_progress') {
+    items.addAll([
+      PopupMenuItem(
+        value: _TaskDetailAction.markDone,
+        child: Text(l10n.markTaskDoneMenuItem),
+      ),
+      PopupMenuItem(
+        value: _TaskDetailAction.markWontDo,
+        child: Text(l10n.markTaskWontDoMenuItem),
+      ),
+    ]);
+  } else if (isTaskClosed(task)) {
+    items.add(
+      PopupMenuItem(
+        value: _TaskDetailAction.reopen,
+        child: Text(l10n.reopenTaskMenuItem),
+      ),
+    );
+  }
+  if (items.isNotEmpty) {
+    items.add(const PopupMenuDivider());
+  }
+  items.add(
+    PopupMenuItem(
+      value: _TaskDetailAction.delete,
+      child: Text(l10n.deleteTaskMenuItem),
+    ),
+  );
+  return items;
+}
 
 Future<void> _showLatestUndoSnackBar(BuildContext context) async {
   final container = ProviderScope.containerOf(context, listen: false);
@@ -342,7 +416,7 @@ Future<void> _applyUndo(
 
 String _undoMessage(AppLocalizations l10n, String operationType) {
   return switch (operationType) {
-    'complete' => l10n.undoCompleteMessage,
+    'complete' => l10n.undoCloseMessage,
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,
   };

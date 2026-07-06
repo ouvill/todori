@@ -63,8 +63,8 @@
       }
     }
   },
-  "completedTasksTitle": "Completed",
-  "completedTasksCount": "{count} completed",
+  "completedTasksTitle": "Closed",
+  "completedTasksCount": "{count} closed",
   "@completedTasksCount": {
     "placeholders": {
       "count": {
@@ -72,8 +72,8 @@
       }
     }
   },
-  "showCompletedTasksTooltip": "Show completed tasks",
-  "hideCompletedTasksTooltip": "Hide completed tasks",
+  "showCompletedTasksTooltip": "Show closed tasks",
+  "hideCompletedTasksTooltip": "Hide closed tasks",
   "homeListMenuTooltip": "Open lists",
   "homeEmptyTitle": "Start with a list.",
   "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",
@@ -155,6 +155,8 @@
   },
   "completeTaskDialogTitle": "Complete parent task?",
   "completeTaskDialogMessage": "This task has incomplete subtasks. Completing it will not complete its subtasks.",
+  "wontDoTaskDialogTitle": "Close parent as won't do?",
+  "wontDoTaskDialogMessage": "This task has incomplete subtasks. Closing it as won't do will not close its subtasks.",
   "continueButton": "Continue",
   "statusTodo": "To do",
   "statusInProgress": "In progress",
@@ -162,6 +164,9 @@
   "statusWontDo": "Won't do",
   "editTaskTooltip": "Edit task",
   "taskActionsTooltip": "Task actions",
+  "markTaskDoneMenuItem": "Mark done",
+  "markTaskWontDoMenuItem": "Mark won't do",
+  "reopenTaskMenuItem": "Reopen",
   "editTaskTitle": "Edit task",
   "priorityLabel": "Priority",
   "priorityNone": "None",
@@ -195,6 +200,7 @@
   },
   "undoActionLabel": "Undo",
   "undoCompleteMessage": "Task completed.",
+  "undoCloseMessage": "Task closed.",
   "undoEditMessage": "Task saved.",
   "undoSuccessMessage": "Undone.",
   "undoFailedMessage": "Undo failed: {error}",

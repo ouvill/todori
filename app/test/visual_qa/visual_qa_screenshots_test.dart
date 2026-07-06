@@ -92,6 +92,32 @@ void main() {
     await _screenshot(tester, 'home_tasks_empty');
   });
 
+  testWidgets('wont_do_row: closed section with a wont_do row', (tester) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    await fake.createTask(listId: listId, title: 'Review launch brief');
+    final skipped = await fake.createTask(
+      listId: listId,
+      title: 'Replace the planning spreadsheet',
+    );
+    await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
+    final done = await fake.createTask(
+      listId: listId,
+      title: 'Send weekly notes',
+    );
+    await fake.setTaskStatus(taskId: done.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'wont_do_row');
+  });
+
   testWidgets('lists: list management screen with two lists', (tester) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
@@ -324,7 +350,7 @@ class _SeedData {
 ///
 /// - priorities: high, medium, low, and none all appear.
 /// - due dates: today, tomorrow, overdue, and no-due-date all appear.
-/// - one task is already completed.
+/// - one task is already completed and one is closed as wont_do.
 /// - one task ("Plan the product launch event") has three subtasks, one of
 ///   which is completed.
 /// - titles mix Japanese and English, and one title is long enough to wrap.
@@ -397,6 +423,12 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
 
   final standup = await fake.createTask(listId: homeListId, title: '朝会に参加する');
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
+
+  final skipped = await fake.createTask(
+    listId: homeListId,
+    title: 'Replace the planning spreadsheet',
+  );
+  await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
   const parentWithSubtasksTitle = 'Plan the product launch event';
   final launch = await fake.createTask(

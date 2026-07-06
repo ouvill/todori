@@ -360,7 +360,7 @@ pub fn set_task_status(
         let before = repository.get(task_id).map_err(|error| error.to_string())?;
         let updated = transition_task(before.clone(), status, closed_reason, now_ms)
             .map_err(|error| error.to_string())?;
-        if status == TaskStatus::Done {
+        if status == TaskStatus::Done || status == TaskStatus::WontDo {
             repository
                 .update_with_undo(before, updated.clone(), TaskUndoOperation::Complete, now_ms)
                 .map_err(|error| error.to_string())?;
