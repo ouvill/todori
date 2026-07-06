@@ -1,6 +1,7 @@
 # task-34: typography rollout ── Newsreader+システム和文セリフの本番反映とLora退役
 
-> ステータス: 未着手
+> ステータス: 完了（2026-07-06）
+> 作業日: 2026-07-06
 
 ## 1. 背景とコンテキスト
 
@@ -117,3 +118,77 @@
 - `docs/design/ui-spec.md` セクション2の注記更新内容
 - Android実機での明朝非搭載劣化描画が未検証であること
 - 未解決事項・要人間判断
+
+## 9. 完了報告
+
+- 作業日: 2026-07-06
+- 読んだファイル: `AGENTS.md`、`docs/tasks/README.md`、`docs/design/ui-spec.md`（セクション1・2・裁定済み事項・セクション6）、`app/lib/src/ui/theme.dart`、`app/pubspec.yaml`、`app/test/visual_qa/visual_qa_screenshots_test.dart`、`app/test/visual_qa/design_lab_mocks.dart`、`app/tool/visual_qa.sh`、`app/tool/fetch_lab_fonts.sh`、`app/lib/src/screens/tasks_screen.dart`、`app/lib/src/screens/task_detail_screen.dart`、`app/lib/src/screens/lists_screen.dart`、`app/test/widget_test.dart`
+
+### `theme.dart` のタイポグラフィ変更内容
+
+- `textTheme.displayMedium`（Todayヘッダーが使うrole）: `fontFamily: 'Newsreader'`、`fontFamilyFallback: _serifCjkFontFamilyFallback`（`['Hiragino Mincho ProN', 'Noto Serif CJK JP', 'Noto Serif JP']`）、`fontWeight: FontWeight.w600` に変更。
+- `textTheme.displayLarge` / `displaySmall` / `headlineMedium` の`fontFamily: 'Lora'`上書きを完全に削除（元々theme.dart内で他画面から未参照だったため、base（Inter）へ委譲する形で削除）。
+- `textTheme.headlineSmall`（Tasksセクション見出し・タスク詳細タイトルが使うrole）: `fontFamily: 'Lora'`を削除し、`color`/`fontWeight: w700`の上書きのみ残した（結果としてbaseのInterへ委譲）。
+- `appBarTheme.titleTextStyle`（AppBarタイトル）: `fontFamily: 'Lora'`を削除し、`color`/`fontWeight: w700`の上書きのみ残した（結果としてInterへ委譲）。
+- ベースの`fontFamily: 'Inter'` + `fontFamilyFallback: _cjkFontFamilyFallback`（`['Hiragino Sans', 'Noto Sans CJK JP', 'Noto Sans JP']`、角ゴシック系）は全role共通の既定として維持。displayMediumだけが専用の明朝系フォールバック（`_serifCjkFontFamilyFallback`）で上書きする構成。
+- `grep -rn "Lora" app/lib/` は0件（`app/lib/src/screens/tasks_screen.dart`のコメントも「Newsreader display serif」へ更新済み）。
+
+### `app/pubspec.yaml` の変更内容
+
+- `fonts:` から `family: Lora` の定義ブロック（Lora-Regular/Medium/SemiBold/Bold）を削除。`family: Inter` と `family: Newsreader` の定義は変更なしで維持。
+- 直上のコメントを「Lora決定事項・Newsreaderのdisplay Medium限定適用・Loraアセットは維持するがpubspec宣言はしない」旨に更新。
+- `app/assets/fonts/Lora/`（Lora-Bold.ttf, Lora-Medium.ttf, Lora-Regular.ttf, Lora-SemiBold.ttf, OFL.txt）は削除せず維持を確認済み。
+- `grep -r "Lora" app/pubspec.yaml` はコメント2行のみ（Lora退役を説明する文言）で、有効な`fonts:`定義としては0件。
+
+### Design Lab B案（Lora）フォント読み込みの確認結果
+
+- `visual_qa_screenshots_test.dart`の`_loadBrandFont(family: 'Lora', weightPaths: _loraWeightPaths)`は既存のまま、`app/assets/fonts/Lora/*.ttf`を`dart:io File.readAsBytes`で直接読み込む実装であり、pubspecの`fonts:`宣言に依存していなかったことを確認した（`flutter test`はファイルシステム相対パスを直接読めるため、pubspec宣言はテスト実行時のフォント読み込みには無関係）。コード変更は不要だった。
+- `design_lab_typo_b_lora_today.png` / `design_lab_typo_b_lora_focus.png` を含むLab B案の8スクリーンショットは今回のafter生成でも問題なく出力され、目視確認でも「Today」「Tasks」見出しがLoraセリフのまま描画されていることを確認した（本番の`home_tasks.png`ではTasksがInterに変わっている対比を確認済み）。
+- `design_lab_mocks.dart`のB案関連コメント（`_typoLoraB`直上、`_LabTypoOverride`直上）を「Lora=現行本番」から「Lora=2026-07-06以前の旧本番、現在はDesign Lab比較用baseline」へ事実訂正した。
+
+### `home_tasks_ja.png` 新規追加の内容と目視確認結果
+
+- `visual_qa_screenshots_test.dart`に`home_tasks_ja`テストを追加: `_seedRealisticData`と同じシードデータを使い、`_useJaLocale`ヘルパー（新規追加、`tester.platformDispatcher.localeTestValue`/`localesTestValue`を`Locale('ja')`に設定）でjaロケールを強制した状態でスクリーンショットを取得する。
+- `_loadRealFonts`に`_loadMinchoFallbackFont`（新規関数）を追加し、macOSシステムフォント`/System/Library/Fonts/ヒラギノ明朝 ProN.ttc`を`Hiragino Mincho ProN`ファミリー名で`FontLoader`登録した（`_minchoFallbackFamily`/`_minchoFallbackPaths`も新規定数）。既存の`Hiragino Sans`ファミリー登録（角ゴシック用）とは別ファミリーとして独立登録。
+- 目視確認（`Read`ツールでPNGを直接閲覧）: `home_tasks_ja.png`で「今日」見出しがセリフ（明朝、ストロークに終筆の抑揚あり）で描画され、`home_tasks.png`の「Today」（Newsreaderセリフ、字形の違う欧文セリフ）と対比して両方ともセリフ表現であることを確認した。同画面内の「タスク」セクション見出し・pillラベル・行タイトル等はゴシック（Inter＋Hiragino Sansフォールバック）のままであることも確認した。
+
+### before/afterスクリーンショットの保存パスと比較結果
+
+- before: `app/build/visual_qa_before/`（作業開始前、変更前テーマでの24枚。当時は`home_tasks_ja.png`は存在しない）
+- after: `app/build/visual_qa/`（`sh app/tool/visual_qa.sh`再実行後の25枚、`home_tasks_ja.png`を新規に含む）
+- 目視確認（`Read`ツールでの直接閲覧、テキスト差分ではなくピクセル比較ではない）:
+  - `home_tasks.png`: 「Today」見出しがNewsreaderセリフ、「Tasks」セクション見出し・AppBar相当・pill・行タイトルはInterで描画されている。
+  - `home_tasks_ja.png`（新規）: 「今日」見出しが明朝（セリフ）、他はゴシックで描画されている。
+  - `task_detail.png`: AppBarタイトル「Task detail」、タスク詳細タイトル「Plan the product launch event」ともにInterで描画されている。
+  - `design_lab_typo_b_lora_today.png`: 「Today」「Tasks」ともにLoraセリフのままで、B案比較用画像が引き続き生成されることを確認した。
+
+### 追加/更新したwidget testの対象と結果
+
+- `app/test/widget_test.dart`は変更不要だった（タイポ変更でfinder/期待値が壊れる箇所なし）。`cd app && flutter test`で全38件成功（visual QAスキップ1件含む）。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`に`home_tasks_ja`テストケースを追加し、`sh app/tool/visual_qa.sh`実行で25/25件成功（既存24件＋新規1件）。
+
+### 品質ゲートの実行結果
+
+- `cargo fmt --all -- --check`: 差分なし（成功）
+- `cargo clippy --workspace -- -D warnings`: 警告0件（成功）
+- `cargo test --workspace`: 全件成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter analyze`: `No issues found!`
+- `cd app && flutter test`: 全38件成功（visual QAスキップ1件含む）
+- `sh app/tool/check_hardcoded_strings.sh`: 検出0件（成功、exit code 0）
+- `git diff --check`: 差分なし（空白関連エラーなし）
+- `sh app/tool/visual_qa.sh`: 25/25件成功
+
+### `docs/design/ui-spec.md` セクション2の注記更新内容
+
+- 「この表は2026-07-06タイポ裁定後の目標状態である。本番反映はtask-34。反映完了までの間、実装と本表の差分はtask-34のスコープであり、他タスクで独自にタイポを変更してはならない。」という但し書きを、「この表は2026-07-06タイポ裁定後の目標状態であり、task-34で本番実装（`app/lib/src/ui/theme.dart` / `app/pubspec.yaml`）へ反映済みである。以後この表を変更したい場合は設計タスクとして本書を更新してから実装すること。」へ更新（未反映を示す文言を除去）。
+- 加えて親承認済みの追加修正として、セクション1（形容詞の翻訳表）の「Loraセリフの柔らかい見出し。」を「ディスプレイセリフ（Newsreader＋システム和文セリフ）の柔らかい見出し（Todayヘッダーのみ、セクション2参照）。」へ、「セリフ見出し（Lora）とサンセリフ本文（Inter）の対比。」を「セリフ見出し（ディスプレイセリフ: Newsreader＋システム和文セリフ、Todayヘッダーのみ）とサンセリフ本文（Inter）の対比。」へ、それぞれ更新しセクション2との不一致を解消した。
+
+### Android実機での明朝非搭載劣化描画
+
+- 本タスクでは未検証である。`fontFamilyFallback`に`'Hiragino Mincho ProN'`等を指定しているが、Android標準（明朝非搭載）実機・エミュレータでの実描画確認は行っていない。visual QAハーネスもmacOSシステムフォント（ヒラギノ明朝 ProN）のみを登録しており、Android側フォールバック先（Noto Serif CJK JP等の有無・実際の描画結果）は未検証のまま。2026-07-06人間裁定により、この劣化は許容事項として扱われている。
+
+### 未解決事項・要人間判断
+
+- Android実機（明朝フォント非搭載）での「今日」見出しの実描画結果は未検証（上記参照）。
+- OS間で「今日」見出しの見た目が変わる（Apple系はヒラギノ明朝、明朝非搭載OSは標準ゴシック等へ劣化する）ことは、2026-07-06人間裁定で許容済みの仕様である旨を確認済み。追加のspec変更・要人間判断事項はなし。
