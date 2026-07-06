@@ -7,11 +7,10 @@ use std::{
 
 use todori_crypto::{derive_local_db_key, ensure_device_key};
 use todori_domain::{
-    archive_list as domain_archive_list, delete_task as domain_delete_task, fractional_index_after,
-    fractional_index_between, new_list, new_task, rename_list as domain_rename_list,
-    restore_task as domain_restore_task, transition_task, unarchive_list as domain_unarchive_list,
-    update_due_at, update_note, update_priority, update_title, validate_parent_for, List, Task,
-    TaskStatus, Uuid,
+    archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
+    new_list, new_task, rename_list as domain_rename_list, transition_task,
+    unarchive_list as domain_unarchive_list, update_due_at, update_note, update_priority,
+    update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
@@ -263,7 +262,6 @@ pub fn reorder_task(
     let now_ms = now_ms()?;
     with_task_repository(|repository| {
         let mut task = repository.get(task_id).map_err(|error| error.to_string())?;
-        ensure_active_task(&task)?;
 
         let previous = previous_task_id
             .map(|boundary_id| load_reorder_boundary(repository, boundary_id, &task))
@@ -296,6 +294,28 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
             .list_active_by_list(list_id)
             .map_err(|error| error.to_string())
             .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
+pub fn count_task_descendants(task_id: String) -> Result<i32, String> {
+    let task_id = parse_uuid(&task_id)?;
+    with_task_repository(|repository| {
+        repository.get(task_id).map_err(|error| error.to_string())?;
+        repository
+            .count_descendants(task_id)
+            .map_err(|error| error.to_string())
+            .and_then(count_to_i32)
+    })
+}
+
+pub fn count_tasks_in_list(list_id: String) -> Result<i32, String> {
+    let list_id = parse_uuid(&list_id)?;
+    with_list_repository(|repository| {
+        repository.get(list_id).map_err(|error| error.to_string())?;
+        repository
+            .count_tasks(list_id)
+            .map_err(|error| error.to_string())
+            .and_then(count_to_i32)
     })
 }
 
@@ -353,47 +373,26 @@ pub fn set_task_status(
     })
 }
 
-pub fn trash_task(task_id: String) -> Result<TaskDto, String> {
+pub fn delete_task(task_id: String) -> Result<(), String> {
     let task_id = parse_uuid(&task_id)?;
-    let now_ms = now_ms()?;
-
-    with_task_repository(|repository| {
-        let before = repository.get(task_id).map_err(|error| error.to_string())?;
-        let updated =
-            domain_delete_task(before.clone(), now_ms).map_err(|error| error.to_string())?;
-        if before.deleted_at.is_none() {
-            repository
-                .update_with_undo(before, updated.clone(), TaskUndoOperation::Delete, now_ms)
-                .map_err(|error| error.to_string())?;
-        } else {
-            repository
-                .update(updated.clone())
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(task_to_dto(updated))
-    })
-}
-
-pub fn restore_task(task_id: String) -> Result<TaskDto, String> {
-    let task_id = parse_uuid(&task_id)?;
-    let now_ms = now_ms()?;
-
-    with_task_repository(|repository| {
-        let task = repository.get(task_id).map_err(|error| error.to_string())?;
-        let updated = domain_restore_task(task, now_ms).map_err(|error| error.to_string())?;
-        repository
-            .update(updated.clone())
-            .map_err(|error| error.to_string())?;
-        Ok(task_to_dto(updated))
-    })
-}
-
-pub fn get_trashed_tasks() -> Result<Vec<TaskDto>, String> {
     with_task_repository(|repository| {
         repository
-            .list_trashed()
+            .delete_subtree(task_id)
+            .map(|_| ())
             .map_err(|error| error.to_string())
-            .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
+pub fn delete_list(list_id: String) -> Result<(), String> {
+    let list_id = parse_uuid(&list_id)?;
+    with_list_repository(|repository| {
+        if is_default_inbox(repository, list_id)? {
+            return Err("default inbox cannot be deleted".to_string());
+        }
+        repository
+            .delete_with_tasks(list_id)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     })
 }
 
@@ -471,13 +470,6 @@ fn parse_status(value: &str) -> Result<TaskStatus, String> {
     }
 }
 
-fn ensure_active_task(task: &Task) -> Result<(), String> {
-    if task.deleted_at.is_some() {
-        return Err("task is deleted".to_string());
-    }
-    Ok(())
-}
-
 fn load_reorder_boundary(
     repository: &SqliteTaskRepository,
     boundary_id: Uuid,
@@ -486,7 +478,6 @@ fn load_reorder_boundary(
     let boundary = repository
         .get(boundary_id)
         .map_err(|error| error.to_string())?;
-    ensure_active_task(&boundary)?;
     if boundary.list_id != task.list_id {
         return Err("reorder boundary belongs to a different list".to_string());
     }
@@ -494,6 +485,10 @@ fn load_reorder_boundary(
         return Err("reorder boundary belongs to a different parent".to_string());
     }
     Ok(boundary)
+}
+
+fn count_to_i32(count: usize) -> Result<i32, String> {
+    i32::try_from(count).map_err(|_| "count exceeds i32 range".to_string())
 }
 
 fn is_default_inbox(repository: &SqliteListRepository, list_id: Uuid) -> Result<bool, String> {

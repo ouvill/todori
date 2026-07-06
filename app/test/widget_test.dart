@@ -101,7 +101,6 @@ void main() {
 
     expect(find.text('Tasks'), findsOneWidget);
     expect(find.text('Local protection'), findsNothing);
-    expect(find.byTooltip('Open trash'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
   });
 
@@ -162,21 +161,6 @@ void main() {
     final active = await fake.getTasks(listId: listId);
     expect(active.map((task) => task.id), [second.id, first.id]);
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('trash action opens an empty trash screen', (tester) async {
-    await _pumpAppWithSeedData(
-      tester,
-      listName: 'Inbox',
-      taskTitle: 'Buy milk',
-    );
-
-    await tester.tap(find.byTooltip('Open trash'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Trash'), findsOneWidget);
-    expect(find.text('Trash is empty.'), findsOneWidget);
-    expect(find.text('Deleted tasks will appear here.'), findsOneWidget);
   });
 
   testWidgets('empty state and create dialog survive narrow Dynamic Type', (
@@ -424,7 +408,54 @@ void main() {
 
     expect(find.text('Rename'), findsOneWidget);
     expect(find.text('Archive'), findsNothing);
+    expect(find.text('Delete'), findsNothing);
   });
+
+  testWidgets(
+    'list delete confirms impact count and removes non-default list',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+      await fake.createTask(listId: work.id, title: 'Open work');
+      final completed = await fake.createTask(
+        listId: work.id,
+        title: 'Done work',
+      );
+      await fake.setTaskStatus(taskId: completed.id, status: 'done');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await _openListsScreen(tester);
+
+      await tester.tap(find.byTooltip('List actions').at(1));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Archive'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Archive')).dy,
+        lessThan(tester.getTopLeft(find.text('Delete')).dy),
+      );
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete Work?'), findsOneWidget);
+      expect(find.textContaining('2 tasks'), findsOneWidget);
+      expect(find.textContaining('including completed tasks'), findsOneWidget);
+      expect(find.textContaining('Archive the list instead'), findsOneWidget);
+
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+
+      expect((await fake.getLists()).map((list) => list.name), ['Inbox']);
+      expect(await fake.getTasks(listId: work.id), isEmpty);
+      expect(find.text('Work'), findsNothing);
+    },
+  );
 
   testWidgets('archived section is hidden when there are no archived lists', (
     tester,
@@ -995,7 +1026,7 @@ void main() {
     expect(find.text('Buy milk'), findsWidgets);
   });
 
-  testWidgets('trashed task appears in trash and can be restored', (
+  testWidgets('task delete confirms irreversible deletion and removes task', (
     tester,
   ) async {
     final fake = await _pumpAppWithSeedData(
@@ -1006,101 +1037,93 @@ void main() {
 
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Move to trash'));
+    await tester.tap(find.byTooltip('Task actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete task?'), findsOneWidget);
+    expect(find.textContaining('permanently deleted'), findsOneWidget);
+    expect(find.textContaining('cannot be recovered'), findsOneWidget);
+
+    await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();
 
     final listId = (await fake.getLists()).first.id;
     expect(await fake.getTasks(listId: listId), isEmpty);
     expect(find.text('Buy milk'), findsNothing);
-
-    await tester.tap(find.byTooltip('Open trash'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Trash'), findsOneWidget);
-    expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.textContaining('Deleted'), findsOneWidget);
-    expect(find.textContaining('Deleted:'), findsNothing);
-    expect(find.textContaining('1970'), findsNothing);
-    expect(find.byTooltip('Restore task'), findsOneWidget);
-
-    final trashed = await fake.getTrashedTasks();
-    await tester.tap(find.byKey(ValueKey('restore-task-${trashed.single.id}')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Trash is empty.'), findsOneWidget);
-    expect(await fake.getTrashedTasks(), isEmpty);
-
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    final active = await fake.getTasks(listId: listId);
-    expect(active.single.title, 'Buy milk');
-    expect(find.text('Buy milk'), findsOneWidget);
   });
 
-  testWidgets('trash action shows undo and restores the task', (tester) async {
-    final fake = await _pumpAppWithSeedData(
-      tester,
-      listName: 'Inbox',
-      taskTitle: 'Buy milk',
-    );
-
-    await tester.tap(find.text('Buy milk'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Move to trash'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Task moved to trash.'), findsOneWidget);
-    expect(find.text('Undo'), findsOneWidget);
-
-    await tester.tap(find.text('Undo'));
-    await tester.pumpAndSettle();
-
-    final listId = (await fake.getLists()).first.id;
-    final active = await fake.getTasks(listId: listId);
-    expect(active.single.title, 'Buy milk');
-    expect(await fake.getTrashedTasks(), isEmpty);
-    expect(find.text('Buy milk'), findsOneWidget);
-  });
-
-  testWidgets('trash rows restore long titles on narrow Dynamic Type', (
+  testWidgets('parent task delete warning includes descendant count', (
     tester,
   ) async {
-    _useNarrowDynamicTypeView(tester);
     final fake = FakeBridgeService();
     await fake.createList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final task = await fake.createTask(
+    final parent = await fake.createTask(listId: listId, title: 'Parent task');
+    final child = await fake.createTask(
       listId: listId,
-      title: '削除済みでも復元できることを確認するための非常に長いタスクタイトル with wrap',
+      title: 'Child task',
+      parentTaskId: parent.id,
     );
-    await fake.updateTask(
-      taskId: task.id,
-      title: task.title,
-      note: '',
-      priority: 2,
-      dueAt: 1,
-    );
-    await fake.trashTask(taskId: task.id);
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open trash'));
+
+    await tester.tap(find.text('Parent task'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Task actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('削除済みでも復元'), findsOneWidget);
-    expect(find.byTooltip('Priority: Medium'), findsOneWidget);
-    expect(find.text('Priority: Medium'), findsNothing);
-    expect(find.byTooltip('Restore task'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    expect(find.textContaining('1 subtasks'), findsOneWidget);
+    expect(find.textContaining('cannot be recovered'), findsOneWidget);
 
-    await tester.tap(find.byKey(ValueKey('restore-task-${task.id}')));
+    await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();
 
-    expect(await fake.getTrashedTasks(), isEmpty);
-    expect(find.text('Trash is empty.'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    final active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), isNot(contains(parent.id)));
+    expect(active.map((task) => task.id), isNot(contains(child.id)));
   });
+
+  testWidgets(
+    'delete action does not create undo while complete undo remains',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      await fake.createTask(listId: listId, title: 'Buy milk');
+      final next = await fake.createTask(listId: listId, title: 'Next task');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Buy milk'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Task actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+
+      expect((await fake.getTasks(listId: listId)).map((task) => task.title), [
+        'Next task',
+      ]);
+      expect(find.text('Undo'), findsNothing);
+      expect(await fake.getLatestTaskUndo(), isNull);
+
+      await tester.tap(find.byKey(ValueKey('task-done-${next.id}')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Task completed.'), findsOneWidget);
+      expect(find.text('Undo'), findsOneWidget);
+    },
+  );
 }

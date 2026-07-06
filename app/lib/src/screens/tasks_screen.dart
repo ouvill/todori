@@ -43,11 +43,6 @@ class TasksScreen extends ConsumerWidget {
         ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
       },
     );
-    final trashButton = IconButton(
-      icon: const Icon(Icons.restore_from_trash_outlined),
-      tooltip: l10n.openTrashTooltip,
-      onPressed: () => context.push('/trash'),
-    );
 
     return Scaffold(
       appBar: isHome
@@ -56,7 +51,6 @@ class TasksScreen extends ConsumerWidget {
               title: Text(l10n.tasksTitle),
               actions: [
                 sortMenu,
-                trashButton,
                 const SizedBox(width: AppSpacing.sm),
               ],
             ),
@@ -72,7 +66,6 @@ class TasksScreen extends ConsumerWidget {
             tasks: tasks,
             sortMode: sortMode,
             sortMenu: sortMenu,
-            trashButton: trashButton,
             onCreateTask: () => _createTask(context, ref),
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
@@ -153,7 +146,6 @@ class _TasksBody extends StatefulWidget {
     required this.tasks,
     required this.sortMode,
     required this.sortMenu,
-    required this.trashButton,
     required this.onCreateTask,
     required this.onCompleteTask,
     required this.onMoveTask,
@@ -165,7 +157,6 @@ class _TasksBody extends StatefulWidget {
   final List<TaskDto> tasks;
   final TaskSortMode sortMode;
   final Widget sortMenu;
-  final Widget trashButton;
   final VoidCallback onCreateTask;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function({
@@ -225,7 +216,6 @@ class _TasksBodyState extends State<_TasksBody> {
         _HomeTasksHeader(
           listName: widget.listName ?? l10n.tasksTitle,
           sortMenu: widget.sortMenu,
-          trashButton: widget.trashButton,
         ),
       );
       addGap(AppSpacing.lg);
@@ -348,15 +338,10 @@ class _TasksBodyState extends State<_TasksBody> {
 bool _isCompleted(TaskDto task) => task.status == 'done';
 
 class _HomeTasksHeader extends StatelessWidget {
-  const _HomeTasksHeader({
-    required this.listName,
-    required this.sortMenu,
-    required this.trashButton,
-  });
+  const _HomeTasksHeader({required this.listName, required this.sortMenu});
 
   final String listName;
   final Widget sortMenu;
-  final Widget trashButton;
 
   @override
   Widget build(BuildContext context) {
@@ -378,7 +363,6 @@ class _HomeTasksHeader extends StatelessWidget {
             ),
             const Spacer(),
             sortMenu,
-            trashButton,
           ],
         ),
         const SizedBox(height: AppSpacing.xl),
@@ -700,7 +684,6 @@ Future<void> _applyUndo(
 
 String _undoMessage(AppLocalizations l10n, String operationType) {
   return switch (operationType) {
-    'delete' => l10n.undoDeleteMessage,
     'complete' => l10n.undoCompleteMessage,
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,

@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `ensure_active_task`, `is_default_inbox`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `is_default_inbox`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -71,6 +71,12 @@ Future<TaskDto> reorderTask({
 Future<List<TaskDto>> getTasks({required String listId}) =>
     RustLib.instance.api.crateApiGetTasks(listId: listId);
 
+Future<int> countTaskDescendants({required String taskId}) =>
+    RustLib.instance.api.crateApiCountTaskDescendants(taskId: taskId);
+
+Future<int> countTasksInList({required String listId}) =>
+    RustLib.instance.api.crateApiCountTasksInList(listId: listId);
+
 Future<TaskDto> updateTask({
   required String taskId,
   required String title,
@@ -95,14 +101,11 @@ Future<TaskDto> setTaskStatus({
   closedReason: closedReason,
 );
 
-Future<TaskDto> trashTask({required String taskId}) =>
-    RustLib.instance.api.crateApiTrashTask(taskId: taskId);
+Future<void> deleteTask({required String taskId}) =>
+    RustLib.instance.api.crateApiDeleteTask(taskId: taskId);
 
-Future<TaskDto> restoreTask({required String taskId}) =>
-    RustLib.instance.api.crateApiRestoreTask(taskId: taskId);
-
-Future<List<TaskDto>> getTrashedTasks() =>
-    RustLib.instance.api.crateApiGetTrashedTasks();
+Future<void> deleteList({required String listId}) =>
+    RustLib.instance.api.crateApiDeleteList(listId: listId);
 
 Future<TaskUndoDto?> getLatestTaskUndo() =>
     RustLib.instance.api.crateApiGetLatestTaskUndo();

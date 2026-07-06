@@ -41,8 +41,11 @@ abstract class BridgeService {
     String? parentTaskId,
   });
 
-  /// Returns the active (non-trashed) tasks of `listId`.
+  /// Returns tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
+
+  /// Returns the number of tasks in `listId`, including completed tasks.
+  Future<int> countTasksInList({required String listId});
 
   /// Updates the editable fields of a task.
   Future<rust_api.TaskDto> updateTask({
@@ -60,11 +63,14 @@ abstract class BridgeService {
     String? closedReason,
   });
 
-  /// Moves a task to the trash (logical delete).
-  Future<rust_api.TaskDto> trashTask({required String taskId});
+  /// Returns the number of descendants below `taskId`.
+  Future<int> countTaskDescendants({required String taskId});
 
-  /// Restores a previously trashed task.
-  Future<rust_api.TaskDto> restoreTask({required String taskId});
+  /// Permanently deletes `taskId` and its descendants.
+  Future<void> deleteTask({required String taskId});
+
+  /// Permanently deletes `listId` and all of its tasks.
+  Future<void> deleteList({required String listId});
 
   /// Reorders a task within its current sibling group.
   Future<rust_api.TaskDto> reorderTask({
@@ -72,9 +78,6 @@ abstract class BridgeService {
     String? previousTaskId,
     String? nextTaskId,
   });
-
-  /// Returns all trashed tasks.
-  Future<List<rust_api.TaskDto>> getTrashedTasks();
 
   /// Returns the latest unconsumed task undo entry, if one exists.
   Future<rust_api.TaskUndoDto?> getLatestTaskUndo();
@@ -131,6 +134,10 @@ class FrbBridgeService implements BridgeService {
       rust_api.getTasks(listId: listId);
 
   @override
+  Future<int> countTasksInList({required String listId}) =>
+      rust_api.countTasksInList(listId: listId);
+
+  @override
   Future<rust_api.TaskDto> updateTask({
     required String taskId,
     required String title,
@@ -157,12 +164,16 @@ class FrbBridgeService implements BridgeService {
   );
 
   @override
-  Future<rust_api.TaskDto> trashTask({required String taskId}) =>
-      rust_api.trashTask(taskId: taskId);
+  Future<int> countTaskDescendants({required String taskId}) =>
+      rust_api.countTaskDescendants(taskId: taskId);
 
   @override
-  Future<rust_api.TaskDto> restoreTask({required String taskId}) =>
-      rust_api.restoreTask(taskId: taskId);
+  Future<void> deleteTask({required String taskId}) =>
+      rust_api.deleteTask(taskId: taskId);
+
+  @override
+  Future<void> deleteList({required String listId}) =>
+      rust_api.deleteList(listId: listId);
 
   @override
   Future<rust_api.TaskDto> reorderTask({
@@ -174,10 +185,6 @@ class FrbBridgeService implements BridgeService {
     previousTaskId: previousTaskId,
     nextTaskId: nextTaskId,
   );
-
-  @override
-  Future<List<rust_api.TaskDto>> getTrashedTasks() =>
-      rust_api.getTrashedTasks();
 
   @override
   Future<rust_api.TaskUndoDto?> getLatestTaskUndo() =>

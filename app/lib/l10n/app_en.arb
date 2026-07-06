@@ -20,7 +20,24 @@
   "renameListMenuItem": "Rename",
   "renameListTitle": "Rename list",
   "archiveListMenuItem": "Archive",
+  "deleteListMenuItem": "Delete",
   "unarchiveListMenuItem": "Unarchive",
+  "deleteListDialogTitle": "Delete {listName}?",
+  "@deleteListDialogTitle": {
+    "placeholders": {
+      "listName": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteListDialogMessage": "This will permanently delete this list and {taskCount} tasks, including completed tasks. This cannot be undone. Archive the list instead if you want to keep history.",
+  "@deleteListDialogMessage": {
+    "placeholders": {
+      "taskCount": {
+        "type": "int"
+      }
+    }
+  },
   "archivedListsSectionTitle": "Archived ({count})",
   "@archivedListsSectionTitle": {
     "placeholders": {
@@ -33,6 +50,7 @@
   "hideArchivedListsTooltip": "Hide archived lists",
   "nameLabel": "Name",
   "cancelButton": "Cancel",
+  "deleteButton": "Delete",
   "createButton": "Create",
   "tasksTitle": "Tasks",
   "todayTitle": "Today",
@@ -143,6 +161,7 @@
   "statusDone": "Done",
   "statusWontDo": "Won't do",
   "editTaskTooltip": "Edit task",
+  "taskActionsTooltip": "Task actions",
   "editTaskTitle": "Edit task",
   "priorityLabel": "Priority",
   "priorityNone": "None",
@@ -163,23 +182,19 @@
       }
     }
   },
-  "moveToTrashButton": "Move to trash",
-  "openTrashTooltip": "Open trash",
-  "trashTitle": "Trash",
-  "trashEmptyTitle": "Trash is empty.",
-  "trashEmptyBody": "Deleted tasks will appear here.",
-  "failedToLoadTrash": "Failed to load trash: {error}",
-  "@failedToLoadTrash": {
+  "deleteTaskMenuItem": "Delete",
+  "deleteTaskDialogTitle": "Delete task?",
+  "deleteTaskDialogMessage": "This task will be permanently deleted and cannot be recovered.",
+  "deleteTaskDialogMessageWithDescendants": "This task and {descendantCount} subtasks will be permanently deleted and cannot be recovered.",
+  "@deleteTaskDialogMessageWithDescendants": {
     "placeholders": {
-      "error": {
-        "type": "String"
+      "descendantCount": {
+        "type": "int"
       }
     }
   },
-  "restoreTaskTooltip": "Restore task",
   "undoActionLabel": "Undo",
   "undoCompleteMessage": "Task completed.",
-  "undoDeleteMessage": "Task moved to trash.",
   "undoEditMessage": "Task saved.",
   "undoSuccessMessage": "Undone.",
   "undoFailedMessage": "Undo failed: {error}",
@@ -197,14 +212,6 @@
   "taskSortCreatedAt": "Created",
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
-  "taskDeletedAt": "Deleted {deletedAt}",
-  "@taskDeletedAt": {
-    "placeholders": {
-      "deletedAt": {
-        "type": "String"
-      }
-    }
-  },
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

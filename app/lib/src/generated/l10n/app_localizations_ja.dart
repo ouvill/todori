@@ -50,7 +50,20 @@ class AppLocalizationsJa extends AppLocalizations {
   String get archiveListMenuItem => 'アーカイブ';
 
   @override
+  String get deleteListMenuItem => '削除';
+
+  @override
   String get unarchiveListMenuItem => 'アーカイブ解除';
+
+  @override
+  String deleteListDialogTitle(String listName) {
+    return '「$listName」を削除しますか？';
+  }
+
+  @override
+  String deleteListDialogMessage(int taskCount) {
+    return 'このリストと配下のタスク $taskCount件（完了済みを含む）は完全に削除され、元に戻せません。履歴を残す場合は削除ではなくアーカイブしてください。';
+  }
 
   @override
   String archivedListsSectionTitle(int count) {
@@ -68,6 +81,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get cancelButton => 'キャンセル';
+
+  @override
+  String get deleteButton => '削除';
 
   @override
   String get createButton => '作成';
@@ -221,6 +237,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editTaskTooltip => 'タスクを編集';
 
   @override
+  String get taskActionsTooltip => 'タスク操作';
+
+  @override
   String get editTaskTitle => 'タスクを編集';
 
   @override
@@ -262,36 +281,24 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get moveToTrashButton => 'ゴミ箱へ移動';
+  String get deleteTaskMenuItem => '削除';
 
   @override
-  String get openTrashTooltip => 'ゴミ箱を開く';
+  String get deleteTaskDialogTitle => 'タスクを削除しますか？';
 
   @override
-  String get trashTitle => 'ゴミ箱';
+  String get deleteTaskDialogMessage => 'このタスクは完全に削除され、元に戻せません。';
 
   @override
-  String get trashEmptyTitle => 'ゴミ箱は空です。';
-
-  @override
-  String get trashEmptyBody => '削除したタスクはここに表示されます。';
-
-  @override
-  String failedToLoadTrash(String error) {
-    return 'ゴミ箱の読み込みに失敗しました: $error';
+  String deleteTaskDialogMessageWithDescendants(int descendantCount) {
+    return 'このタスクと配下のサブタスク $descendantCount件は完全に削除され、元に戻せません。';
   }
-
-  @override
-  String get restoreTaskTooltip => 'タスクを復元';
 
   @override
   String get undoActionLabel => '元に戻す';
 
   @override
   String get undoCompleteMessage => 'タスクを完了しました。';
-
-  @override
-  String get undoDeleteMessage => 'タスクをゴミ箱へ移動しました。';
 
   @override
   String get undoEditMessage => 'タスクを保存しました。';
@@ -324,11 +331,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get moveTaskDownTooltip => 'タスクを下へ移動';
-
-  @override
-  String taskDeletedAt(String deletedAt) {
-    return '削除 $deletedAt';
-  }
 
   @override
   String failedToStartTodori(String error) {

@@ -50,6 +50,29 @@ class TaskDetailScreen extends ConsumerWidget {
             },
             orElse: () => const SizedBox.shrink(),
           ),
+          detailAsync.maybeWhen(
+            data: (task) {
+              if (task == null) {
+                return const SizedBox.shrink();
+              }
+              return PopupMenuButton<_TaskDetailAction>(
+                tooltip: l10n.taskActionsTooltip,
+                onSelected: (action) {
+                  switch (action) {
+                    case _TaskDetailAction.delete:
+                      unawaited(_deleteTask(context, ref, task));
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: _TaskDetailAction.delete,
+                    child: Text(l10n.deleteTaskMenuItem),
+                  ),
+                ],
+              );
+            },
+            orElse: () => const SizedBox.shrink(),
+          ),
         ],
       ),
       body: tasksAsync.when(
@@ -179,25 +202,6 @@ class TaskDetailScreen extends ConsumerWidget {
                   onPressed: () => _createSubtask(context, ref, task),
                 ),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: FilledButton.tonalIcon(
-                  icon: const Icon(Icons.delete_outline),
-                  label: Text(l10n.moveToTrashButton),
-                  onPressed: () async {
-                    await ref
-                        .read(tasksProvider(listId).notifier)
-                        .trashTask(task.id);
-                    if (context.mounted) {
-                      await _showLatestUndoSnackBar(context);
-                    }
-                    if (context.mounted) {
-                      context.pop();
-                    }
-                  },
-                ),
-              ),
             ],
           );
         },
@@ -252,7 +256,41 @@ class TaskDetailScreen extends ConsumerWidget {
       await _showLatestUndoSnackBar(context);
     }
   }
+
+  Future<void> _deleteTask(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final descendantCount = await ref
+        .read(tasksProvider(listId).notifier)
+        .countDescendants(task.id);
+    if (!context.mounted) {
+      return;
+    }
+    final message = descendantCount == 0
+        ? l10n.deleteTaskDialogMessage
+        : l10n.deleteTaskDialogMessageWithDescendants(descendantCount);
+    final confirmed = await showAppConfirmDialog(
+      context: context,
+      title: l10n.deleteTaskDialogTitle,
+      message: message,
+      cancelLabel: l10n.cancelButton,
+      confirmLabel: l10n.deleteButton,
+      isDestructive: true,
+    );
+    if (!confirmed) {
+      return;
+    }
+    await ref.read(tasksProvider(listId).notifier).deleteTask(task.id);
+    if (context.mounted) {
+      context.pop();
+    }
+  }
 }
+
+enum _TaskDetailAction { delete }
 
 Future<void> _showLatestUndoSnackBar(BuildContext context) async {
   final container = ProviderScope.containerOf(context, listen: false);
@@ -304,7 +342,6 @@ Future<void> _applyUndo(
 
 String _undoMessage(AppLocalizations l10n, String operationType) {
   return switch (operationType) {
-    'delete' => l10n.undoDeleteMessage,
     'complete' => l10n.undoCompleteMessage,
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,

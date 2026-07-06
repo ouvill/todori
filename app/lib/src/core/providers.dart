@@ -57,6 +57,18 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
   }
+
+  Future<int> countTasks(String listId) {
+    return ref.read(bridgeServiceProvider).countTasksInList(listId: listId);
+  }
+
+  /// Permanently deletes `listId` and refreshes list collections.
+  Future<void> deleteList(String listId) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.deleteList(listId: listId);
+    ref.invalidateSelf();
+    ref.invalidate(archivedListsProvider);
+  }
 }
 
 final listsProvider = AsyncNotifierProvider<ListsNotifier, List<ListDto>>(
@@ -106,10 +118,9 @@ final taskSortModeProvider =
       TaskSortModeNotifier.new,
     );
 
-/// Manages the active (non-trashed) tasks of a single list, keyed by
-/// `listId`.
+/// Manages the tasks of a single list, keyed by `listId`.
 ///
-/// Invalidate strategy: [createTask], [updateTask], [setStatus] and [trashTask] each
+/// Invalidate strategy: [createTask], [updateTask], [setStatus] and [deleteTask] each
 /// perform their bridge call first, then call `ref.invalidateSelf()`, which
 /// re-runs [build] for this `listId` only (other lists' [TasksNotifier]
 /// instances are untouched). [taskDetailProvider] derives its value from
@@ -170,13 +181,15 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidateSelf();
   }
 
-  /// Moves `taskId` to the trash and refreshes the active task list.
-  Future<void> trashTask(String taskId) async {
+  Future<int> countDescendants(String taskId) {
+    return ref.read(bridgeServiceProvider).countTaskDescendants(taskId: taskId);
+  }
+
+  /// Permanently deletes `taskId` and its descendants, then refreshes the list.
+  Future<void> deleteTask(String taskId) async {
     final bridge = ref.read(bridgeServiceProvider);
-    await bridge.trashTask(taskId: taskId);
-    ref.invalidate(latestTaskUndoProvider);
+    await bridge.deleteTask(taskId: taskId);
     ref.invalidateSelf();
-    ref.invalidate(trashedTasksProvider);
   }
 
   /// Moves `taskId` between sibling boundaries and refreshes the task list.
@@ -225,44 +238,6 @@ final taskDetailProvider =
       });
     });
 
-/// Manages all logically deleted tasks shown on the trash screen.
-class TrashedTasksNotifier extends AsyncNotifier<List<TaskDto>> {
-  @override
-  FutureOr<List<TaskDto>> build() {
-    return ref.watch(bridgeServiceProvider).getTrashedTasks();
-  }
-
-  /// Restores `taskId`, refreshes the trash list, and invalidates the
-  /// restored task's original active list.
-  Future<void> restoreTask(String taskId) async {
-    final trashedTask = _findTaskById(state.value, taskId);
-    final restored = await ref
-        .read(bridgeServiceProvider)
-        .restoreTask(taskId: taskId);
-    final listId = trashedTask?.listId ?? restored.listId;
-    ref.invalidateSelf();
-    ref.invalidate(tasksProvider(listId));
-    await ref.read(tasksProvider(listId).future);
-  }
-}
-
-TaskDto? _findTaskById(List<TaskDto>? tasks, String taskId) {
-  if (tasks == null) {
-    return null;
-  }
-  for (final task in tasks) {
-    if (task.id == taskId) {
-      return task;
-    }
-  }
-  return null;
-}
-
-final trashedTasksProvider =
-    AsyncNotifierProvider<TrashedTasksNotifier, List<TaskDto>>(
-      TrashedTasksNotifier.new,
-    );
-
 /// Manages the latest task undo entry and applies undo through the bridge.
 class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
   @override
@@ -275,7 +250,6 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .read(bridgeServiceProvider)
         .undoTaskOperation(undoId: undoId);
     ref.invalidate(tasksProvider(restored.listId));
-    ref.invalidate(trashedTasksProvider);
     ref.invalidateSelf();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;

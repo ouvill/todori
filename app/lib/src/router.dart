@@ -4,7 +4,6 @@ import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
-import 'package:todori/src/screens/trash_screen.dart';
 
 /// Centralizes all route definitions for the app in one place.
 ///
@@ -18,7 +17,6 @@ import 'package:todori/src/screens/trash_screen.dart';
 ///   /lists                              -> [ListsScreen]
 ///   /lists/:listId/tasks                -> [TasksScreen]
 ///   /lists/:listId/tasks/:taskId        -> [TaskDetailScreen]
-///   /trash                              -> [TrashScreen]
 GoRouter buildAppRouter() {
   return GoRouter(
     initialLocation: '/',
@@ -27,11 +25,6 @@ GoRouter buildAppRouter() {
         path: '/',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
-      ),
-      GoRoute(
-        path: '/trash',
-        name: 'trash',
-        builder: (context, state) => const TrashScreen(),
       ),
       GoRoute(
         path: '/lists',

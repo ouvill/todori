@@ -35,6 +35,7 @@ class ListsScreen extends ConsumerWidget {
                 onCreateList: () => _createList(context, ref),
                 onRenameList: (list) => _renameList(context, ref, list),
                 onArchiveList: (list) => _archiveList(ref, list),
+                onDeleteList: (list) => _deleteList(context, ref, list),
                 onUnarchiveList: (list) => _unarchiveList(ref, list),
               ),
               error: (error, stackTrace) => AppErrorState(
@@ -46,6 +47,7 @@ class ListsScreen extends ConsumerWidget {
                 onCreateList: () => _createList(context, ref),
                 onRenameList: (list) => _renameList(context, ref, list),
                 onArchiveList: (list) => _archiveList(ref, list),
+                onDeleteList: (list) => _deleteList(context, ref, list),
                 onUnarchiveList: (list) => _unarchiveList(ref, list),
               ),
             );
@@ -97,6 +99,32 @@ class ListsScreen extends ConsumerWidget {
     await ref.read(listsProvider.notifier).archiveList(list.id);
   }
 
+  Future<void> _deleteList(
+    BuildContext context,
+    WidgetRef ref,
+    ListDto list,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final taskCount = await ref
+        .read(listsProvider.notifier)
+        .countTasks(list.id);
+    if (!context.mounted) {
+      return;
+    }
+    final confirmed = await showAppConfirmDialog(
+      context: context,
+      title: l10n.deleteListDialogTitle(list.name),
+      message: l10n.deleteListDialogMessage(taskCount),
+      cancelLabel: l10n.cancelButton,
+      confirmLabel: l10n.deleteButton,
+      isDestructive: true,
+    );
+    if (!confirmed) {
+      return;
+    }
+    await ref.read(listsProvider.notifier).deleteList(list.id);
+  }
+
   Future<void> _unarchiveList(WidgetRef ref, ListDto list) async {
     await ref.read(archivedListsProvider.notifier).unarchiveList(list.id);
   }
@@ -109,6 +137,7 @@ class _ListsManagementView extends StatefulWidget {
     required this.onCreateList,
     required this.onRenameList,
     required this.onArchiveList,
+    required this.onDeleteList,
     required this.onUnarchiveList,
   });
 
@@ -117,6 +146,7 @@ class _ListsManagementView extends StatefulWidget {
   final VoidCallback onCreateList;
   final ValueChanged<ListDto> onRenameList;
   final ValueChanged<ListDto> onArchiveList;
+  final ValueChanged<ListDto> onDeleteList;
   final ValueChanged<ListDto> onUnarchiveList;
 
   @override
@@ -196,6 +226,9 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                     onArchive: index == 0
                         ? null
                         : () => widget.onArchiveList(widget.lists[index]),
+                    onDelete: index == 0
+                        ? null
+                        : () => widget.onDeleteList(widget.lists[index]),
                   ),
               Divider(color: colorScheme.outlineVariant),
               _ListManagementRow(
@@ -326,6 +359,7 @@ class _ListManagementRow extends StatelessWidget {
     required this.onTap,
     this.onRename,
     this.onArchive,
+    this.onDelete,
     this.onUnarchive,
   });
 
@@ -335,6 +369,7 @@ class _ListManagementRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onRename;
   final VoidCallback? onArchive;
+  final VoidCallback? onDelete;
   final VoidCallback? onUnarchive;
 
   @override
@@ -393,6 +428,9 @@ class _ListManagementRow extends StatelessWidget {
                       case _ListRowAction.archive:
                         onArchive!();
                         break;
+                      case _ListRowAction.delete:
+                        onDelete!();
+                        break;
                       case _ListRowAction.unarchive:
                         onUnarchive!();
                         break;
@@ -408,6 +446,11 @@ class _ListManagementRow extends StatelessWidget {
                       PopupMenuItem(
                         value: _ListRowAction.archive,
                         child: Text(l10n.archiveListMenuItem),
+                      ),
+                    if (onDelete != null)
+                      PopupMenuItem(
+                        value: _ListRowAction.delete,
+                        child: Text(l10n.deleteListMenuItem),
                       ),
                     if (onUnarchive != null)
                       PopupMenuItem(
@@ -425,10 +468,13 @@ class _ListManagementRow extends StatelessWidget {
   }
 
   bool get _hasActions =>
-      onRename != null || onArchive != null || onUnarchive != null;
+      onRename != null ||
+      onArchive != null ||
+      onDelete != null ||
+      onUnarchive != null;
 }
 
-enum _ListRowAction { rename, archive, unarchive }
+enum _ListRowAction { rename, archive, delete, unarchive }
 
 Color _listAccent(ColorScheme colorScheme, int index) {
   final accents = [

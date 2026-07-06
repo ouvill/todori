@@ -137,9 +137,8 @@
 
 ### 画面規範
 
-- **Today/home**: 上部バー（メニュー/ソート/ゴミ箱） → Today見出し + 日付サブタイトル → リスト名pill → Tasksセクション行（見出し + pending pill + 追加ボタン。pending表示はここ1箇所のみ） → タスク行リスト → Add task FAB。
+- **Today/home**: 上部バー（メニュー/ソート） → Today見出し + 日付サブタイトル → リスト名pill → Tasksセクション行（見出し + pending pill + 追加ボタン。pending表示はここ1箇所のみ） → タスク行リスト → Add task FAB。
 - **Task detail**: タイトル（Lora、カード囲みなし） → note（あれば） → メタデータチップ最大4（詳細画面のみstatusチップ追加を許容） → created（`bodySmall`キャプション） → Subtasks小見出し → サブタスク行 → actions。ロック/暗号化の常設表現は禁止（`visual-direction.md` Security Signal参照）。
-- **Trash**: 「戻せる操作画面」。復元actionはprimary色、警告色（coral等）の面は使わない。（2026-07-07裁定によりゴミ箱は廃止予定。撤去タスク完了後にこの項を削除する）
 - **Dialog**: 文章主体、装飾なし。destructiveのみcoralを使う。
 
 ## セクション4: 判断規則（迷ったとき）
@@ -155,7 +154,6 @@
 ## セクション5: 既知の逸脱（現状 spec 違反として認識済みのもの）
 
 - 本番タスク行のpriority dotとチェックボックスが、多行タイトル時にタイトル1行目と整列していない（2026-07-06 親レビューで確認。修正タスク対象。セクション3の整列規則参照）。
-- Trash画面の日付が絶対表記のまま（`docs/tasks/BACKLOG.md`既載）。
 
 ## 裁定済み事項
 

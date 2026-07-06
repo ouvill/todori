@@ -92,7 +92,8 @@ pub trait TaskRepository {
     fn insert(&mut self, task: Task) -> Result<(), StorageError>;
     fn update(&mut self, task: Task) -> Result<(), StorageError>;
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError>;
-    fn list_trashed(&self) -> Result<Vec<Task>, StorageError>;
+    fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
+    fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
 }
 
 /// リストの永続化を担うリポジトリ。
@@ -104,6 +105,8 @@ pub trait ListRepository {
     fn update(&mut self, list: List) -> Result<(), StorageError>;
     fn list_all(&self) -> Result<Vec<List>, StorageError>;
     fn list_archived(&self) -> Result<Vec<List>, StorageError>;
+    fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError>;
+    fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -381,6 +384,7 @@ impl SqliteTaskRepository {
                         created_at, consumed_at
                  FROM task_undo_entries
                  WHERE consumed_at IS NULL
+                   AND operation_type != 'delete'
                  ORDER BY created_at DESC, rowid DESC
                  LIMIT 1",
                 [],
@@ -515,7 +519,7 @@ impl TaskRepository for SqliteTaskRepository {
                     completed_at, closed_reason, deleted_at, assignee,
                     created_at, updated_at
              FROM tasks
-             WHERE list_id = ?1 AND deleted_at IS NULL
+             WHERE list_id = ?1
              ORDER BY sort_order ASC",
         )?;
         let tasks = statement
@@ -525,21 +529,16 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(tasks)
     }
 
-    fn list_trashed(&self) -> Result<Vec<Task>, StorageError> {
-        let mut statement = self.connection.prepare(
-            "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_at, scheduled_at, estimated_minutes, sort_order,
-                    completed_at, closed_reason, deleted_at, assignee,
-                    created_at, updated_at
-             FROM tasks
-             WHERE deleted_at IS NOT NULL
-             ORDER BY deleted_at DESC",
-        )?;
-        let tasks = statement
-            .query_map([], row_to_task)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+    fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError> {
+        count_task_descendants_on(&self.connection, task_id)
+    }
 
-        Ok(tasks)
+    fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError> {
+        self.get(task_id)?;
+        let transaction = self.connection.transaction()?;
+        let deleted = delete_task_subtree_on(&transaction, task_id)?;
+        transaction.commit()?;
+        Ok(deleted)
     }
 }
 
@@ -589,6 +588,55 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
     }
 
     Ok(())
+}
+
+fn count_task_descendants_on(
+    connection: &Connection,
+    task_id: Uuid,
+) -> Result<usize, StorageError> {
+    let count: i64 = connection.query_row(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM tasks WHERE parent_task_id = ?1
+            UNION ALL
+            SELECT tasks.id
+            FROM tasks
+            INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+         )
+         SELECT count(*) FROM subtree",
+        [task_id.to_string()],
+        |row| row.get(0),
+    )?;
+    usize::try_from(count).map_err(|_| {
+        StorageError::IncompatibleSchema("task descendant count exceeded usize".to_string())
+    })
+}
+
+fn delete_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<usize, StorageError> {
+    connection.execute(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM tasks WHERE id = ?1
+            UNION ALL
+            SELECT tasks.id
+            FROM tasks
+            INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+         )
+         DELETE FROM task_undo_entries
+         WHERE task_id IN (SELECT id FROM subtree)",
+        [task_id.to_string()],
+    )?;
+    let deleted = connection.execute(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM tasks WHERE id = ?1
+            UNION ALL
+            SELECT tasks.id
+            FROM tasks
+            INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+         )
+         DELETE FROM tasks
+         WHERE id IN (SELECT id FROM subtree)",
+        [task_id.to_string()],
+    )?;
+    Ok(deleted)
 }
 
 fn insert_task_undo_on(connection: &Connection, entry: &TaskUndoEntry) -> Result<(), StorageError> {
@@ -732,6 +780,45 @@ impl ListRepository for SqliteListRepository {
 
         Ok(lists)
     }
+
+    fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError> {
+        let count: i64 = self.connection.query_row(
+            "SELECT count(*) FROM tasks WHERE list_id = ?1",
+            [list_id.to_string()],
+            |row| row.get(0),
+        )?;
+        usize::try_from(count).map_err(|_| {
+            StorageError::IncompatibleSchema("list task count exceeded usize".to_string())
+        })
+    }
+
+    fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+        self.get(list_id)?;
+        let transaction = self.connection.transaction()?;
+        let task_count: i64 = transaction.query_row(
+            "SELECT count(*) FROM tasks WHERE list_id = ?1",
+            [list_id.to_string()],
+            |row| row.get(0),
+        )?;
+        transaction.execute(
+            "DELETE FROM task_undo_entries
+             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+            [list_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM tasks WHERE list_id = ?1",
+            [list_id.to_string()],
+        )?;
+        let changed =
+            transaction.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(list_id));
+        }
+        transaction.commit()?;
+        usize::try_from(task_count).map_err(|_| {
+            StorageError::IncompatibleSchema("list task count exceeded usize".to_string())
+        })
+    }
 }
 
 fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
@@ -865,9 +952,7 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
     use todori_crypto::{derive_local_db_key, ensure_device_key, InMemoryDeviceKeyStore};
-    use todori_domain::{
-        delete_task, new_list, new_task, restore_task, transition_task, update_title,
-    };
+    use todori_domain::{new_list, new_task, transition_task, update_title};
 
     const KEY: [u8; 32] = [0x11; 32];
     const WRONG_KEY: [u8; 32] = [0x22; 32];
@@ -1298,6 +1383,58 @@ mod tests {
     }
 
     #[test]
+    fn delete_list_removes_tasks_and_task_undo_entries() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Inbox".to_string(), "a0".to_string(), 1_700_000_000_000).unwrap();
+        let task = new_task(
+            list.id,
+            None,
+            "Task".to_string(),
+            "a0".to_string(),
+            1_700_000_001_000,
+        )
+        .unwrap();
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(task.clone()).unwrap();
+            let edited =
+                update_title(task.clone(), "Edited".to_string(), task.updated_at + 1).unwrap();
+            task_repository
+                .update_with_undo(
+                    task.clone(),
+                    edited,
+                    TaskUndoOperation::Edit,
+                    task.updated_at + 1,
+                )
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut list_repository = SqliteListRepository::new(connection);
+        assert_eq!(list_repository.count_tasks(list.id).unwrap(), 1);
+        assert_eq!(list_repository.delete_with_tasks(list.id).unwrap(), 1);
+        assert!(matches!(
+            list_repository.get(list.id),
+            Err(StorageError::NotFound(id)) if id == list.id
+        ));
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let task_repository = SqliteTaskRepository::new(connection);
+        assert!(matches!(
+            task_repository.get(task.id),
+            Err(StorageError::NotFound(id)) if id == task.id
+        ));
+        assert!(task_repository.latest_unconsumed_undo().unwrap().is_none());
+    }
+
+    #[test]
     fn domain_usecases_persist_task_updates_after_reopen() {
         let file = NamedTempFile::new().unwrap();
         let list = new_list("Inbox".to_string(), "a0".to_string(), 1_700_000_000_000).unwrap();
@@ -1338,7 +1475,7 @@ mod tests {
     }
 
     #[test]
-    fn trashed_task_disappears_from_active_list_and_restore_reverts_it() {
+    fn delete_subtree_removes_root_descendants_and_undo_entries() {
         let file = NamedTempFile::new().unwrap();
         let list = new_list("Inbox".to_string(), "a0".to_string(), 1_700_000_000_000).unwrap();
         let active = new_task(
@@ -1349,11 +1486,19 @@ mod tests {
             1_700_000_001_000,
         )
         .unwrap();
-        let to_delete = new_task(
+        let parent = new_task(
             list.id,
             None,
-            "Delete".to_string(),
+            "Delete parent".to_string(),
             "b0".to_string(),
+            1_700_000_001_000,
+        )
+        .unwrap();
+        let child = new_task(
+            list.id,
+            Some(parent.id),
+            "Delete child".to_string(),
+            "a0".to_string(),
             1_700_000_001_000,
         )
         .unwrap();
@@ -1367,28 +1512,35 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut task_repository = SqliteTaskRepository::new(connection);
         task_repository.insert(active.clone()).unwrap();
-        task_repository.insert(to_delete.clone()).unwrap();
+        task_repository.insert(parent.clone()).unwrap();
+        task_repository.insert(child).unwrap();
 
-        let deleted = delete_task(to_delete, 1_700_000_002_000).unwrap();
-        task_repository.update(deleted.clone()).unwrap();
+        let updated = update_title(
+            parent.clone(),
+            "Before delete".to_string(),
+            parent.updated_at + 1,
+        )
+        .unwrap();
+        task_repository
+            .update_with_undo(
+                parent.clone(),
+                updated,
+                TaskUndoOperation::Edit,
+                parent.updated_at + 1,
+            )
+            .unwrap();
 
-        assert_eq!(
-            task_repository.list_trashed().unwrap(),
-            vec![deleted.clone()]
-        );
+        assert_eq!(task_repository.count_descendants(parent.id).unwrap(), 1);
+        assert_eq!(task_repository.delete_subtree(parent.id).unwrap(), 2);
+        assert!(matches!(
+            task_repository.get(parent.id),
+            Err(StorageError::NotFound(id)) if id == parent.id
+        ));
         assert_eq!(
             task_repository.list_active_by_list(list.id).unwrap(),
-            vec![active.clone()]
+            vec![active]
         );
-
-        let restored = restore_task(deleted, 1_700_000_003_000).unwrap();
-        task_repository.update(restored.clone()).unwrap();
-
-        assert!(task_repository.list_trashed().unwrap().is_empty());
-        assert_eq!(
-            task_repository.list_active_by_list(list.id).unwrap(),
-            vec![active, restored]
-        );
+        assert!(task_repository.latest_unconsumed_undo().unwrap().is_none());
     }
 
     #[test]
@@ -1427,7 +1579,30 @@ mod tests {
     }
 
     #[test]
-    fn delete_and_complete_undo_entries_restore_task_state() {
+    fn delete_undo_entries_are_not_returned_as_latest_undo() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let task = sample_task();
+        repository.insert(task.clone()).unwrap();
+
+        let mut deleted = task.clone();
+        deleted.deleted_at = Some(task.updated_at + 1);
+        deleted.updated_at = task.updated_at + 1;
+        repository
+            .update_with_undo(
+                task.clone(),
+                deleted.clone(),
+                TaskUndoOperation::Delete,
+                deleted.updated_at,
+            )
+            .unwrap();
+
+        assert!(repository.latest_unconsumed_undo().unwrap().is_none());
+    }
+
+    #[test]
+    fn complete_undo_entry_restores_task_state() {
         let file = NamedTempFile::new().unwrap();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTaskRepository::new(connection);
@@ -1444,6 +1619,7 @@ mod tests {
                 done.updated_at,
             )
             .unwrap();
+
         assert_eq!(
             repository
                 .undo_task_operation(complete_undo.id, done.updated_at + 1)
@@ -1451,23 +1627,6 @@ mod tests {
                 .status,
             TaskStatus::Todo
         );
-
-        let deleted = delete_task(task.clone(), task.updated_at + 2).unwrap();
-        let delete_undo = repository
-            .update_with_undo(
-                task.clone(),
-                deleted.clone(),
-                TaskUndoOperation::Delete,
-                deleted.updated_at,
-            )
-            .unwrap();
-        assert!(repository.get(task.id).unwrap().deleted_at.is_some());
-
-        let restored = repository
-            .undo_task_operation(delete_undo.id, deleted.updated_at + 1)
-            .unwrap();
-        assert_eq!(restored.deleted_at, task.deleted_at);
-        assert_eq!(repository.get(task.id).unwrap(), task);
     }
 
     #[test]
@@ -1503,7 +1662,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_undo_rejects_deleted_current_task() {
+    fn complete_undo_rejects_physically_deleted_current_task() {
         let file = NamedTempFile::new().unwrap();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTaskRepository::new(connection);
@@ -1520,12 +1679,11 @@ mod tests {
                 done.updated_at,
             )
             .unwrap();
-        let deleted = delete_task(done, task.updated_at + 2).unwrap();
-        repository.update(deleted).unwrap();
+        repository.delete_subtree(done.id).unwrap();
 
         assert!(matches!(
             repository.undo_task_operation(undo.id, task.updated_at + 3),
-            Err(StorageError::UndoConflict(id)) if id == task.id
+            Err(StorageError::NotFound(id)) if id == undo.id
         ));
     }
 

@@ -130,9 +130,7 @@ class FakeBridgeService implements BridgeService {
         _tasks
             .where(
               (task) =>
-                  task.listId == listId &&
-                  task.parentTaskId == parentTaskId &&
-                  task.deletedAt == null,
+                  task.listId == listId && task.parentTaskId == parentTaskId,
             )
             .toList()
           ..sort(_compareTasks);
@@ -158,11 +156,14 @@ class FakeBridgeService implements BridgeService {
 
   @override
   Future<List<TaskDto>> getTasks({required String listId}) async {
-    final tasks = _tasks
-        .where((task) => task.listId == listId && task.deletedAt == null)
-        .toList();
+    final tasks = _tasks.where((task) => task.listId == listId).toList();
     tasks.sort(_compareTasks);
     return tasks;
+  }
+
+  @override
+  Future<int> countTasksInList({required String listId}) async {
+    return _tasks.where((task) => task.listId == listId).length;
   }
 
   @override
@@ -229,27 +230,30 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<TaskDto> trashTask({required String taskId}) async {
-    final index = _tasks.indexWhere((task) => task.id == taskId);
-    final before = _tasks[index];
-    final updatedAt = before.updatedAt + _fakeMinuteMs;
-    final updated = before._copyWith(
-      deletedAt: updatedAt,
-      updatedAt: updatedAt,
-    );
-    _tasks[index] = updated;
-    if (before.deletedAt == null) {
-      _recordUndo(operationType: 'delete', before: before, after: updated);
-    }
-    return updated;
+  Future<int> countTaskDescendants({required String taskId}) async {
+    return _descendantIds(taskId).length;
   }
 
   @override
-  Future<TaskDto> restoreTask({required String taskId}) async {
-    final index = _tasks.indexWhere((task) => task.id == taskId);
-    final updated = _tasks[index]._copyWithClearDeletedAt();
-    _tasks[index] = updated;
-    return updated;
+  Future<void> deleteTask({required String taskId}) async {
+    final ids = {taskId, ..._descendantIds(taskId)};
+    _tasks.removeWhere((task) => ids.contains(task.id));
+    _undoEntries.removeWhere((entry) => ids.contains(entry.taskId));
+  }
+
+  @override
+  Future<void> deleteList({required String listId}) async {
+    final list = _lists.singleWhere((candidate) => candidate.id == listId);
+    if (_isDefaultInbox(list)) {
+      throw Exception('default inbox cannot be deleted');
+    }
+    final taskIds = _tasks
+        .where((task) => task.listId == listId)
+        .map((task) => task.id)
+        .toSet();
+    _tasks.removeWhere((task) => task.listId == listId);
+    _undoEntries.removeWhere((entry) => taskIds.contains(entry.taskId));
+    _lists.removeWhere((candidate) => candidate.id == listId);
   }
 
   @override
@@ -267,9 +271,6 @@ class FakeBridgeService implements BridgeService {
 
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final task = _tasks[index];
-    if (task.deletedAt != null) {
-      throw Exception('task is deleted');
-    }
     final previous = previousTaskId == null
         ? null
         : _reorderBoundary(previousTaskId, task);
@@ -284,14 +285,9 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<List<TaskDto>> getTrashedTasks() async {
-    return _tasks.where((task) => task.deletedAt != null).toList();
-  }
-
-  @override
   Future<TaskUndoDto?> getLatestTaskUndo() async {
     final available = _undoEntries
-        .where((entry) => !entry.consumed)
+        .where((entry) => !entry.consumed && entry.operationType != 'delete')
         .toList(growable: false);
     if (available.isEmpty) {
       return null;
@@ -327,9 +323,6 @@ class FakeBridgeService implements BridgeService {
     final boundary = _tasks.singleWhere(
       (candidate) => candidate.id == boundaryId,
     );
-    if (boundary.deletedAt != null) {
-      throw Exception('task is deleted');
-    }
     if (boundary.listId != task.listId) {
       throw Exception('reorder boundary belongs to a different list');
     }
@@ -375,6 +368,20 @@ class FakeBridgeService implements BridgeService {
         .toList(growable: false);
     active.sort(_compareLists);
     return active.isNotEmpty && active.first.id == list.id;
+  }
+
+  Set<String> _descendantIds(String taskId) {
+    final descendants = <String>{};
+    var frontier = <String>{taskId};
+    while (frontier.isNotEmpty) {
+      final next = _tasks
+          .where((task) => frontier.contains(task.parentTaskId))
+          .map((task) => task.id)
+          .where(descendants.add)
+          .toSet();
+      frontier = next;
+    }
+    return descendants;
   }
 }
 
@@ -445,28 +452,6 @@ extension _TaskDtoCopy on TaskDto {
       assignee: assignee,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-
-  TaskDto _copyWithClearDeletedAt() {
-    return TaskDto(
-      id: id,
-      listId: listId,
-      parentTaskId: parentTaskId,
-      title: title,
-      note: note,
-      status: status,
-      priority: priority,
-      dueAt: dueAt,
-      scheduledAt: scheduledAt,
-      estimatedMinutes: estimatedMinutes,
-      sortOrder: sortOrder,
-      completedAt: completedAt,
-      closedReason: closedReason,
-      deletedAt: null,
-      assignee: assignee,
-      createdAt: createdAt,
-      updatedAt: updatedAt,
     );
   }
 }

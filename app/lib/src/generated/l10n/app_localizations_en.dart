@@ -50,7 +50,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get archiveListMenuItem => 'Archive';
 
   @override
+  String get deleteListMenuItem => 'Delete';
+
+  @override
   String get unarchiveListMenuItem => 'Unarchive';
+
+  @override
+  String deleteListDialogTitle(String listName) {
+    return 'Delete $listName?';
+  }
+
+  @override
+  String deleteListDialogMessage(int taskCount) {
+    return 'This will permanently delete this list and $taskCount tasks, including completed tasks. This cannot be undone. Archive the list instead if you want to keep history.';
+  }
 
   @override
   String archivedListsSectionTitle(int count) {
@@ -68,6 +81,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cancelButton => 'Cancel';
+
+  @override
+  String get deleteButton => 'Delete';
 
   @override
   String get createButton => 'Create';
@@ -222,6 +238,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editTaskTooltip => 'Edit task';
 
   @override
+  String get taskActionsTooltip => 'Task actions';
+
+  @override
   String get editTaskTitle => 'Edit task';
 
   @override
@@ -263,36 +282,25 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get moveToTrashButton => 'Move to trash';
+  String get deleteTaskMenuItem => 'Delete';
 
   @override
-  String get openTrashTooltip => 'Open trash';
+  String get deleteTaskDialogTitle => 'Delete task?';
 
   @override
-  String get trashTitle => 'Trash';
+  String get deleteTaskDialogMessage =>
+      'This task will be permanently deleted and cannot be recovered.';
 
   @override
-  String get trashEmptyTitle => 'Trash is empty.';
-
-  @override
-  String get trashEmptyBody => 'Deleted tasks will appear here.';
-
-  @override
-  String failedToLoadTrash(String error) {
-    return 'Failed to load trash: $error';
+  String deleteTaskDialogMessageWithDescendants(int descendantCount) {
+    return 'This task and $descendantCount subtasks will be permanently deleted and cannot be recovered.';
   }
-
-  @override
-  String get restoreTaskTooltip => 'Restore task';
 
   @override
   String get undoActionLabel => 'Undo';
 
   @override
   String get undoCompleteMessage => 'Task completed.';
-
-  @override
-  String get undoDeleteMessage => 'Task moved to trash.';
 
   @override
   String get undoEditMessage => 'Task saved.';
@@ -325,11 +333,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get moveTaskDownTooltip => 'Move task down';
-
-  @override
-  String taskDeletedAt(String deletedAt) {
-    return 'Deleted $deletedAt';
-  }
 
   @override
   String failedToStartTodori(String error) {

@@ -128,39 +128,41 @@ void main() {
     await _screenshot(tester, 'task_edit_dialog');
   });
 
-  testWidgets('trash: two deleted tasks', (tester) async {
+  testWidgets('delete_task_confirm: permanent task delete warning', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final seed = await _seedRealisticData(tester);
+    await _openTask(tester, seed.parentWithSubtasksTitle);
+    await tester.tap(find.byTooltip('Task actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'delete_task_confirm');
+  });
+
+  testWidgets('delete_list_confirm: permanent list delete warning', (
+    tester,
+  ) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
     await fake.createList(name: 'Inbox', sortOrder: 'a0');
-    final listId = (await fake.getLists()).first.id;
-
-    final meetingNotes = await fake.createTask(
-      listId: listId,
-      title: 'Cancelled kickoff meeting notes',
-    );
-    final oldDraft = await fake.createTask(
-      listId: listId,
-      title: '古い下書きのタスクを削除する',
-    );
-    await fake.updateTask(
-      taskId: oldDraft.id,
-      title: oldDraft.title,
-      note: '',
-      priority: 2,
-      dueAt: DateTime.now()
-          .subtract(const Duration(days: 3))
-          .millisecondsSinceEpoch,
-    );
-    await fake.trashTask(taskId: meetingNotes.id);
-    await fake.trashTask(taskId: oldDraft.id);
+    final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+    await fake.createTask(listId: work.id, title: 'Completed planning note');
+    final done = await fake.createTask(listId: work.id, title: 'Done task');
+    await fake.setTaskStatus(taskId: done.id, status: 'done');
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open trash'));
+    await tester.tap(find.byTooltip('Open lists'));
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'trash');
+    await tester.tap(find.byTooltip('List actions').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'delete_list_confirm');
   });
 
   testWidgets('confirm_dialog: completing a parent with an open subtask', (

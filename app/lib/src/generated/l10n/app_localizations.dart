@@ -176,11 +176,29 @@ abstract class AppLocalizations {
   /// **'Archive'**
   String get archiveListMenuItem;
 
+  /// No description provided for @deleteListMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get deleteListMenuItem;
+
   /// No description provided for @unarchiveListMenuItem.
   ///
   /// In en, this message translates to:
   /// **'Unarchive'**
   String get unarchiveListMenuItem;
+
+  /// No description provided for @deleteListDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {listName}?'**
+  String deleteListDialogTitle(String listName);
+
+  /// No description provided for @deleteListDialogMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This will permanently delete this list and {taskCount} tasks, including completed tasks. This cannot be undone. Archive the list instead if you want to keep history.'**
+  String deleteListDialogMessage(int taskCount);
 
   /// No description provided for @archivedListsSectionTitle.
   ///
@@ -211,6 +229,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cancel'**
   String get cancelButton;
+
+  /// No description provided for @deleteButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get deleteButton;
 
   /// No description provided for @createButton.
   ///
@@ -476,6 +500,12 @@ abstract class AppLocalizations {
   /// **'Edit task'**
   String get editTaskTooltip;
 
+  /// No description provided for @taskActionsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Task actions'**
+  String get taskActionsTooltip;
+
   /// No description provided for @editTaskTitle.
   ///
   /// In en, this message translates to:
@@ -554,47 +584,29 @@ abstract class AppLocalizations {
   /// **'Failed to save task: {error}'**
   String failedToSaveTask(String error);
 
-  /// No description provided for @moveToTrashButton.
+  /// No description provided for @deleteTaskMenuItem.
   ///
   /// In en, this message translates to:
-  /// **'Move to trash'**
-  String get moveToTrashButton;
+  /// **'Delete'**
+  String get deleteTaskMenuItem;
 
-  /// No description provided for @openTrashTooltip.
+  /// No description provided for @deleteTaskDialogTitle.
   ///
   /// In en, this message translates to:
-  /// **'Open trash'**
-  String get openTrashTooltip;
+  /// **'Delete task?'**
+  String get deleteTaskDialogTitle;
 
-  /// No description provided for @trashTitle.
+  /// No description provided for @deleteTaskDialogMessage.
   ///
   /// In en, this message translates to:
-  /// **'Trash'**
-  String get trashTitle;
+  /// **'This task will be permanently deleted and cannot be recovered.'**
+  String get deleteTaskDialogMessage;
 
-  /// No description provided for @trashEmptyTitle.
+  /// No description provided for @deleteTaskDialogMessageWithDescendants.
   ///
   /// In en, this message translates to:
-  /// **'Trash is empty.'**
-  String get trashEmptyTitle;
-
-  /// No description provided for @trashEmptyBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Deleted tasks will appear here.'**
-  String get trashEmptyBody;
-
-  /// No description provided for @failedToLoadTrash.
-  ///
-  /// In en, this message translates to:
-  /// **'Failed to load trash: {error}'**
-  String failedToLoadTrash(String error);
-
-  /// No description provided for @restoreTaskTooltip.
-  ///
-  /// In en, this message translates to:
-  /// **'Restore task'**
-  String get restoreTaskTooltip;
+  /// **'This task and {descendantCount} subtasks will be permanently deleted and cannot be recovered.'**
+  String deleteTaskDialogMessageWithDescendants(int descendantCount);
 
   /// No description provided for @undoActionLabel.
   ///
@@ -607,12 +619,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Task completed.'**
   String get undoCompleteMessage;
-
-  /// No description provided for @undoDeleteMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'Task moved to trash.'**
-  String get undoDeleteMessage;
 
   /// No description provided for @undoEditMessage.
   ///
@@ -673,12 +679,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Move task down'**
   String get moveTaskDownTooltip;
-
-  /// No description provided for @taskDeletedAt.
-  ///
-  /// In en, this message translates to:
-  /// **'Deleted {deletedAt}'**
-  String taskDeletedAt(String deletedAt);
 
   /// No description provided for @failedToStartTodori.
   ///

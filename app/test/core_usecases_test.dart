@@ -37,22 +37,10 @@ void main() {
     expect(done.status, 'done');
     expect(done.completedAt, isNotNull);
 
-    final trashed = await trashTask(taskId: task.id);
-    expect(trashed.deletedAt, isNotNull);
+    await deleteTask(taskId: task.id);
     expect(
       (await getTasks(listId: list.id)).map((entry) => entry.id),
       isNot(contains(task.id)),
-    );
-    expect(
-      (await getTrashedTasks()).map((entry) => entry.id),
-      contains(task.id),
-    );
-
-    final restored = await restoreTask(taskId: task.id);
-    expect(restored.deletedAt, isNull);
-    expect(
-      (await getTasks(listId: list.id)).map((entry) => entry.id),
-      contains(task.id),
     );
   });
 
@@ -122,11 +110,6 @@ void main() {
       listId: otherList.id,
       title: 'Other list parent',
     );
-    final deletedParent = await createTask(
-      listId: list.id,
-      title: 'Deleted parent',
-    );
-    await trashTask(taskId: deletedParent.id);
 
     expect(
       () => createTask(
@@ -141,14 +124,6 @@ void main() {
         listId: list.id,
         title: 'Cross-list child',
         parentTaskId: otherListParent.id,
-      ),
-      throwsA(anything),
-    );
-    expect(
-      () => createTask(
-        listId: list.id,
-        title: 'Deleted-parent child',
-        parentTaskId: deletedParent.id,
       ),
       throwsA(anything),
     );
@@ -221,8 +196,6 @@ void main() {
       title: 'Child',
       parentTaskId: first.id,
     );
-    final deleted = await createTask(listId: list.id, title: 'Deleted');
-    await trashTask(taskId: deleted.id);
 
     expect(
       () => reorderTask(taskId: first.id, previousTaskId: first.id),
@@ -234,14 +207,6 @@ void main() {
     );
     expect(
       () => reorderTask(taskId: second.id, previousTaskId: child.id),
-      throwsA(anything),
-    );
-    expect(
-      () => reorderTask(taskId: first.id, nextTaskId: deleted.id),
-      throwsA(anything),
-    );
-    expect(
-      () => reorderTask(taskId: deleted.id, previousTaskId: second.id),
       throwsA(anything),
     );
   });
@@ -308,7 +273,7 @@ void main() {
     );
   });
 
-  test('delete complete and edit undo roundtrip through Rust bridge', () async {
+  test('complete and edit undo roundtrip through Rust bridge', () async {
     final list = await createList(name: 'Undo lifecycle', sortOrder: 'u0');
 
     final editTask = await createTask(listId: list.id, title: 'Original title');
@@ -339,18 +304,56 @@ void main() {
     final completeRestored = await undoTaskOperation(undoId: completeUndo.id);
     expect(completeRestored.status, 'todo');
     expect(completeRestored.completedAt, isNull);
-
-    final deleteTask = await createTask(listId: list.id, title: 'Delete undo');
-    await trashTask(taskId: deleteTask.id);
-    final deleteUndo = await getLatestTaskUndo();
-    expect(deleteUndo!.operationType, 'delete');
-    final deleteRestored = await undoTaskOperation(undoId: deleteUndo.id);
-    expect(deleteRestored.deletedAt, isNull);
-    expect(
-      (await getTasks(listId: list.id)).map((task) => task.id),
-      contains(deleteTask.id),
-    );
   });
+
+  test('deleteTask permanently deletes descendants without undo', () async {
+    final list = await createList(
+      name: 'Permanent task delete',
+      sortOrder: 'pd0',
+    );
+    final parent = await createTask(listId: list.id, title: 'Parent');
+    final child = await createTask(
+      listId: list.id,
+      title: 'Child',
+      parentTaskId: parent.id,
+    );
+    await updateTask(
+      taskId: parent.id,
+      title: 'Edited parent',
+      note: '',
+      priority: 0,
+      dueAt: null,
+    );
+
+    expect(await countTaskDescendants(taskId: parent.id), 1);
+    await deleteTask(taskId: parent.id);
+
+    final tasks = await getTasks(listId: list.id);
+    expect(tasks.map((task) => task.id), isNot(contains(parent.id)));
+    expect(tasks.map((task) => task.id), isNot(contains(child.id)));
+    final latestUndo = await getLatestTaskUndo();
+    expect(latestUndo?.taskId, isNot(parent.id));
+  });
+
+  test(
+    'deleteList removes list and tasks but protects default inbox',
+    () async {
+      final inbox = await createList(name: 'Default inbox', sortOrder: '0000');
+      final work = await createList(name: 'Delete list', sortOrder: '0001');
+      final task = await createTask(listId: work.id, title: 'List task');
+      await setTaskStatus(taskId: task.id, status: 'done');
+
+      expect(await countTasksInList(listId: work.id), 1);
+      await expectLater(deleteList(listId: inbox.id), throwsA(anything));
+
+      await deleteList(listId: work.id);
+      expect(
+        (await getLists()).map((list) => list.id),
+        isNot(contains(work.id)),
+      );
+      expect(await getTasks(listId: work.id), isEmpty);
+    },
+  );
 
   test('undo rejects conflicts and consumed entries', () async {
     final list = await createList(name: 'Undo conflicts', sortOrder: 'u1');
@@ -382,7 +385,7 @@ void main() {
     );
     await setTaskStatus(taskId: completeTask.id, status: 'done');
     final completeUndo = (await getLatestTaskUndo())!;
-    await trashTask(taskId: completeTask.id);
+    await deleteTask(taskId: completeTask.id);
     expect(() => undoTaskOperation(undoId: completeUndo.id), throwsA(anything));
 
     final consumedTask = await createTask(listId: list.id, title: 'Consumed');

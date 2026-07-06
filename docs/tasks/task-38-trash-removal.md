@@ -1,5 +1,8 @@
 # task-38: ゴミ箱廃止と恒久削除への移行
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07改訂の `docs/02_機能仕様書.md` F-07 は、タスク削除を恒久削除とし、ゴミ箱を設けず、削除Undoも設けないと定めている。`docs/05_設計判断記録.md` ADR-009 は、E2EEプロダクトとして「削除＝本当に消える」という原則を優先し、履歴の保全経路をリストのアーカイブへ一本化する判断を記録している。`docs/03_技術仕様書.md` も2026-07-07改訂により、`lists.archived_at`、`PRAGMA user_version` ベースのスキーマバージョニング、ローカル削除の恒久削除モデルを反映済みである。
@@ -182,3 +185,213 @@ task-23で導入した `/trash` route、`TrashScreen`、`get_trashed_tasks` / `r
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（`tasks.deleted_at` v3マイグレーション、既存 `delete` undo履歴、同期導入時のtombstone再設計を含む）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/02_機能仕様書.md` F-07 / F-09
+  - `docs/03_技術仕様書.md` `lists.archived_at` / schema version / `tasks.deleted_at` / 削除・tombstone関連
+  - `docs/05_設計判断記録.md` ADR-009
+  - `docs/design/ui-spec.md`
+  - `docs/tasks/task-23-trash-restore-ui.md`
+  - `docs/tasks/task-26-undo.md`
+  - `docs/tasks/task-35-list-rename.md`
+  - `docs/tasks/task-37-list-archive.md` 完了報告
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/schema.sql`
+  - `core/storage/src/lib.rs`
+  - `app/rust/src/api.rs`
+  - `app/lib/src/router.dart`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/trash_screen.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- ADR-009 / F-07改訂 / docs/03改訂から読み取った削除セマンティクス:
+  - タスク削除はローカル物理削除であり、ゴミ箱、復元UI、削除Undoは設けない。
+  - タスク削除は詳細画面のサブメニューから起動し、不可逆警告の追加確認を行う。
+  - 親タスク削除時は子孫タスクも物理削除する。
+  - リスト削除時は配下タスク（完了済みを含む）も物理削除し、履歴を残す場合はアーカイブを使う。
+  - `tasks.deleted_at` は移行互換の非推奨列として残し、将来のv3マイグレーションで廃止予定とする。
+- 撤去した項目:
+  - `/trash` route
+  - `TrashScreen` / `app/lib/src/screens/trash_screen.dart`
+  - Tasks/home画面のゴミ箱導線
+  - `trash_task` / `restore_task` / `get_trashed_tasks`
+  - `BridgeService.trashTask` / `restoreTask` / `getTrashedTasks`
+  - `trashedTasksProvider`
+  - trash/restore系 widget test
+  - visual QA `trash.png`
+  - trash/restore系 l10n keys
+  - 削除Undo snackbar文言
+- domain実装:
+  - `delete_task` / `restore_task` ユースケースを削除した。
+  - `deleted_at` による編集・ステータス遷移・親検証の拒否を削除した。
+  - `validate_parent_ignores_legacy_deleted_at_parent` を追加した。
+- storage実装:
+  - `TaskRepository::count_descendants` / `delete_subtree` を追加した。
+  - `SqliteTaskRepository::delete_subtree` は recursive CTE で対象taskと子孫を特定し、同一transactionで対象taskの `task_undo_entries` を削除してから `tasks` を物理DELETEする。
+  - `TaskRepository::list_trashed` を削除した。
+  - `list_active_by_list` の `deleted_at IS NULL` 条件を削除した。
+  - `ListRepository::count_tasks` / `delete_with_tasks` を追加した。
+  - `SqliteListRepository::delete_with_tasks` は同一transactionで対象list配下taskのUndo履歴、配下tasks、list行を削除する。
+  - `latest_unconsumed_undo` は `operation_type != 'delete'` で既存delete undo entryを表示対象外にした。
+  - storage testsを追加/更新した:
+    - `delete_subtree_removes_root_descendants_and_undo_entries`
+    - `delete_list_removes_tasks_and_task_undo_entries`
+    - `delete_undo_entries_are_not_returned_as_latest_undo`
+    - `complete_undo_entry_restores_task_state`
+    - `complete_undo_rejects_physically_deleted_current_task`
+- `tasks.deleted_at` の扱い:
+  - `core/storage/src/schema.sql` の `tasks.deleted_at` 列はDROPしていない。
+  - `Task` / `TaskDto` / row mapping / update SQL / Undo snapshot互換のための読み書きは残した。
+  - `deleted_at IS NULL` / `deleted_at IS NOT NULL` による一覧・削除済み判定は削除した。
+- `task_undo_entries` の `delete` 型エントリの扱い:
+  - 新規削除操作では `TaskUndoOperation::Delete` を作成しない。
+  - 既存 `delete` 型entryは `latest_unconsumed_undo` の表示対象外にした。
+  - 物理削除対象taskのUndo entryは削除時に消す。
+  - 既存DB全体に残る `delete` 型entryのv3掃除は未実装事項に残した。
+- Rust bridge / FRB:
+  - 追加: `delete_task(task_id: String) -> Result<(), String>`
+  - 追加: `count_task_descendants(task_id: String) -> Result<i32, String>`
+  - 追加: `delete_list(list_id: String) -> Result<(), String>`
+  - 追加: `count_tasks_in_list(list_id: String) -> Result<i32, String>`
+  - 削除: `trash_task` / `restore_task` / `get_trashed_tasks`
+  - `delete_list` は `list_all()` の先頭（`sort_order` 最小の通常リスト）を既定インボックスとして拒否する。
+  - 実行: `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`
+  - 結果: exit 0、出力 `Done!`
+  - FRB生成差分: `app/rust/src/frb_generated.rs`、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`
+- Dart側変更:
+  - `BridgeService` / `FrbBridgeService` に `deleteTask`、`countTaskDescendants`、`deleteList`、`countTasksInList` を追加した。
+  - `TasksNotifier.deleteTask` は削除後に該当 `tasksProvider` をinvalidateする。`latestTaskUndoProvider` はinvalidateしない。
+  - `ListsNotifier.deleteList` は削除後に `listsProvider` / `archivedListsProvider` をinvalidateする。
+  - `FakeBridgeService` は物理削除時に対象task/子孫task/関連Undo entryを削除し、list削除時に配下tasks/関連Undo entry/listを削除する。
+  - TaskDetailの削除導線をbodyボタンからAppBar overflow menuへ移動した。
+  - Tasks/home画面のゴミ箱ボタンを削除した。
+  - Lists画面の通常リスト行メニューに `Delete` / `削除` を追加した。既定インボックス行には表示しない。
+  - `showAppConfirmDialog` に `isDestructive` を追加し、destructive confirm actionにcoralを適用した。
+- l10n:
+  - 追加: `deleteButton`
+  - 追加: `taskActionsTooltip`
+  - 追加: `deleteTaskMenuItem`
+  - 追加: `deleteTaskDialogTitle`
+  - 追加: `deleteTaskDialogMessage`
+  - 追加: `deleteTaskDialogMessageWithDescendants`
+  - 追加: `deleteListMenuItem`
+  - 追加: `deleteListDialogTitle`
+  - 追加: `deleteListDialogMessage`
+  - 削除: `moveToTrashButton`
+  - 削除: `openTrashTooltip`
+  - 削除: `trashTitle`
+  - 削除: `trashEmptyTitle`
+  - 削除: `trashEmptyBody`
+  - 削除: `failedToLoadTrash`
+  - 削除: `restoreTaskTooltip`
+  - 削除: `undoDeleteMessage`
+  - 削除: `taskDeletedAt`
+  - 実行: `flutter gen-l10n`
+  - 結果: exit 0
+- 追加/更新したwidget/FRB tests:
+  - `task delete confirms irreversible deletion and removes task`
+  - `parent task delete warning includes descendant count`
+  - `delete action does not create undo while complete undo remains`
+  - `list delete confirms impact count and removes non-default list`
+  - `deleteTask permanently deletes descendants without undo`
+  - `deleteList removes list and tasks but protects default inbox`
+  - 既存の完了Undo・編集Undo testsは維持した。
+- grep証拠:
+  - 実行: `grep -RIn "trash\|Trash\|restore_task\|get_trashed_tasks\|trash_task\|trashedTasksProvider\|moveToTrash\|undoDeleteMessage\|taskDeletedAt" app/lib app/test app/rust/src core/domain/src core/storage/src docs/design/ui-spec.md | head -n 260`
+  - 結果: 出力なし
+  - 実行: `grep -RIn "'/trash'\|\"/trash\"\|TrashScreen\|getTrashedTasks\|restoreTask\|trashTask" app/lib app/test app/rust/src core/domain/src core/storage/src | head -n 220`
+  - 結果: 出力なし
+  - 実行: `grep -RIn "deleted_at IS NULL\|deleted_at IS NOT NULL" core/storage/src app/rust/src app/lib/src | head -n 100`
+  - 結果: 出力なし
+- visual QA:
+  - 作業前に `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+  - 出力先の古いPNGを `find app/build/visual_qa -maxdepth 1 -type f -name '*.png' -delete` で削除してから再生成した。
+  - 実行: `sh app/tool/visual_qa.sh`
+  - 結果: exit 0、27 tests passed
+  - 生成確認:
+    - `app/build/visual_qa/delete_task_confirm.png`
+    - `app/build/visual_qa/delete_list_confirm.png`
+    - `app/build/visual_qa/confirm_dialog.png`
+    - `app/build/visual_qa/home_tasks.png`
+    - `app/build/visual_qa/home_tasks_ja.png`
+    - `app/build/visual_qa/home_tasks_dark.png`
+    - `app/build/visual_qa/home_tasks_empty.png`
+    - `app/build/visual_qa/lists.png`
+    - `app/build/visual_qa/lists_archived.png`
+    - `app/build/visual_qa/task_detail.png`
+    - `app/build/visual_qa/task_edit_dialog.png`
+    - `app/build/visual_qa/design_lab_task_list.png`
+    - `app/build/visual_qa/design_lab_list_overview.png`
+    - `app/build/visual_qa/design_lab_focus_timer.png`
+    - `app/build/visual_qa/design_lab_task_detail.png`
+    - `app/build/visual_qa/design_lab_task_create_sheet.png`
+    - `app/build/visual_qa/design_lab_search.png`
+    - `app/build/visual_qa/design_lab_settings.png`
+    - `app/build/visual_qa/design_lab_timer_setup.png`
+    - `app/build/visual_qa/design_lab_typo_a_newsreader_today.png`
+    - `app/build/visual_qa/design_lab_typo_a_newsreader_focus.png`
+    - `app/build/visual_qa/design_lab_typo_b_lora_today.png`
+    - `app/build/visual_qa/design_lab_typo_b_lora_focus.png`
+    - `app/build/visual_qa/design_lab_typo_c_sans_only_today.png`
+    - `app/build/visual_qa/design_lab_typo_c_sans_only_focus.png`
+    - `app/build/visual_qa/design_lab_typo_d_ja_mincho_today.png`
+    - `app/build/visual_qa/design_lab_typo_d_ja_mincho_focus.png`
+  - 実行: `find app/build/visual_qa -maxdepth 1 -type f -name 'trash.png' -print`
+  - 結果: 出力なし
+  - `app/build/visual_qa_before/` の退避PNG数: 26
+- 品質ゲート:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0、`No issues found!`
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0、47 passed、1 skipped
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0、27 passed
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/router.dart`
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/trash_screen.dart`（削除）
+  - `app/lib/src/ui/dialogs.dart`
+  - `app/rust/src/api.rs`
+  - `app/rust/src/frb_generated.rs`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `core/domain/src/lib.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `docs/design/ui-spec.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/task-38-trash-removal.md`
+- 未解決事項:
+  - `tasks.deleted_at` 列のDROPは未実装。将来のv3マイグレーション対象。
+  - 既存DB全体に残る `task_undo_entries.operation_type = 'delete'` の一括掃除は未実装。今回の実装では最新Undo表示対象外にし、物理削除対象taskのUndo entryだけ削除した。
+  - 同期導入時のtombstone設計は未実装。docs/03の記載どおり同期導入時に再設計する。
+  - 既定インボックスの永続識別列は未実装。今回も `sort_order` 最小の通常リストを基準にした。

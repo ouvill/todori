@@ -9,8 +9,8 @@ pub mod usecases;
 pub use entities::{List, Task, TaskStatus};
 pub use sort_order::{fractional_index_after, fractional_index_between};
 pub use usecases::{
-    archive_list, delete_task, new_list, new_task, rename_list, restore_task, transition_task,
-    unarchive_list, update_due_at, update_estimated_minutes, update_note, update_priority,
-    update_scheduled_at, update_title, validate_parent, validate_parent_for, DomainError,
+    archive_list, new_list, new_task, rename_list, transition_task, unarchive_list, update_due_at,
+    update_estimated_minutes, update_note, update_priority, update_scheduled_at, update_title,
+    validate_parent, validate_parent_for, DomainError,
 };
 pub use uuid::Uuid;

@@ -19,8 +19,6 @@ pub enum DomainError {
     EmptyName,
     #[error("invalid task status transition")]
     InvalidTransition,
-    #[error("task is deleted")]
-    TaskDeleted,
     #[error("task cannot be its own parent")]
     SelfReferenceParent,
     #[error("parent task was not found")]
@@ -29,8 +27,6 @@ pub enum DomainError {
     ParentInDifferentList,
     #[error("parent task would create a cycle")]
     CyclicParent,
-    #[error("parent task is deleted")]
-    ParentDeleted,
     #[error("invalid sort order")]
     InvalidSortOrder,
     #[error("invalid sort order boundary")]
@@ -89,7 +85,6 @@ pub fn new_list(name: String, sort_order: String, now_ms: i64) -> Result<List, D
 
 /// タスクタイトルを更新する。
 pub fn update_title(mut task: Task, title: String, now_ms: i64) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
     validate_title(&title)?;
 
     task.title = title;
@@ -99,8 +94,6 @@ pub fn update_title(mut task: Task, title: String, now_ms: i64) -> Result<Task, 
 
 /// タスクノートを更新する。
 pub fn update_note(mut task: Task, note: String, now_ms: i64) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     task.note = note;
     task.updated_at = now_ms;
     Ok(task)
@@ -108,8 +101,6 @@ pub fn update_note(mut task: Task, note: String, now_ms: i64) -> Result<Task, Do
 
 /// タスク優先度を更新する。
 pub fn update_priority(mut task: Task, priority: i32, now_ms: i64) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     task.priority = priority;
     task.updated_at = now_ms;
     Ok(task)
@@ -121,8 +112,6 @@ pub fn update_due_at(
     due_at: Option<i64>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     task.due_at = due_at;
     task.updated_at = now_ms;
     Ok(task)
@@ -134,8 +123,6 @@ pub fn update_scheduled_at(
     scheduled_at: Option<i64>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     task.scheduled_at = scheduled_at;
     task.updated_at = now_ms;
     Ok(task)
@@ -147,8 +134,6 @@ pub fn update_estimated_minutes(
     estimated_minutes: Option<i32>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     task.estimated_minutes = estimated_minutes;
     task.updated_at = now_ms;
     Ok(task)
@@ -161,8 +146,6 @@ pub fn transition_task(
     closed_reason: Option<String>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
-    ensure_not_deleted(&task)?;
-
     if !task.status.can_transition_to(&next) {
         return Err(DomainError::InvalidTransition);
     }
@@ -185,28 +168,6 @@ pub fn transition_task(
 
     task.status = next;
     task.updated_at = now_ms;
-    Ok(task)
-}
-
-/// タスクを論理削除する。
-///
-/// 既に削除済みの場合は、呼び出し側のリトライを安全にするため冪等に成功させる。
-pub fn delete_task(mut task: Task, now_ms: i64) -> Result<Task, DomainError> {
-    if task.deleted_at.is_none() {
-        task.deleted_at = Some(now_ms);
-        task.updated_at = now_ms;
-    }
-    Ok(task)
-}
-
-/// 論理削除済みタスクを復元する。
-///
-/// 削除されていない場合は、呼び出し側のリトライを安全にするため冪等に成功させる。
-pub fn restore_task(mut task: Task, now_ms: i64) -> Result<Task, DomainError> {
-    if task.deleted_at.is_some() {
-        task.deleted_at = None;
-        task.updated_at = now_ms;
-    }
     Ok(task)
 }
 
@@ -265,10 +226,6 @@ pub fn validate_parent_for(
     if parent.list_id != list_id {
         return Err(DomainError::ParentInDifferentList);
     }
-    if parent.deleted_at.is_some() {
-        return Err(DomainError::ParentDeleted);
-    }
-
     let mut visited = HashSet::new();
     let mut current = parent.parent_task_id;
 
@@ -283,13 +240,6 @@ pub fn validate_parent_for(
         current = find_task(tasks, current_id)?.parent_task_id;
     }
 
-    Ok(())
-}
-
-fn ensure_not_deleted(task: &Task) -> Result<(), DomainError> {
-    if task.deleted_at.is_some() {
-        return Err(DomainError::TaskDeleted);
-    }
     Ok(())
 }
 
@@ -474,52 +424,6 @@ mod tests {
     }
 
     #[test]
-    fn deleted_task_cannot_be_edited_or_transitioned() {
-        let task = delete_task(task_fixture(), LATER).unwrap();
-
-        assert_eq!(
-            update_note(task.clone(), "note".to_string(), LATER + 1),
-            Err(DomainError::TaskDeleted)
-        );
-        assert_eq!(
-            transition_task(task, TaskStatus::Done, None, LATER + 1),
-            Err(DomainError::TaskDeleted)
-        );
-    }
-
-    #[test]
-    fn delete_and_restore_task() {
-        let task = task_fixture();
-        let deleted = delete_task(task, LATER).unwrap();
-
-        assert_eq!(deleted.deleted_at, Some(LATER));
-        assert_eq!(deleted.updated_at, LATER);
-
-        let restored = restore_task(deleted, LATER + 1).unwrap();
-
-        assert_eq!(restored.deleted_at, None);
-        assert_eq!(restored.updated_at, LATER + 1);
-    }
-
-    #[test]
-    fn delete_task_is_idempotent_when_already_deleted() {
-        let deleted = delete_task(task_fixture(), LATER).unwrap();
-        let deleted_again = delete_task(deleted, LATER + 1).unwrap();
-
-        assert_eq!(deleted_again.deleted_at, Some(LATER));
-        assert_eq!(deleted_again.updated_at, LATER);
-    }
-
-    #[test]
-    fn restore_task_is_idempotent_when_not_deleted() {
-        let task = task_fixture();
-        let restored = restore_task(task, LATER).unwrap();
-
-        assert_eq!(restored.deleted_at, None);
-        assert_eq!(restored.updated_at, NOW);
-    }
-
-    #[test]
     fn new_list_sets_defaults() {
         let list = new_list("Inbox".to_string(), "a0".to_string(), NOW).unwrap();
 
@@ -639,15 +543,13 @@ mod tests {
     }
 
     #[test]
-    fn validate_parent_rejects_deleted_parent() {
+    fn validate_parent_ignores_legacy_deleted_at_parent() {
         let list_id = Uuid::now_v7();
-        let parent = delete_task(task_in_list(list_id, "parent"), LATER).unwrap();
+        let mut parent = task_in_list(list_id, "parent");
+        parent.deleted_at = Some(LATER);
         let child = task_in_list(list_id, "child");
 
-        assert_eq!(
-            validate_parent(&child, parent.id, &[parent]),
-            Err(DomainError::ParentDeleted)
-        );
+        assert_eq!(validate_parent(&child, parent.id, &[parent]), Ok(()));
     }
 
     #[test]
