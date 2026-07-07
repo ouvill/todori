@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/rust/api.dart';
@@ -1022,6 +1023,35 @@ void main() {
       expect(
         tester.getTopLeft(find.text('Closed overdue grandchild')).dy,
         greaterThan(tester.getTopLeft(find.text('Today parent subtask')).dy),
+      );
+      final overdueLabel = DateFormat.MMMd(
+        'en',
+      ).format(DateTime.fromMillisecondsSinceEpoch(overdue).toLocal());
+      final closedDuePillText = find.descendant(
+        of: find.byKey(ValueKey('task-row-${closedOverdueGrandchild.id}')),
+        matching: find.text(overdueLabel),
+      );
+      expect(closedDuePillText, findsOneWidget);
+      final colorScheme = Theme.of(
+        tester.element(closedDuePillText),
+      ).colorScheme;
+      expect(
+        tester.widget<Text>(closedDuePillText).style?.color,
+        colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
+      );
+      final closedDuePillBackgrounds = tester
+          .widgetList<DecoratedBox>(
+            find.ancestor(
+              of: closedDuePillText,
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((box) => box.decoration)
+          .whereType<BoxDecoration>()
+          .map((decoration) => decoration.color);
+      expect(
+        closedDuePillBackgrounds,
+        contains(colorScheme.onSurfaceVariant.withValues(alpha: 0.10)),
       );
 
       await tester.tap(find.text('Today').first);

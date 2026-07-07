@@ -1041,6 +1041,7 @@ class AppHomeTaskRow extends StatelessWidget {
                       dueLabel: dueLabel,
                       dueSemanticLabel: dueSemanticLabel,
                       dueTone: dueTone,
+                      isDueMuted: isDone,
                     ),
                   ],
                 ],
@@ -1128,6 +1129,7 @@ class _HomeTaskTrailingMetadata extends StatelessWidget {
     required this.isPriorityMuted,
     required this.dueLabel,
     required this.dueTone,
+    required this.isDueMuted,
     this.priorityDotKey,
     this.prioritySemanticLabel,
     this.dueSemanticLabel,
@@ -1137,6 +1139,7 @@ class _HomeTaskTrailingMetadata extends StatelessWidget {
   final bool isPriorityMuted;
   final String? dueLabel;
   final HomeDueDateTone dueTone;
+  final bool isDueMuted;
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
   final String? dueSemanticLabel;
@@ -1164,6 +1167,7 @@ class _HomeTaskTrailingMetadata extends StatelessWidget {
                 label: dueLabel!,
                 semanticLabel: dueSemanticLabel,
                 tone: dueTone,
+                isMuted: isDueMuted,
               ),
             ),
         ],
@@ -1176,30 +1180,38 @@ class _HomeDueDatePill extends StatelessWidget {
   const _HomeDueDatePill({
     required this.label,
     required this.tone,
+    required this.isMuted,
     this.semanticLabel,
   });
 
   final String label;
   final HomeDueDateTone tone;
+  final bool isMuted;
   final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (background, foreground) = switch (tone) {
-      HomeDueDateTone.overdue => (
-        _priorityHighCoral.withValues(alpha: 0.14),
-        _priorityHighCoral,
-      ),
-      HomeDueDateTone.today => (
-        _priorityLowSoftSage.withValues(alpha: 0.26),
-        theme.colorScheme.primary,
-      ),
-      HomeDueDateTone.future => (
-        _priorityMediumAmber.withValues(alpha: 0.18),
-        _priorityMediumAmber,
-      ),
-    };
+    final colorScheme = theme.colorScheme;
+    final (background, foreground) = isMuted
+        ? (
+            colorScheme.onSurfaceVariant.withValues(alpha: 0.10),
+            colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
+          )
+        : switch (tone) {
+            HomeDueDateTone.overdue => (
+              _priorityHighCoral.withValues(alpha: 0.14),
+              _priorityHighCoral,
+            ),
+            HomeDueDateTone.today => (
+              _priorityLowSoftSage.withValues(alpha: 0.26),
+              colorScheme.primary,
+            ),
+            HomeDueDateTone.future => (
+              _priorityMediumAmber.withValues(alpha: 0.18),
+              _priorityMediumAmber,
+            ),
+          };
     final pill = DecoratedBox(
       decoration: BoxDecoration(
         color: background,
