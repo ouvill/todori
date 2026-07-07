@@ -62,6 +62,10 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
+    expect(
+      find.text(formatHomeHeaderDate('en', DateTime.now())),
+      findsOneWidget,
+    );
     await _screenshot(tester, 'home_tasks');
   });
 
@@ -71,6 +75,10 @@ void main() {
       _setMobileViewport(tester);
       _useJaLocale(tester);
       await _seedRealisticData(tester);
+      expect(
+        find.text(formatHomeHeaderDate('ja', DateTime.now())),
+        findsOneWidget,
+      );
       await _screenshot(tester, 'home_tasks_ja');
     },
   );

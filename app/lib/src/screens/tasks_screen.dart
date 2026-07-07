@@ -4,7 +4,6 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
@@ -1406,7 +1405,7 @@ class _HomeTasksHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final today = DateFormat.MMMEd(locale).format(DateTime.now());
+    final today = formatHomeHeaderDate(locale, DateTime.now());
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

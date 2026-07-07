@@ -850,10 +850,11 @@ String formatDueDate(AppLocalizations l10n, int? dueAt) {
     return l10n.noDueDate;
   }
   final date = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
-  final year = date.year.toString().padLeft(4, '0');
-  final month = date.month.toString().padLeft(2, '0');
-  final day = date.day.toString().padLeft(2, '0');
-  return '$year-$month-$day';
+  return DateFormat.yMMMd(l10n.localeName).format(date);
+}
+
+String formatHomeHeaderDate(String locale, DateTime date) {
+  return DateFormat.MMMEd(locale).format(date);
 }
 
 /// Formats a due date as "Today"/"Tomorrow"/a short localized date (e.g.

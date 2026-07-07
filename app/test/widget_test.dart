@@ -5,9 +5,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/task_components.dart';
 
@@ -54,6 +56,13 @@ void _useNarrowDynamicTypeView(WidgetTester tester) {
     tester.view.resetDevicePixelRatio();
     tester.platformDispatcher.clearTextScaleFactorTestValue();
   });
+}
+
+void _useLocale(WidgetTester tester, Locale locale) {
+  tester.platformDispatcher.localeTestValue = locale;
+  tester.platformDispatcher.localesTestValue = [locale];
+  addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+  addTearDown(tester.platformDispatcher.clearLocalesTestValue);
 }
 
 class _SlowCreateFakeBridgeService extends FakeBridgeService {
@@ -161,6 +170,104 @@ SemanticsFinder _reorderSemanticsFinder(String actionLabel) {
 }
 
 void main() {
+  test(
+    'date format helpers use locale skeletons and keep relative labels',
+    () async {
+      await initializeDateFormatting('ja');
+
+      final sampleDate = DateTime(2026, 7, 8);
+      expect(formatHomeHeaderDate('en', sampleDate), 'Wed, Jul 8');
+      expect(formatHomeHeaderDate('ja', sampleDate), '7月8日(水)');
+
+      final sampleEpochMs = sampleDate.millisecondsSinceEpoch;
+      expect(formatAbsoluteDate('en', sampleEpochMs), 'Jul 8, 2026');
+      expect(formatAbsoluteDate('ja', sampleEpochMs), '2026年7月8日');
+
+      final en = lookupAppLocalizations(const Locale('en'));
+      final ja = lookupAppLocalizations(const Locale('ja'));
+      expect(formatDueDate(en, sampleEpochMs), 'Jul 8, 2026');
+      expect(formatDueDate(ja, sampleEpochMs), '2026年7月8日');
+
+      final tomorrow = DateTime.now()
+          .copyWith(
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
+            microsecond: 0,
+          )
+          .add(const Duration(days: 1))
+          .millisecondsSinceEpoch;
+      expect(formatRelativeDueDate(en, 'en', tomorrow), 'Tomorrow');
+      expect(formatRelativeDueDate(ja, 'ja', tomorrow), '明日');
+    },
+  );
+
+  testWidgets('home date heading follows the English platform locale', (
+    tester,
+  ) async {
+    _useLocale(tester, const Locale('en'));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(formatHomeHeaderDate('en', DateTime(2026, 7, 8)), 'Wed, Jul 8');
+    expect(
+      find.text(formatHomeHeaderDate('en', DateTime.now())),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('home date heading follows the Japanese platform locale', (
+    tester,
+  ) async {
+    _useLocale(tester, const Locale('ja'));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: '受信箱', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(formatHomeHeaderDate('ja', DateTime(2026, 7, 8)), '7月8日(水)');
+    expect(
+      find.text(formatHomeHeaderDate('ja', DateTime.now())),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('detail created at follows the Japanese platform locale', (
+    tester,
+  ) async {
+    _useLocale(tester, const Locale('ja'));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: '受信箱', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final task = await fake.createTask(
+      listId: inbox.id,
+      title: '作成日表示を確認する',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('作成日表示を確認する'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('タスク詳細'), findsOneWidget);
+    expect(
+      find.text('作成日時: ${formatAbsoluteDate('ja', task.createdAt)}'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('lists screen shows lists from the bridge service', (
     tester,
   ) async {
