@@ -131,6 +131,9 @@ Completion should be quiet and reversible.
 - Use a short undo snackbar for recent completion/deletion once Undo is
   implemented.
 - A small settling tint or brief micro-motion is acceptable in later UI work.
+- A local particle burst from the checkbox origin is acceptable when it stays
+  small, brand-colored, and brief; it should read as quiet completion feedback,
+  not a screen-level celebration.
 - Do not use confetti, trophies, fireworks, loud celebratory copy, or mascot-led
   celebration.
 
