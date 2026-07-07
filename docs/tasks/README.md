@@ -67,6 +67,9 @@
 | task-47 | 完了 | [task-47-today-smart-list.md](./task-47-today-smart-list.md) | Todayスマートリスト化。Todayを全リスト横断（アーカイブ済みリスト除外）の期日今日+期日超過ビューへ移行し、Add taskは既定Inboxへ今日期日で作成する | task-46の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 | task-49 | 完了 | [task-49-detail-refinements.md](./task-49-detail-refinements.md) | 詳細画面の親リンク・全幅タップ・タイトル横チェック。サブタスク詳細の親文脈、タイトル/ノート編集起動領域、詳細上の完了操作を改善する | task-44〜47の完了状態に依存。2026-07-07ドッグフーディング第3回 |
 | task-50 | 完了 | [task-50-drag-drop-reorder.md](./task-50-drag-drop-reorder.md) | タスク一覧の手動並び替えを上下ボタンから長押しドラッグ&ドロップへ置換する。同一親内のみ許可し、reorder semanticsを維持する | task-24・task-43〜47の完了状態に依存。2026-07-07ドッグフーディング第3回 |
+| task-51 | 未着手 | [task-51-home-restructure.md](./task-51-home-restructure.md) | Home画面のセクション再構成。ルートをHomeへ再定義し、Overdue / Today / Tomorrow / Upcoming、圧縮ヘッダー、行再スタイル、Lists画面Homeリンク改名を行う | task-47・task-50の完了状態に依存。2026-07-07 Home改善サイクル第1回 |
+| task-52 | 未着手 | [task-52-quick-add-bar.md](./task-52-quick-add-bar.md) | 下部常設クイック追加バー。既存Add task pill/FAB+入力ダイアログを置換し、HomeではInbox+今日期日、通常リストではそのリスト+期日なしで即作成する | task-51の完了状態に依存。2026-07-07 Home改善サイクル第1回 |
+| task-53 | 未着手 | [task-53-swipe-and-motion.md](./task-53-swipe-and-motion.md) | タスク行スワイプと軽量モーション。`flutter_slidable` / `flutter_animate` を追加し、leading=完了、trailing=期日変更、150〜250ms級モーションを実装する | task-51・task-52の完了状態に依存。依存追加は2026-07-07人間承認済み |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
