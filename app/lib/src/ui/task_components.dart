@@ -961,6 +961,7 @@ class AppHomeTaskRow extends StatelessWidget {
               depth: effectiveDepth,
               isLastSibling: isLastSibling,
               ancestorLineContinuations: ancestorLineContinuations,
+              rootLeadingStart: 12,
               currentVerticalKey: hierarchyGuideKey,
               horizontalKey: hierarchyGuideHorizontalKey,
             ),
@@ -1237,6 +1238,7 @@ class AppTaskRow extends StatelessWidget {
               depth: effectiveDepth,
               isLastSibling: isLastSibling,
               ancestorLineContinuations: ancestorLineContinuations,
+              rootLeadingStart: AppSpacing.md,
               currentVerticalKey: hierarchyGuideKey,
               horizontalKey: hierarchyGuideHorizontalKey,
             ),
@@ -1328,16 +1330,19 @@ class _TaskHierarchyGuide extends StatelessWidget {
     required this.depth,
     required this.isLastSibling,
     required this.ancestorLineContinuations,
+    required this.rootLeadingStart,
     this.currentVerticalKey,
     this.horizontalKey,
   });
 
   static const double _lineWidth = 1.5;
   static const double _leadingCenterY = AppSpacing.xs + 24;
+  static const double _checkboxCenterOffset = 24;
 
   final int depth;
   final bool isLastSibling;
   final List<bool> ancestorLineContinuations;
+  final double rootLeadingStart;
   final Key? currentVerticalKey;
   final Key? horizontalKey;
 
@@ -1354,7 +1359,7 @@ class _TaskHierarchyGuide extends StatelessWidget {
       }
       children.add(
         PositionedDirectional(
-          start: _guideXForLevel(level),
+          start: _guideXForLevel(level) - (_lineWidth / 2),
           top: 0,
           bottom: 0,
           child: _GuideLine(color: color, width: _lineWidth),
@@ -1364,9 +1369,10 @@ class _TaskHierarchyGuide extends StatelessWidget {
 
     final currentLevel = depth - 1;
     final currentX = _guideXForLevel(currentLevel);
+    final childCenterX = _checkboxCenterXForDepth(depth);
     children.addAll([
       PositionedDirectional(
-        start: currentX,
+        start: currentX - (_lineWidth / 2),
         top: 0,
         height: _leadingCenterY,
         child: _GuideLine(
@@ -1377,7 +1383,7 @@ class _TaskHierarchyGuide extends StatelessWidget {
       ),
       if (!isLastSibling)
         PositionedDirectional(
-          start: currentX,
+          start: currentX - (_lineWidth / 2),
           top: _leadingCenterY,
           bottom: 0,
           child: _GuideLine(color: color, width: _lineWidth),
@@ -1388,7 +1394,7 @@ class _TaskHierarchyGuide extends StatelessWidget {
         child: _GuideLine(
           key: horizontalKey,
           color: color,
-          width: AppSpacing.md,
+          width: childCenterX - currentX,
           height: _lineWidth,
         ),
       ),
@@ -1399,8 +1405,17 @@ class _TaskHierarchyGuide extends StatelessWidget {
     );
   }
 
-  static double _guideXForLevel(int level) {
-    return AppSpacing.md + (level * AppSpacing.lg) + AppSpacing.sm;
+  double _guideXForLevel(int level) {
+    return _checkboxCenterXForDepth(level);
+  }
+
+  double _checkboxCenterXForDepth(int targetDepth) {
+    if (targetDepth == 0) {
+      return rootLeadingStart + _checkboxCenterOffset;
+    }
+    return AppSpacing.md +
+        (targetDepth * AppSpacing.lg) +
+        _checkboxCenterOffset;
   }
 }
 
@@ -1445,50 +1460,120 @@ class AppTaskCheckbox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final mark = TweenAnimationBuilder<double>(
+      key: ValueKey('task-checkbox-animation-$checkboxKey'),
+      tween: Tween<double>(end: isDone ? 1 : 0),
+      duration: isDone
+          ? const Duration(milliseconds: 250)
+          : const Duration(milliseconds: 150),
+      curve: isDone ? Curves.easeOutBack : Curves.easeOutCubic,
+      builder: (context, progress, child) {
+        return CustomPaint(
+          size: const Size.square(22),
+          painter: _TaskCheckboxPainter(
+            progress: progress,
+            checkedColor: colorScheme.primary,
+            ringColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.68),
+          ),
+        );
+      },
+    );
     final control = SizedBox(
+      key: checkboxKey,
       width: 48,
       height: 48,
       child: Center(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 160),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeOutCubic,
-          transitionBuilder: (child, animation) {
-            return ScaleTransition(
-              scale: Tween<double>(begin: 0.88, end: 1).animate(animation),
-              child: FadeTransition(opacity: animation, child: child),
-            );
-          },
-          child: onToggleDone == null
-              ? Icon(
-                  key: ValueKey('task-checkbox-icon-$isDone'),
-                  isDone
-                      ? Icons.check_circle_outline
-                      : Icons.radio_button_unchecked,
-                  color: isDone
-                      ? colorScheme.primary
-                      : colorScheme.onSurfaceVariant,
-                )
-              : KeyedSubtree(
-                  key: ValueKey('task-checkbox-state-$isDone-$checkboxKey'),
-                  child: Checkbox(
-                    key: checkboxKey,
-                    value: isDone,
-                    shape: const CircleBorder(),
-                    onChanged: (_) => onToggleDone?.call(),
-                  ),
-                ),
-        ),
+        child: onToggleDone == null
+            ? mark
+            : InkResponse(
+                onTap: onToggleDone,
+                radius: 24,
+                containedInkWell: true,
+                customBorder: const CircleBorder(),
+                child: Center(child: mark),
+              ),
       ),
     );
     final label = tooltip;
-    if (label == null) {
-      return control;
-    }
-    return Tooltip(
-      message: label,
-      child: Semantics(label: label, button: true, child: control),
+    final semanticControl = Semantics(
+      label: label,
+      button: true,
+      checked: isDone,
+      enabled: onToggleDone != null,
+      child: control,
     );
+    if (label == null) {
+      return semanticControl;
+    }
+    return Tooltip(message: label, child: semanticControl);
+  }
+}
+
+class _TaskCheckboxPainter extends CustomPainter {
+  const _TaskCheckboxPainter({
+    required this.progress,
+    required this.checkedColor,
+    required this.ringColor,
+  });
+
+  final double progress;
+  final Color checkedColor;
+  final Color ringColor;
+
+  static const double _strokeWidth = 1.5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final clampedProgress = progress.clamp(0.0, 1.0);
+    final center = size.center(Offset.zero);
+    final radius = (math.min(size.width, size.height) - _strokeWidth) / 2;
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..color = ringColor.withValues(alpha: 1 - (clampedProgress * 0.42));
+    canvas.drawCircle(center, radius, ringPaint);
+
+    if (progress <= 0) {
+      return;
+    }
+
+    final fillScale = (0.78 + (progress * 0.22)).clamp(0.0, 1.08);
+    final fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = checkedColor.withValues(alpha: clampedProgress);
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(fillScale);
+    canvas.drawCircle(Offset.zero, radius, fillPaint);
+    canvas.restore();
+
+    final checkProgress = ((progress - 0.16) / 0.84).clamp(0.0, 1.0);
+    if (checkProgress <= 0) {
+      return;
+    }
+    final checkPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = Colors.white.withValues(alpha: checkProgress);
+    final path = Path()
+      ..moveTo(size.width * 0.29, size.height * 0.52)
+      ..lineTo(size.width * 0.44, size.height * 0.67)
+      ..lineTo(size.width * 0.73, size.height * 0.35);
+    final metric = path.computeMetrics().single;
+    canvas.drawPath(
+      metric.extractPath(0, metric.length * checkProgress),
+      checkPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TaskCheckboxPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.checkedColor != checkedColor ||
+        oldDelegate.ringColor != ringColor;
   }
 }
 

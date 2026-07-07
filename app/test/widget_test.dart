@@ -1313,10 +1313,11 @@ void main() {
     final listId = (await fake.getLists()).first.id;
     final task = (await fake.getTasks(listId: listId)).single;
     final checkboxFinder = find.byKey(ValueKey('task-done-${task.id}'));
-    final checkbox = tester.widget<Checkbox>(checkboxFinder);
-    expect(checkbox.value, isFalse);
+    expect(checkboxFinder, findsOneWidget);
+    expect(find.byTooltip('Mark task done'), findsOneWidget);
 
     await tester.tap(checkboxFinder);
+    await tester.pump(const Duration(milliseconds: 125));
     await tester.pumpAndSettle();
 
     final active = await fake.getTasks(listId: listId);
@@ -1324,18 +1325,16 @@ void main() {
     expect(find.text('Task closed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
-    final doneCheckbox = tester.widget<Checkbox>(checkboxFinder);
-    expect(doneCheckbox.value, isTrue);
-    expect(doneCheckbox.onChanged, isNotNull);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
     await tester.tap(find.text('Undo'));
+    await tester.pump(const Duration(milliseconds: 75));
     await tester.pumpAndSettle();
 
     final undone = await fake.getTasks(listId: listId);
     expect(undone.single.status, 'todo');
-    final undoneCheckbox = tester.widget<Checkbox>(checkboxFinder);
-    expect(undoneCheckbox.value, isFalse);
+    expect(checkboxFinder, findsOneWidget);
+    expect(find.byTooltip('Mark task done'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
   });
 
@@ -1541,19 +1540,22 @@ void main() {
 
     final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
     expect(find.text('Nested child task'), findsOneWidget);
-    expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+    expect(childCheckbox, findsOneWidget);
 
     await tester.tap(childCheckbox);
+    await tester.pump(const Duration(milliseconds: 125));
     await tester.pumpAndSettle();
     var tasks = await fake.getTasks(listId: listId);
     expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
 
     await tester.tap(childCheckbox);
+    await tester.pump(const Duration(milliseconds: 75));
     await tester.pumpAndSettle();
     tasks = await fake.getTasks(listId: listId);
     expect(tasks.singleWhere((task) => task.id == child.id).status, 'todo');
 
     await tester.tap(childCheckbox);
+    await tester.pump(const Duration(milliseconds: 125));
     await tester.pumpAndSettle();
     tasks = await fake.getTasks(listId: listId);
     expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
@@ -1586,7 +1588,7 @@ void main() {
 
     final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
     expect(find.text('Open child under closed root'), findsOneWidget);
-    expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+    expect(childCheckbox, findsOneWidget);
 
     await tester.tap(childCheckbox);
     await tester.pumpAndSettle();
@@ -2106,10 +2108,36 @@ void main() {
     final branchHorizontal = tester.getRect(
       find.byKey(ValueKey('task-hierarchy-horizontal-${branchChild.id}')),
     );
+    final branchVertical = tester.getRect(
+      find.byKey(ValueKey('task-hierarchy-guide-${branchChild.id}')),
+    );
+    final grandchildVertical = tester.getRect(
+      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
+    );
+    final parentCheckboxCenter = tester.getCenter(
+      find.byKey(ValueKey('task-done-${parent.id}')),
+    );
     final branchCheckboxCenter = tester.getCenter(
       find.byKey(ValueKey('task-done-${branchChild.id}')),
     );
+    final grandchildCheckboxCenter = tester.getCenter(
+      find.byKey(ValueKey('task-done-${grandchild.id}')),
+    );
+    final lastCheckboxCenter = tester.getCenter(
+      find.byKey(ValueKey('task-done-${lastChild.id}')),
+    );
+    expect(branchVertical.center.dx, closeTo(parentCheckboxCenter.dx, 0.75));
+    expect(branchHorizontal.right, closeTo(branchCheckboxCenter.dx, 0.75));
     expect(branchHorizontal.center.dy, closeTo(branchCheckboxCenter.dy, 0.75));
+    expect(
+      grandchildVertical.center.dx,
+      closeTo(branchCheckboxCenter.dx, 0.75),
+    );
+    expect(branchCheckboxCenter.dx, closeTo(lastCheckboxCenter.dx, 0.75));
+    expect(
+      grandchildCheckboxCenter.dx - branchCheckboxCenter.dx,
+      closeTo(24, 0.75),
+    );
   });
 
   testWidgets('closed parent moves its whole tree to root-based closed count', (
@@ -2364,9 +2392,10 @@ void main() {
       expect(find.text('Task detail'), findsOneWidget);
       expect(find.text('Parent detail task'), findsOneWidget);
       expect(find.text('Detail child task'), findsOneWidget);
-      expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+      expect(childCheckbox, findsOneWidget);
 
       await tester.tap(childCheckbox);
+      await tester.pump(const Duration(milliseconds: 125));
       await tester.pumpAndSettle();
 
       var tasks = await fake.getTasks(listId: listId);
@@ -2375,6 +2404,7 @@ void main() {
       expect(find.text('Task closed.'), findsOneWidget);
 
       await tester.tap(childCheckbox);
+      await tester.pump(const Duration(milliseconds: 75));
       await tester.pumpAndSettle();
       tasks = await fake.getTasks(listId: listId);
       expect(tasks.singleWhere((task) => task.id == child.id).status, 'todo');

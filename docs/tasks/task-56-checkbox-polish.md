@@ -1,5 +1,8 @@
 # task-56: チェックボックスpolish
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 2026-07-08ドッグフーディング第5回で、チェックボックス周辺に3件のフィードバックが出た。
@@ -132,3 +135,98 @@ task-45で階層ガイドは導入済みで、task-53でスワイプと軽量モ
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md` セクション3
+- `docs/tasks/task-45-tree-guides-and-detail.md`
+- `docs/tasks/task-49-detail-refinements.md`
+- `docs/tasks/task-53-swipe-and-motion.md`
+- `docs/tasks/task-55-home-subtree-nesting.md`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `app/lib/src/ui/task_components.dart` の `_TaskHierarchyGuide` に `rootLeadingStart` とチェック中心計算を追加した。
+- 階層ガイドのX座標は、深さ0を `rootLeadingStart + 24`、深さ1以降を `AppSpacing.md + depth * AppSpacing.lg + 24` とした。
+- 縦線はチェック中心Xから `1.5 / 2` を差し引いて配置し、縦線の中心がチェック中心Xになるようにした。
+- 横棒幅は親チェック中心Xから子チェック中心Xまでの差分で算出した。
+- `AppHomeTaskRow` はHomeルート行の既存先頭paddingに合わせて `rootLeadingStart: 12` を渡すようにした。
+- `AppTaskRow` は通常行/詳細Subtasksの先頭paddingに合わせて `rootLeadingStart: AppSpacing.md` を渡すようにした。
+- `AppTaskCheckbox` は48x48の外枠、tooltip、semantics、既存トグルcallbackを維持したまま、内部を `CustomPainter` 描画へ変更した。
+- 未チェックリングはstroke `1.5`、色は `colorScheme.onSurfaceVariant.withValues(alpha: 0.68)` とした。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` の `task_detail` は、3階層Subtasksが表示される親タスク詳細を撮影するように変更した。
+
+3階層visual QA目視確認:
+
+- `app/build/visual_qa/home_tasks.png` で、`Plan the product launch event`、`Draft the launch checklist`、`Confirm final copy in the hero panel` の3階層表示を確認した。
+- `app/build/visual_qa/home_tasks.png` で、縦線が親チェック中心から降り、横棒が子チェック中心の高さへ接続していることを確認した。
+- `app/build/visual_qa/home_tasks.png` で、各深さの丸が同一のx座標列に整列していることを確認した。
+- `app/build/visual_qa/task_detail.png` で、Subtasks内に3階層ツリーが表示されていることを確認した。
+- `app/build/visual_qa/task_detail.png` で、縦線が親チェック中心から降り、横棒が子チェック中心の高さへ接続していることを確認した。
+- `app/build/visual_qa/home_tasks.png` と `app/build/visual_qa/task_detail.png` で、未チェックリングが細いmutedな線で表示されていることを確認した。
+
+チェックON/OFFモーション:
+
+| 対象 | 実装箇所 | duration | curve | 内容 |
+|---|---|---:|---|---|
+| チェックON | `AppTaskCheckbox` / `_TaskCheckboxPainter` | 250ms | `Curves.easeOutBack` | 塗りとチェックマークをスケールイン、チェックマークはpath進行で描画 |
+| チェックOFF | `AppTaskCheckbox` / `_TaskCheckboxPainter` | 150ms | `Curves.easeOutCubic` | 塗りとチェックマークをフェードアウトし、未チェックリングへ戻す |
+
+詳細画面タイトル横チェック:
+
+- `app/lib/src/screens/task_detail_screen.dart` は既存どおり `AppTaskCheckbox` を参照しているため、詳細画面タイトル横チェックにも同じ描画とON/OFFモーションが適用される。
+
+追加・更新したwidget test:
+
+- `checking a task marks it done through the bridge service`: 標準 `Checkbox` 直接検査をやめ、キー付き48px領域のタップ、tooltip切替、`pump` 進行後の状態を検証するように更新した。
+- `nested task row checkbox toggles done todo done`: ON/OFF/ONの各タップ後に `pump` を進め、状態遷移を検証するように更新した。
+- `open child under a closed parent remains toggleable`: キー付きチェック領域の存在とトグル後状態を検証するように更新した。
+- `hierarchy guides expose L and T branches aligned to checkbox`: 親チェック中心X、子チェック中心X、横棒終端、孫の縦線X、同一深さの中心列を検証するように更新した。
+- `detail subtask checkbox toggles without triggering row navigation`: 詳細SubtasksのチェックON/OFFで `pump` を進め、状態遷移を検証するように更新した。
+
+visual QAスクリーンショット:
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- after: `app/build/visual_qa/home_tasks.png`
+- after: `app/build/visual_qa/task_detail.png`
+
+モーション最終受け入れ:
+
+- チェックON/OFFモーションの最終受け入れは人間ドッグフーディングで行う。
+
+品質ゲート:
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（85件成功、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（36件成功）
+- `git diff --check`: 成功
+
+変更ファイル一覧:
+
+- `app/lib/src/ui/task_components.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/README.md`
+- `docs/tasks/task-56-checkbox-polish.md`
+
+未解決事項:
+
+- なし
