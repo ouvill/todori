@@ -1840,7 +1840,7 @@ void main() {
     expect(find.text('Root due today pending exit'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
 
-    await tester.pump(const Duration(milliseconds: 2));
+    await tester.pump(const Duration(milliseconds: 40));
     expect(
       find.byKey(const ValueKey('home-pending-completion-exit')),
       findsOneWidget,
@@ -1849,6 +1849,69 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 220));
     expect(find.text('Root due today pending exit'), findsNothing);
+    expect(find.text('Closed'), findsOneWidget);
+  });
+
+  testWidgets('home completion keeps visible subtree until delayed exit', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Pending subtree parent',
+      dueAt: _todayStartMs(),
+    );
+    final child = await fake.createTask(
+      listId: listId,
+      title: 'Pending subtree child',
+      parentTaskId: parent.id,
+    );
+    await fake.createTask(
+      listId: listId,
+      title: 'Pending subtree grandchild',
+      parentTaskId: child.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('task-done-${parent.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Pending subtree parent'), findsOneWidget);
+    expect(find.text('Pending subtree child'), findsOneWidget);
+    expect(find.text('Pending subtree grandchild'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('task-completion-particles')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 749));
+    expect(find.text('Pending subtree parent'), findsOneWidget);
+    expect(find.text('Pending subtree child'), findsOneWidget);
+    expect(find.text('Pending subtree grandchild'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 2));
+    expect(
+      find.byKey(const ValueKey('home-pending-completion-exit')),
+      findsOneWidget,
+    );
+    expect(find.text('Pending subtree parent'), findsOneWidget);
+    expect(find.text('Pending subtree child'), findsOneWidget);
+    expect(find.text('Pending subtree grandchild'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pumpAndSettle();
+    expect(find.text('Pending subtree parent'), findsNothing);
+    expect(find.text('Pending subtree child'), findsNothing);
+    expect(find.text('Pending subtree grandchild'), findsNothing);
     expect(find.text('Closed'), findsOneWidget);
   });
 

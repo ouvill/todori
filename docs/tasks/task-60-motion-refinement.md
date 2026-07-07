@@ -280,3 +280,40 @@ visual QA:
 未解決事項:
 
 - なし
+
+### 2026-07-08 サブツリー付き完了遷移修正追記
+
+修正内容:
+
+- `app/lib/src/screens/tasks_screen.dart`
+  - Home完了pendingの保持単位を単一行から、完了した行とその時点で表示中の子孫行を含む `rows` に拡張した。
+  - pending中に通常Home再構成から除外するIDを、完了rootだけでなくpendingサブツリー全体へ拡張した。
+  - pendingサブツリーは旧セクション・旧rowIndexへ一括差し込みし、800msのholding後に全行を同時に `exiting` へ移して200msのfade/translateを行う。
+  - pending子孫行は `IgnorePointer` と無効checkboxで操作を無効化し、pending rootは既存どおり再オープン可能な経路を維持した。
+  - 未完了子孫確認ダイアログが必要なrootでも、確認後に旧表示サブツリーのスナップショットをpending化するようにした。
+  - Reduce Motion時はpendingを作らず、従来どおり即時再構成する分岐を維持した。
+- `app/test/widget_test.dart`
+  - `home completion keeps visible subtree until delayed exit` を追加した。
+  - サブツリー付きroot完了で、確認後のモーション中に親・子・孫が残存し、退場フェーズでも同時に残り、退場完了後に一括で再構成されることをpump制御で確認した。
+
+確認結果:
+
+- `cd app && flutter analyze`: exit 0
+- `cd app && flutter test`: exit 0（97件成功、visual QA harness 1件skip）
+- `sh app/tool/visual_qa.sh`: exit 0（37件成功）
+- `git diff --check`: exit 0
+
+visual QA:
+
+- 事前退避先: `app/build/visual_qa_before_task60_subtree_20260708043434/`
+- 出力先: `app/build/visual_qa/`
+
+変更ファイル一覧:
+
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-60-motion-refinement.md`
+
+未解決事項:
+
+- なし
