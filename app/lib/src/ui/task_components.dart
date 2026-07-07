@@ -807,7 +807,7 @@ List<TaskMetadataItem> taskMetadataItemsFor({
       ),
     if (task.dueAt != null || includeNoDueDate)
       TaskMetadataItem(
-        icon: Icons.event_outlined,
+        icon: LucideIcons.calendarDays300,
         label: formatRelativeDueDate(l10n, locale, task.dueAt),
         emphasisColor: overdue ? _priorityHighCoral : null,
         semanticLabel: overdue
@@ -818,11 +818,11 @@ List<TaskMetadataItem> taskMetadataItemsFor({
       ),
     if (includeSubtaskProgress && stats.hasDescendants)
       TaskMetadataItem(
-        icon: Icons.account_tree_outlined,
+        icon: LucideIcons.gitBranch300,
         label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
       ),
     if (listName != null)
-      TaskMetadataItem(icon: Icons.list_alt_outlined, label: listName),
+      TaskMetadataItem(icon: LucideIcons.listTodo300, label: listName),
   ];
 }
 
@@ -899,10 +899,10 @@ bool isTaskClosed(TaskDto task) =>
 
 IconData taskStatusIcon(String status) {
   return switch (status) {
-    'done' => Icons.check_circle_outline,
-    'wont_do' => Icons.do_not_disturb_on_outlined,
-    'in_progress' => Icons.timelapse_outlined,
-    _ => Icons.radio_button_unchecked,
+    'done' => LucideIcons.circleCheck300,
+    'wont_do' => LucideIcons.ban300,
+    'in_progress' => LucideIcons.clock300,
+    _ => LucideIcons.circle300,
   };
 }
 
@@ -1077,7 +1077,7 @@ class _HomeParentLabel extends StatelessWidget {
     final label = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.account_tree_outlined, size: 14, color: color),
+        Icon(LucideIcons.gitBranch300, size: 14, color: color),
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(
@@ -1111,7 +1111,7 @@ class _HomeListLabel extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.list_alt_outlined, size: 14, color: color),
+        Icon(LucideIcons.listTodo300, size: 14, color: color),
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(

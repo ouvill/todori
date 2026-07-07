@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/rust/api.dart';
@@ -194,7 +195,7 @@ void main() {
     expect(find.text('Buy milk'), findsOneWidget);
     expect(find.byTooltip('Open lists'), findsOneWidget);
     expect(find.text('Add task'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(find.byIcon(LucideIcons.chevronRight300), findsNothing);
 
     await _openListFromHome(tester, 'Inbox');
 
@@ -1291,7 +1292,7 @@ void main() {
         .dy;
     expect(dotCenterY, greaterThan(titleBottomY));
 
-    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(find.byIcon(LucideIcons.squarePen300), findsNothing);
     await tester.tap(titleFinder);
     await tester.pumpAndSettle();
 
@@ -1348,7 +1349,7 @@ void main() {
     await _openListsScreen(tester);
 
     expect(find.byTooltip('List actions'), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(find.byIcon(LucideIcons.chevronRight300), findsNothing);
     expect(find.text('New list'), findsOneWidget);
 
     await tester.tap(find.text('Inbox'));
@@ -1426,13 +1427,13 @@ void main() {
 
     expect(find.text('Work'), findsNothing);
     expect(find.text('Archived (1)'), findsOneWidget);
-    expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+    expect(find.byIcon(LucideIcons.chevronDown300), findsOneWidget);
 
     await tester.tap(find.byTooltip('Show archived lists'));
     await tester.pumpAndSettle();
 
     expect(find.text('Work'), findsOneWidget);
-    expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
+    expect(find.byIcon(LucideIcons.chevronUp300), findsOneWidget);
     expect(find.text('Unarchive'), findsNothing);
   });
 
@@ -3664,7 +3665,7 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(find.byIcon(LucideIcons.squarePen300), findsNothing);
     expect(find.byTooltip('Task actions'), findsOneWidget);
 
     await tester.tap(find.text('Buy milk'));

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -72,7 +73,7 @@ class TaskDetailScreen extends ConsumerWidget {
           final task = _findTaskById(tasks, taskId);
           if (task == null) {
             return AppEmptyState(
-              icon: Icons.search_off_outlined,
+              icon: LucideIcons.searchX300,
               title: l10n.taskNotFound,
             );
           }
@@ -191,7 +192,7 @@ class TaskDetailScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.sm),
               if (subtaskNodes.isEmpty)
                 AppEmptyState(
-                  icon: Icons.account_tree_outlined,
+                  icon: LucideIcons.gitBranch300,
                   title: l10n.subtasksEmpty,
                 )
               else
@@ -249,7 +250,7 @@ class TaskDetailScreen extends ConsumerWidget {
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(LucideIcons.plus300),
                   label: Text(l10n.addSubtaskButton),
                   onPressed: () => _createSubtask(context, ref, task),
                 ),
@@ -927,7 +928,7 @@ class _ParentTaskLink extends StatelessWidget {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.subdirectory_arrow_left_outlined,
+                      LucideIcons.cornerUpLeft300,
                       size: 18,
                       color: colorScheme.primary,
                     ),
@@ -996,7 +997,7 @@ class _EditableTaskMetadata extends StatelessWidget {
           ),
         _DetailPill(
           key: ValueKey('task-due-chip-${task.id}'),
-          icon: Icons.event_outlined,
+          icon: LucideIcons.calendarDays300,
           label: dueLabel,
           tooltip: task.dueAt == null
               ? l10n.setDueDateButton
@@ -1011,7 +1012,7 @@ class _EditableTaskMetadata extends StatelessWidget {
                   child: IconButton(
                     key: ValueKey('task-clear-due-${task.id}'),
                     tooltip: l10n.clearDueDateButton,
-                    icon: const Icon(Icons.clear, size: 16),
+                    icon: const Icon(LucideIcons.x300, size: 16),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints.tightFor(
                       width: 32,
@@ -1032,7 +1033,7 @@ class _EditableTaskMetadata extends StatelessWidget {
             PopupMenuItem(value: 3, child: Text(l10n.priorityHigh)),
           ],
           child: _DetailPill(
-            icon: Icons.flag_outlined,
+            icon: LucideIcons.flag300,
             label: taskPriorityLabel(l10n, task.priority),
             semanticLabel: l10n.taskPriority(
               taskPriorityLabel(l10n, task.priority),
@@ -1041,7 +1042,7 @@ class _EditableTaskMetadata extends StatelessWidget {
         ),
         if (stats.hasDescendants)
           _DetailPill(
-            icon: Icons.account_tree_outlined,
+            icon: LucideIcons.gitBranch300,
             label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
           ),
       ],

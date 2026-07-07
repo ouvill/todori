@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/ui/theme.dart';
 
 class AppLoadingState extends StatelessWidget {
@@ -24,7 +25,11 @@ class AppErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, color: colorScheme.error, size: 32),
+            Icon(
+              LucideIcons.alertCircle300,
+              color: colorScheme.error,
+              size: 32,
+            ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               message,

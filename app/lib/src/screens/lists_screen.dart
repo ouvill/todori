@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
@@ -95,7 +96,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
         Row(
           children: [
             IconButton(
-              icon: const Icon(Icons.arrow_back),
+              icon: const Icon(LucideIcons.arrowLeft300),
               tooltip: MaterialLocalizations.of(context).backButtonTooltip,
               onPressed: () =>
                   context.canPop() ? context.pop() : context.go('/'),
@@ -122,7 +123,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _ListManagementRow(
-                icon: Icons.home_outlined,
+                icon: LucideIcons.house300,
                 color: colorScheme.primary,
                 title: l10n.homeTitle,
                 tooltip: l10n.homeSmartListTooltip,
@@ -142,7 +143,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   child: AppEmptyState(
-                    icon: Icons.list_alt_outlined,
+                    icon: LucideIcons.listTodo300,
                     title: l10n.listsEmptyTitle,
                     body: l10n.listsEmptyBody,
                   ),
@@ -150,7 +151,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
               else
                 for (var index = 0; index < widget.lists.length; index += 1)
                   _ListManagementRow(
-                    icon: Icons.circle_outlined,
+                    icon: LucideIcons.circle300,
                     color: _listAccent(colorScheme, index),
                     title: widget.lists[index].name,
                     onTap: () =>
@@ -158,7 +159,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                   ),
               Divider(color: colorScheme.outlineVariant),
               _ListManagementRow(
-                icon: Icons.add,
+                icon: LucideIcons.plus300,
                 color: colorScheme.primary,
                 title: l10n.homeNewListButton,
                 onTap: widget.onCreateList,
@@ -178,7 +179,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                     index += 1
                   )
                     _ListManagementRow(
-                      icon: Icons.archive_outlined,
+                      icon: LucideIcons.archive300,
                       color: colorScheme.onSurfaceVariant,
                       title: widget.archivedLists[index].name,
                       onTap: () => context.push(
@@ -261,8 +262,8 @@ class _ArchivedListsHeader extends StatelessWidget {
                   child: Center(
                     child: Icon(
                       expanded
-                          ? Icons.keyboard_arrow_up
-                          : Icons.keyboard_arrow_down,
+                          ? LucideIcons.chevronUp300
+                          : LucideIcons.chevronDown300,
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),

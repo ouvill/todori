@@ -65,6 +65,7 @@
 | task-45 | 完了 | [task-45-tree-guides-and-detail.md](./task-45-tree-guides-and-detail.md) | 階層ガイドのL字/T字描画、詳細画面Subtasksの子孫ツリー表示、タイトル/ノート編集開始時のがたつき解消を行う | task-43の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 | task-46 | 完了 | [task-46-default-inbox.md](./task-46-default-inbox.md) | 既定Inboxの自動プロビジョニングと永続識別。v3マイグレーションで `lists.is_default` を追加し、sort_order先頭ルールを置き換える | task-36〜45の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 | task-47 | 完了 | [task-47-today-smart-list.md](./task-47-today-smart-list.md) | Todayスマートリスト化。Todayを全リスト横断（アーカイブ済みリスト除外）の期日今日+期日超過ビューへ移行し、Add taskは既定Inboxへ今日期日で作成する | task-46の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
+| task-48 | 完了 | [task-48-lucide-icons.md](./task-48-lucide-icons.md) | Lucideアイコン統一。本番UIのMaterial Iconsを `lucide_icons_flutter` へ置換し、tooltip/semanticsを維持したまま画面内混在を解消する | task-43〜47の完了状態に依存。2026-07-06人間裁定 |
 | task-49 | 完了 | [task-49-detail-refinements.md](./task-49-detail-refinements.md) | 詳細画面の親リンク・全幅タップ・タイトル横チェック。サブタスク詳細の親文脈、タイトル/ノート編集起動領域、詳細上の完了操作を改善する | task-44〜47の完了状態に依存。2026-07-07ドッグフーディング第3回 |
 | task-50 | 完了 | [task-50-drag-drop-reorder.md](./task-50-drag-drop-reorder.md) | タスク一覧の手動並び替えを上下ボタンから長押しドラッグ&ドロップへ置換する。同一親内のみ許可し、reorder semanticsを維持する | task-24・task-43〜47の完了状態に依存。2026-07-07ドッグフーディング第3回 |
 | task-51 | 完了 | [task-51-home-restructure.md](./task-51-home-restructure.md) | Home画面のセクション再構成。ルートをHomeへ再定義し、Overdue / Today / Tomorrow / Upcoming、圧縮ヘッダー、行再スタイル、Lists画面Homeリンク改名を行う | task-47・task-50の完了状態に依存。2026-07-07 Home改善サイクル第1回 |

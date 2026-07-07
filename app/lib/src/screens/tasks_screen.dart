@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -451,7 +452,7 @@ class _TasksBodyState extends State<_TasksBody> {
         .toList(growable: false);
     if (!widget.isHome && activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
-        icon: Icons.checklist_outlined,
+        icon: LucideIcons.listChecks300,
         title: l10n.tasksEmptyTitle,
         body: l10n.tasksEmptyBody,
       );
@@ -1208,9 +1209,7 @@ class _TaskSwipeActions extends StatelessWidget {
             onPressed: (_) => unawaited(onLeadingAction()),
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            icon: isClosed
-                ? Icons.radio_button_unchecked
-                : Icons.check_circle_outline,
+            icon: isClosed ? LucideIcons.circle300 : LucideIcons.circleCheck300,
             label: isClosed
                 ? l10n.reopenTaskMenuItem
                 : l10n.markTaskDoneMenuItem,
@@ -1226,7 +1225,7 @@ class _TaskSwipeActions extends StatelessWidget {
             onPressed: (_) => unawaited(_showDueDateSheet(context)),
             backgroundColor: colorScheme.secondaryContainer,
             foregroundColor: colorScheme.onSecondaryContainer,
-            icon: Icons.event_outlined,
+            icon: LucideIcons.calendarDays300,
             label: l10n.changeDueDateTooltip,
           ),
         ],
@@ -1305,7 +1304,7 @@ class _DueDateSheet extends StatelessWidget {
             ),
             ListTile(
               key: const ValueKey('due-sheet-today'),
-              leading: const Icon(Icons.today_outlined),
+              leading: const Icon(LucideIcons.calendarCheck300),
               title: Text(l10n.dueToday),
               onTap: () => Navigator.of(
                 context,
@@ -1313,7 +1312,7 @@ class _DueDateSheet extends StatelessWidget {
             ),
             ListTile(
               key: const ValueKey('due-sheet-tomorrow'),
-              leading: const Icon(Icons.event_available_outlined),
+              leading: const Icon(LucideIcons.calendarPlus300),
               title: Text(l10n.dueTomorrow),
               onTap: () => Navigator.of(
                 context,
@@ -1321,7 +1320,7 @@ class _DueDateSheet extends StatelessWidget {
             ),
             ListTile(
               key: const ValueKey('due-sheet-pick-date'),
-              leading: const Icon(Icons.calendar_month_outlined),
+              leading: const Icon(LucideIcons.calendarDays300),
               title: Text(l10n.setDueDateButton),
               onTap: () => Navigator.of(
                 context,
@@ -1415,7 +1414,7 @@ class _HomeTasksHeader extends StatelessWidget {
         Row(
           children: [
             IconButton.filledTonal(
-              icon: const Icon(Icons.menu),
+              icon: const Icon(LucideIcons.menu300),
               tooltip: l10n.homeListMenuTooltip,
               onPressed: () => context.push('/lists'),
             ),
@@ -1652,8 +1651,8 @@ class _HomeSection extends StatelessWidget {
                       child: Center(
                         child: Icon(
                           isExpanded
-                              ? Icons.keyboard_arrow_up
-                              : Icons.keyboard_arrow_down,
+                              ? LucideIcons.chevronUp300
+                              : LucideIcons.chevronDown300,
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -1849,8 +1848,8 @@ class _CompletedSectionHeader extends StatelessWidget {
                     child: Center(
                       child: Icon(
                         isExpanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
+                            ? LucideIcons.chevronUp300
+                            : LucideIcons.chevronDown300,
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -1888,7 +1887,7 @@ class _ListActionsMenu extends StatelessWidget {
     final isArchived = list.archivedAt != null;
     return PopupMenuButton<_ListAction>(
       key: const ValueKey('list-actions-menu'),
-      icon: const Icon(Icons.more_horiz),
+      icon: const Icon(LucideIcons.moreHorizontal300),
       tooltip: l10n.listActionsTooltip,
       onSelected: (action) {
         switch (action) {
@@ -1988,7 +1987,7 @@ class _TaskSortMenu extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return PopupMenuButton<TaskSortMode>(
       key: const ValueKey('task-sort-menu'),
-      icon: const Icon(Icons.sort),
+      icon: const Icon(LucideIcons.arrowDownUp300),
       tooltip: l10n.taskSortTooltip,
       initialValue: selectedMode,
       onSelected: onSelected,
@@ -2004,8 +2003,8 @@ class _TaskSortMenu extends StatelessWidget {
                   children: [
                     Icon(
                       selectedMode == mode
-                          ? Icons.check_circle_outline
-                          : Icons.sort,
+                          ? LucideIcons.circleCheck300
+                          : LucideIcons.arrowDownUp300,
                       size: 18,
                     ),
                     const SizedBox(width: AppSpacing.sm),
