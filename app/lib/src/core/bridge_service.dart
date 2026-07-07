@@ -40,6 +40,7 @@ abstract class BridgeService {
     required String title,
     String? parentTaskId,
     int? dueAt,
+    String note = '',
   });
 
   /// Returns tasks of `listId`.
@@ -131,11 +132,13 @@ class FrbBridgeService implements BridgeService {
     required String title,
     String? parentTaskId,
     int? dueAt,
+    String note = '',
   }) => rust_api.createTask(
     listId: listId,
     title: title,
     parentTaskId: parentTaskId,
     dueAt: dueAt,
+    note: note.isEmpty ? null : note,
   );
 
   @override

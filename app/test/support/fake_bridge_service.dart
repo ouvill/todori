@@ -143,6 +143,7 @@ class FakeBridgeService implements BridgeService {
     required String title,
     String? parentTaskId,
     int? dueAt,
+    String note = '',
   }) async {
     final taskSeq = _taskSeq++;
     final siblings =
@@ -162,7 +163,7 @@ class FakeBridgeService implements BridgeService {
       listId: listId,
       parentTaskId: parentTaskId,
       title: title,
-      note: '',
+      note: note,
       status: 'todo',
       priority: 0,
       dueAt: dueAt,

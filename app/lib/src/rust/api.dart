@@ -58,11 +58,13 @@ Future<TaskDto> createTask({
   required String title,
   String? parentTaskId,
   PlatformInt64? dueAt,
+  String? note,
 }) => RustLib.instance.api.crateApiCreateTask(
   listId: listId,
   title: title,
   parentTaskId: parentTaskId,
   dueAt: dueAt,
+  note: note,
 );
 
 Future<TaskDto> reorderTask({

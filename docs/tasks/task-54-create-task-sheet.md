@@ -1,5 +1,8 @@
 # task-54: タスク作成シート
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 2026-07-08ドッグフーディング第4回で、task-52の下部常設クイック追加バーは即時入力欄ではなく、`design_lab_task_create_sheet.png` のようなタスク作成ボトムシートを開くトリガーにしたい、というフィードバックが出た。
@@ -154,3 +157,157 @@ task-52で確立した作成先の既定値、連続追加、IME composing、キ
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+### 作業日
+
+- 2026-07-08
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-52-quick-add-bar.md`
+- `docs/tasks/task-53-swipe-and-motion.md`
+- `app/test/visual_qa/design_lab_task_create_sheet_mock.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/rust/src/api.rs`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+### 作業前退避
+
+- `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+- 退避先: `app/build/visual_qa_before/`
+
+### 実装結果
+
+- `app/lib/src/ui/task_components.dart` の `QuickAddBar` を直接入力欄から `showModalBottomSheet` のトリガーへ変更した。
+- `QuickAddBar` は `ValueKey('quick-add-open')`、tooltip、semantics labelを持つボタン型の下部バーとして表示する。
+- `app/lib/src/ui/task_components.dart` にタスク作成シートを追加した。
+- シートは `showModalBottomSheet(isScrollControlled: true, useSafeArea: true)` で表示し、`barrierColor` は `scrim` のalpha 0.24にした。
+- シートは `SafeArea(top: false)` と `MediaQuery.viewInsetsOf(context).bottom` を使う `AnimatedPadding` でkeyboard insetに追従する。
+- シートは上部ハンドル、大きいタイトル入力、Note入力、Listチップ、Dueチップ、Add taskボタンで構成した。
+- Add task成功後はシートを閉じず、タイトル/Noteをclearし、選択中のList/Dueを維持する。
+- List候補はactive listとarchived listを重複除去して渡す実装にした。アーカイブ済みリスト画面では既存の作成可否と同じく当該リストを初期選択に含める。
+- DueチップはToday、Tomorrow、日付ピッカー、クリアを扱う。
+
+### 既定値と保存経路
+
+- Home初期値: `isDefault == true` の既定Inbox + `homeLocalRangesMs().todayStartMs`。
+- 通常リスト初期値: 表示中リスト + `dueAt == null`。
+- Home作成は `HomeTasksNotifier.createTask(listId:, title:, note:, dueAt:)` から `BridgeService.createTask` を呼ぶ。
+- 通常リスト作成は `TasksNotifier.createTask(title, note:, dueAt:)` から `BridgeService.createTask` を呼ぶ。
+- Noteは `BridgeService.createTask(note:)` からRust `create_task(..., note: Option<String>)` へ渡し、Rust側でinsert前の `Task.note` に設定する。
+- 作成後に `updateTask` は呼ばない。
+
+### Rust API / FRB
+
+- `app/rust/src/api.rs` の `create_task` に `note: Option<String>` を追加した。
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行した。
+- FRB生成差分:
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/rust/src/frb_generated.rs`
+
+### 入力挙動
+
+- タイトルtrim後が空の場合、Add taskボタンは無効。
+- タイトル入力のcomposing rangeが有効かつ非collapsedの場合、Add taskボタンは無効。
+- 送信中はAdd taskボタンを無効化し、二重送信を防ぐ。
+- 作成失敗時は既存の `quickAddCreateError` をSnackBarで表示し、入力値とフォーカスを保持する。
+
+### l10n
+
+- 追加キー:
+  - `quickAddOpenTooltip`
+  - `quickAddOpenSemantics`
+  - `taskCreateTitleHint`
+  - `taskCreateListChip`
+  - `taskCreateListTooltip`
+  - `taskCreateDueChip`
+  - `taskCreateDueTooltip`
+- `flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` を更新した。
+
+### テスト
+
+- 更新: `home add task creates in default inbox with today due date`
+  - Homeでシートが開くこと、既定Inbox+今日、Note保存、空タイトル時Add無効を確認。
+- 更新: `list create sheet creates in current list without due date`
+  - 通常リストでシートが開くこと、当該リスト+期日なしで作成することを確認。
+- 更新: `create sheet ignores blanks and keeps focus for consecutive adds`
+  - 空タイトル無視、作成後のタイトルclear、フォーカス維持、連続追加を確認。
+- 更新: `create sheet submit ignores active composing range`
+  - composing中に作成されないことを確認。
+- 追加: `create sheet changes list and due, clears due, saves note, and keeps selections`
+  - List変更、Due Tomorrow、日付ピッカー、Dueクリア、Note保存、選択維持を確認。
+- 追加: `create sheet disables add while submitting`
+  - 送信中にAdd taskが無効化され、二重作成されないことを確認。
+- 更新: `default inbox empty tasks and quick add survive narrow Dynamic Type`
+  - 狭幅/Dynamic Typeで下部バーとシート起動を確認。
+- 更新: visual QA
+  - `task_create_sheet_home`
+  - `task_create_sheet_list`
+
+### visual QA
+
+- before:
+  - `app/build/visual_qa_before/`
+  - `app/build/visual_qa_before/design_lab_task_create_sheet.png`
+- after:
+  - `app/build/visual_qa/task_create_sheet_home.png`
+  - `app/build/visual_qa/task_create_sheet_list.png`
+  - `app/build/visual_qa/design_lab_task_create_sheet.png`
+- 目視比較:
+  - `app/build/visual_qa/design_lab_task_create_sheet.png` と `app/build/visual_qa/task_create_sheet_home.png` を確認した。
+  - `app/build/visual_qa/design_lab_task_create_sheet.png` と `app/build/visual_qa/task_create_sheet_list.png` を確認した。
+  - 実装シートはハンドル、大きいタイトル入力、Note、Listチップ、Dueチップ、Add taskボタンを表示している。
+  - `task_create_sheet_home.png` はList Inbox / Due Todayを表示している。
+  - `task_create_sheet_list.png` はList Inbox / Due No due dateを表示している。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（84 passed, 1 skipped）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（36 passed）
+- `git diff --check`: exit 0
+
+### 変更ファイル一覧
+
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/generated/l10n/app_localizations.dart`
+- `app/lib/src/generated/l10n/app_localizations_en.dart`
+- `app/lib/src/generated/l10n/app_localizations_ja.dart`
+- `app/lib/src/rust/api.dart`
+- `app/lib/src/rust/frb_generated.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/rust/src/api.rs`
+- `app/rust/src/frb_generated.rs`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-54-create-task-sheet.md`
+
+### 未解決事項
+
+- なし

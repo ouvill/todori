@@ -94,6 +94,7 @@ abstract class RustLibApi extends BaseApi {
     required String title,
     String? parentTaskId,
     PlatformInt64? dueAt,
+    String? note,
   });
 
   Future<void> crateApiDeleteList({required String listId});
@@ -315,6 +316,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String title,
     String? parentTaskId,
     PlatformInt64? dueAt,
+    String? note,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -324,6 +326,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(title, serializer);
           sse_encode_opt_String(parentTaskId, serializer);
           sse_encode_opt_box_autoadd_i_64(dueAt, serializer);
+          sse_encode_opt_String(note, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -336,7 +339,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, parentTaskId, dueAt],
+        argValues: [listId, title, parentTaskId, dueAt, note],
         apiImpl: this,
       ),
     );
@@ -344,7 +347,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "parentTaskId", "dueAt"],
+    argNames: ["listId", "title", "parentTaskId", "dueAt", "note"],
   );
 
   @override

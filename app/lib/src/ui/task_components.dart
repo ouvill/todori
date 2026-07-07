@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
@@ -84,79 +86,39 @@ class TaskMetadata extends StatelessWidget {
 class QuickAddBar extends StatefulWidget {
   const QuickAddBar({
     super.key,
-    required this.hintText,
-    required this.submitTooltip,
-    required this.textFieldSemanticLabel,
+    required this.listOptions,
+    required this.initialListId,
+    required this.initialDueAt,
     required this.errorMessage,
-    required this.onSubmit,
+    required this.onCreate,
   });
 
-  final String hintText;
-  final String submitTooltip;
-  final String textFieldSemanticLabel;
+  final List<ListDto> listOptions;
+  final String? initialListId;
+  final int? initialDueAt;
   final String errorMessage;
-  final Future<void> Function(String title) onSubmit;
+  final Future<void> Function({
+    required String listId,
+    required String title,
+    required String note,
+    required int? dueAt,
+  })
+  onCreate;
 
   @override
   State<QuickAddBar> createState() => _QuickAddBarState();
 }
 
 class _QuickAddBarState extends State<QuickAddBar> {
-  final TextEditingController _controller = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
-  bool _submitting = false;
-
-  bool get _hasComposingRange {
-    final range = _controller.value.composing;
-    return range.isValid && !range.isCollapsed;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit({bool fromSubmitted = false}) async {
-    if (_submitting) {
-      return;
-    }
-    if (fromSubmitted && _hasComposingRange) {
-      return;
-    }
-    final title = _controller.text.trim();
-    if (title.isEmpty) {
-      return;
-    }
-    setState(() => _submitting = true);
-    try {
-      await widget.onSubmit(title);
-      if (!mounted) {
-        return;
-      }
-      _controller.clear();
-      _focusNode.requestFocus();
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(widget.errorMessage)));
-      _focusNode.requestFocus();
-    } finally {
-      if (mounted) {
-        setState(() => _submitting = false);
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final viewInsets = MediaQuery.viewInsetsOf(context);
+    final enabled =
+        widget.initialListId != null &&
+        widget.listOptions.any((list) => list.id == widget.initialListId);
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
@@ -172,76 +134,63 @@ class _QuickAddBarState extends State<QuickAddBar> {
               AppSpacing.md,
               AppSpacing.sm,
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(
-                  AppSpacing.md,
-                  AppSpacing.xs,
-                  AppSpacing.xs,
-                  AppSpacing.xs,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.add_circle_outline,
-                      size: 20,
-                      color: colorScheme.primary,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Semantics(
-                        textField: true,
-                        label: widget.textFieldSemanticLabel,
-                        child: TextField(
-                          key: const ValueKey('quick-add-field'),
-                          controller: _controller,
-                          focusNode: _focusNode,
-                          readOnly: _submitting,
-                          minLines: 1,
-                          maxLines: 3,
-                          textInputAction: TextInputAction.done,
-                          onEditingComplete: () {},
-                          decoration: InputDecoration(
-                            hintText: widget.hintText,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            filled: false,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          onSubmitted: (_) =>
-                              unawaited(_submit(fromSubmitted: true)),
+            child: Tooltip(
+              message: l10n.quickAddOpenTooltip,
+              child: Semantics(
+                button: true,
+                enabled: enabled,
+                label: l10n.quickAddOpenSemantics,
+                child: Material(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  child: InkWell(
+                    key: const ValueKey('quick-add-open'),
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: enabled ? _openSheet : null,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: colorScheme.outlineVariant),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          AppSpacing.md,
+                          AppSpacing.sm,
+                          AppSpacing.md,
+                          AppSpacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              LucideIcons.plus300,
+                              size: 20,
+                              color: enabled
+                                  ? colorScheme.primary
+                                  : colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                l10n.quickAddHint,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: enabled
+                                      ? colorScheme.onSurfaceVariant
+                                      : colorScheme.onSurfaceVariant.withValues(
+                                          alpha: 0.6,
+                                        ),
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              LucideIcons.chevronUp300,
+                              size: 18,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Tooltip(
-                      message: widget.submitTooltip,
-                      child: IconButton(
-                        key: const ValueKey('quick-add-submit'),
-                        onPressed: _submitting
-                            ? null
-                            : () => unawaited(_submit()),
-                        icon: _submitting
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: colorScheme.primary,
-                                ),
-                              )
-                            : const Icon(Icons.arrow_upward_rounded),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -250,7 +199,515 @@ class _QuickAddBarState extends State<QuickAddBar> {
       ),
     );
   }
+
+  Future<void> _openSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
+      backgroundColor: Colors.transparent,
+      builder: (context) => _TaskCreateSheet(
+        listOptions: widget.listOptions,
+        initialListId: widget.initialListId!,
+        initialDueAt: widget.initialDueAt,
+        errorMessage: widget.errorMessage,
+        onCreate: widget.onCreate,
+      ),
+    );
+  }
 }
+
+class _TaskCreateSheet extends StatefulWidget {
+  const _TaskCreateSheet({
+    required this.listOptions,
+    required this.initialListId,
+    required this.initialDueAt,
+    required this.errorMessage,
+    required this.onCreate,
+  });
+
+  final List<ListDto> listOptions;
+  final String initialListId;
+  final int? initialDueAt;
+  final String errorMessage;
+  final Future<void> Function({
+    required String listId,
+    required String title,
+    required String note,
+    required int? dueAt,
+  })
+  onCreate;
+
+  @override
+  State<_TaskCreateSheet> createState() => _TaskCreateSheetState();
+}
+
+class _TaskCreateSheetState extends State<_TaskCreateSheet> {
+  late String _selectedListId;
+  late int? _dueAt;
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
+  final FocusNode _titleFocusNode = FocusNode();
+  bool _submitting = false;
+
+  bool get _hasComposingRange {
+    final range = _titleController.value.composing;
+    return range.isValid && !range.isCollapsed;
+  }
+
+  bool get _canSubmit =>
+      !_submitting &&
+      !_hasComposingRange &&
+      _titleController.text.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedListId = widget.initialListId;
+    _dueAt = widget.initialDueAt;
+    _titleController.addListener(_onTitleChanged);
+  }
+
+  @override
+  void dispose() {
+    _titleController
+      ..removeListener(_onTitleChanged)
+      ..dispose();
+    _noteController.dispose();
+    _titleFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onTitleChanged() {
+    setState(() {});
+  }
+
+  Future<void> _submit() async {
+    if (!_canSubmit) {
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      await widget.onCreate(
+        listId: _selectedListId,
+        title: _titleController.text.trim(),
+        note: _noteController.text.trim(),
+        dueAt: _dueAt,
+      );
+      if (!mounted) {
+        return;
+      }
+      _titleController.clear();
+      _noteController.clear();
+      _titleFocusNode.requestFocus();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(widget.errorMessage)));
+      _titleFocusNode.requestFocus();
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final selectedList = widget.listOptions.firstWhere(
+      (list) => list.id == _selectedListId,
+    );
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border.all(
+              color: colorScheme.primary.withValues(alpha: 0.18),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, -12),
+              ),
+            ],
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.86,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const SizedBox(width: 38, height: 4),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  TextField(
+                    key: const ValueKey('task-create-title-field'),
+                    controller: _titleController,
+                    focusNode: _titleFocusNode,
+                    autofocus: true,
+                    readOnly: _submitting,
+                    textInputAction: TextInputAction.done,
+                    minLines: 1,
+                    maxLines: 2,
+                    onEditingComplete: () {},
+                    onSubmitted: (_) => unawaited(_submit()),
+                    decoration: InputDecoration(
+                      hintText: l10n.taskCreateTitleHint,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w400,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    key: const ValueKey('task-create-note-field'),
+                    controller: _noteController,
+                    readOnly: _submitting,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: l10n.noteLabel,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _TaskCreateListChip(
+                          selectedList: selectedList,
+                          listOptions: widget.listOptions,
+                          onSelected: _submitting
+                              ? null
+                              : (listId) =>
+                                    setState(() => _selectedListId = listId),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        _TaskCreateDueChip(
+                          dueAt: _dueAt,
+                          onTap: _submitting ? null : _showDueOptions,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  FilledButton.icon(
+                    key: const ValueKey('task-create-submit'),
+                    onPressed: _canSubmit ? () => unawaited(_submit()) : null,
+                    icon: _submitting
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.onPrimary,
+                            ),
+                          )
+                        : const Icon(LucideIcons.plus300),
+                    label: Text(l10n.addTaskButton),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDueOptions() async {
+    final selection = await showModalBottomSheet<_TaskCreateDueSelection>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => const _TaskCreateDueSheet(),
+    );
+    if (!mounted || selection == null) {
+      return;
+    }
+    switch (selection) {
+      case _TaskCreateDueSelection.today:
+        setState(() => _dueAt = homeLocalRangesMs().todayStartMs);
+        break;
+      case _TaskCreateDueSelection.tomorrow:
+        setState(() => _dueAt = homeLocalRangesMs().tomorrowStartMs);
+        break;
+      case _TaskCreateDueSelection.pickDate:
+        final initialDate = _dueAt == null
+            ? DateTime.now()
+            : DateTime.fromMillisecondsSinceEpoch(_dueAt!).toLocal();
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initialDate,
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+        );
+        if (!mounted || picked == null) {
+          return;
+        }
+        setState(
+          () => _dueAt = DateTime(
+            picked.year,
+            picked.month,
+            picked.day,
+          ).millisecondsSinceEpoch,
+        );
+        break;
+      case _TaskCreateDueSelection.clear:
+        setState(() => _dueAt = null);
+        break;
+    }
+    _titleFocusNode.requestFocus();
+  }
+}
+
+class _TaskCreateListChip extends StatelessWidget {
+  const _TaskCreateListChip({
+    required this.selectedList,
+    required this.listOptions,
+    required this.onSelected,
+  });
+
+  final ListDto selectedList;
+  final List<ListDto> listOptions;
+  final ValueChanged<String>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return PopupMenuButton<String>(
+      key: const ValueKey('task-create-list-chip'),
+      tooltip: l10n.taskCreateListTooltip,
+      enabled: onSelected != null,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final list in listOptions)
+          PopupMenuItem<String>(
+            key: ValueKey('task-create-list-option-${list.id}'),
+            value: list.id,
+            child: Text(list.name),
+          ),
+      ],
+      child: _TaskCreateChip(
+        icon: LucideIcons.inbox300,
+        label: l10n.taskCreateListChip,
+        value: selectedList.name,
+        selected: true,
+      ),
+    );
+  }
+}
+
+class _TaskCreateDueChip extends StatelessWidget {
+  const _TaskCreateDueChip({required this.dueAt, required this.onTap});
+
+  final int? dueAt;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    return Tooltip(
+      message: l10n.taskCreateDueTooltip,
+      child: InkWell(
+        key: const ValueKey('task-create-due-chip'),
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: _TaskCreateChip(
+          icon: LucideIcons.calendarDays300,
+          label: l10n.taskCreateDueChip,
+          value: formatRelativeDueDate(l10n, locale, dueAt),
+          selected: dueAt != null,
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskCreateChip extends StatelessWidget {
+  const _TaskCreateChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.selected,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: selected
+            ? colorScheme.primary.withValues(alpha: 0.08)
+            : colorScheme.surfaceContainer.withValues(alpha: 0.64),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.48)
+              : colorScheme.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(
+            AppSpacing.sm,
+            AppSpacing.xs,
+            AppSpacing.xs,
+            AppSpacing.xs,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: colorScheme.primary),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                label,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(width: 2),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.max(
+                    96,
+                    MediaQuery.sizeOf(context).width * 0.48,
+                  ),
+                ),
+                child: Text(
+                  value,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Icon(
+                LucideIcons.chevronDown300,
+                size: 16,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskCreateDueSheet extends StatelessWidget {
+  const _TaskCreateDueSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text(l10n.dueDateLabel)),
+            ListTile(
+              key: const ValueKey('task-create-due-today'),
+              leading: const Icon(LucideIcons.calendarCheck300),
+              title: Text(l10n.dueToday),
+              onTap: () =>
+                  Navigator.of(context).pop(_TaskCreateDueSelection.today),
+            ),
+            ListTile(
+              key: const ValueKey('task-create-due-tomorrow'),
+              leading: const Icon(LucideIcons.calendarPlus300),
+              title: Text(l10n.dueTomorrow),
+              onTap: () =>
+                  Navigator.of(context).pop(_TaskCreateDueSelection.tomorrow),
+            ),
+            ListTile(
+              key: const ValueKey('task-create-due-pick-date'),
+              leading: const Icon(LucideIcons.calendarDays300),
+              title: Text(l10n.setDueDateButton),
+              onTap: () =>
+                  Navigator.of(context).pop(_TaskCreateDueSelection.pickDate),
+            ),
+            ListTile(
+              key: const ValueKey('task-create-due-clear'),
+              leading: const Icon(LucideIcons.calendarX300),
+              title: Text(l10n.clearDueDateButton),
+              onTap: () =>
+                  Navigator.of(context).pop(_TaskCreateDueSelection.clear),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _TaskCreateDueSelection { today, tomorrow, pickDate, clear }
 
 class _MetadataPill extends StatelessWidget {
   const _MetadataPill({

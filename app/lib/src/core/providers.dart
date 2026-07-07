@@ -169,13 +169,21 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   /// list. When [parentTaskId] is provided, the new task is created as a
   /// subtask of that parent. The Rust/domain layer assigns the task sort order
   /// within the target sibling group.
-  Future<void> createTask(String title, {String? parentTaskId}) async {
+  Future<void> createTask(
+    String title, {
+    String? parentTaskId,
+    int? dueAt,
+    String note = '',
+  }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.createTask(
       listId: listId,
       title: title,
       parentTaskId: parentTaskId,
+      dueAt: dueAt,
+      note: note,
     );
+    ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
   }
 
@@ -273,17 +281,20 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
         );
   }
 
-  Future<void> createTask(String title) async {
-    final lists = await ref.read(listsProvider.future);
-    final defaultList = lists.singleWhere((list) => list.isDefault);
+  Future<void> createTask({
+    required String listId,
+    required String title,
+    required int? dueAt,
+    String note = '',
+  }) async {
     final bridge = ref.read(bridgeServiceProvider);
-    final range = homeLocalRangesMs();
     await bridge.createTask(
-      listId: defaultList.id,
+      listId: listId,
       title: title,
-      dueAt: range.todayStartMs,
+      dueAt: dueAt,
+      note: note,
     );
-    ref.invalidate(tasksProvider(defaultList.id));
+    ref.invalidate(tasksProvider(listId));
     ref.invalidateSelf();
   }
 

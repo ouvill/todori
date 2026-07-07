@@ -238,6 +238,7 @@ fn wire__crate__api__create_task_impl(
             let api_title = <String>::sse_decode(&mut deserializer);
             let api_parent_task_id = <Option<String>>::sse_decode(&mut deserializer);
             let api_due_at = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_note = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -246,6 +247,7 @@ fn wire__crate__api__create_task_impl(
                         api_title,
                         api_parent_task_id,
                         api_due_at,
+                        api_note,
                     )?;
                     Ok(output_ok)
                 })())

@@ -168,6 +168,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quickAddHint => 'Add task';
 
   @override
+  String get quickAddOpenTooltip => 'Open task creation';
+
+  @override
+  String get quickAddOpenSemantics => 'Open task creation sheet';
+
+  @override
   String get quickAddSubmitTooltip => 'Add task';
 
   @override
@@ -175,6 +181,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickAddCreateError => 'Could not add the task.';
+
+  @override
+  String get taskCreateTitleHint => 'Add a task...';
+
+  @override
+  String get taskCreateListChip => 'List';
+
+  @override
+  String get taskCreateListTooltip => 'Choose list';
+
+  @override
+  String get taskCreateDueChip => 'Due';
+
+  @override
+  String get taskCreateDueTooltip => 'Choose due date';
 
   @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';

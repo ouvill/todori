@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
@@ -45,6 +48,40 @@ void _useNarrowDynamicTypeView(WidgetTester tester) {
     tester.view.resetDevicePixelRatio();
     tester.platformDispatcher.clearTextScaleFactorTestValue();
   });
+}
+
+class _SlowCreateFakeBridgeService extends FakeBridgeService {
+  final List<Completer<void>> _pendingCreates = [];
+
+  int get pendingCreateCount => _pendingCreates.length;
+
+  @override
+  Future<TaskDto> createTask({
+    required String listId,
+    required String title,
+    String? parentTaskId,
+    int? dueAt,
+    String note = '',
+  }) async {
+    final completer = Completer<void>();
+    _pendingCreates.add(completer);
+    await completer.future;
+    return super.createTask(
+      listId: listId,
+      title: title,
+      parentTaskId: parentTaskId,
+      dueAt: dueAt,
+      note: note,
+    );
+  }
+
+  void completeCreates() {
+    for (final completer in _pendingCreates) {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    }
+  }
 }
 
 Future<void> _selectTaskSortMode(WidgetTester tester, String label) async {
@@ -259,13 +296,37 @@ void main() {
     expect(find.byType(FloatingActionButton), findsNothing);
     expect(find.text('New task'), findsNothing);
     expect(find.text('Create'), findsNothing);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('quick-add-field')), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('quick-add-field')));
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('task-create-title-field')),
+      findsOneWidget,
+    );
+    expect(find.text('List'), findsOneWidget);
+    expect(find.text('Inbox'), findsOneWidget);
+    expect(find.text('Due'), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('task-create-submit')),
+          )
+          .onPressed,
+      isNull,
+    );
+
     await tester.enterText(
-      find.byKey(const ValueKey('quick-add-field')),
+      find.byKey(const ValueKey('task-create-title-field')),
       'Today capture',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.enterText(
+      find.byKey(const ValueKey('task-create-note-field')),
+      'Captured with context',
+    );
+    await tester.tap(find.byKey(const ValueKey('task-create-submit')));
     await tester.pumpAndSettle();
 
     final defaultList = (await fake.getLists()).singleWhere(
@@ -273,12 +334,17 @@ void main() {
     );
     final tasks = await fake.getTasks(listId: defaultList.id);
     expect(tasks.single.title, 'Today capture');
+    expect(tasks.single.note, 'Captured with context');
     expect(tasks.single.dueAt, _todayStartMs());
     expect(find.text('Today capture'), findsOneWidget);
-    expect(find.text('Inbox'), findsOneWidget);
+    expect(find.text('Inbox'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('task-create-title-field')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('list quick add creates in current list without due date', (
+  testWidgets('list create sheet creates in current list without due date', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -295,11 +361,18 @@ void main() {
     expect(find.text('New task'), findsNothing);
     expect(find.text('Create'), findsNothing);
 
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    expect(find.text('List'), findsOneWidget);
+    expect(find.text('Work'), findsOneWidget);
+    expect(find.text('Due'), findsOneWidget);
+    expect(find.text('No due date'), findsOneWidget);
     await tester.enterText(
-      find.byKey(const ValueKey('quick-add-field')),
+      find.byKey(const ValueKey('task-create-title-field')),
       'List capture',
     );
-    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('task-create-submit')));
     await tester.pumpAndSettle();
 
     final work = (await fake.getLists()).singleWhere(
@@ -311,7 +384,54 @@ void main() {
     expect(find.text('List capture'), findsOneWidget);
   });
 
-  testWidgets('quick add ignores blanks and keeps focus for consecutive adds', (
+  testWidgets(
+    'create sheet ignores blanks and keeps focus for consecutive adds',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+      await tester.pumpAndSettle();
+      final fieldFinder = find.byKey(const ValueKey('task-create-title-field'));
+      await tester.enterText(fieldFinder, '   ');
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+
+      final defaultList = (await fake.getLists()).singleWhere(
+        (list) => list.isDefault,
+      );
+      expect(await fake.getTasks(listId: defaultList.id), isEmpty);
+
+      await tester.enterText(fieldFinder, 'First capture');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      var field = tester.widget<TextField>(fieldFinder);
+      expect(field.controller!.text, isEmpty);
+      expect(field.focusNode!.hasFocus, isTrue);
+
+      await tester.enterText(fieldFinder, 'Second capture');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+
+      final tasks = await fake.getTasks(listId: defaultList.id);
+      expect(tasks.map((task) => task.title), [
+        'First capture',
+        'Second capture',
+      ]);
+      field = tester.widget<TextField>(fieldFinder);
+      expect(field.controller!.text, isEmpty);
+      expect(field.focusNode!.hasFocus, isTrue);
+    },
+  );
+
+  testWidgets('create sheet submit ignores active composing range', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -322,51 +442,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final fieldFinder = find.byKey(const ValueKey('quick-add-field'));
-    await tester.tap(fieldFinder);
-    await tester.enterText(fieldFinder, '   ');
-    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
     await tester.pumpAndSettle();
-
-    final defaultList = (await fake.getLists()).singleWhere(
-      (list) => list.isDefault,
-    );
-    expect(await fake.getTasks(listId: defaultList.id), isEmpty);
-
-    await tester.enterText(fieldFinder, 'First capture');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-
-    var field = tester.widget<TextField>(fieldFinder);
-    expect(field.controller!.text, isEmpty);
-    expect(field.focusNode!.hasFocus, isTrue);
-
-    await tester.enterText(fieldFinder, 'Second capture');
-    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
-    await tester.pumpAndSettle();
-
-    final tasks = await fake.getTasks(listId: defaultList.id);
-    expect(tasks.map((task) => task.title), [
-      'First capture',
-      'Second capture',
-    ]);
-    field = tester.widget<TextField>(fieldFinder);
-    expect(field.controller!.text, isEmpty);
-    expect(field.focusNode!.hasFocus, isTrue);
-  });
-
-  testWidgets('quick add submit ignores active composing range', (
-    tester,
-  ) async {
-    final fake = FakeBridgeService();
-    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
-
-    await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
-    );
-    await tester.pumpAndSettle();
-
-    final fieldFinder = find.byKey(const ValueKey('quick-add-field'));
+    final fieldFinder = find.byKey(const ValueKey('task-create-title-field'));
     await tester.tap(fieldFinder);
     await tester.pump();
     tester.testTextInput.updateEditingValue(
@@ -384,6 +462,146 @@ void main() {
       (list) => list.isDefault,
     );
     expect(await fake.getTasks(listId: defaultList.id), isEmpty);
+  });
+
+  testWidgets(
+    'create sheet changes list and due, clears due, saves note, and keeps selections',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+      final today = _todayStartMs();
+      final tomorrow = today + const Duration(days: 1).inMilliseconds;
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-list-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey('task-create-list-option-${work.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('List'), findsOneWidget);
+      expect(find.text('Work'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-tomorrow')));
+      await tester.pumpAndSettle();
+      expect(find.text('Due'), findsOneWidget);
+      expect(find.text('Tomorrow'), findsWidgets);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('task-create-title-field')),
+        'Work tomorrow',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('task-create-note-field')),
+        'Bring the outline',
+      );
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+
+      var workTasks = await fake.getTasks(listId: work.id);
+      expect(workTasks.single.title, 'Work tomorrow');
+      expect(workTasks.single.note, 'Bring the outline');
+      expect(workTasks.single.dueAt, tomorrow);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('task-create-title-field')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('task-create-note-field')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+      expect(find.text('List'), findsOneWidget);
+      expect(find.text('Work'), findsWidgets);
+      expect(find.text('Due'), findsOneWidget);
+      expect(find.text('Tomorrow'), findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-pick-date')));
+      await tester.pumpAndSettle();
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-clear')));
+      await tester.pumpAndSettle();
+      expect(find.text('Due'), findsOneWidget);
+      expect(find.text('No due date'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('task-create-title-field')),
+        'Work no due',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+
+      workTasks = await fake.getTasks(listId: work.id);
+      expect(workTasks.map((task) => task.title), [
+        'Work tomorrow',
+        'Work no due',
+      ]);
+      expect(workTasks.last.dueAt, isNull);
+    },
+  );
+
+  testWidgets('create sheet disables add while submitting', (tester) async {
+    final fake = _SlowCreateFakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('task-create-title-field')),
+      'Slow capture',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+    await tester.pump();
+    expect(fake.pendingCreateCount, 1);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('task-create-submit')),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+    await tester.pump();
+    expect(fake.pendingCreateCount, 1);
+
+    fake.completeCreates();
+    await tester.pumpAndSettle();
+    final defaultList = (await fake.getLists()).singleWhere(
+      (list) => list.isDefault,
+    );
+    final tasks = await fake.getTasks(listId: defaultList.id);
+    expect(tasks.single.title, 'Slow capture');
   });
 
   testWidgets('lists screen puts Home first and Home row returns home', (
@@ -543,15 +761,20 @@ void main() {
 
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Add task'), findsOneWidget);
-      expect(find.byKey(const ValueKey('quick-add-field')), findsOneWidget);
+      expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
+      expect(find.byKey(const ValueKey('quick-add-field')), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
       expect(tester.takeException(), isNull);
 
       await tester.ensureVisible(find.text('Add task'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('quick-add-field')));
+      await tester.tap(find.byKey(const ValueKey('quick-add-open')));
       await tester.pumpAndSettle();
 
+      expect(
+        find.byKey(const ValueKey('task-create-title-field')),
+        findsOneWidget,
+      );
       expect(find.text('New task'), findsNothing);
       expect(find.text('Create'), findsNothing);
       expect(tester.takeException(), isNull);

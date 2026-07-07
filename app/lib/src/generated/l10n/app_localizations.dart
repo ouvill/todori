@@ -380,6 +380,18 @@ abstract class AppLocalizations {
   /// **'Add task'**
   String get quickAddHint;
 
+  /// No description provided for @quickAddOpenTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Open task creation'**
+  String get quickAddOpenTooltip;
+
+  /// No description provided for @quickAddOpenSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Open task creation sheet'**
+  String get quickAddOpenSemantics;
+
   /// No description provided for @quickAddSubmitTooltip.
   ///
   /// In en, this message translates to:
@@ -397,6 +409,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not add the task.'**
   String get quickAddCreateError;
+
+  /// No description provided for @taskCreateTitleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a task...'**
+  String get taskCreateTitleHint;
+
+  /// No description provided for @taskCreateListChip.
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get taskCreateListChip;
+
+  /// No description provided for @taskCreateListTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose list'**
+  String get taskCreateListTooltip;
+
+  /// No description provided for @taskCreateDueChip.
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get taskCreateDueChip;
+
+  /// No description provided for @taskCreateDueTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose due date'**
+  String get taskCreateDueTooltip;
 
   /// No description provided for @tasksEmpty.
   ///

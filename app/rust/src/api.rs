@@ -215,6 +215,7 @@ pub fn create_task(
     title: String,
     parent_task_id: Option<String>,
     due_at: Option<i64>,
+    note: Option<String>,
 ) -> Result<TaskDto, String> {
     let list_id = parse_uuid(&list_id)?;
     let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
@@ -233,6 +234,9 @@ pub fn create_task(
             fractional_index_after(last_sibling_sort_order).map_err(|error| error.to_string())?;
         let mut task = new_task(list_id, parent_task_id, title, sort_order, now_ms)
             .map_err(|error| error.to_string())?;
+        if let Some(note) = note {
+            task = update_note(task, note, now_ms).map_err(|error| error.to_string())?;
+        }
         if let Some(due_at) = due_at {
             task = update_due_at(task, Some(due_at), now_ms).map_err(|error| error.to_string())?;
         }

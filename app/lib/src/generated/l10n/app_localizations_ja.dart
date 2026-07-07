@@ -167,6 +167,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get quickAddHint => 'タスクを追加';
 
   @override
+  String get quickAddOpenTooltip => 'タスク作成を開く';
+
+  @override
+  String get quickAddOpenSemantics => 'タスク作成シートを開く';
+
+  @override
   String get quickAddSubmitTooltip => 'タスクを追加';
 
   @override
@@ -174,6 +180,21 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get quickAddCreateError => 'タスクを追加できませんでした。';
+
+  @override
+  String get taskCreateTitleHint => 'タスクを追加...';
+
+  @override
+  String get taskCreateListChip => 'リスト';
+
+  @override
+  String get taskCreateListTooltip => 'リストを選択';
+
+  @override
+  String get taskCreateDueChip => '期限';
+
+  @override
+  String get taskCreateDueTooltip => '期限日を選択';
 
   @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';

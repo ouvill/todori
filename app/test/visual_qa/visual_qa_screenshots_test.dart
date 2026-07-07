@@ -99,13 +99,11 @@ void main() {
     await _screenshot(tester, 'quick_add_home_normal');
   });
 
-  testWidgets('quick_add_home_inputting: Home quick add with keyboard inset', (
-    tester,
-  ) async {
+  testWidgets('task_create_sheet_home: Home task create sheet', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
-    await _focusQuickAddWithKeyboard(tester, 'Capture while scanning Home');
-    await _screenshot(tester, 'quick_add_home_inputting');
+    await _openTaskCreateSheetWithKeyboard(tester);
+    await _screenshot(tester, 'task_create_sheet_home');
   });
 
   testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
@@ -118,17 +116,15 @@ void main() {
     await _screenshot(tester, 'quick_add_list_normal');
   });
 
-  testWidgets('quick_add_list_inputting: list quick add with keyboard inset', (
-    tester,
-  ) async {
+  testWidgets('task_create_sheet_list: list task create sheet', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
     await tester.tap(find.byTooltip('Open lists'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
-    await _focusQuickAddWithKeyboard(tester, 'Capture in this list');
-    await _screenshot(tester, 'quick_add_list_inputting');
+    await _openTaskCreateSheetWithKeyboard(tester);
+    await _screenshot(tester, 'task_create_sheet_list');
   });
 
   testWidgets('task_swipe_complete_leading: leading complete action exposed', (
@@ -681,16 +677,11 @@ void _setMobileViewport(WidgetTester tester) {
   });
 }
 
-Future<void> _focusQuickAddWithKeyboard(
-  WidgetTester tester,
-  String text,
-) async {
+Future<void> _openTaskCreateSheetWithKeyboard(WidgetTester tester) async {
   final keyboardInset = 300 * tester.view.devicePixelRatio;
   tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
   addTearDown(tester.view.resetViewInsets);
-  final field = find.byKey(const ValueKey('quick-add-field'));
-  await tester.tap(field);
-  await tester.enterText(field, text);
+  await tester.tap(find.byKey(const ValueKey('quick-add-open')));
   await tester.pumpAndSettle();
 }
 

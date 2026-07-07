@@ -70,6 +70,16 @@ class TasksScreen extends ConsumerWidget {
     final archivedLists = archivedListsAsync.value;
     final currentList =
         _findList(listId, activeLists) ?? _findList(listId, archivedLists);
+    final defaultList = activeLists == null
+        ? null
+        : _findDefaultList(activeLists);
+    final createListOptions = _mergeListOptions(activeLists, archivedLists);
+    final createInitialListId = isTodaySmartView
+        ? defaultList?.id
+        : currentList?.id;
+    final createInitialDueAt = isTodaySmartView
+        ? homeLocalRangesMs().todayStartMs
+        : null;
     final isDefaultInbox =
         currentList?.archivedAt == null && currentList?.isDefault == true;
 
@@ -139,21 +149,43 @@ class TasksScreen extends ConsumerWidget {
         },
       ),
       bottomNavigationBar: QuickAddBar(
-        hintText: l10n.quickAddHint,
-        submitTooltip: l10n.quickAddSubmitTooltip,
-        textFieldSemanticLabel: l10n.quickAddTextFieldSemantics,
+        listOptions: createListOptions,
+        initialListId: createInitialListId,
+        initialDueAt: createInitialDueAt,
         errorMessage: l10n.quickAddCreateError,
-        onSubmit: (title) => _createTask(ref, title),
+        onCreate:
+            ({
+              required listId,
+              required title,
+              required note,
+              required dueAt,
+            }) => _createTask(
+              ref,
+              listId: listId,
+              title: title,
+              note: note,
+              dueAt: dueAt,
+            ),
       ),
     );
   }
 
-  Future<void> _createTask(WidgetRef ref, String title) async {
+  Future<void> _createTask(
+    WidgetRef ref, {
+    required String listId,
+    required String title,
+    required String note,
+    required int? dueAt,
+  }) async {
     if (isTodaySmartView) {
-      await ref.read(homeTasksProvider.notifier).createTask(title);
+      await ref
+          .read(homeTasksProvider.notifier)
+          .createTask(listId: listId, title: title, note: note, dueAt: dueAt);
       return;
     }
-    await ref.read(tasksProvider(listId).notifier).createTask(title);
+    await ref
+        .read(tasksProvider(listId).notifier)
+        .createTask(title, note: note, dueAt: dueAt);
   }
 
   Future<void> _completeTask(
@@ -1282,6 +1314,29 @@ ListDto? _findList(String listId, List<ListDto>? lists) {
     }
   }
   return null;
+}
+
+ListDto? _findDefaultList(List<ListDto> lists) {
+  for (final list in lists) {
+    if (list.isDefault) {
+      return list;
+    }
+  }
+  return null;
+}
+
+List<ListDto> _mergeListOptions(
+  List<ListDto>? activeLists,
+  List<ListDto>? archivedLists,
+) {
+  final byId = <String, ListDto>{};
+  for (final list in activeLists ?? const <ListDto>[]) {
+    byId[list.id] = list;
+  }
+  for (final list in archivedLists ?? const <ListDto>[]) {
+    byId[list.id] = list;
+  }
+  return List.unmodifiable(byId.values);
 }
 
 bool _hasClosedRoot(List<TaskDto> tasks) {
