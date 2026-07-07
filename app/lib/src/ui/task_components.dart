@@ -15,6 +15,14 @@ import 'package:todori/src/ui/theme.dart';
 const _priorityHighCoral = Color(0xFFE8755A);
 const _priorityMediumAmber = Color(0xFFEDB73E);
 const _priorityLowSoftSage = Color(0xFFA8BEA8);
+const _homeTaskRowRootLeadingStart = AppSpacing.xs;
+const _taskRowRootLeadingStart = 12.0;
+const _taskRowDepthIndent = AppSpacing.lg;
+const _taskCheckboxTapSize = 48.0;
+const _taskCheckboxVisualSize = 22.0;
+const _taskCheckboxVisualCenterOffset = _taskCheckboxVisualSize / 2;
+const _taskCheckboxVisualRadius = _taskCheckboxVisualSize / 2;
+const _taskHierarchyHorizontalEndGap = 4.0;
 
 class TaskMetadataItem {
   const TaskMetadataItem({
@@ -961,7 +969,7 @@ class AppHomeTaskRow extends StatelessWidget {
               depth: effectiveDepth,
               isLastSibling: isLastSibling,
               ancestorLineContinuations: ancestorLineContinuations,
-              rootLeadingStart: 12,
+              rootLeadingStart: _homeTaskRowRootLeadingStart,
               currentVerticalKey: hierarchyGuideKey,
               horizontalKey: hierarchyGuideHorizontalKey,
             ),
@@ -970,9 +978,9 @@ class AppHomeTaskRow extends StatelessWidget {
             onTap: onTap,
             child: Padding(
               padding: EdgeInsetsDirectional.only(
-                start: effectiveDepth > 0
-                    ? AppSpacing.md + (effectiveDepth * AppSpacing.lg)
-                    : 12,
+                start:
+                    _homeTaskRowRootLeadingStart +
+                    (effectiveDepth * _taskRowDepthIndent),
                 top: AppSpacing.xs,
                 end: 12,
                 bottom: AppSpacing.xs,
@@ -1238,7 +1246,7 @@ class AppTaskRow extends StatelessWidget {
               depth: effectiveDepth,
               isLastSibling: isLastSibling,
               ancestorLineContinuations: ancestorLineContinuations,
-              rootLeadingStart: AppSpacing.md,
+              rootLeadingStart: _taskRowRootLeadingStart,
               currentVerticalKey: hierarchyGuideKey,
               horizontalKey: hierarchyGuideHorizontalKey,
             ),
@@ -1250,7 +1258,9 @@ class AppTaskRow extends StatelessWidget {
             onTap: onTap,
             child: Padding(
               padding: EdgeInsetsDirectional.only(
-                start: AppSpacing.md + (effectiveDepth * AppSpacing.lg),
+                start:
+                    _taskRowRootLeadingStart +
+                    (effectiveDepth * _taskRowDepthIndent),
                 top: AppSpacing.xs,
                 end: AppSpacing.sm,
                 bottom: AppSpacing.xs,
@@ -1336,8 +1346,8 @@ class _TaskHierarchyGuide extends StatelessWidget {
   });
 
   static const double _lineWidth = 1.5;
-  static const double _leadingCenterY = AppSpacing.xs + 24;
-  static const double _checkboxCenterOffset = 24;
+  static const double _leadingCenterY =
+      AppSpacing.xs + (_taskCheckboxTapSize / 2);
 
   final int depth;
   final bool isLastSibling;
@@ -1370,6 +1380,10 @@ class _TaskHierarchyGuide extends StatelessWidget {
     final currentLevel = depth - 1;
     final currentX = _guideXForLevel(currentLevel);
     final childCenterX = _checkboxCenterXForDepth(depth);
+    final horizontalEndX =
+        childCenterX -
+        _taskCheckboxVisualRadius -
+        _taskHierarchyHorizontalEndGap;
     children.addAll([
       PositionedDirectional(
         start: currentX - (_lineWidth / 2),
@@ -1394,7 +1408,7 @@ class _TaskHierarchyGuide extends StatelessWidget {
         child: _GuideLine(
           key: horizontalKey,
           color: color,
-          width: childCenterX - currentX,
+          width: math.max(0, horizontalEndX - currentX),
           height: _lineWidth,
         ),
       ),
@@ -1411,11 +1425,11 @@ class _TaskHierarchyGuide extends StatelessWidget {
 
   double _checkboxCenterXForDepth(int targetDepth) {
     if (targetDepth == 0) {
-      return rootLeadingStart + _checkboxCenterOffset;
+      return rootLeadingStart + _taskCheckboxVisualCenterOffset;
     }
-    return AppSpacing.md +
-        (targetDepth * AppSpacing.lg) +
-        _checkboxCenterOffset;
+    return rootLeadingStart +
+        (targetDepth * _taskRowDepthIndent) +
+        _taskCheckboxVisualCenterOffset;
   }
 }
 
@@ -1469,7 +1483,7 @@ class AppTaskCheckbox extends StatelessWidget {
       curve: isDone ? Curves.easeOutBack : Curves.easeOutCubic,
       builder: (context, progress, child) {
         return CustomPaint(
-          size: const Size.square(22),
+          size: const Size.square(_taskCheckboxVisualSize),
           painter: _TaskCheckboxPainter(
             progress: progress,
             checkedColor: colorScheme.primary,
@@ -1480,19 +1494,20 @@ class AppTaskCheckbox extends StatelessWidget {
     );
     final control = SizedBox(
       key: checkboxKey,
-      width: 48,
-      height: 48,
-      child: Center(
-        child: onToggleDone == null
-            ? mark
-            : InkResponse(
-                onTap: onToggleDone,
-                radius: 24,
-                containedInkWell: true,
-                customBorder: const CircleBorder(),
-                child: Center(child: mark),
+      width: _taskCheckboxTapSize,
+      height: _taskCheckboxTapSize,
+      child: onToggleDone == null
+          ? Align(alignment: AlignmentDirectional.centerStart, child: mark)
+          : InkResponse(
+              onTap: onToggleDone,
+              radius: _taskCheckboxTapSize / 2,
+              containedInkWell: true,
+              customBorder: const CircleBorder(),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: mark,
               ),
-      ),
+            ),
     );
     final label = tooltip;
     final semanticControl = Semantics(

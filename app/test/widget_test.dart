@@ -11,6 +11,10 @@ import 'package:todori/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
 
+const _taskCheckboxVisualCenterOffset = 11.0;
+const _taskCheckboxVisualRadius = 11.0;
+const _taskHierarchyHorizontalEndGap = 4.0;
+
 Future<FakeBridgeService> _pumpAppWithSeedData(
   WidgetTester tester, {
   String listName = 'Inbox',
@@ -220,7 +224,7 @@ void main() {
         title: 'Inbox due today',
         dueAt: today,
       );
-      await fake.createTask(
+      final workOverdue = await fake.createTask(
         listId: work.id,
         title: 'Work overdue',
         dueAt: today - const Duration(days: 1).inMilliseconds,
@@ -265,6 +269,12 @@ void main() {
       expect(
         find.byKey(ValueKey('task-drop-target-${inboxDueToday.id}')),
         findsNothing,
+      );
+      expect(
+        tester
+            .getRect(find.byKey(ValueKey('task-done-${workOverdue.id}')))
+            .left,
+        closeTo(tester.getTopLeft(find.text('Overdue')).dx, 0.75),
       );
 
       await tester.tap(find.byTooltip('Sort tasks'));
@@ -2114,28 +2124,55 @@ void main() {
     final grandchildVertical = tester.getRect(
       find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
     );
-    final parentCheckboxCenter = tester.getCenter(
+    final parentCheckbox = tester.getRect(
       find.byKey(ValueKey('task-done-${parent.id}')),
     );
-    final branchCheckboxCenter = tester.getCenter(
+    final branchCheckbox = tester.getRect(
       find.byKey(ValueKey('task-done-${branchChild.id}')),
     );
-    final grandchildCheckboxCenter = tester.getCenter(
+    final grandchildCheckbox = tester.getRect(
       find.byKey(ValueKey('task-done-${grandchild.id}')),
     );
-    final lastCheckboxCenter = tester.getCenter(
+    final lastCheckbox = tester.getRect(
       find.byKey(ValueKey('task-done-${lastChild.id}')),
     );
-    expect(branchVertical.center.dx, closeTo(parentCheckboxCenter.dx, 0.75));
-    expect(branchHorizontal.right, closeTo(branchCheckboxCenter.dx, 0.75));
-    expect(branchHorizontal.center.dy, closeTo(branchCheckboxCenter.dy, 0.75));
+    final parentCheckboxVisualCenterX =
+        parentCheckbox.left + _taskCheckboxVisualCenterOffset;
+    final branchCheckboxVisualCenter = Offset(
+      branchCheckbox.left + _taskCheckboxVisualCenterOffset,
+      branchCheckbox.center.dy,
+    );
+    final grandchildCheckboxVisualCenterX =
+        grandchildCheckbox.left + _taskCheckboxVisualCenterOffset;
+    final lastCheckboxVisualCenterX =
+        lastCheckbox.left + _taskCheckboxVisualCenterOffset;
+    expect(
+      branchVertical.center.dx,
+      closeTo(parentCheckboxVisualCenterX, 0.75),
+    );
+    expect(
+      branchHorizontal.right,
+      closeTo(
+        branchCheckboxVisualCenter.dx -
+            _taskCheckboxVisualRadius -
+            _taskHierarchyHorizontalEndGap,
+        0.75,
+      ),
+    );
+    expect(
+      branchHorizontal.center.dy,
+      closeTo(branchCheckboxVisualCenter.dy, 0.75),
+    );
     expect(
       grandchildVertical.center.dx,
-      closeTo(branchCheckboxCenter.dx, 0.75),
+      closeTo(branchCheckboxVisualCenter.dx, 0.75),
     );
-    expect(branchCheckboxCenter.dx, closeTo(lastCheckboxCenter.dx, 0.75));
     expect(
-      grandchildCheckboxCenter.dx - branchCheckboxCenter.dx,
+      branchCheckboxVisualCenter.dx,
+      closeTo(lastCheckboxVisualCenterX, 0.75),
+    );
+    expect(
+      grandchildCheckboxVisualCenterX - branchCheckboxVisualCenter.dx,
       closeTo(24, 0.75),
     );
   });
