@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -76,6 +77,177 @@ class TaskMetadata extends StatelessWidget {
             emphasisColor: item.emphasisColor,
           ),
       ],
+    );
+  }
+}
+
+class QuickAddBar extends StatefulWidget {
+  const QuickAddBar({
+    super.key,
+    required this.hintText,
+    required this.submitTooltip,
+    required this.textFieldSemanticLabel,
+    required this.errorMessage,
+    required this.onSubmit,
+  });
+
+  final String hintText;
+  final String submitTooltip;
+  final String textFieldSemanticLabel;
+  final String errorMessage;
+  final Future<void> Function(String title) onSubmit;
+
+  @override
+  State<QuickAddBar> createState() => _QuickAddBarState();
+}
+
+class _QuickAddBarState extends State<QuickAddBar> {
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  bool _submitting = false;
+
+  bool get _hasComposingRange {
+    final range = _controller.value.composing;
+    return range.isValid && !range.isCollapsed;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit({bool fromSubmitted = false}) async {
+    if (_submitting) {
+      return;
+    }
+    if (fromSubmitted && _hasComposingRange) {
+      return;
+    }
+    final title = _controller.text.trim();
+    if (title.isEmpty) {
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      await widget.onSubmit(title);
+      if (!mounted) {
+        return;
+      }
+      _controller.clear();
+      _focusNode.requestFocus();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(widget.errorMessage)));
+      _focusNode.requestFocus();
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: ColoredBox(
+          color: colorScheme.surfaceContainer,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.md,
+              AppSpacing.sm,
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+              child: Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(
+                  AppSpacing.md,
+                  AppSpacing.xs,
+                  AppSpacing.xs,
+                  AppSpacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.add_circle_outline,
+                      size: 20,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Semantics(
+                        textField: true,
+                        label: widget.textFieldSemanticLabel,
+                        child: TextField(
+                          key: const ValueKey('quick-add-field'),
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          readOnly: _submitting,
+                          minLines: 1,
+                          maxLines: 3,
+                          textInputAction: TextInputAction.done,
+                          onEditingComplete: () {},
+                          decoration: InputDecoration(
+                            hintText: widget.hintText,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            filled: false,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          onSubmitted: (_) =>
+                              unawaited(_submit(fromSubmitted: true)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Tooltip(
+                      message: widget.submitTooltip,
+                      child: IconButton(
+                        key: const ValueKey('quick-add-submit'),
+                        onPressed: _submitting
+                            ? null
+                            : () => unawaited(_submit()),
+                        icon: _submitting
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: colorScheme.primary,
+                                ),
+                              )
+                            : const Icon(Icons.arrow_upward_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

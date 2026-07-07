@@ -136,58 +136,22 @@ class TasksScreen extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: isHome
-          ? null
-          : FloatingActionButton(
-              onPressed: () => _createTask(context, ref),
-              tooltip: l10n.newTaskTooltip,
-              child: const Icon(Icons.add),
-            ),
-      bottomNavigationBar: isHome
-          ? SafeArea(
-              top: false,
-              child: ColoredBox(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    AppSpacing.lg,
-                    AppSpacing.md,
-                    AppSpacing.md,
-                  ),
-                  child: Align(
-                    heightFactor: 1,
-                    child: FloatingActionButton.extended(
-                      onPressed: () => _createTask(context, ref),
-                      tooltip: l10n.newTaskTooltip,
-                      icon: const Icon(Icons.add),
-                      label: Text(l10n.addTaskButton),
-                    ),
-                  ),
-                ),
-              ),
-            )
-          : null,
+      bottomNavigationBar: QuickAddBar(
+        hintText: l10n.quickAddHint,
+        submitTooltip: l10n.quickAddSubmitTooltip,
+        textFieldSemanticLabel: l10n.quickAddTextFieldSemantics,
+        errorMessage: l10n.quickAddCreateError,
+        onSubmit: (title) => _createTask(ref, title),
+      ),
     );
   }
 
-  Future<void> _createTask(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
-    final title = await showAppTextInputDialog(
-      context: context,
-      title: l10n.newTaskTitle,
-      label: l10n.titleLabel,
-      cancelLabel: l10n.cancelButton,
-      submitLabel: l10n.createButton,
-    );
-    if (title == null || title.trim().isEmpty) {
-      return;
-    }
+  Future<void> _createTask(WidgetRef ref, String title) async {
     if (isTodaySmartView) {
-      await ref.read(homeTasksProvider.notifier).createTask(title.trim());
+      await ref.read(homeTasksProvider.notifier).createTask(title);
       return;
     }
-    await ref.read(tasksProvider(listId).notifier).createTask(title.trim());
+    await ref.read(tasksProvider(listId).notifier).createTask(title);
   }
 
   Future<void> _completeTask(

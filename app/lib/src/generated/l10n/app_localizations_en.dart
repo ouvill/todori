@@ -165,6 +165,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addTaskButton => 'Add task';
 
   @override
+  String get quickAddHint => 'Add task';
+
+  @override
+  String get quickAddSubmitTooltip => 'Add task';
+
+  @override
+  String get quickAddTextFieldSemantics => 'Quick add task title';
+
+  @override
+  String get quickAddCreateError => 'Could not add the task.';
+
+  @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';
 
   @override

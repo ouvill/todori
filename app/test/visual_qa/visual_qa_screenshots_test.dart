@@ -93,6 +93,44 @@ void main() {
     await _screenshot(tester, 'home_tasks_empty');
   });
 
+  testWidgets('quick_add_home_normal: Home quick add bar', (tester) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await _screenshot(tester, 'quick_add_home_normal');
+  });
+
+  testWidgets('quick_add_home_inputting: Home quick add with keyboard inset', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await _focusQuickAddWithKeyboard(tester, 'Capture while scanning Home');
+    await _screenshot(tester, 'quick_add_home_inputting');
+  });
+
+  testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'quick_add_list_normal');
+  });
+
+  testWidgets('quick_add_list_inputting: list quick add with keyboard inset', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox').last);
+    await tester.pumpAndSettle();
+    await _focusQuickAddWithKeyboard(tester, 'Capture in this list');
+    await _screenshot(tester, 'quick_add_list_inputting');
+  });
+
   testWidgets('wont_do_row: closed section with a wont_do row', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
@@ -598,10 +636,16 @@ Future<void> _seedArchivedListData(WidgetTester tester) async {
 /// because the home task list may not have built (and thus cannot find) an
 /// item that is entirely below the fold yet.
 Future<void> _openTask(WidgetTester tester, String title) async {
-  final finder = find.text(title);
-  await tester.scrollUntilVisible(finder, 200);
-  await tester.pumpAndSettle();
-  await tester.tap(finder);
+  final visibleTitle = find.text(title).hitTestable().first;
+  for (
+    var attempts = 0;
+    attempts < 6 && !tester.any(visibleTitle);
+    attempts++
+  ) {
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -220));
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(visibleTitle);
   await tester.pumpAndSettle();
 }
 
@@ -615,6 +659,19 @@ void _setMobileViewport(WidgetTester tester) {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+Future<void> _focusQuickAddWithKeyboard(
+  WidgetTester tester,
+  String text,
+) async {
+  final keyboardInset = 300 * tester.view.devicePixelRatio;
+  tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
+  addTearDown(tester.view.resetViewInsets);
+  final field = find.byKey(const ValueKey('quick-add-field'));
+  await tester.tap(field);
+  await tester.enterText(field, text);
+  await tester.pumpAndSettle();
 }
 
 void _useDarkPlatformBrightness(WidgetTester tester) {

@@ -1,5 +1,8 @@
 # task-52: 下部常設クイック追加バー
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07 Home改善裁定では、画面下中央のAdd task pillと入力ダイアログを廃止し、下部常設のクイック追加バーへ置き換えることが決まった。Homeでは入力確定で既定Inboxへ今日期日のタスクを即作成する。通常リスト画面では、そのリストへ期日なしで作成する。
@@ -143,3 +146,128 @@ task-42ではインライン編集でIME composingを考慮した保存制御が
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-07
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md` セクション3
+- `docs/tasks/task-42-detail-inline-edit.md`
+- `docs/tasks/task-51-home-restructure.md`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/ui/dialogs.dart`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+### 作業前退避
+
+- `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+- 退避先: `app/build/visual_qa_before/`
+
+### 実装結果
+
+- `app/lib/src/ui/task_components.dart` に `QuickAddBar` を追加した。
+- `QuickAddBar` は `TextField`、左側の追加アイコン、右側の送信 `IconButton`、tooltip、semantics、作成失敗時の `SnackBar` を持つ。
+- `QuickAddBar` は `Scaffold.bottomNavigationBar` として `TasksScreen` に配置した。
+- `QuickAddBar` は `SafeArea(top: false)` と `MediaQuery.viewInsetsOf(context).bottom` を使う `AnimatedPadding` で keyboard inset に追従する。
+- `TasksScreen` の Home bottom Add task pill と通常リスト FAB を撤去した。
+- `TasksScreen._createTask` から `showAppTextInputDialog` 経由の新規タスク作成を撤去した。
+- Homeでは `homeTasksProvider.notifier.createTask(title)` を呼び、既存 provider 経路で `isDefault == true` の既定Inboxへ `dueAt = todayStartMs` で作成する。
+- 通常リストでは `tasksProvider(listId).notifier.createTask(title)` を呼び、現在の `listId` へ `dueAt == null` で作成する。
+- アーカイブ済みリスト画面では、既存FABと同じく作成を許可する挙動を維持した。
+- trim後の空文字は `QuickAddBar` 内で無視する。
+- 作成成功後は controller を clear し、同じ `FocusNode` へ `requestFocus()` する。
+- `TextField.onEditingComplete` を no-op にし、`onSubmitted` 時に `TextEditingValue.composing` が有効かつ非collapsedの場合は作成しない。
+- 作成失敗時は `quickAddCreateError` を `SnackBar` に表示し、入力値を保持してフォーカスを戻す。
+
+### l10n
+
+- 追加キー:
+  - `quickAddHint`
+  - `quickAddSubmitTooltip`
+  - `quickAddTextFieldSemantics`
+  - `quickAddCreateError`
+- `flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` を更新した。
+
+### テスト
+
+- 更新: `home add task creates in default inbox with today due date`
+  - Homeのクイック追加バーから既定Inboxへ今日期日で作成されること、HomeのFAB/ダイアログが表示されないことを確認。
+- 追加: `list quick add creates in current list without due date`
+  - 通常リストのクイック追加バーから現在リストへ期日なしで作成されること、通常リストのFAB/ダイアログが表示されないことを確認。
+- 追加: `quick add ignores blanks and keeps focus for consecutive adds`
+  - 空文字無視、作成後の入力欄clear、フォーカス維持、連続追加を確認。
+- 追加: `quick add submit ignores active composing range`
+  - composing中の `TextInputAction.done` でタスクが作成されないことを確認。
+- 更新: `default inbox empty tasks and quick add survive narrow Dynamic Type`
+  - narrow viewport / Dynamic Typeでクイック追加バーが表示され、入力開始しても既存作成ダイアログが表示されないことを確認。
+- 更新: visual QA `_openTask`
+  - 常設バー追加後も同名Text重複で既存スクショが失敗しないよう、hit-test可能なタイトルを開く実装に変更。
+- 追加: visual QA `quick_add_home_normal` / `quick_add_home_inputting` / `quick_add_list_normal` / `quick_add_list_inputting`
+  - Home/通常リストの通常状態と keyboard inset 入力中状態をPNG出力する。
+
+### visual QA
+
+- before:
+  - `app/build/visual_qa_before/home_tasks.png`
+  - `app/build/visual_qa_before/wont_do_row.png`
+- after:
+  - `app/build/visual_qa/quick_add_home_normal.png`
+  - `app/build/visual_qa/quick_add_home_inputting.png`
+  - `app/build/visual_qa/quick_add_list_normal.png`
+  - `app/build/visual_qa/quick_add_list_inputting.png`
+  - `app/build/visual_qa/home_tasks.png`
+  - `app/build/visual_qa/wont_do_row.png`
+- 目視確認:
+  - `assets/brand/explorations/home-20260707/home_a_ticktick.png` の下部バーは、左追加アイコン、中央入力、右追加/送信操作、下部常設の丸いバー構造だった。
+  - `quick_add_home_normal.png` / `quick_add_list_normal.png` は、下部常設の丸い入力バー、左追加アイコン、右送信アイコンを表示している。
+  - `quick_add_home_inputting.png` / `quick_add_list_inputting.png` は、keyboard inset相当でバーが上がり、入力欄と表示行が重なっていない。
+
+### BACKLOG確認
+
+- 自然言語日付解析は `docs/tasks/BACKLOG.md` の優先度付きバックログ #4 に将来枠として存在することを確認した。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（79 passed, 1 skipped）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（34 passed）
+- `git diff --check`: exit 0
+
+### 変更ファイル一覧
+
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/lib/src/generated/l10n/app_localizations.dart`
+- `app/lib/src/generated/l10n/app_localizations_en.dart`
+- `app/lib/src/generated/l10n/app_localizations_ja.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-52-quick-add-bar.md`
+
+### 未解決事項
+
+- なし

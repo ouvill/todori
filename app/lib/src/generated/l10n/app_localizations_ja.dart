@@ -164,6 +164,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get addTaskButton => 'タスクを追加';
 
   @override
+  String get quickAddHint => 'タスクを追加';
+
+  @override
+  String get quickAddSubmitTooltip => 'タスクを追加';
+
+  @override
+  String get quickAddTextFieldSemantics => 'クイック追加するタスクのタイトル';
+
+  @override
+  String get quickAddCreateError => 'タスクを追加できませんでした。';
+
+  @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';
 
   @override

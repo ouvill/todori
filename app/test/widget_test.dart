@@ -256,10 +256,16 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add task'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Today capture');
-    await tester.tap(find.text('Create'));
+    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.text('New task'), findsNothing);
+    expect(find.text('Create'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('quick-add-field')));
+    await tester.enterText(
+      find.byKey(const ValueKey('quick-add-field')),
+      'Today capture',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     final defaultList = (await fake.getLists()).singleWhere(
@@ -270,6 +276,114 @@ void main() {
     expect(tasks.single.dueAt, _todayStartMs());
     expect(find.text('Today capture'), findsOneWidget);
     expect(find.text('Inbox'), findsOneWidget);
+  });
+
+  testWidgets('list quick add creates in current list without due date', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createList(name: 'Work', sortOrder: 'a1');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Work');
+
+    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.text('New task'), findsNothing);
+    expect(find.text('Create'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('quick-add-field')),
+      'List capture',
+    );
+    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
+    await tester.pumpAndSettle();
+
+    final work = (await fake.getLists()).singleWhere(
+      (list) => list.name == 'Work',
+    );
+    final tasks = await fake.getTasks(listId: work.id);
+    expect(tasks.single.title, 'List capture');
+    expect(tasks.single.dueAt, isNull);
+    expect(find.text('List capture'), findsOneWidget);
+  });
+
+  testWidgets('quick add ignores blanks and keeps focus for consecutive adds', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    final fieldFinder = find.byKey(const ValueKey('quick-add-field'));
+    await tester.tap(fieldFinder);
+    await tester.enterText(fieldFinder, '   ');
+    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
+    await tester.pumpAndSettle();
+
+    final defaultList = (await fake.getLists()).singleWhere(
+      (list) => list.isDefault,
+    );
+    expect(await fake.getTasks(listId: defaultList.id), isEmpty);
+
+    await tester.enterText(fieldFinder, 'First capture');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    var field = tester.widget<TextField>(fieldFinder);
+    expect(field.controller!.text, isEmpty);
+    expect(field.focusNode!.hasFocus, isTrue);
+
+    await tester.enterText(fieldFinder, 'Second capture');
+    await tester.tap(find.byKey(const ValueKey('quick-add-submit')));
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: defaultList.id);
+    expect(tasks.map((task) => task.title), [
+      'First capture',
+      'Second capture',
+    ]);
+    field = tester.widget<TextField>(fieldFinder);
+    expect(field.controller!.text, isEmpty);
+    expect(field.focusNode!.hasFocus, isTrue);
+  });
+
+  testWidgets('quick add submit ignores active composing range', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    final fieldFinder = find.byKey(const ValueKey('quick-add-field'));
+    await tester.tap(fieldFinder);
+    await tester.pump();
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '変換中',
+        selection: TextSelection.collapsed(offset: 3),
+        composing: TextRange(start: 0, end: 3),
+      ),
+    );
+    await tester.pump();
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    final defaultList = (await fake.getLists()).singleWhere(
+      (list) => list.isDefault,
+    );
+    expect(await fake.getTasks(listId: defaultList.id), isEmpty);
   });
 
   testWidgets('lists screen puts Home first and Home row returns home', (
@@ -399,10 +513,7 @@ void main() {
     expect(find.text('Local protection'), findsNothing);
     expect(tester.takeException(), isNull);
 
-    // Scroll by hunting for the target rather than a fixed pixel delta: the
-    // compact row layout (task-30) lets a very long wrapped title occupy
-    // more vertical space than a fixed drag distance can predict.
-    await tester.scrollUntilVisible(find.textContaining('Second task'), 220);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
     await tester.pumpAndSettle();
     expect(find.textContaining('Second task'), findsOneWidget);
     final semantics = tester.ensureSemantics();
@@ -419,7 +530,7 @@ void main() {
   });
 
   testWidgets(
-    'default inbox empty tasks and create dialog survive narrow Dynamic Type',
+    'default inbox empty tasks and quick add survive narrow Dynamic Type',
     (tester) async {
       _useNarrowDynamicTypeView(tester);
       final fake = FakeBridgeService();
@@ -432,15 +543,17 @@ void main() {
 
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Add task'), findsOneWidget);
+      expect(find.byKey(const ValueKey('quick-add-field')), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
       expect(tester.takeException(), isNull);
 
       await tester.ensureVisible(find.text('Add task'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Add task'));
+      await tester.tap(find.byKey(const ValueKey('quick-add-field')));
       await tester.pumpAndSettle();
 
-      expect(find.text('New task'), findsOneWidget);
-      expect(find.text('Create'), findsOneWidget);
+      expect(find.text('New task'), findsNothing);
+      expect(find.text('Create'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -579,7 +692,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Personal');
+      await tester.enterText(find.byType(TextField).last, 'Personal');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
@@ -602,7 +715,7 @@ void main() {
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
 
-    final textField = tester.widget<TextField>(find.byType(TextField));
+    final textField = tester.widget<TextField>(find.byType(TextField).last);
     expect(textField.controller?.text, longListName);
     expect(find.text('Rename list'), findsOneWidget);
     expect(tester.takeException(), isNull);

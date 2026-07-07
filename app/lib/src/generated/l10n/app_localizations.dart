@@ -374,6 +374,30 @@ abstract class AppLocalizations {
   /// **'Add task'**
   String get addTaskButton;
 
+  /// No description provided for @quickAddHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add task'**
+  String get quickAddHint;
+
+  /// No description provided for @quickAddSubmitTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add task'**
+  String get quickAddSubmitTooltip;
+
+  /// No description provided for @quickAddTextFieldSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick add task title'**
+  String get quickAddTextFieldSemantics;
+
+  /// No description provided for @quickAddCreateError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not add the task.'**
+  String get quickAddCreateError;
+
   /// No description provided for @tasksEmpty.
   ///
   /// In en, this message translates to:
