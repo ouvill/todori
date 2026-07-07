@@ -316,6 +316,15 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
     })
 }
 
+pub fn search_tasks(query: String) -> Result<Vec<TaskDto>, String> {
+    with_task_repository(|repository| {
+        repository
+            .search_tasks(&query)
+            .map_err(|error| error.to_string())
+            .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
 pub fn get_home_tasks(
     today_start_ms: i64,
     tomorrow_start_ms: i64,

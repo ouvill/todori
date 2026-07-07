@@ -79,6 +79,7 @@
 | task-59 | 完了 | [task-59-check-completion-motion.md](./task-59-check-completion-motion.md) | チェック完了モーション。チェック線path描画、左から右へ伸びる取り消し線、チェック起点の局所パーティクル、Reduce Motion分岐を実装する | task-56の完了状態に依存。出典: 2026-07-08人間裁定（チェック完了モーション） |
 | task-60 | 完了 | [task-60-motion-refinement.md](./task-60-motion-refinement.md) | チェック完了モーション受け入れFBの精度改善。チェック円/ヒット領域/Ink同心化、取り消し線描画統一、Home単独表示行の完了後遅延退場を行う | task-59の完了状態に依存。出典: 2026-07-08モーション体感受け入れFB |
 | task-61 | 完了 | [task-61-locale-date-format.md](./task-61-locale-date-format.md) | 日付・時刻表記のロケール準拠リファクタ。固定/手組み日付整形をskeleton APIへ揃え、Home見出し・Created at・期日表示の英日自然表記を検証する | task-60までの完了状態に依存。出典: 2026-07-06人間指示（`docs/design/ui-spec.md`） |
+| task-62 | 完了 | [task-62-fts5-wiring.md](./task-62-fts5-wiring.md) | FTS5全文検索の配線。v4マイグレーションで `tasks_fts` 同期トリガー、storage/bridge検索API、英日検索テストを実装する | task-02・task-36の成果物に依存。M1-02残課題 / BACKLOG上位 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

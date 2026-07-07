@@ -80,6 +80,9 @@ Future<TaskDto> reorderTask({
 Future<List<TaskDto>> getTasks({required String listId}) =>
     RustLib.instance.api.crateApiGetTasks(listId: listId);
 
+Future<List<TaskDto>> searchTasks({required String query}) =>
+    RustLib.instance.api.crateApiSearchTasks(query: query);
+
 Future<List<HomeTaskDto>> getHomeTasks({
   required PlatformInt64 todayStartMs,
   required PlatformInt64 tomorrowStartMs,

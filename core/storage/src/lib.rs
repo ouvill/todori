@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 3;
+pub const LATEST_SCHEMA_VERSION: i32 = 4;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -23,6 +23,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 3,
         name: "add_lists_is_default",
         apply: add_lists_is_default,
+    },
+    Migration {
+        target_version: 4,
+        name: "rebuild_tasks_fts_triggers",
+        apply: rebuild_tasks_fts_triggers,
     },
 ];
 
@@ -118,6 +123,7 @@ pub trait TaskRepository {
         today_start_ms: i64,
         tomorrow_start_ms: i64,
     ) -> Result<Vec<HomeTask>, StorageError>;
+    fn search_tasks(&self, query: &str) -> Result<Vec<Task>, StorageError>;
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
 }
@@ -274,6 +280,52 @@ fn add_lists_is_default(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
          CREATE UNIQUE INDEX idx_lists_single_default
              ON lists(is_default)
              WHERE is_default = 1;",
+    )
+}
+
+fn rebuild_tasks_fts_triggers(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "DROP TRIGGER IF EXISTS tasks_fts_ai;
+         DROP TRIGGER IF EXISTS tasks_fts_au;
+         DROP TRIGGER IF EXISTS tasks_fts_au_delete;
+         DROP TRIGGER IF EXISTS tasks_fts_au_insert;
+         DROP TRIGGER IF EXISTS tasks_fts_ad;
+         DROP TABLE IF EXISTS tasks_fts;
+
+         CREATE VIRTUAL TABLE tasks_fts USING fts5(
+             task_id UNINDEXED,
+             title,
+             note,
+             tokenize = 'unicode61'
+         );
+
+         INSERT INTO tasks_fts(task_id, title, note)
+         SELECT id, title, note
+         FROM tasks
+         WHERE deleted_at IS NULL;
+
+         CREATE TRIGGER tasks_fts_ai
+         AFTER INSERT ON tasks
+         WHEN NEW.deleted_at IS NULL
+         BEGIN
+             INSERT INTO tasks_fts(task_id, title, note)
+             VALUES (NEW.id, NEW.title, NEW.note);
+         END;
+
+         CREATE TRIGGER tasks_fts_au
+         AFTER UPDATE OF id, title, note, deleted_at ON tasks
+         BEGIN
+             DELETE FROM tasks_fts WHERE task_id = OLD.id;
+             INSERT INTO tasks_fts(task_id, title, note)
+             SELECT NEW.id, NEW.title, NEW.note
+             WHERE NEW.deleted_at IS NULL;
+         END;
+
+         CREATE TRIGGER tasks_fts_ad
+         AFTER DELETE ON tasks
+         BEGIN
+             DELETE FROM tasks_fts WHERE task_id = OLD.id;
+         END;",
     )
 }
 
@@ -647,6 +699,32 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(tasks)
     }
 
+    fn search_tasks(&self, query: &str) -> Result<Vec<Task>, StorageError> {
+        let Some(match_query) = build_fts_prefix_query(query) else {
+            return Ok(Vec::new());
+        };
+
+        let mut statement = self.connection.prepare(
+            "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
+                    tasks.note, tasks.status, tasks.priority, tasks.due_at,
+                    tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
+                    tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
+                    tasks.assignee, tasks.created_at, tasks.updated_at
+             FROM tasks_fts
+             INNER JOIN tasks ON tasks.id = tasks_fts.task_id
+             WHERE tasks_fts MATCH ?1
+               AND tasks.deleted_at IS NULL
+             ORDER BY bm25(tasks_fts) ASC,
+                      tasks.updated_at DESC,
+                      tasks.id ASC",
+        )?;
+        let tasks = statement
+            .query_map([match_query], row_to_task)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(tasks)
+    }
+
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError> {
         count_task_descendants_on(&self.connection, task_id)
     }
@@ -706,6 +784,16 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
     }
 
     Ok(())
+}
+
+fn build_fts_prefix_query(query: &str) -> Option<String> {
+    let terms = query
+        .split_whitespace()
+        .filter(|term| !term.is_empty())
+        .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
+        .collect::<Vec<_>>();
+
+    (!terms.is_empty()).then(|| terms.join(" AND "))
 }
 
 fn count_task_descendants_on(
@@ -1213,6 +1301,15 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v3_database(path: &Path, key: &[u8; 32]) {
+        create_v2_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_lists_is_default(&transaction).unwrap();
+        set_user_version(&transaction, 3).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -1386,22 +1483,190 @@ mod tests {
     fn fts5_search_matches_title_and_note() {
         let file = NamedTempFile::new().unwrap();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let mut task = sample_task();
+        task.title = "Plan Kyoto trip".to_string();
+        task.note = "Book shinkansen tickets".to_string();
 
-        connection
-            .execute(
-                "INSERT INTO tasks_fts(rowid, title, note) VALUES (?1, ?2, ?3)",
-                params![1_i64, "Plan Kyoto trip", "Book shinkansen tickets"],
-            )
-            .unwrap();
-        let hits: i64 = connection
-            .query_row(
-                "SELECT count(*) FROM tasks_fts WHERE tasks_fts MATCH ?1",
-                ["shinkansen"],
-                |row| row.get(0),
-            )
-            .unwrap();
+        repository.insert(task.clone()).unwrap();
 
-        assert_eq!(hits, 1);
+        assert_eq!(
+            repository.search_tasks("kyoto").unwrap(),
+            vec![task.clone()]
+        );
+        assert_eq!(repository.search_tasks("shinkansen").unwrap(), vec![task]);
+        assert!(repository.search_tasks("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn fts5_search_tracks_title_note_updates_and_deleted_at() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let mut task = sample_task();
+        task.title = "Draft itinerary".to_string();
+        task.note = "Reserve hotel".to_string();
+        repository.insert(task.clone()).unwrap();
+
+        assert_eq!(
+            repository.search_tasks("hotel").unwrap(),
+            vec![task.clone()]
+        );
+
+        let mut updated = task.clone();
+        updated.title = "Final packing list".to_string();
+        updated.note = "Bring passport".to_string();
+        updated.updated_at += 1;
+        repository.update(updated.clone()).unwrap();
+
+        assert!(repository.search_tasks("hotel").unwrap().is_empty());
+        assert_eq!(
+            repository.search_tasks("passport").unwrap(),
+            vec![updated.clone()]
+        );
+
+        let mut deleted = updated.clone();
+        deleted.deleted_at = Some(updated.updated_at + 1);
+        deleted.updated_at += 1;
+        repository.update(deleted.clone()).unwrap();
+
+        assert!(repository.search_tasks("passport").unwrap().is_empty());
+
+        let mut restored = deleted.clone();
+        restored.deleted_at = None;
+        restored.updated_at += 1;
+        repository.update(restored.clone()).unwrap();
+
+        assert_eq!(repository.search_tasks("passport").unwrap(), vec![restored]);
+    }
+
+    #[test]
+    fn fts5_search_tracks_physical_task_and_list_deletes() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut kept = sample_task();
+        kept.list_id = list.id;
+        kept.title = "Keep searchable".to_string();
+        kept.note = "retained".to_string();
+        kept.sort_order = "a0".to_string();
+        let mut task_deleted_by_subtree = sample_task();
+        task_deleted_by_subtree.list_id = list.id;
+        task_deleted_by_subtree.title = "Delete searchable subtree".to_string();
+        task_deleted_by_subtree.note = "temporary".to_string();
+        task_deleted_by_subtree.sort_order = "a1".to_string();
+        let mut task_deleted_by_list = sample_task();
+        task_deleted_by_list.list_id = list.id;
+        task_deleted_by_list.title = "Delete searchable list".to_string();
+        task_deleted_by_list.note = "temporary".to_string();
+        task_deleted_by_list.sort_order = "a2".to_string();
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(kept.clone()).unwrap();
+            task_repository
+                .insert(task_deleted_by_subtree.clone())
+                .unwrap();
+            task_repository
+                .insert(task_deleted_by_list.clone())
+                .unwrap();
+            assert_eq!(task_repository.search_tasks("searchable").unwrap().len(), 3);
+
+            task_repository
+                .delete_subtree(task_deleted_by_subtree.id)
+                .unwrap();
+            let titles = task_repository
+                .search_tasks("searchable")
+                .unwrap()
+                .into_iter()
+                .map(|task| task.title)
+                .collect::<Vec<_>>();
+            let mut titles = titles;
+            titles.sort();
+            assert_eq!(titles, vec!["Delete searchable list", "Keep searchable"]);
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut list_repository = SqliteListRepository::new(connection);
+        list_repository.delete_with_tasks(list.id).unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let task_repository = SqliteTaskRepository::new(connection);
+        assert!(task_repository
+            .search_tasks("searchable")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn fts5_search_supports_english_and_japanese_prefix_queries() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let mut english = sample_task();
+        english.title = "Buy milk".to_string();
+        english.note = "Organic whole milk".to_string();
+        english.updated_at = 1_799_000_000_000;
+        let mut japanese = sample_task();
+        japanese.title = "牛乳を買う".to_string();
+        japanese.note = "明日の朝".to_string();
+        japanese.updated_at = 1_799_000_001_000;
+        repository.insert(english.clone()).unwrap();
+        repository.insert(japanese.clone()).unwrap();
+
+        assert_eq!(repository.search_tasks("milk").unwrap(), vec![english]);
+        assert_eq!(
+            repository.search_tasks("牛乳").unwrap(),
+            vec![japanese.clone()]
+        );
+        assert_eq!(repository.search_tasks("明日").unwrap(), vec![japanese]);
+        assert!(repository.search_tasks("乳").unwrap().is_empty());
+    }
+
+    #[test]
+    fn v3_database_migrates_to_v4_and_backfills_tasks_fts() {
+        let file = NamedTempFile::new().unwrap();
+        create_v3_database(file.path(), &KEY);
+        let mut task = sample_task();
+        task.title = "Legacy searchable task".to_string();
+        task.note = "Backfill target".to_string();
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteTaskRepository::new(connection);
+
+        assert_eq!(
+            read_user_version(repository.connection()).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(repository.search_tasks("backfill").unwrap(), vec![task]);
+    }
+
+    #[test]
+    fn fts5_search_works_after_reopening_encrypted_database() {
+        let file = NamedTempFile::new().unwrap();
+        let mut task = sample_task();
+        task.title = "Encrypted search".to_string();
+        task.note = "SQLCipher FTS5".to_string();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteTaskRepository::new(connection);
+
+        assert_eq!(repository.search_tasks("sqlcipher").unwrap(), vec![task]);
     }
 
     #[test]
