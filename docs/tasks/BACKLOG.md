@@ -88,12 +88,13 @@
 - **2026-07-08 docs/03編集承認**: プロダクトオーナーが `docs/03_技術仕様書.md` の全面編集を許可した。変更時は外科的差分とし、日付・ADR参照注記を維持する。
 - **FTS5検索の配線完了**: task-62で、v4マイグレーションによる `tasks_fts` 再構築・同期トリガー・storage/bridge検索API・英日検索テストを実装した。検索UIはPhase 3送りのまま。
 - **設定値の永続化機構とF-01 UIモード保存口完了**: task-63で、v5マイグレーションによる `settings` テーブル、storage/bridge/Dart providerの設定読み書きAPI、`ui_mode` 既定値 `simple` helperを実装した。UIモード選択/切替UIはPhase 3送りのまま。
+- **iOS/macOS Keychain DeviceKeyStore指示書化済み（未着手）**: task-64として、Rust側からApple Security frameworkを呼ぶ方式、`AfterFirstUnlockThisDeviceOnly` 相当、既存 `device.key` からのデータロス回避移行、iOS Simulator/macOS dogfooding確認手順を定義した。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | iOS Keychain DeviceKeyStore | 本番用DK保存。`FileDeviceKeyStore` を置き換える | M4 | セキュリティ上の必須事項。Phase 2のMKローカルラップにも影響 |
+| 1 | task-64 iOS/macOS Keychain DeviceKeyStore | 本番用DK保存。Rust側からApple Security frameworkを呼び、`FileDeviceKeyStore` を置き換える | M4-02 | 未着手。セキュリティ上の必須事項。Phase 2のMKローカルラップにも影響 |
 | 2 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | E2EE設計上、通知はサーバーpushではなくローカル通知が正 |
 | 3 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
 | 4 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | Phase 2同期前のローカル性能基準としても使う |
