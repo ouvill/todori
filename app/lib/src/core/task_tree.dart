@@ -14,6 +14,25 @@ class TaskTreeNode {
   final List<TaskTreeNode> children;
 }
 
+class FlattenedTaskTreeNode {
+  const FlattenedTaskTreeNode({
+    required this.node,
+    required this.isLastSibling,
+    required this.ancestorLineContinuations,
+  });
+
+  final TaskTreeNode node;
+  final bool isLastSibling;
+
+  /// One entry per visible ancestor guide column before this row's own
+  /// connector. `true` means that ancestor branch continues below this row.
+  final List<bool> ancestorLineContinuations;
+
+  TaskDto get task => node.task;
+  int get depth => node.depth;
+  List<TaskTreeNode> get children => node.children;
+}
+
 class SubtaskStats {
   const SubtaskStats({required this.doneCount, required this.totalCount});
 
@@ -72,21 +91,78 @@ List<TaskTreeNode> buildTaskTree(
   return roots;
 }
 
-List<TaskTreeNode> flattenTaskTree(List<TaskTreeNode> roots) {
-  final flattened = <TaskTreeNode>[];
+List<FlattenedTaskTreeNode> flattenTaskTree(List<TaskTreeNode> roots) {
+  final flattened = <FlattenedTaskTreeNode>[];
 
-  void visit(TaskTreeNode node) {
-    flattened.add(node);
-    for (final child in node.children) {
-      visit(child);
+  void visit(
+    TaskTreeNode node, {
+    required bool isLastSibling,
+    required List<bool> ancestorLineContinuations,
+  }) {
+    flattened.add(
+      FlattenedTaskTreeNode(
+        node: node,
+        isLastSibling: isLastSibling,
+        ancestorLineContinuations: List.unmodifiable(ancestorLineContinuations),
+      ),
+    );
+    final childAncestorLineContinuations = node.depth == 0
+        ? ancestorLineContinuations
+        : [...ancestorLineContinuations, !isLastSibling];
+    for (var index = 0; index < node.children.length; index += 1) {
+      visit(
+        node.children[index],
+        isLastSibling: index == node.children.length - 1,
+        ancestorLineContinuations: childAncestorLineContinuations,
+      );
     }
   }
 
-  for (final root in roots) {
-    visit(root);
+  for (var index = 0; index < roots.length; index += 1) {
+    visit(
+      roots[index],
+      isLastSibling: index == roots.length - 1,
+      ancestorLineContinuations: const <bool>[],
+    );
   }
 
   return flattened;
+}
+
+List<TaskTreeNode> descendantTaskTreeOf(
+  String taskId,
+  List<TaskDto> tasks, {
+  TaskSortMode sortMode = TaskSortMode.manual,
+}) {
+  final childrenByParent = _childrenByParent(tasks, sortMode: sortMode);
+  final emitted = <String>{taskId};
+
+  TaskTreeNode? buildNode(TaskDto task, int depth, Set<String> path) {
+    if (emitted.contains(task.id) || path.contains(task.id)) {
+      return null;
+    }
+
+    emitted.add(task.id);
+    final nextPath = {...path, task.id};
+    final children = <TaskTreeNode>[];
+    for (final child in childrenByParent[task.id] ?? const <TaskDto>[]) {
+      final childNode = buildNode(child, depth + 1, nextPath);
+      if (childNode != null) {
+        children.add(childNode);
+      }
+    }
+
+    return TaskTreeNode(task: task, depth: depth, children: children);
+  }
+
+  final roots = <TaskTreeNode>[];
+  for (final child in childrenByParent[taskId] ?? const <TaskDto>[]) {
+    final node = buildNode(child, 1, {taskId});
+    if (node != null) {
+      roots.add(node);
+    }
+  }
+  return roots;
 }
 
 List<TaskDto> directSubtasksOf(

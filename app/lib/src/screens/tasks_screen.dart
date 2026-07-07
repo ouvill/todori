@@ -397,7 +397,7 @@ class _TasksBodyState extends State<_TasksBody> {
 
   Widget _buildTaskRow(
     BuildContext context,
-    TaskTreeNode node,
+    FlattenedTaskTreeNode node,
     List<TaskDto> reorderScope, {
     required bool isCompletedSection,
     bool framed = true,
@@ -428,6 +428,11 @@ class _TasksBodyState extends State<_TasksBody> {
         taskPriorityLabel(l10n, task.priority),
       ),
       hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+      hierarchyGuideHorizontalKey: ValueKey(
+        'task-hierarchy-horizontal-${task.id}',
+      ),
+      isLastSibling: node.isLastSibling,
+      ancestorLineContinuations: node.ancestorLineContinuations,
       toggleDoneTooltip: isTaskClosed(task)
           ? l10n.reopenTaskTooltip
           : l10n.completeTaskTooltip,

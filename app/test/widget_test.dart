@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -1026,6 +1027,63 @@ void main() {
     expect(find.byTooltip('Move task up'), findsWidgets);
   });
 
+  testWidgets('hierarchy guides expose L and T branches aligned to checkbox', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(listId: listId, title: 'Parent');
+    final branchChild = await fake.createTask(
+      listId: listId,
+      title: 'Branch child',
+      parentTaskId: parent.id,
+    );
+    final grandchild = await fake.createTask(
+      listId: listId,
+      title: 'Grandchild',
+      parentTaskId: branchChild.id,
+    );
+    final lastChild = await fake.createTask(
+      listId: listId,
+      title: 'Last child',
+      parentTaskId: parent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
+
+    final branchRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${branchChild.id}')),
+    );
+    final grandchildRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${grandchild.id}')),
+    );
+    final lastRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${lastChild.id}')),
+    );
+
+    expect(branchRow.depth, 1);
+    expect(branchRow.isLastSibling, isFalse);
+    expect(branchRow.ancestorLineContinuations, isEmpty);
+    expect(grandchildRow.depth, 2);
+    expect(grandchildRow.isLastSibling, isTrue);
+    expect(grandchildRow.ancestorLineContinuations, [true]);
+    expect(lastRow.depth, 1);
+    expect(lastRow.isLastSibling, isTrue);
+
+    final branchHorizontal = tester.getRect(
+      find.byKey(ValueKey('task-hierarchy-horizontal-${branchChild.id}')),
+    );
+    final branchCheckboxCenter = tester.getCenter(
+      find.byKey(ValueKey('task-done-${branchChild.id}')),
+    );
+    expect(branchHorizontal.center.dy, closeTo(branchCheckboxCenter.dy, 0.75));
+  });
+
   testWidgets('closed parent moves its whole tree to root-based closed count', (
     tester,
   ) async {
@@ -1277,6 +1335,63 @@ void main() {
     },
   );
 
+  testWidgets('detail subtasks show descendant tree with hierarchy guides', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Detail parent',
+    );
+    final branchChild = await fake.createTask(
+      listId: listId,
+      title: 'Detail branch child',
+      parentTaskId: parent.id,
+    );
+    final grandchild = await fake.createTask(
+      listId: listId,
+      title: 'Detail grandchild',
+      parentTaskId: branchChild.id,
+    );
+    final lastChild = await fake.createTask(
+      listId: listId,
+      title: 'Detail last child',
+      parentTaskId: parent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Detail parent'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Detail branch child'), findsOneWidget);
+    expect(find.text('Detail grandchild'), findsOneWidget);
+    expect(find.text('Detail last child'), findsOneWidget);
+
+    final branchRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${branchChild.id}')),
+    );
+    final grandchildRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${grandchild.id}')),
+    );
+    final lastRow = tester.widget<AppTaskRow>(
+      find.byKey(ValueKey('task-row-${lastChild.id}')),
+    );
+    expect(branchRow.depth, 1);
+    expect(branchRow.isLastSibling, isFalse);
+    expect(grandchildRow.depth, 2);
+    expect(grandchildRow.ancestorLineContinuations, [true]);
+    expect(lastRow.isLastSibling, isTrue);
+    expect(
+      find.byKey(ValueKey('task-hierarchy-guide-${grandchild.id}')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'incomplete descendants require confirmation before parent done',
     (tester) async {
@@ -1434,6 +1549,59 @@ void main() {
       find.byKey(ValueKey('task-priority-dot-${active.single.id}')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('inline title and note editing keep text offsets stable', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Stable inline title',
+    );
+    await fake.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: 'Stable inline note',
+      priority: 0,
+      dueAt: null,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stable inline title'));
+    await tester.pumpAndSettle();
+
+    final titleReadOffset = tester.getTopLeft(
+      find.byKey(const ValueKey('task-title-inline-read-text')),
+    );
+    await tester.tap(find.byKey(const ValueKey('task-title-inline-read-text')));
+    await tester.pumpAndSettle();
+    final titleFieldText = find.byKey(
+      const ValueKey('task-title-inline-field'),
+    );
+    expect(titleFieldText, findsOneWidget);
+    final titleEditOffset = tester.getTopLeft(titleFieldText);
+    expect(titleEditOffset.dx, closeTo(titleReadOffset.dx, 0.1));
+    expect(titleEditOffset.dy, closeTo(titleReadOffset.dy, 0.1));
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    final noteReadOffset = tester.getTopLeft(
+      find.byKey(const ValueKey('task-note-inline-read-text')),
+    );
+    await tester.tap(find.byKey(const ValueKey('task-note-inline-read-text')));
+    await tester.pumpAndSettle();
+    final noteFieldText = find.byKey(const ValueKey('task-note-inline-field'));
+    expect(noteFieldText, findsOneWidget);
+    final noteEditOffset = tester.getTopLeft(noteFieldText);
+    expect(noteEditOffset.dx, closeTo(noteReadOffset.dx, 0.1));
+    expect(noteEditOffset.dy, closeTo(noteReadOffset.dy, 0.1));
   });
 
   testWidgets('inline title editing shows undo and restores previous title', (

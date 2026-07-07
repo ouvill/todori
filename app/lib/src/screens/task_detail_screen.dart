@@ -77,7 +77,9 @@ class TaskDetailScreen extends ConsumerWidget {
             );
           }
           final stats = descendantStatsOf(task.id, tasks);
-          final subtasks = directSubtasksOf(task.id, tasks);
+          final subtaskNodes = flattenTaskTree(
+            descendantTaskTreeOf(task.id, tasks),
+          );
           final theme = Theme.of(context);
           final colorScheme = theme.colorScheme;
           final locale = Localizations.localeOf(context).toLanguageTag();
@@ -142,21 +144,23 @@ class TaskDetailScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.lg),
               Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
               const SizedBox(height: AppSpacing.sm),
-              if (subtasks.isEmpty)
+              if (subtaskNodes.isEmpty)
                 AppEmptyState(
                   icon: Icons.account_tree_outlined,
                   title: l10n.subtasksEmpty,
                 )
               else
-                for (final subtask in subtasks)
+                for (final node in subtaskNodes)
                   Builder(
-                    key: ValueKey('subtask-row-${subtask.id}'),
+                    key: ValueKey('subtask-row-${node.task.id}'),
                     builder: (context) {
+                      final subtask = node.task;
                       final subtaskStats = descendantStatsOf(subtask.id, tasks);
                       return AppTaskRow(
+                        key: ValueKey('task-row-${subtask.id}'),
                         title: subtask.title,
                         isDone: isTaskClosed(subtask),
-                        depth: 1,
+                        depth: node.depth,
                         checkboxKey: ValueKey('task-done-${subtask.id}'),
                         priority: subtask.priority,
                         priorityDotKey: ValueKey(
@@ -168,6 +172,12 @@ class TaskDetailScreen extends ConsumerWidget {
                         hierarchyGuideKey: ValueKey(
                           'task-hierarchy-guide-${subtask.id}',
                         ),
+                        hierarchyGuideHorizontalKey: ValueKey(
+                          'task-hierarchy-horizontal-${subtask.id}',
+                        ),
+                        isLastSibling: node.isLastSibling,
+                        ancestorLineContinuations:
+                            node.ancestorLineContinuations,
                         toggleDoneTooltip: isTaskClosed(subtask)
                             ? l10n.reopenTaskTooltip
                             : l10n.completeTaskTooltip,
@@ -488,6 +498,7 @@ TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
 }
 
 const Object _unchangedDueAt = Object();
+const EdgeInsets _inlineEditorPadding = EdgeInsets.all(AppSpacing.sm);
 
 class _InlineTitleEditor extends StatefulWidget {
   const _InlineTitleEditor({
@@ -603,24 +614,36 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final titleStyle = theme.textTheme.headlineSmall;
+    final titleStrut = StrutStyle.fromTextStyle(
+      titleStyle ?? const TextStyle(),
+      forceStrutHeight: true,
+    );
+    final colorScheme = theme.colorScheme;
     if (_editing) {
-      return TextField(
-        key: const ValueKey('task-title-inline-field'),
-        controller: _controller,
-        focusNode: _focusNode,
-        enabled: !_saving,
-        autofocus: true,
-        minLines: 1,
-        maxLines: null,
-        style: theme.textTheme.headlineSmall,
-        decoration: const InputDecoration(
-          isDense: true,
-          contentPadding: EdgeInsets.all(AppSpacing.sm),
+      return Semantics(
+        label: widget.semanticLabel,
+        textField: true,
+        child: Padding(
+          padding: _inlineEditorPadding,
+          child: EditableText(
+            key: const ValueKey('task-title-inline-field'),
+            controller: _controller,
+            focusNode: _focusNode,
+            cursorColor: colorScheme.primary,
+            backgroundCursorColor: colorScheme.surfaceContainerHighest,
+            readOnly: _saving,
+            autofocus: true,
+            minLines: 1,
+            maxLines: null,
+            style: titleStyle ?? const TextStyle(),
+            strutStyle: titleStrut,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => unawaited(_commit(fromSubmitted: true)),
+            onTapOutside: (_) => _focusNode.unfocus(),
+          ),
         ),
-        keyboardType: TextInputType.multiline,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => unawaited(_commit(fromSubmitted: true)),
-        onTapOutside: (_) => _focusNode.unfocus(),
       );
     }
 
@@ -631,8 +654,13 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
         borderRadius: BorderRadius.circular(14),
         onTap: _startEditing,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          child: Text(widget.title, style: theme.textTheme.headlineSmall),
+          padding: _inlineEditorPadding,
+          child: Text(
+            widget.title,
+            key: const ValueKey('task-title-inline-read-text'),
+            strutStyle: titleStrut,
+            style: titleStyle,
+          ),
         ),
       ),
     );
@@ -744,23 +772,32 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
       color: colorScheme.onSurfaceVariant,
       height: 1.35,
     );
+    final noteStrut = StrutStyle.fromTextStyle(
+      noteStyle ?? const TextStyle(height: 1.35),
+      forceStrutHeight: true,
+    );
     if (_editing) {
-      return TextField(
-        key: const ValueKey('task-note-inline-field'),
-        controller: _controller,
-        focusNode: _focusNode,
-        enabled: !_saving,
-        autofocus: true,
-        minLines: 2,
-        maxLines: 6,
-        style: noteStyle,
-        decoration: InputDecoration(
-          labelText: AppLocalizations.of(context)!.noteLabel,
-          isDense: true,
-          contentPadding: const EdgeInsets.all(AppSpacing.sm),
+      return Semantics(
+        label: widget.semanticLabel,
+        textField: true,
+        child: Padding(
+          padding: _inlineEditorPadding,
+          child: EditableText(
+            key: const ValueKey('task-note-inline-field'),
+            controller: _controller,
+            focusNode: _focusNode,
+            cursorColor: colorScheme.primary,
+            backgroundCursorColor: colorScheme.surfaceContainerHighest,
+            readOnly: _saving,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 6,
+            style: noteStyle ?? const TextStyle(height: 1.35),
+            strutStyle: noteStrut,
+            keyboardType: TextInputType.multiline,
+            onTapOutside: (_) => _focusNode.unfocus(),
+          ),
         ),
-        keyboardType: TextInputType.multiline,
-        onTapOutside: (_) => _focusNode.unfocus(),
       );
     }
 
@@ -772,8 +809,13 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
         borderRadius: BorderRadius.circular(14),
         onTap: _startEditing,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          child: Text(text, style: noteStyle),
+          padding: _inlineEditorPadding,
+          child: Text(
+            text,
+            key: const ValueKey('task-note-inline-read-text'),
+            strutStyle: noteStrut,
+            style: noteStyle,
+          ),
         ),
       ),
     );

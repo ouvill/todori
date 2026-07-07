@@ -283,6 +283,9 @@ class AppTaskRow extends StatelessWidget {
     this.priorityDotKey,
     this.prioritySemanticLabel,
     this.hierarchyGuideKey,
+    this.hierarchyGuideHorizontalKey,
+    this.isLastSibling = true,
+    this.ancestorLineContinuations = const <bool>[],
     this.toggleDoneTooltip,
     this.framed = true,
     this.onToggleDone,
@@ -297,6 +300,9 @@ class AppTaskRow extends StatelessWidget {
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
   final Key? hierarchyGuideKey;
+  final Key? hierarchyGuideHorizontalKey;
+  final bool isLastSibling;
+  final List<bool> ancestorLineContinuations;
   final String? toggleDoneTooltip;
   final List<TaskMetadataItem> metadata;
   final bool framed;
@@ -309,8 +315,6 @@ class AppTaskRow extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final effectiveDepth = math.min(depth, 4);
-    final hierarchyLineStart =
-        AppSpacing.md + ((effectiveDepth - 1) * AppSpacing.lg) + AppSpacing.sm;
 
     return Material(
       color: !framed
@@ -330,32 +334,14 @@ class AppTaskRow extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          if (effectiveDepth > 0) ...[
-            PositionedDirectional(
-              start: hierarchyLineStart,
-              top: AppSpacing.sm,
-              bottom: AppSpacing.sm,
-              child: DecoratedBox(
-                key: hierarchyGuideKey,
-                decoration: BoxDecoration(
-                  color: colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const SizedBox(width: 1.5),
-              ),
+          if (effectiveDepth > 0)
+            _TaskHierarchyGuide(
+              depth: effectiveDepth,
+              isLastSibling: isLastSibling,
+              ancestorLineContinuations: ancestorLineContinuations,
+              currentVerticalKey: hierarchyGuideKey,
+              horizontalKey: hierarchyGuideHorizontalKey,
             ),
-            PositionedDirectional(
-              start: hierarchyLineStart,
-              top: 35,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const SizedBox(width: AppSpacing.md, height: 1.5),
-              ),
-            ),
-          ],
           // Density-compressed row (task-30/task-43): a metadata-less task is
           // just the leading control and title; priority lives in the
           // metadata row so wrapped titles keep a stable left edge.
@@ -435,6 +421,111 @@ class AppTaskRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TaskHierarchyGuide extends StatelessWidget {
+  const _TaskHierarchyGuide({
+    required this.depth,
+    required this.isLastSibling,
+    required this.ancestorLineContinuations,
+    this.currentVerticalKey,
+    this.horizontalKey,
+  });
+
+  static const double _lineWidth = 1.5;
+  static const double _leadingCenterY = AppSpacing.xs + 24;
+
+  final int depth;
+  final bool isLastSibling;
+  final List<bool> ancestorLineContinuations;
+  final Key? currentVerticalKey;
+  final Key? horizontalKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.outlineVariant;
+    final children = <Widget>[];
+    final ancestorCount = math.max(0, depth - 1);
+
+    for (var level = 0; level < ancestorCount; level += 1) {
+      if (level >= ancestorLineContinuations.length ||
+          !ancestorLineContinuations[level]) {
+        continue;
+      }
+      children.add(
+        PositionedDirectional(
+          start: _guideXForLevel(level),
+          top: 0,
+          bottom: 0,
+          child: _GuideLine(color: color, width: _lineWidth),
+        ),
+      );
+    }
+
+    final currentLevel = depth - 1;
+    final currentX = _guideXForLevel(currentLevel);
+    children.addAll([
+      PositionedDirectional(
+        start: currentX,
+        top: 0,
+        height: _leadingCenterY,
+        child: _GuideLine(
+          key: currentVerticalKey,
+          color: color,
+          width: _lineWidth,
+        ),
+      ),
+      if (!isLastSibling)
+        PositionedDirectional(
+          start: currentX,
+          top: _leadingCenterY,
+          bottom: 0,
+          child: _GuideLine(color: color, width: _lineWidth),
+        ),
+      PositionedDirectional(
+        start: currentX,
+        top: _leadingCenterY - (_lineWidth / 2),
+        child: _GuideLine(
+          key: horizontalKey,
+          color: color,
+          width: AppSpacing.md,
+          height: _lineWidth,
+        ),
+      ),
+    ]);
+
+    return Positioned.fill(
+      child: IgnorePointer(child: Stack(children: children)),
+    );
+  }
+
+  static double _guideXForLevel(int level) {
+    return AppSpacing.md + (level * AppSpacing.lg) + AppSpacing.sm;
+  }
+}
+
+class _GuideLine extends StatelessWidget {
+  const _GuideLine({
+    super.key,
+    required this.color,
+    required this.width,
+    this.height,
+  });
+
+  final Color color;
+  final double width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: SizedBox(width: width, height: height),
     );
   }
 }

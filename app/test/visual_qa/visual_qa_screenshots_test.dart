@@ -432,6 +432,11 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   );
   await fake.createTask(
     listId: homeListId,
+    title: 'Confirm final copy in the hero panel',
+    parentTaskId: checklist.id,
+  );
+  await fake.createTask(
+    listId: homeListId,
     title: 'デザインレビューのフィードバックを反映する',
     parentTaskId: launch.id,
   );

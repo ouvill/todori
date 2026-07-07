@@ -1,5 +1,8 @@
 # task-45: 階層ガイド描画と詳細画面Subtasks/インライン編集調整
 
+> ステータス: 完了（2026-07-07実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07ドッグフーディング第2回で、サブタスク階層ガイドの横棒がチェックボックス中心とずれて見えること、最後の子と継続中の子が同じ縦線に見えること、詳細画面のSubtasksが直接の子だけで孫タスクを表示しないことが指摘された。
@@ -140,3 +143,85 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-07
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-44-checkbox-toggle-consistency.md`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/test/widget_test.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `app/lib/src/core/task_tree.dart` に `FlattenedTaskTreeNode` を追加し、`flattenTaskTree` が `isLastSibling` と `ancestorLineContinuations` を返すようにした。
+- `app/lib/src/core/task_tree.dart` に `descendantTaskTreeOf` を追加し、対象タスク配下の子孫ツリーを詳細画面用に深さ1始まりで構築するようにした。
+- `app/lib/src/ui/task_components.dart` の `AppTaskRow` に `isLastSibling`、`ancestorLineContinuations`、`hierarchyGuideHorizontalKey` を追加した。
+- `app/lib/src/ui/task_components.dart` の `_TaskHierarchyGuide` で、現在行の枝を `isLastSibling` に応じてT字またはL字として描画し、祖先列は `ancestorLineContinuations` が `true` の列だけ縦線を続けるようにした。
+- 横棒のY座標は `AppSpacing.xs + 24` を基準にし、行先頭48pxチェック領域の垂直中心に合わせた。
+- `app/lib/src/screens/tasks_screen.dart` は `FlattenedTaskTreeNode` の構造情報を `AppTaskRow` へ渡すようにした。
+- `app/lib/src/screens/task_detail_screen.dart` は `directSubtasksOf` ではなく `descendantTaskTreeOf` と `flattenTaskTree` を使い、Subtasksに直接の子と孫以降を表示するようにした。
+- `app/lib/src/screens/task_detail_screen.dart` のタイトル/ノート編集は、読み取り表示と編集状態で同一のpadding、TextStyle、StrutStyleを使い、編集状態は `EditableText` で配置するようにした。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` のvisual QA seedに3階層目のサブタスク `Confirm final copy in the hero panel` を追加した。
+- task-44のチェックボックストグル挙動、Undoスナックバー挙動は変更していない。
+- Rust/domain/storage/FRB API、DB schema、生成FRBファイルの変更はなし。
+
+追加・更新したwidget test:
+
+- `hierarchy guides expose L and T branches aligned to checkbox`: 一覧で最初の子がT字、最後の子がL字、孫行に祖先縦線継続情報が渡ること、横棒中心Yがチェックボックス中心Yに合うことを検証した。
+- `detail subtasks show descendant tree with hierarchy guides`: 詳細画面Subtasksに孫タスクが表示され、子/孫/最後の子へ階層情報が渡ることを検証した。
+- `inline title and note editing keep text offsets stable`: タイトルとノートについて、読み取りTextと編集時 `EditableText` のtop-leftが変わらないことを検証した。
+
+visual QAスクリーンショット:
+
+- before: `app/build/visual_qa_before/home_tasks.png`
+- before: `app/build/visual_qa_before/task_detail.png`
+- after: `app/build/visual_qa/home_tasks.png`
+- after: `app/build/visual_qa/task_detail.png`
+
+目視確認結果:
+
+- `app/build/visual_qa/home_tasks.png` で3階層のサブタスク表示を確認した。
+- `app/build/visual_qa/home_tasks.png` で横棒がチェック中心の高さに接続していることを確認した。
+- `app/build/visual_qa/home_tasks.png` で最後の子がL字で終端していることを確認した。
+- `app/build/visual_qa/task_detail.png` で孫タスクがSubtasks内に階層表示されていることを確認した。
+- `app/build/visual_qa/task_detail.png` で最後の子がL字で終端していることを確認した。
+
+検証結果:
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（65件、skip 1件）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（30 PNG生成）
+- `git diff --check`: 成功
+
+変更ファイル一覧:
+
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-45-tree-guides-and-detail.md`
+
+未解決事項:
+
+- なし
