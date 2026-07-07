@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 6;
+pub const LATEST_SCHEMA_VERSION: i32 = 7;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -38,6 +38,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 6,
         name: "add_reminders",
         apply: add_reminders,
+    },
+    Migration {
+        target_version: 7,
+        name: "add_performance_indexes",
+        apply: add_performance_indexes,
     },
 ];
 
@@ -399,6 +404,16 @@ fn add_reminders(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
          CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
          CREATE INDEX IF NOT EXISTS idx_reminders_pending
              ON reminders(snoozed_until, remind_at);",
+    )
+}
+
+fn add_performance_indexes(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order
+             ON tasks(list_id, sort_order, id);
+         CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
+             ON tasks(due_at, status, completed_at, list_id)
+             WHERE due_at IS NOT NULL;",
     )
 }
 
@@ -1652,6 +1667,15 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v6_database(path: &Path, key: &[u8; 32]) {
+        create_v5_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_reminders(&transaction).unwrap();
+        set_user_version(&transaction, 6).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -1703,6 +1727,21 @@ mod tests {
 
     fn is_default_column(connection: &Connection) -> Option<(String, i32, String)> {
         list_column(connection, "is_default")
+    }
+
+    fn index_exists(connection: &Connection, index_name: &str) -> bool {
+        connection
+            .query_row(
+                "SELECT 1
+                 FROM sqlite_master
+                 WHERE type = 'index' AND name = ?1
+                 LIMIT 1",
+                [index_name],
+                |_| Ok(()),
+            )
+            .optional()
+            .unwrap()
+            .is_some()
     }
 
     fn setting_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
@@ -1759,6 +1798,191 @@ mod tests {
         connection
             .query_row("PRAGMA schema_version", [], |row| row.get(0))
             .unwrap()
+    }
+
+    #[derive(Clone, Copy)]
+    enum PerformanceSeedSchema {
+        Latest,
+        V3,
+    }
+
+    struct PerformanceSeed {
+        list_ids: Vec<Uuid>,
+        today_start_ms: i64,
+        tomorrow_start_ms: i64,
+        task_count: usize,
+        due_task_count: usize,
+        closed_task_count: usize,
+    }
+
+    fn seed_performance_database(
+        path: &Path,
+        key: &[u8; 32],
+        schema: PerformanceSeedSchema,
+    ) -> PerformanceSeed {
+        match schema {
+            PerformanceSeedSchema::Latest => {
+                let mut connection = open_encrypted(path, key).unwrap();
+                insert_performance_seed(&mut connection)
+            }
+            PerformanceSeedSchema::V3 => {
+                create_v3_database(path, key);
+                let mut connection = open_raw_encrypted(path, key);
+                insert_performance_seed(&mut connection)
+            }
+        }
+    }
+
+    fn insert_performance_seed(connection: &mut Connection) -> PerformanceSeed {
+        const LIST_COUNT: usize = 10;
+        const TASKS_PER_LIST: usize = 1_000;
+        const ROOT_TASKS_PER_LIST: usize = 700;
+        const CHILD_TASKS_PER_LIST: usize = 220;
+
+        let today_start_ms = 1_788_220_800_000;
+        let tomorrow_start_ms = today_start_ms + 86_400_000;
+        let mut list_ids = Vec::with_capacity(LIST_COUNT);
+        let mut due_task_count = 0;
+        let mut closed_task_count = 0;
+        let transaction = connection.transaction().unwrap();
+
+        {
+            let mut insert_list = transaction
+                .prepare(
+                    "INSERT INTO lists (
+                        id, name, color, icon, org_id, sort_order, is_default,
+                        archived_at, created_at, updated_at
+                    ) VALUES (
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+                    )",
+                )
+                .unwrap();
+            for list_index in 0..LIST_COUNT {
+                let id = Uuid::now_v7();
+                list_ids.push(id);
+                insert_list
+                    .execute(params![
+                        id.to_string(),
+                        format!("Performance List {}", list_index + 1),
+                        "#4F8EF7",
+                        "list",
+                        Option::<String>::None,
+                        format!("a{list_index:02}"),
+                        list_index == 0,
+                        Option::<i64>::None,
+                        today_start_ms - 86_400_000,
+                        today_start_ms - 86_400_000,
+                    ])
+                    .unwrap();
+            }
+        }
+
+        {
+            let mut insert_task = transaction
+                .prepare(
+                    "INSERT INTO tasks (
+                        id, list_id, parent_task_id, title, note, status, priority,
+                        due_at, scheduled_at, estimated_minutes, sort_order,
+                        completed_at, closed_reason, deleted_at, assignee,
+                        created_at, updated_at
+                    ) VALUES (
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                        ?12, ?13, ?14, ?15, ?16, ?17
+                    )",
+                )
+                .unwrap();
+
+            for (list_index, list_id) in list_ids.iter().copied().enumerate() {
+                let mut root_ids = Vec::with_capacity(ROOT_TASKS_PER_LIST);
+                let mut child_ids = Vec::with_capacity(CHILD_TASKS_PER_LIST);
+                for task_index in 0..TASKS_PER_LIST {
+                    let id = Uuid::now_v7();
+                    let parent_task_id = if task_index < ROOT_TASKS_PER_LIST {
+                        root_ids.push(id);
+                        None
+                    } else if task_index < ROOT_TASKS_PER_LIST + CHILD_TASKS_PER_LIST {
+                        let parent_id =
+                            root_ids[(task_index - ROOT_TASKS_PER_LIST) % root_ids.len()];
+                        child_ids.push(id);
+                        Some(parent_id)
+                    } else {
+                        Some(
+                            child_ids[(task_index - ROOT_TASKS_PER_LIST - CHILD_TASKS_PER_LIST)
+                                % child_ids.len()],
+                        )
+                    };
+                    let global_index = (list_index * TASKS_PER_LIST) + task_index;
+                    let status = match global_index % 10 {
+                        0 => "done",
+                        1 => "wont_do",
+                        2 | 3 => "in_progress",
+                        _ => "todo",
+                    };
+                    let due_at = match global_index % 6 {
+                        0 => None,
+                        1 => Some(today_start_ms - 86_400_000),
+                        2 => Some(today_start_ms + ((global_index % 12) as i64 * 3_600_000)),
+                        3 => Some(tomorrow_start_ms + ((global_index % 8) as i64 * 3_600_000)),
+                        4 => Some(tomorrow_start_ms + 7 * 86_400_000),
+                        _ => None,
+                    };
+                    if due_at.is_some() {
+                        due_task_count += 1;
+                    }
+                    let is_closed = status == "done" || status == "wont_do";
+                    let completed_at = if is_closed {
+                        closed_task_count += 1;
+                        if global_index % 4 == 0 {
+                            Some(today_start_ms + ((global_index % 10) as i64 * 600_000))
+                        } else {
+                            Some(today_start_ms - 2 * 86_400_000)
+                        }
+                    } else {
+                        None
+                    };
+                    let keyword = if global_index % 17 == 0 {
+                        "alpha"
+                    } else if global_index % 19 == 0 {
+                        "日本語"
+                    } else {
+                        "routine"
+                    };
+
+                    insert_task
+                        .execute(params![
+                            id.to_string(),
+                            list_id.to_string(),
+                            parent_task_id.map(|parent_id| parent_id.to_string()),
+                            format!("Task {global_index:05} {keyword}"),
+                            format!("Seeded note {global_index:05} for {keyword} project"),
+                            status,
+                            (global_index % 4) as i32,
+                            due_at,
+                            due_at.map(|value| value - 3_600_000),
+                            Some(15 + (global_index % 6) as i32 * 10),
+                            format!("a{task_index:04}"),
+                            completed_at,
+                            (status == "wont_do").then_some("not_now".to_string()),
+                            Option::<i64>::None,
+                            Option::<String>::None,
+                            today_start_ms - 86_400_000 + global_index as i64,
+                            today_start_ms - 43_200_000 + global_index as i64,
+                        ])
+                        .unwrap();
+                }
+            }
+        }
+
+        transaction.commit().unwrap();
+
+        PerformanceSeed {
+            list_ids,
+            today_start_ms,
+            tomorrow_start_ms,
+            task_count: LIST_COUNT * TASKS_PER_LIST,
+            due_task_count,
+            closed_task_count,
+        }
     }
 
     fn default_list_ids(connection: &Connection) -> Vec<String> {
@@ -2029,6 +2253,143 @@ mod tests {
             LATEST_SCHEMA_VERSION
         );
         assert_eq!(repository.search_tasks("backfill").unwrap(), vec![task]);
+    }
+
+    #[test]
+    fn v6_database_migrates_to_v7_and_adds_performance_indexes() {
+        let file = NamedTempFile::new().unwrap();
+        create_v6_database(file.path(), &KEY);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert!(index_exists(&connection, "idx_tasks_list_sort_order"));
+        assert!(index_exists(&connection, "idx_tasks_home_targets"));
+    }
+
+    #[test]
+    #[ignore = "task-67 manual performance verification for a 10k encrypted seed"]
+    fn task_67_reports_10000_task_storage_timings() {
+        let file = NamedTempFile::new().unwrap();
+        let seed = seed_performance_database(file.path(), &KEY, PerformanceSeedSchema::Latest);
+        assert_eq!(seed.list_ids.len(), 10);
+        assert_eq!(seed.task_count, 10_000);
+
+        let mut rows: Vec<(&str, usize, u128, String)> = Vec::new();
+
+        let started = std::time::Instant::now();
+        let home_tasks = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteTaskRepository::new(connection);
+            repository
+                .list_home(seed.today_start_ms, seed.tomorrow_start_ms)
+                .unwrap()
+        };
+        rows.push((
+            "get_today_tasks(list_home)",
+            home_tasks.len(),
+            started.elapsed().as_millis(),
+            "cross-list Home query on encrypted DB".to_string(),
+        ));
+
+        let started = std::time::Instant::now();
+        let list_tasks = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteTaskRepository::new(connection);
+            repository.list_active_by_list(seed.list_ids[0]).unwrap()
+        };
+        rows.push((
+            "get_tasks(list 1)",
+            list_tasks.len(),
+            started.elapsed().as_millis(),
+            "single list, 1000 tasks".to_string(),
+        ));
+
+        let started = std::time::Instant::now();
+        let search_results = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteTaskRepository::new(connection);
+            repository.search_tasks("alpha").unwrap()
+        };
+        rows.push((
+            "search_tasks(alpha)",
+            search_results.len(),
+            started.elapsed().as_millis(),
+            "FTS5 prefix query".to_string(),
+        ));
+
+        let migration_file = NamedTempFile::new().unwrap();
+        let migration_seed =
+            seed_performance_database(migration_file.path(), &KEY, PerformanceSeedSchema::V3);
+        assert_eq!(migration_seed.task_count, 10_000);
+        let started = std::time::Instant::now();
+        let migrated_connection = open_encrypted(migration_file.path(), &KEY).unwrap();
+        let migration_elapsed_ms = started.elapsed().as_millis();
+        assert_eq!(
+            read_user_version(&migrated_connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        rows.push((
+            "migration(v3_to_latest)",
+            migration_seed.task_count,
+            migration_elapsed_ms,
+            "v4 FTS backfill + v5-v7 migrations".to_string(),
+        ));
+
+        let started = std::time::Instant::now();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteListRepository::new(connection);
+            repository
+                .ensure_default_list("Inbox".to_string(), seed.today_start_ms)
+                .unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteListRepository::new(connection);
+            assert_eq!(repository.list_all().unwrap().len(), 10);
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteListRepository::new(connection);
+            assert!(repository.list_archived().unwrap().is_empty());
+        }
+        let startup_home_count = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let repository = SqliteTaskRepository::new(connection);
+            repository
+                .list_home(seed.today_start_ms, seed.tomorrow_start_ms)
+                .unwrap()
+                .len()
+        };
+        let startup_elapsed_ms = started.elapsed().as_millis();
+        rows.push((
+            "startup_approx(init+initial_queries)",
+            startup_home_count,
+            startup_elapsed_ms,
+            "open+default list+lists+archived+Home".to_string(),
+        ));
+
+        println!(
+            "task-67 Rust performance seed: lists=10 tasks={} due={} closed={}",
+            seed.task_count, seed.due_task_count, seed.closed_task_count
+        );
+        println!("| operation | rows | elapsed_ms | note |");
+        println!("|---|---:|---:|---|");
+        for (operation, count, elapsed_ms, note) in &rows {
+            println!("| {operation} | {count} | {elapsed_ms} | {note} |");
+        }
+
+        assert_eq!(list_tasks.len(), 1_000);
+        assert!(!home_tasks.is_empty());
+        assert!(!search_results.is_empty());
+        assert!(
+            startup_elapsed_ms < 2_000,
+            "startup approximation exceeded F-50: {startup_elapsed_ms} ms"
+        );
     }
 
     #[test]

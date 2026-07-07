@@ -91,6 +91,7 @@
 - **iOS/macOS Keychain DeviceKeyStore完了**: task-64で、Rust側からApple Security frameworkを呼ぶ方式、`AfterFirstUnlockThisDeviceOnly` 相当、既存 `device.key` からのデータロス回避移行、iOS Simulator/macOS dogfooding確認手順を実装・記録した。2026-07-08親レビュー合格。親ホストで実Keychain roundtrip ignoredテスト、macOS debugアプリの起動→再起動、鍵保持、DBオープン、login.keychain上の `dev.todori.todori.device-key` アイテム確認まで合格。iOS Simulator/実機の `flutter run` 通し確認は人間帰還後確認に残す。
 - **ローカル通知task-65完了（2026-07-08）**: M4-01 / F-24・F-25対応として、`flutter_local_notifications` 採用、v6 `reminders`、bridge API、詳細画面リマインダーチップ、通知権限、スヌーズ最小版、起動時再スケジュール、完了/削除時キャンセル、Rust/Flutterテストと手動確認手順を実装した。
 - **アクセシビリティ検証task-66完了（2026-07-08）**: M4-03対応として、タスク行/チェックボックス/チップ/シートのSemantics補強、Dynamic Type 2.0 visual QA、WCAG AAコントラスト計算、Reduce Motion確認、VoiceOver手動確認手順を記録した。コントラスト不足のcoral/amber/low priority dot/outline系は要人間判断として残した。
+- **性能検証task-67完了（2026-07-08）**: M4-04 / F-50〜F-52対応として、1万件seedでRust storage起動近似・Home横断・単一リスト・検索・migration、Flutter大量pump、オフライン依存範囲を計測した。Rust起動近似は123ms、Flutter Home fake seed pumpは21秒台。Home大量構築は未解決事項として記録した。
 
 ## 優先度付きバックログ
 
@@ -98,7 +99,7 @@
 |---|---|---|---|---|
 | 1 | task-65 ローカル通知 | F-24〜F-25。iOS先行でローカル通知、通知取消、スヌーズ最小版を実装する | M4-01 | 完了（2026-07-08）。E2EE設計上、通知はサーバーpushではなくローカル通知が正。`flutter_local_notifications` は人間の包括承認済み |
 | 2 | task-66 アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | 完了（2026-07-08）。コントラスト不足の色判断は要人間判断に記録 |
-| 3 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | Phase 2同期前のローカル性能基準としても使う |
+| 3 | task-67 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | 完了（2026-07-08）。Rust起動近似123ms、Flutter Home fake seed pumpは21秒台 |
 | 4 | Closedセクション見出しの冗長表記整理 | Closedセクション見出しが `"Closed 2 closed"` のように冗長表示される文言を整理する | Phase 1軽量レーン | 出典: 親レビュー2026-07-07 |
 | 5 | オンボーディング/初回起動体験 | 範囲設計のplannerタスクから開始する。DK復旧不可の注意表示（計画書§5リスク表）を含む。マスコットの利用はvisual-direction.mdの方針に従う | M4系 | 出典: 2026-07-06人間裁定（要人間判断→確定） |
 | 6 | 自然言語日付入力の解析 | クイック追加バー入力中の `tomorrow` / `next Friday` / `明日` 等を日付として解釈する | 将来枠 | 出典: 2026-07-07 Home裁定。task-52ではスコープ外 |

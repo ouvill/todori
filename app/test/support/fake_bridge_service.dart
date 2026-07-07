@@ -18,6 +18,126 @@ class FakeBridgeService implements BridgeService {
   int _reminderSeq = 0;
   int _undoSeq = 0;
 
+  FakeLargeSeedSummary seedLargeDataset({
+    int listCount = 10,
+    int tasksPerList = 1000,
+    int? todayStartMs,
+  }) {
+    _lists.clear();
+    _tasks.clear();
+    _reminders.clear();
+    _undoEntries.clear();
+    reorderCalls.clear();
+    _settings.clear();
+    _listSeq = listCount;
+    _taskSeq = listCount * tasksPerList;
+    _reminderSeq = 0;
+    _undoSeq = 0;
+
+    const rootTasksPerList = 700;
+    const childTasksPerList = 220;
+    final todayStart = todayStartMs ?? _localDayStartMs(DateTime.now());
+    final tomorrowStart = todayStart + _fakeDayMs;
+    var dueTaskCount = 0;
+    var closedTaskCount = 0;
+
+    for (var listIndex = 0; listIndex < listCount; listIndex += 1) {
+      final now = _fakeTimestamp(listIndex);
+      _lists.add(
+        ListDto(
+          id: 'large-list-$listIndex',
+          name: 'Performance List ${listIndex + 1}',
+          color: '',
+          icon: '',
+          sortOrder: 'a${listIndex.toString().padLeft(2, '0')}',
+          isDefault: listIndex == 0,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    }
+
+    for (var listIndex = 0; listIndex < listCount; listIndex += 1) {
+      final listId = 'large-list-$listIndex';
+      final rootIds = <String>[];
+      final childIds = <String>[];
+      for (var taskIndex = 0; taskIndex < tasksPerList; taskIndex += 1) {
+        final globalIndex = (listIndex * tasksPerList) + taskIndex;
+        final taskId = 'large-task-$globalIndex';
+        String? parentTaskId;
+        if (taskIndex < rootTasksPerList) {
+          rootIds.add(taskId);
+        } else if (taskIndex < rootTasksPerList + childTasksPerList) {
+          parentTaskId =
+              rootIds[(taskIndex - rootTasksPerList) % rootIds.length];
+          childIds.add(taskId);
+        } else {
+          parentTaskId =
+              childIds[(taskIndex - rootTasksPerList - childTasksPerList) %
+                  childIds.length];
+        }
+        final status = switch (globalIndex % 10) {
+          0 => 'done',
+          1 => 'wont_do',
+          2 || 3 => 'in_progress',
+          _ => 'todo',
+        };
+        final dueAt = switch (globalIndex % 6) {
+          0 => null,
+          1 => todayStart - _fakeDayMs,
+          2 => todayStart + ((globalIndex % 12) * _fakeHourMs),
+          3 => tomorrowStart + ((globalIndex % 8) * _fakeHourMs),
+          4 => tomorrowStart + (7 * _fakeDayMs),
+          _ => null,
+        };
+        if (dueAt != null) {
+          dueTaskCount += 1;
+        }
+        final isClosed = status == 'done' || status == 'wont_do';
+        final completedAt = isClosed
+            ? globalIndex % 4 == 0
+                  ? todayStart + ((globalIndex % 10) * _fakeTenMinuteMs)
+                  : todayStart - (2 * _fakeDayMs)
+            : null;
+        if (isClosed) {
+          closedTaskCount += 1;
+        }
+        final keyword = globalIndex % 17 == 0
+            ? 'alpha'
+            : globalIndex % 19 == 0
+            ? '日本語'
+            : 'routine';
+        _tasks.add(
+          TaskDto(
+            id: taskId,
+            listId: listId,
+            parentTaskId: parentTaskId,
+            title: 'Task ${globalIndex.toString().padLeft(5, '0')} $keyword',
+            note: 'Seeded note ${globalIndex.toString().padLeft(5, '0')}',
+            status: status,
+            priority: globalIndex % 4,
+            dueAt: dueAt,
+            scheduledAt: dueAt == null ? null : dueAt - _fakeHourMs,
+            estimatedMinutes: 15 + ((globalIndex % 6) * 10),
+            sortOrder: 'a${taskIndex.toString().padLeft(4, '0')}',
+            completedAt: completedAt,
+            closedReason: status == 'wont_do' ? 'not_now' : null,
+            createdAt: _fakeTimestamp(100 + globalIndex),
+            updatedAt: _fakeTimestamp(200 + globalIndex),
+          ),
+        );
+      }
+    }
+
+    return FakeLargeSeedSummary(
+      listCount: listCount,
+      taskCount: listCount * tasksPerList,
+      dueTaskCount: dueTaskCount,
+      closedTaskCount: closedTaskCount,
+      defaultListId: _lists.first.id,
+    );
+  }
+
   @override
   Future<ListDto> createList({
     required String name,
@@ -232,8 +352,12 @@ class FakeBridgeService implements BridgeService {
     for (final taskId in homeTargetIds) {
       includeSubtree(taskId);
     }
+    final taskById = {for (final task in _tasks) task.id: task};
     void includeAncestors(String taskId) {
-      final task = _tasks.firstWhere((candidate) => candidate.id == taskId);
+      final task = taskById[taskId];
+      if (task == null) {
+        return;
+      }
       final parentId = task.parentTaskId;
       if (parentId == null || !homeScopeIds.add(parentId)) {
         return;
@@ -608,6 +732,22 @@ class FakeBridgeService implements BridgeService {
   }
 }
 
+class FakeLargeSeedSummary {
+  const FakeLargeSeedSummary({
+    required this.listCount,
+    required this.taskCount,
+    required this.dueTaskCount,
+    required this.closedTaskCount,
+    required this.defaultListId,
+  });
+
+  final int listCount;
+  final int taskCount;
+  final int dueTaskCount;
+  final int closedTaskCount;
+  final String defaultListId;
+}
+
 bool _canTransition(String current, String next) {
   if (current == next) {
     return false;
@@ -628,9 +768,17 @@ bool _canTransition(String current, String next) {
 final int _fakeClockBaseMs = DateTime.utc(2026, 7, 1, 9).millisecondsSinceEpoch;
 
 const int _fakeMinuteMs = Duration.millisecondsPerMinute;
+const int _fakeTenMinuteMs = 10 * Duration.millisecondsPerMinute;
+const int _fakeHourMs = Duration.millisecondsPerHour;
+const int _fakeDayMs = Duration.millisecondsPerDay;
 
 int _fakeTimestamp(int sequence) =>
     _fakeClockBaseMs + (sequence * _fakeMinuteMs);
+
+int _localDayStartMs(DateTime dateTime) {
+  final local = dateTime.toLocal();
+  return DateTime(local.year, local.month, local.day).millisecondsSinceEpoch;
+}
 
 /// A recorded undo entry for [FakeBridgeService].
 ///

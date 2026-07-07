@@ -84,6 +84,7 @@
 | task-64 | 完了 | [task-64-keychain-device-key.md](./task-64-keychain-device-key.md) | iOS/macOS Keychain DeviceKeyStore。Rust側からApple Security frameworkを呼び、`FileDeviceKeyStore` から本番用Keychain保存へ移行する | task-07・task-08・task-17の成果物に依存。M4-02セキュリティ必須項目 / 2026-07-08親レビュー合格 |
 | task-65 | 完了 | [task-65-local-notifications.md](./task-65-local-notifications.md) | ローカル通知。`flutter_local_notifications` を導入し、リマインダー保存、通知スケジュール、キャンセル、スヌーズ最小版をiOS/macOS先行で実装する | task-18・task-36・task-48・task-63・task-64の完了状態に依存。M4-01 / F-24・F-25 |
 | task-66 | 完了 | [task-66-a11y-pass.md](./task-66-a11y-pass.md) | アクセシビリティ検証パス。Dynamic Type 2.0、スクリーンリーダーラベル、Tooltip/Semantics棚卸し、コントラスト計算、Reduce Motion確認を行う | task-48・task-54・task-60・task-65の完了状態に依存。M4-03 |
+| task-67 | 完了 | [task-67-performance-verification.md](./task-67-performance-verification.md) | 性能検証。1万件seedでRust層起動近似・Home横断・単一リスト・検索・migration、Flutter大量pump、オフライン動作を計測する | task-66までの完了状態に依存。M4-04 / F-50〜F-52 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

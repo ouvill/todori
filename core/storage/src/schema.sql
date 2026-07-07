@@ -51,8 +51,12 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order ON tasks(list_id, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
+    ON tasks(due_at, status, completed_at, list_id)
+    WHERE due_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_lists_sort_order ON lists(sort_order);
 CREATE INDEX IF NOT EXISTS idx_task_undo_entries_latest
     ON task_undo_entries(consumed_at, created_at);
