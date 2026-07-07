@@ -317,3 +317,38 @@ visual QA:
 未解決事項:
 
 - なし
+
+### 2026-07-08 子持ち親完了ちらつき追加修正追記
+
+修正内容:
+
+- `app/lib/src/screens/tasks_screen.dart`
+  - Home完了pendingの保持を、旧表示サブツリーWidgetの差し込みから、通常Homeツリーへpending中の `TaskDto` / 行メタデータを供給する方式へ変更した。
+  - `_buildHomeSections` ではpending中のtask idに対してスナップショットのtaskデータ、旧section、`pendingExitPhase`、`disableInteractions` を流し、通常の `buildHomeNode` / `flattenTaskTree` / `_buildHomeTaskRow` 経路で同じkey・同じ親子関係・同じ行順のまま再ビルドするようにした。
+  - pending中の子孫を通常ツリーから除外しないようにし、旧表示サブツリーのWidget複製・挿入を廃止した。
+  - 子孫行の操作無効化で `IgnorePointer` を途中挿入しないよう、全行を常に `IgnorePointer(ignoring: disableInteractions)` で包む構造へ揃えた。これによりholding中に行Widget型が変わらない。
+  - 退場フェーズ開始時だけ既存どおり `_PendingHomeCompletionExit` を適用し、holding中の再マウントを避けた。
+- `app/test/widget_test.dart`
+  - `home completion keeps visible subtree until delayed exit` で、確認ダイアログ経由の子持ち親完了後、親・子・孫それぞれの `AppTaskCheckbox` State がholding中も `identical` であることを追加検証した。
+
+確認結果:
+
+- `cd app && flutter analyze`: exit 0
+- `cd app && flutter test`: exit 0（97件成功、visual QA harness 1件skip）
+- `sh app/tool/visual_qa.sh`: exit 0（37件成功）
+- `git diff --check`: exit 0
+
+visual QA:
+
+- 事前退避先: `app/build/visual_qa_before/`
+- 出力先: `app/build/visual_qa/`
+
+変更ファイル一覧:
+
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-60-motion-refinement.md`
+
+未解決事項:
+
+- なし

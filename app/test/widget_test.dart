@@ -1868,7 +1868,7 @@ void main() {
       title: 'Pending subtree child',
       parentTaskId: parent.id,
     );
-    await fake.createTask(
+    final grandchild = await fake.createTask(
       listId: listId,
       title: 'Pending subtree grandchild',
       parentTaskId: child.id,
@@ -1879,12 +1879,31 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    State<StatefulWidget> checkboxStateFor(String taskId) {
+      return tester.state<State<StatefulWidget>>(
+        find.ancestor(
+          of: find.byKey(ValueKey('task-done-$taskId')),
+          matching: find.byType(AppTaskCheckbox),
+        ),
+      );
+    }
+
+    final parentStateBefore = checkboxStateFor(parent.id);
+    final childStateBefore = checkboxStateFor(child.id);
+    final grandchildStateBefore = checkboxStateFor(grandchild.id);
+
     await tester.tap(find.byKey(ValueKey('task-done-${parent.id}')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Continue'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
+    expect(identical(parentStateBefore, checkboxStateFor(parent.id)), isTrue);
+    expect(identical(childStateBefore, checkboxStateFor(child.id)), isTrue);
+    expect(
+      identical(grandchildStateBefore, checkboxStateFor(grandchild.id)),
+      isTrue,
+    );
     expect(find.text('Pending subtree parent'), findsOneWidget);
     expect(find.text('Pending subtree child'), findsOneWidget);
     expect(find.text('Pending subtree grandchild'), findsOneWidget);

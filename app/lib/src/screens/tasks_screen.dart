@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -530,8 +528,25 @@ class _TasksBodyState extends State<_TasksBody> {
 
   List<_HomeSectionData> _buildHomeSections(BuildContext context) {
     final ranges = homeLocalRangesMs();
-    final sortedEntries = [...widget.homeTaskEntries]
-      ..sort((a, b) => _compareHomeEntries(a, b, widget.sortMode));
+    final pendingRowsByTaskId = _pendingHomeCompletionRowsByTaskId();
+    final pendingRootIds = _pendingHomeCompletions.keys.toSet();
+    final sortedEntries =
+        widget.homeTaskEntries
+            .map((entry) {
+              final pendingRow = pendingRowsByTaskId[entry.task.id];
+              if (pendingRow == null) {
+                return entry;
+              }
+              return HomeTaskDto(
+                task: pendingRow.node.task,
+                listName: entry.listName,
+                isHomeTarget:
+                    entry.isHomeTarget ||
+                    pendingRootIds.contains(entry.task.id),
+              );
+            })
+            .toList(growable: false)
+          ..sort((a, b) => _compareHomeEntries(a, b, widget.sortMode));
     final pendingIds = _pendingHomeCompletionTaskIds();
     final bySection = {
       for (final section in _HomeSectionKind.values)
@@ -545,6 +560,12 @@ class _TasksBodyState extends State<_TasksBody> {
     };
     final targetSectionByTaskId = <String, _HomeSectionKind>{};
     for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
+      final pending = _pendingHomeCompletions[entry.task.id];
+      if (pending != null) {
+        targetSectionByTaskId[entry.task.id] = pending.section;
+        countBySection[pending.section] = countBySection[pending.section]! + 1;
+        continue;
+      }
       if (pendingIds.contains(entry.task.id)) {
         continue;
       }
@@ -562,9 +583,6 @@ class _TasksBodyState extends State<_TasksBody> {
     final standaloneTaskIds = targetSectionByTaskId.keys.toSet();
     final childrenByParent = <String, List<TaskDto>>{};
     for (final entry in sortedEntries) {
-      if (pendingIds.contains(entry.task.id)) {
-        continue;
-      }
       final parentId = entry.task.parentTaskId;
       if (parentId == null) {
         continue;
@@ -593,7 +611,7 @@ class _TasksBodyState extends State<_TasksBody> {
 
     for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
       final task = entry.task;
-      if (pendingIds.contains(task.id)) {
+      if (pendingIds.contains(task.id) && !pendingRootIds.contains(task.id)) {
         continue;
       }
       final section = targetSectionByTaskId[task.id];
@@ -606,21 +624,21 @@ class _TasksBodyState extends State<_TasksBody> {
           (node) => _HomeSectionRowData(
             node: node,
             rootListId: task.listId,
-            parentTaskName: node.depth == 0
-                ? taskById[node.task.parentTaskId]?.title
-                : null,
+            parentTaskName:
+                pendingRowsByTaskId[node.task.id]?.parentTaskName ??
+                (node.depth == 0
+                    ? taskById[node.task.parentTaskId]?.title
+                    : null),
             countsInSection: node.depth == 0,
+            pendingExitPhase:
+                pendingRowsByTaskId[node.task.id]?.pendingExitPhase ??
+                _PendingHomeExitPhase.none,
+            disableInteractions:
+                pendingRowsByTaskId[node.task.id]?.disableInteractions ?? false,
+            isPendingRoot: pendingRootIds.contains(node.task.id),
           ),
         ),
       );
-    }
-    for (final pending in _pendingHomeCompletions.values) {
-      final rows = bySection[pending.section]!;
-      final insertionIndex = math.min(pending.rowIndex, rows.length);
-      rows.insertAll(insertionIndex, pending.rows);
-      if (pending.countsInSection) {
-        countBySection[pending.section] = countBySection[pending.section]! + 1;
-      }
     }
     return [
       for (final section in _HomeSectionKind.values)
@@ -635,7 +653,6 @@ class _TasksBodyState extends State<_TasksBody> {
                 section,
                 rootListId: row.rootListId,
                 parentTaskName: row.parentTaskName,
-                rowIndex: bySection[section]!.indexOf(row),
                 countsInSection: row.countsInSection,
                 pendingExitPhase: row.pendingExitPhase,
                 disableInteractions: row.disableInteractions,
@@ -679,7 +696,6 @@ class _TasksBodyState extends State<_TasksBody> {
     _HomeSectionKind section, {
     required String rootListId,
     required String? parentTaskName,
-    int rowIndex = 0,
     bool countsInSection = false,
     _PendingHomeExitPhase pendingExitPhase = _PendingHomeExitPhase.none,
     bool disableInteractions = false,
@@ -748,7 +764,6 @@ class _TasksBodyState extends State<_TasksBody> {
                 section,
                 rootListId: rootListId,
                 parentTaskName: parentTaskName,
-                rowIndex: rowIndex,
                 countsInSection: countsInSection,
               ),
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
@@ -775,13 +790,12 @@ class _TasksBodyState extends State<_TasksBody> {
               section,
               rootListId: rootListId,
               parentTaskName: parentTaskName,
-              rowIndex: rowIndex,
               countsInSection: countsInSection,
             ),
       onChangeDueDate: widget.onChangeDueDate,
       child: effectiveRow,
     );
-    return disableInteractions ? IgnorePointer(child: swipeRow) : swipeRow;
+    return IgnorePointer(ignoring: disableInteractions, child: swipeRow);
   }
 
   Future<void> _handleHomeCompleteTask(
@@ -790,7 +804,6 @@ class _TasksBodyState extends State<_TasksBody> {
     _HomeSectionKind section, {
     required String rootListId,
     required String? parentTaskName,
-    required int rowIndex,
     required bool countsInSection,
   }) async {
     final task = node.task;
@@ -833,7 +846,6 @@ class _TasksBodyState extends State<_TasksBody> {
             section: section,
             rootListId: rootListId,
             parentTaskName: parentTaskName,
-            rowIndex: rowIndex,
             countsInSection: countsInSection,
           );
         }
@@ -850,7 +862,6 @@ class _TasksBodyState extends State<_TasksBody> {
       section: section,
       rootListId: rootListId,
       parentTaskName: parentTaskName,
-      rowIndex: rowIndex,
       countsInSection: countsInSection,
     );
     final operation = widget.onCompleteTask(task);
@@ -903,7 +914,6 @@ class _TasksBodyState extends State<_TasksBody> {
     required _HomeSectionKind section,
     required String rootListId,
     required String? parentTaskName,
-    required int rowIndex,
     required bool countsInSection,
   }) {
     final completedTask = _taskSnapshotWithStatus(task, 'done');
@@ -931,8 +941,6 @@ class _TasksBodyState extends State<_TasksBody> {
       _pendingHomeCompletions[task.id] = _PendingHomeCompletion(
         rows: rows,
         section: section,
-        rowIndex: rowIndex,
-        countsInSection: countsInSection,
       );
     });
     _pendingHomeCompletionTimers[task.id]?.cancel();
@@ -1017,6 +1025,13 @@ class _TasksBodyState extends State<_TasksBody> {
     return {
       for (final pending in _pendingHomeCompletions.values)
         for (final row in pending.rows) row.node.task.id,
+    };
+  }
+
+  Map<String, _HomeSectionRowData> _pendingHomeCompletionRowsByTaskId() {
+    return {
+      for (final pending in _pendingHomeCompletions.values)
+        for (final row in pending.rows) row.node.task.id: row,
     };
   }
 
@@ -1483,29 +1498,18 @@ class _HomeSectionRowData {
 enum _PendingHomeExitPhase { none, holding, exiting }
 
 class _PendingHomeCompletion {
-  const _PendingHomeCompletion({
-    required this.rows,
-    required this.section,
-    required this.rowIndex,
-    required this.countsInSection,
-  });
+  const _PendingHomeCompletion({required this.rows, required this.section});
 
   final List<_HomeSectionRowData> rows;
   final _HomeSectionKind section;
-  final int rowIndex;
-  final bool countsInSection;
 
   _PendingHomeCompletion copyWith({
     List<_HomeSectionRowData>? rows,
     _HomeSectionKind? section,
-    int? rowIndex,
-    bool? countsInSection,
   }) {
     return _PendingHomeCompletion(
       rows: rows ?? this.rows,
       section: section ?? this.section,
-      rowIndex: rowIndex ?? this.rowIndex,
-      countsInSection: countsInSection ?? this.countsInSection,
     );
   }
 }
