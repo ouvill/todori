@@ -94,6 +94,7 @@
 - **性能検証task-67完了（2026-07-08）**: M4-04 / F-50〜F-52対応として、1万件seedでRust storage起動近似・Home横断・単一リスト・検索・migration、Flutter大量pump、オフライン依存範囲を計測した。Rust起動近似は123ms、Flutter Home fake seed pumpは21秒台。Home大量構築は未解決事項として記録した。
 - **task-67未解決事項の引き継ぎ**: Flutter Homeが7140件相当を初期構築してpump 21秒台になる問題をtask-68（Home/Tasksリスト描画の仮想化）として指示書化した。解消方針はHome/Tasksの `CustomScrollView` + Sliver遅延構築化であり、視覚・完了遅延遷移・チェックアニメ・スワイプ・D&D・階層ガイドを維持する。
 - **Home/Tasksリスト描画の仮想化task-68完了（2026-07-08）**: Home/Tasksを `CustomScrollView` + Sliver遅延構築へ移行し、Home 7140件相当のFlutter pumpを21304msから630ms（単体性能test）/802ms（全体test内）へ短縮した。visual QA 43 PNGはbefore/after差分なし。
+- **P2-M1 クライアント同期基盤task-69指示書化（2026-07-08）**: Phase 2最初の実装タスクとして、HLC、フィールドHLCマップ、LWWマージ、blob暗号エンベロープ、storage v8 outbox、proptest収束性検証を `docs/tasks/task-69-sync-foundation.md` に指示書化した。ステータスは未着手。サーバー・ネットワーク・Flutter UIはP2-M2以降へ分離する。
 
 ## 優先度付きバックログ
 
@@ -111,7 +112,7 @@
 | 10 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | 人間帰還後。署名・証明書・ストア提出判断が必要 |
 | 11 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | 人間帰還後。配布判断が必要 |
 | 12 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | 人間帰還後。法務/プライバシー判断が必要 |
-| 13 | P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4.8、§6.3、§6.4、§11.1 |
+| 13 | task-69 P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 未着手。指示書: [`task-69-sync-foundation.md`](./task-69-sync-foundation.md)。出典: `docs/08_Phase2計画書.md`、`docs/03` §4.8、§6.3、§6.4、§11.1 |
 | 14 | P2-M2 サーバー実装 | Postgresスキーマ、OPAQUE登録/ログイン、push/pull、seq採番、§6.6不変条件、リポジトリ内完結のPostgresテスト環境を実装する | P2-M2 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§6.1、§6.2、§6.6、§7 |
 | 15 | P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4、§7 |
 | 16 | P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5 |
