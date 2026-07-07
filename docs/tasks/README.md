@@ -76,6 +76,7 @@
 | task-57 | 完了 | [task-57-home-dedupe.md](./task-57-home-dedupe.md) | Home重複表示の解消。1タスク1表示、同伴サブツリー剪定、サブタスク単独行の親ラベル表示を実装する | task-55・task-56の完了状態に依存。出典: 2026-07-08人間裁定（Home重複表示の解消） |
 | task-58 | 完了 | [task-58-home-closed-nesting.md](./task-58-home-closed-nesting.md) | Home完了タスクの単独表示抑止。完了した期日あり子孫を日付セクションへ単独表示せず、表示中祖先配下の同伴/完了ルートのClosed/祖先非表示サブタスクの非表示へ整理する | task-57の完了状態に依存。出典: 2026-07-08ドッグフーディング（完了済み期日超過サブサブタスクのOverdue残留） |
 | task-59 | 完了 | [task-59-check-completion-motion.md](./task-59-check-completion-motion.md) | チェック完了モーション。チェック線path描画、左から右へ伸びる取り消し線、チェック起点の局所パーティクル、Reduce Motion分岐を実装する | task-56の完了状態に依存。出典: 2026-07-08人間裁定（チェック完了モーション） |
+| task-60 | 未着手 | [task-60-motion-refinement.md](./task-60-motion-refinement.md) | チェック完了モーション受け入れFBの精度改善。チェック円/ヒット領域/Ink同心化、取り消し線描画統一、Home単独表示行の完了後遅延退場を行う | task-59の完了状態に依存。出典: 2026-07-08モーション体感受け入れFB |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
