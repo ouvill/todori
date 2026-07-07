@@ -25,19 +25,46 @@ class TasksScreen extends ConsumerWidget {
     required this.listId,
     this.listName,
     this.isHome = false,
-  });
+  }) : isTodaySmartView = false;
+
+  const TasksScreen.today({super.key})
+    : listId = '_today',
+      listName = null,
+      isHome = true,
+      isTodaySmartView = true;
 
   final String listId;
   final String? listName;
   final bool isHome;
+  final bool isTodaySmartView;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final tasksAsync = ref.watch(tasksProvider(listId));
+    final AsyncValue<List<TaskDto>> tasksAsync;
+    final Map<String, String> todayListNameByTaskId;
+    if (isTodaySmartView) {
+      final todayTasksAsync = ref.watch(todayTasksProvider);
+      todayListNameByTaskId = {
+        for (final todayTask in todayTasksAsync.value ?? const <TodayTaskDto>[])
+          todayTask.task.id: todayTask.listName,
+      };
+      tasksAsync = todayTasksAsync.whenData(
+        (todayTasks) => todayTasks
+            .map((todayTask) => todayTask.task)
+            .toList(growable: false),
+      );
+    } else {
+      todayListNameByTaskId = const {};
+      tasksAsync = ref.watch(tasksProvider(listId));
+    }
     final listsAsync = ref.watch(listsProvider);
     final archivedListsAsync = ref.watch(archivedListsProvider);
     final sortMode = ref.watch(taskSortModeProvider(listId));
+    final effectiveSortMode =
+        isTodaySmartView && sortMode == TaskSortMode.manual
+        ? TaskSortMode.dueDate
+        : sortMode;
     final activeLists = listsAsync.value;
     final archivedLists = archivedListsAsync.value;
     final currentList =
@@ -46,12 +73,19 @@ class TasksScreen extends ConsumerWidget {
         currentList?.archivedAt == null && currentList?.isDefault == true;
 
     final sortMenu = _TaskSortMenu(
-      selectedMode: sortMode,
+      selectedMode: effectiveSortMode,
+      availableModes: isTodaySmartView
+          ? const [
+              TaskSortMode.dueDate,
+              TaskSortMode.priority,
+              TaskSortMode.createdAt,
+            ]
+          : TaskSortMode.values,
       onSelected: (mode) {
         ref.read(taskSortModeProvider(listId).notifier).setMode(mode);
       },
     );
-    final listActionsMenu = currentList == null
+    final listActionsMenu = isTodaySmartView || currentList == null
         ? null
         : _ListActionsMenu(
             list: currentList,
@@ -82,10 +116,12 @@ class TasksScreen extends ConsumerWidget {
             listId: listId,
             listName: listName,
             isHome: isHome,
+            isTodaySmartView: isTodaySmartView,
             tasks: tasks,
-            sortMode: sortMode,
+            sortMode: effectiveSortMode,
             sortMenu: sortMenu,
             listActionsMenu: listActionsMenu,
+            todayListNameByTaskId: todayListNameByTaskId,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
@@ -147,6 +183,10 @@ class TasksScreen extends ConsumerWidget {
     if (title == null || title.trim().isEmpty) {
       return;
     }
+    if (isTodaySmartView) {
+      await ref.read(todayTasksProvider.notifier).createTask(title.trim());
+      return;
+    }
     await ref.read(tasksProvider(listId).notifier).createTask(title.trim());
   }
 
@@ -156,7 +196,13 @@ class TasksScreen extends ConsumerWidget {
     TaskDto task,
     List<TaskDto> tasks,
   ) async {
-    if (hasIncompleteDescendants(task.id, tasks)) {
+    final descendantScope = isTodaySmartView
+        ? await ref.read(tasksProvider(task.listId).future)
+        : tasks;
+    if (!context.mounted) {
+      return;
+    }
+    if (hasIncompleteDescendants(task.id, descendantScope)) {
       final l10n = AppLocalizations.of(context)!;
       final confirmed = await showAppConfirmDialog(
         context: context,
@@ -170,7 +216,11 @@ class TasksScreen extends ConsumerWidget {
       }
     }
 
-    await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
+    if (isTodaySmartView) {
+      await ref.read(todayTasksProvider.notifier).setStatus(task.id, 'done');
+    } else {
+      await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
+    }
     if (!context.mounted) {
       return;
     }
@@ -178,6 +228,9 @@ class TasksScreen extends ConsumerWidget {
   }
 
   Future<void> _reopenTask(WidgetRef ref, TaskDto task) {
+    if (isTodaySmartView) {
+      return ref.read(todayTasksProvider.notifier).setStatus(task.id, 'todo');
+    }
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
   }
 
@@ -248,10 +301,12 @@ class _TasksBody extends StatefulWidget {
     required this.listId,
     required this.listName,
     required this.isHome,
+    required this.isTodaySmartView,
     required this.tasks,
     required this.sortMode,
     required this.sortMenu,
     required this.listActionsMenu,
+    required this.todayListNameByTaskId,
     required this.onCompleteTask,
     required this.onReopenTask,
     required this.onMoveTask,
@@ -260,10 +315,12 @@ class _TasksBody extends StatefulWidget {
   final String listId;
   final String? listName;
   final bool isHome;
+  final bool isTodaySmartView;
   final List<TaskDto> tasks;
   final TaskSortMode sortMode;
   final Widget sortMenu;
   final Widget? listActionsMenu;
+  final Map<String, String> todayListNameByTaskId;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function({
@@ -322,7 +379,6 @@ class _TasksBodyState extends State<_TasksBody> {
     if (widget.isHome) {
       children.add(
         _HomeTasksHeader(
-          listName: widget.listName ?? l10n.tasksTitle,
           sortMenu: widget.sortMenu,
           listActionsMenu: widget.listActionsMenu,
         ),
@@ -439,6 +495,10 @@ class _TasksBodyState extends State<_TasksBody> {
         task: task,
         stats: stats,
         includeSubtaskProgress: false,
+        includeWontDoStatus: !widget.isTodaySmartView,
+        listName: widget.isTodaySmartView
+            ? widget.todayListNameByTaskId[task.id]
+            : null,
       ),
       framed: framed,
       trailing: showManualControls
@@ -458,19 +518,17 @@ class _TasksBodyState extends State<_TasksBody> {
       onToggleDone: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : () => widget.onCompleteTask(task),
-      onTap: () => context.push('/lists/${widget.listId}/tasks/${task.id}'),
+      onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
     );
   }
 }
 
 class _HomeTasksHeader extends StatelessWidget {
   const _HomeTasksHeader({
-    required this.listName,
     required this.sortMenu,
     required this.listActionsMenu,
   });
 
-  final String listName;
   final Widget sortMenu;
   final Widget? listActionsMenu;
 
@@ -513,40 +571,6 @@ class _HomeTasksHeader extends StatelessWidget {
           today,
           style: theme.textTheme.titleMedium?.copyWith(
             color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surface.withValues(alpha: 0.68),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: colorScheme.outlineVariant),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.xs,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.list_alt_outlined,
-                  size: 16,
-                  color: colorScheme.primary,
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                Flexible(
-                  child: Text(
-                    listName,
-                    softWrap: true,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ],
@@ -800,9 +824,14 @@ bool _hasClosedRoot(List<TaskDto> tasks) {
 }
 
 class _TaskSortMenu extends StatelessWidget {
-  const _TaskSortMenu({required this.selectedMode, required this.onSelected});
+  const _TaskSortMenu({
+    required this.selectedMode,
+    required this.availableModes,
+    required this.onSelected,
+  });
 
   final TaskSortMode selectedMode;
+  final List<TaskSortMode> availableModes;
   final ValueChanged<TaskSortMode> onSelected;
 
   @override
@@ -816,7 +845,7 @@ class _TaskSortMenu extends StatelessWidget {
       onSelected: onSelected,
       itemBuilder: (context) {
         return [
-          for (final mode in TaskSortMode.values)
+          for (final mode in availableModes)
             PopupMenuItem<TaskSortMode>(
               value: mode,
               child: ConstrainedBox(

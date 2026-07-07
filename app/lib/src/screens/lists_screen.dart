@@ -121,10 +121,17 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _ListManagementRow(
+                icon: Icons.wb_sunny_outlined,
+                color: colorScheme.primary,
+                title: l10n.todayTitle,
+                onTap: () => context.go('/'),
+              ),
+              Divider(color: colorScheme.outlineVariant),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg,
-                  AppSpacing.lg,
+                  AppSpacing.sm,
                   AppSpacing.lg,
                   AppSpacing.sm,
                 ),
@@ -142,9 +149,7 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
               else
                 for (var index = 0; index < widget.lists.length; index += 1)
                   _ListManagementRow(
-                    icon: index == 0
-                        ? Icons.wb_sunny_outlined
-                        : Icons.circle_outlined,
+                    icon: Icons.circle_outlined,
                     color: _listAccent(colorScheme, index),
                     title: widget.lists[index].name,
                     onTap: () =>

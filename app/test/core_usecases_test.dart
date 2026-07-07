@@ -52,6 +52,66 @@ void main() {
     );
   });
 
+  test('today smart view is exposed through Rust bridge', () async {
+    final now = DateTime.now();
+    final todayStart = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).millisecondsSinceEpoch;
+    final todayEnd = todayStart + const Duration(days: 1).inMilliseconds;
+    final todayList = await createList(name: 'Today bridge', sortOrder: 'tb0');
+    final otherList = await createList(name: 'Other bridge', sortOrder: 'tb1');
+    final archivedList = await createList(
+      name: 'Archived bridge',
+      sortOrder: 'tb2',
+    );
+    await archiveList(listId: archivedList.id);
+
+    final dueToday = await createTask(
+      listId: todayList.id,
+      title: 'Bridge due today',
+      dueAt: todayStart,
+    );
+    final overdue = await createTask(
+      listId: otherList.id,
+      title: 'Bridge overdue',
+      dueAt: todayStart - const Duration(days: 1).inMilliseconds,
+    );
+    await createTask(listId: todayList.id, title: 'Bridge no due');
+    await createTask(
+      listId: todayList.id,
+      title: 'Bridge tomorrow',
+      dueAt: todayEnd,
+    );
+    await createTask(
+      listId: archivedList.id,
+      title: 'Bridge archived today',
+      dueAt: todayStart,
+    );
+    final closedToday = await createTask(
+      listId: otherList.id,
+      title: 'Bridge closed today',
+      dueAt: todayStart,
+    );
+    await setTaskStatus(taskId: closedToday.id, status: 'done');
+
+    final todayTasks = await getTodayTasks(
+      todayStartMs: todayStart,
+      todayEndMs: todayEnd,
+    );
+    final byTitle = {for (final entry in todayTasks) entry.task.title: entry};
+
+    expect(byTitle['Bridge due today']?.task.id, dueToday.id);
+    expect(byTitle['Bridge due today']?.listName, 'Today bridge');
+    expect(byTitle['Bridge overdue']?.task.id, overdue.id);
+    expect(byTitle['Bridge overdue']?.listName, 'Other bridge');
+    expect(byTitle['Bridge closed today']?.task.status, 'done');
+    expect(byTitle, isNot(contains('Bridge no due')));
+    expect(byTitle, isNot(contains('Bridge tomorrow')));
+    expect(byTitle, isNot(contains('Bridge archived today')));
+  });
+
   test('invalid done to wont_do transition throws', () async {
     final list = await createList(name: 'Transitions', sortOrder: 'b0');
     final task = await createTask(

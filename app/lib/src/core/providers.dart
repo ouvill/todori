@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
-import 'package:todori/src/rust/api.dart' show ListDto, TaskDto, TaskUndoDto;
+import 'package:todori/src/rust/api.dart'
+    show ListDto, TaskDto, TaskUndoDto, TodayTaskDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -119,6 +120,19 @@ final taskSortModeProvider =
       TaskSortModeNotifier.new,
     );
 
+DateTime localDayStart(DateTime dateTime) {
+  final local = dateTime.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+({int startMs, int endMs}) todayLocalRangeMs({DateTime? now}) {
+  final start = localDayStart(now ?? DateTime.now());
+  return (
+    startMs: start.millisecondsSinceEpoch,
+    endMs: start.add(const Duration(days: 1)).millisecondsSinceEpoch,
+  );
+}
+
 /// Manages the tasks of a single list, keyed by `listId`.
 ///
 /// Invalidate strategy: [createTask], [updateTask], [setStatus] and [deleteTask] each
@@ -222,6 +236,54 @@ final tasksProvider =
       TasksNotifier.new,
     );
 
+/// Manages the cross-list Today smart view.
+class TodayTasksNotifier extends AsyncNotifier<List<TodayTaskDto>> {
+  @override
+  FutureOr<List<TodayTaskDto>> build() {
+    final range = todayLocalRangeMs();
+    return ref
+        .watch(bridgeServiceProvider)
+        .getTodayTasks(todayStartMs: range.startMs, todayEndMs: range.endMs);
+  }
+
+  Future<void> createTask(String title) async {
+    final lists = await ref.read(listsProvider.future);
+    final defaultList = lists.singleWhere((list) => list.isDefault);
+    final bridge = ref.read(bridgeServiceProvider);
+    final range = todayLocalRangeMs();
+    await bridge.createTask(
+      listId: defaultList.id,
+      title: title,
+      dueAt: range.startMs,
+    );
+    ref.invalidate(tasksProvider(defaultList.id));
+    ref.invalidateSelf();
+  }
+
+  Future<void> setStatus(
+    String taskId,
+    String status, {
+    String? closedReason,
+  }) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    final updated = await bridge.setTaskStatus(
+      taskId: taskId,
+      status: status,
+      closedReason: closedReason,
+    );
+    if (status == 'done' || status == 'wont_do') {
+      ref.invalidate(latestTaskUndoProvider);
+    }
+    ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidateSelf();
+  }
+}
+
+final todayTasksProvider =
+    AsyncNotifierProvider<TodayTasksNotifier, List<TodayTaskDto>>(
+      TodayTasksNotifier.new,
+    );
+
 /// Identifies a single task for [taskDetailProvider]: the containing list id
 /// plus the task id.
 typedef TaskDetailArgs = ({String listId, String taskId});
@@ -259,6 +321,7 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .read(bridgeServiceProvider)
         .undoTaskOperation(undoId: undoId);
     ref.invalidate(tasksProvider(restored.listId));
+    ref.invalidate(todayTasksProvider);
     ref.invalidateSelf();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;

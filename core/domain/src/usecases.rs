@@ -175,7 +175,7 @@ pub fn transition_task(
             task.closed_reason = None;
         }
         TaskStatus::WontDo => {
-            task.completed_at = None;
+            task.completed_at = Some(now_ms);
             task.closed_reason = closed_reason;
         }
         TaskStatus::Todo => {
@@ -404,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn transition_to_wont_do_clears_completed_at_and_keeps_closed_reason() {
+    fn transition_to_wont_do_sets_completed_at_and_keeps_closed_reason() {
         let task = task_fixture();
         let updated = transition_task(
             task,
@@ -415,7 +415,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated.status, TaskStatus::WontDo);
-        assert_eq!(updated.completed_at, None);
+        assert_eq!(updated.completed_at, Some(LATER));
         assert_eq!(updated.closed_reason, Some("not planned".to_string()));
         assert_eq!(updated.updated_at, LATER);
     }

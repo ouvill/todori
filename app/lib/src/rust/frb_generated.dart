@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1769962002;
+  int get rustContentHash => 1598558124;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -93,6 +93,7 @@ abstract class RustLibApi extends BaseApi {
     required String listId,
     required String title,
     String? parentTaskId,
+    PlatformInt64? dueAt,
   });
 
   Future<void> crateApiDeleteList({required String listId});
@@ -106,6 +107,11 @@ abstract class RustLibApi extends BaseApi {
   Future<List<ListDto>> crateApiGetLists();
 
   Future<List<TaskDto>> crateApiGetTasks({required String listId});
+
+  Future<List<TodayTaskDto>> crateApiGetTodayTasks({
+    required PlatformInt64 todayStartMs,
+    required PlatformInt64 todayEndMs,
+  });
 
   Future<String> crateApiGreet({required String name});
 
@@ -308,6 +314,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String listId,
     required String title,
     String? parentTaskId,
+    PlatformInt64? dueAt,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -316,6 +323,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(listId, serializer);
           sse_encode_String(title, serializer);
           sse_encode_opt_String(parentTaskId, serializer);
+          sse_encode_opt_box_autoadd_i_64(dueAt, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -328,7 +336,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, parentTaskId],
+        argValues: [listId, title, parentTaskId, dueAt],
         apiImpl: this,
       ),
     );
@@ -336,7 +344,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "parentTaskId"],
+    argNames: ["listId", "title", "parentTaskId", "dueAt"],
   );
 
   @override
@@ -505,6 +513,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_tasks", argNames: ["listId"]);
 
   @override
+  Future<List<TodayTaskDto>> crateApiGetTodayTasks({
+    required PlatformInt64 todayStartMs,
+    required PlatformInt64 todayEndMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(todayStartMs, serializer);
+          sse_encode_i_64(todayEndMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_today_task_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetTodayTasksConstMeta,
+        argValues: [todayStartMs, todayEndMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetTodayTasksConstMeta => const TaskConstMeta(
+    debugName: "get_today_tasks",
+    argNames: ["todayStartMs", "todayEndMs"],
+  );
+
+  @override
   Future<String> crateApiGreet({required String name}) {
     return handler.executeNormal(
       NormalTask(
@@ -514,7 +556,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 14,
             port: port_,
           );
         },
@@ -546,7 +588,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 15,
             port: port_,
           );
         },
@@ -580,7 +622,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -616,7 +658,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -652,7 +694,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -682,7 +724,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -710,7 +752,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -750,7 +792,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -851,6 +893,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TodayTaskDto> dco_decode_list_today_task_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_today_task_dto).toList();
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
@@ -914,6 +962,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       listId: dco_decode_String(arr[3]),
       taskTitle: dco_decode_String(arr[4]),
       createdAt: dco_decode_i_64(arr[5]),
+    );
+  }
+
+  @protected
+  TodayTaskDto dco_decode_today_task_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return TodayTaskDto(
+      task: dco_decode_task_dto(arr[0]),
+      listName: dco_decode_String(arr[1]),
     );
   }
 
@@ -1033,6 +1093,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TodayTaskDto> sse_decode_list_today_task_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TodayTaskDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_today_task_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1139,6 +1213,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TodayTaskDto sse_decode_today_task_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_task = sse_decode_task_dto(deserializer);
+    var var_listName = sse_decode_String(deserializer);
+    return TodayTaskDto(task: var_task, listName: var_listName);
+  }
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8();
@@ -1241,6 +1323,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_today_task_dto(
+    List<TodayTaskDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_today_task_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1317,6 +1411,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.listId, serializer);
     sse_encode_String(self.taskTitle, serializer);
     sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_today_task_dto(TodayTaskDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_task_dto(self.task, serializer);
+    sse_encode_String(self.listName, serializer);
   }
 
   @protected

@@ -1,5 +1,8 @@
 # task-47: Todayスマートリスト化とリスト一覧Todayリンク
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 TodoriのHomeはtask-29以降、起動直後にTodayヘッダーを表示する task-first 体験へ寄せている。一方で実装上は、task-46で永続識別された既定Inboxを通常リストとして開き、そのリストのタスクだけを表示している。
@@ -185,3 +188,139 @@ TodoriのHomeはtask-29以降、起動直後にTodayヘッダーを表示する 
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだ/確認したファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/03_技術仕様書.md` lists/tasks schema、schema version記述
+  - `docs/tasks/task-46-default-inbox.md` 完了報告
+  - `docs/design/ui-spec.md` セクション3
+  - `app/lib/src/screens/home_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/rust/src/api.rs`
+  - `core/storage/src/lib.rs`
+  - `core/domain/src/usecases.rs`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/visual_qa/design_lab_mocks.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/tool/visual_qa.sh`
+- 作業前退避:
+  - `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+  - `find app/build/visual_qa_before -maxdepth 1 -name '*.png' | wc -l`: `30`
+  - `find app/build/visual_qa -maxdepth 1 -name '*.png' | wc -l`: `30`
+- Today抽出API/DTO:
+  - `core/storage/src/lib.rs` に `TodayTask { task, list_name }` と `TaskRepository::list_today(today_start_ms, today_end_ms)` を追加した。
+  - `list_today` は `tasks` と `lists` をJOINするSQLクエリで取得する。
+  - storageクエリ条件:
+    - `lists.archived_at IS NULL`
+    - `tasks.due_at IS NOT NULL`
+    - `tasks.due_at < today_end_ms`
+    - `tasks.status IN ('todo', 'in_progress')`
+    - または `tasks.status IN ('done', 'wont_do') AND tasks.completed_at >= today_start_ms AND tasks.completed_at < today_end_ms`
+  - 並び順は `tasks.due_at ASC, tasks.sort_order ASC, tasks.id ASC`。
+  - `app/rust/src/api.rs` に `TodayTaskDto { task: TaskDto, list_name: String }` と `get_today_tasks(today_start_ms, today_end_ms)` を追加した。
+  - `today_start_ms` / `today_end_ms` はDart側 `todayLocalRangeMs()` で端末ローカル日の0時から翌日0時の `[start, end)` として計算する。
+- Closedセクション条件:
+  - Today対象条件に一致するタスクのうち、`done` / `wont_do` かつ `completed_at >= today_start_ms AND completed_at < today_end_ms` の行を返す。
+  - `core/domain/src/usecases.rs` の `transition_task(..., TaskStatus::WontDo, ...)` は `completed_at = Some(now_ms)` を設定するように変更した。
+- FRB再生成:
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`: exit 0
+  - 生成物変更範囲:
+    - `app/lib/src/rust/api.dart`
+    - `app/lib/src/rust/frb_generated.dart`
+    - `app/lib/src/rust/frb_generated.io.dart`
+    - `app/rust/src/frb_generated.rs`
+- Dart provider / BridgeService / FakeBridgeService:
+  - `BridgeService` / `FrbBridgeService` に `getTodayTasks(todayStartMs, todayEndMs)` を追加した。
+  - `BridgeService.createTask` に任意引数 `dueAt` を追加した。
+  - `TodayTasksNotifier` / `todayTasksProvider` を追加した。
+  - `TodayTasksNotifier.createTask` は `listsProvider.future` から `isDefault == true` のリストを解決し、`dueAt = today_start_ms` で `createTask` を呼ぶ。
+  - `FakeBridgeService` はToday抽出条件、list名付き `TodayTaskDto`、`dueAt` 付き作成、`done` / `wont_do` の `completedAt` を実装した。
+- Home / Tasks:
+  - `home_screen.dart` は既定Inboxの `TasksScreen(listId: ...)` ではなく `TasksScreen.today()` を返す。
+  - `TasksScreen.today()` は `todayTasksProvider` を表示する。
+  - Todayヘッダーから旧Inbox/list pillを削除した。
+  - Todayビューでは `_ListActionsMenu` を生成しない。
+  - Todayビューのsort menuは `dueDate` / `priority` / `createdAt` のみ表示する。
+  - Todayビューでは手動並び替えボタンを表示しない。
+  - Today上で親タスクを完了する場合は、対象タスクの通常リスト全件を `tasksProvider(task.listId).future` で読み、既存の未完了子孫確認を行う。
+- Today Add task:
+  - 作成先は `ListDto.isDefault == true` の既定Inbox。
+  - 設定値は `dueAt = today_start_ms`。
+  - 通常リストの `TasksNotifier.createTask` は `dueAt` を渡さないため、通常Add taskは期日なしで作成される。
+- Lists画面:
+  - `lists_screen.dart` のカード内最上部に `Today` 行を追加した。
+  - 表示順は `Today -> LISTS/通常リスト -> New list -> Archived`。
+  - Today行タップは `context.go('/')`。
+  - 既定Inboxは通常リストとして通常リストセクション内に残る。
+- Todayビュー限定list pill:
+  - `task_components.dart` の `taskMetadataItemsFor` に `listName` 任意引数を追加した。
+  - `TasksScreen` はTodayビューの行だけ `listName` を渡す。
+  - 通常リスト画面では `listName` を渡さない。
+  - Todayビューでは `wont_do` status pillを追加せず、日付pill + リスト名pillの2個構成にする。
+  - 親がToday対象外のサブタスクは、既存 `buildTaskTree` の親欠落時root扱いにより深さ0行として表示する。
+- l10n:
+  - 追加/更新したARBキーはない。
+  - 既存 `todayTitle`、`homeTasksSectionTitle`、sort/menu文言を使用した。
+- 追加・更新したテスト:
+  - Rust storage test `list_today_filters_due_active_and_closed_tasks_across_active_lists`: 今日期日、期日超過、明日以降、期日なし、アーカイブ済みリスト、当日closed、前日closed、`wont_do` を確認。
+  - Rust domain test `transition_to_wont_do_sets_completed_at_and_keeps_closed_reason`: `wont_do` の `completed_at` 設定を確認。
+  - Dart core usecase test `today smart view is exposed through Rust bridge`: FRB経由のToday取得、list名DTO、期日なし/明日/アーカイブ除外を確認。
+  - Widget test `home shows Today smart view across active lists with list pills`: Homeの横断Today表示、list pill、期日なし/明日/アーカイブ除外、Todayでのlist actions/manual sort非表示を確認。
+  - Widget test `today add task creates in default inbox with today due date`: Today Add taskの作成先と `dueAt` を確認。
+  - Widget test `lists screen puts Today first and Today row returns home`: Lists画面のToday先頭表示とHome遷移を確認。
+  - Widget test `today shows due subtask without parent context and normal list omits list pill`: 親がToday対象外のサブタスク表示、Today限定list pill、通常リストでlist pillが出ないことを確認。
+  - 既存widget/visual QA seedをToday対象データへ更新した。
+- visual QA:
+  - before退避: `app/build/visual_qa_before/`
+  - after生成: `app/build/visual_qa/`
+  - `app/build/visual_qa/home_tasks.png`: Todayスマートビュー、Inbox以外の `仕事` リスト由来行、日付pill + リスト名pillを目視確認した。
+  - `app/build/visual_qa/lists.png`: Today行が最上部、通常リスト、New list、Archivedの順であることを目視確認した。
+  - 関連パス:
+    - `app/build/visual_qa_before/home_tasks.png`
+    - `app/build/visual_qa_before/lists.png`
+    - `app/build/visual_qa/home_tasks.png`
+    - `app/build/visual_qa/lists.png`
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0（70 tests、visual QA harness skip 1）
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0（29 tests）
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/rust/frb_generated.io.dart`
+  - `app/lib/src/screens/home_screen.dart`
+  - `app/lib/src/screens/lists_screen.dart`
+  - `app/lib/src/screens/task_detail_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/lib/src/ui/task_components.dart`
+  - `app/rust/src/api.rs`
+  - `app/rust/src/frb_generated.rs`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `docs/tasks/task-47-today-smart-list.md`
+- 未解決事項:
+  - なし

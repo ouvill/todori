@@ -141,6 +141,7 @@ class FakeBridgeService implements BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
+    int? dueAt,
   }) async {
     final taskSeq = _taskSeq++;
     final siblings =
@@ -163,6 +164,7 @@ class FakeBridgeService implements BridgeService {
       note: '',
       status: 'todo',
       priority: 0,
+      dueAt: dueAt,
       sortOrder: sortOrder,
       createdAt: _fakeTimestamp(100 + taskSeq),
       updatedAt: _fakeTimestamp(100 + taskSeq),
@@ -176,6 +178,45 @@ class FakeBridgeService implements BridgeService {
     final tasks = _tasks.where((task) => task.listId == listId).toList();
     tasks.sort(_compareTasks);
     return tasks;
+  }
+
+  @override
+  Future<List<TodayTaskDto>> getTodayTasks({
+    required int todayStartMs,
+    required int todayEndMs,
+  }) async {
+    final activeListById = {
+      for (final list in _lists)
+        if (list.archivedAt == null) list.id: list,
+    };
+    final todayTasks = _tasks
+        .where((task) {
+          final dueAt = task.dueAt;
+          if (dueAt == null ||
+              dueAt >= todayEndMs ||
+              !activeListById.containsKey(task.listId)) {
+            return false;
+          }
+          if (task.status == 'todo' || task.status == 'in_progress') {
+            return true;
+          }
+          if (task.status == 'done' || task.status == 'wont_do') {
+            final completedAt = task.completedAt;
+            return completedAt != null &&
+                completedAt >= todayStartMs &&
+                completedAt < todayEndMs;
+          }
+          return false;
+        })
+        .map(
+          (task) => TodayTaskDto(
+            task: task,
+            listName: activeListById[task.listId]!.name,
+          ),
+        )
+        .toList();
+    todayTasks.sort((a, b) => _compareTodayTasks(a.task, b.task));
+    return List.unmodifiable(todayTasks);
   }
 
   @override
@@ -236,11 +277,13 @@ class FakeBridgeService implements BridgeService {
       throw Exception('invalid task status transition');
     }
     final updatedAt = before.updatedAt + _fakeMinuteMs;
+    final isClosed = status == 'done' || status == 'wont_do';
+    final completedAt = isClosed ? DateTime.now().millisecondsSinceEpoch : null;
     final updated = before._copyWith(
       status: status,
-      completedAt: status == 'done' ? updatedAt : null,
+      completedAt: completedAt,
       closedReason: status == 'wont_do' ? closedReason : null,
-      clearCompletedAt: status != 'done',
+      clearCompletedAt: !isClosed,
       clearClosedReason: status != 'wont_do',
       updatedAt: updatedAt,
     );
@@ -497,6 +540,14 @@ int _compareTasks(TaskDto a, TaskDto b) {
     return sortOrder;
   }
   return a.id.compareTo(b.id);
+}
+
+int _compareTodayTasks(TaskDto a, TaskDto b) {
+  final dueAt = a.dueAt!.compareTo(b.dueAt!);
+  if (dueAt != 0) {
+    return dueAt;
+  }
+  return _compareTasks(a, b);
 }
 
 int _compareLists(ListDto a, ListDto b) {

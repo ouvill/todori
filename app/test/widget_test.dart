@@ -15,7 +15,11 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   await fake.createDefaultList(name: listName, sortOrder: 'a0');
   final lists = await fake.getLists();
   final defaultList = lists.singleWhere((list) => list.isDefault);
-  await fake.createTask(listId: defaultList.id, title: taskTitle);
+  await fake.createTask(
+    listId: defaultList.id,
+    title: taskTitle,
+    dueAt: _todayStartMs(),
+  );
 
   await tester.pumpWidget(
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -23,6 +27,11 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   await tester.pumpAndSettle();
 
   return fake;
+}
+
+int _todayStartMs() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
 }
 
 void _useNarrowDynamicTypeView(WidgetTester tester) {
@@ -94,7 +103,7 @@ void main() {
       taskTitle: 'Buy milk',
     );
 
-    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Today'), findsWidgets);
     expect(find.text('Buy milk'), findsOneWidget);
     expect(find.byTooltip('Open lists'), findsOneWidget);
     expect(find.text('Add task'), findsOneWidget);
@@ -106,6 +115,175 @@ void main() {
     expect(find.text('Local protection'), findsNothing);
     expect(find.text('Buy milk'), findsOneWidget);
   });
+
+  testWidgets(
+    'home shows Today smart view across active lists with list pills',
+    (tester) async {
+      final fake = FakeBridgeService();
+      final today = _todayStartMs();
+      final tomorrow = today + const Duration(days: 1).inMilliseconds;
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+      final archived = await fake.createList(
+        name: 'Old project',
+        sortOrder: 'a2',
+      );
+      await fake.archiveList(listId: archived.id);
+      final inbox = (await fake.getLists()).singleWhere(
+        (list) => list.isDefault,
+      );
+
+      await fake.createTask(
+        listId: inbox.id,
+        title: 'Inbox due today',
+        dueAt: today,
+      );
+      await fake.createTask(
+        listId: work.id,
+        title: 'Work overdue',
+        dueAt: today - const Duration(days: 1).inMilliseconds,
+      );
+      await fake.createTask(listId: work.id, title: 'No due work');
+      await fake.createTask(
+        listId: work.id,
+        title: 'Tomorrow work',
+        dueAt: tomorrow,
+      );
+      await fake.createTask(
+        listId: archived.id,
+        title: 'Archived today',
+        dueAt: today,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Today'), findsWidgets);
+      expect(find.text('Inbox due today'), findsOneWidget);
+      expect(find.text('Work overdue'), findsOneWidget);
+      expect(find.text('Inbox'), findsOneWidget);
+      expect(find.text('Work'), findsOneWidget);
+      expect(find.text('No due work'), findsNothing);
+      expect(find.text('Tomorrow work'), findsNothing);
+      expect(find.text('Archived today'), findsNothing);
+      expect(find.byTooltip('List actions'), findsNothing);
+      expect(find.byTooltip('Move task up'), findsNothing);
+      expect(find.byTooltip('Move task down'), findsNothing);
+
+      await tester.tap(find.byTooltip('Sort tasks'));
+      await tester.pumpAndSettle();
+      expect(find.text('Manual'), findsNothing);
+      expect(find.text('Due date'), findsOneWidget);
+      await tester.tap(find.text('Due date').last);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('today add task creates in default inbox with today due date', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add task'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Today capture');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    final defaultList = (await fake.getLists()).singleWhere(
+      (list) => list.isDefault,
+    );
+    final tasks = await fake.getTasks(listId: defaultList.id);
+    expect(tasks.single.title, 'Today capture');
+    expect(tasks.single.dueAt, _todayStartMs());
+    expect(find.text('Today capture'), findsOneWidget);
+    expect(find.text('Inbox'), findsOneWidget);
+  });
+
+  testWidgets('lists screen puts Today first and Today row returns home', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createList(name: 'Work', sortOrder: 'a1');
+    final archived = await fake.createList(
+      name: 'Old project',
+      sortOrder: 'a2',
+    );
+    await fake.archiveList(listId: archived.id);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+
+    expect(
+      tester.getTopLeft(find.text('Today').last).dy,
+      lessThan(tester.getTopLeft(find.text('Inbox')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Work')).dy,
+      lessThan(tester.getTopLeft(find.text('New list')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('New list')).dy,
+      lessThan(tester.getTopLeft(find.text('Archived (1)')).dy),
+    );
+
+    await tester.tap(find.text('Today').last);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Open lists'), findsOneWidget);
+    expect(find.text('Add task'), findsOneWidget);
+  });
+
+  testWidgets(
+    'today shows due subtask without parent context and normal list omits list pill',
+    (tester) async {
+      final fake = FakeBridgeService();
+      final today = _todayStartMs();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final inbox = (await fake.getLists()).singleWhere(
+        (list) => list.isDefault,
+      );
+      final parent = await fake.createTask(
+        listId: inbox.id,
+        title: 'Parent without due',
+      );
+      final child = await fake.createTask(
+        listId: inbox.id,
+        title: 'Due child only',
+        parentTaskId: parent.id,
+        dueAt: today,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Due child only'), findsOneWidget);
+      expect(find.text('Parent without due'), findsNothing);
+      expect(find.text('Inbox'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('task-hierarchy-guide-${child.id}')),
+        findsNothing,
+      );
+
+      await _openListFromHome(tester, 'Inbox');
+      expect(find.text('Due child only'), findsOneWidget);
+      expect(find.text('Parent without due'), findsOneWidget);
+      expect(find.text('Inbox'), findsNothing);
+      expect(find.byTooltip('Move task up'), findsWidgets);
+    },
+  );
 
   testWidgets('long task titles survive narrow width and Dynamic Type', (
     tester,
@@ -176,11 +354,11 @@ void main() {
       await tester.pumpWidget(
         TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-    expect(find.text('Today'), findsOneWidget);
-    expect(find.text('Add task'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Add task'), findsOneWidget);
+      expect(tester.takeException(), isNull);
 
       await tester.ensureVisible(find.text('Add task'));
       await tester.pumpAndSettle();
@@ -322,6 +500,7 @@ void main() {
     (tester) async {
       final fake = await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
+      await _openListFromHome(tester, 'Inbox');
       await tester.tap(find.byTooltip('List actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rename'));
@@ -332,8 +511,9 @@ void main() {
 
       final lists = await fake.getLists();
       expect(lists.singleWhere((list) => list.isDefault).name, 'Personal');
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
       expect(find.text('Personal'), findsOneWidget);
-      expect(find.text('Inbox'), findsNothing);
     },
   );
 
@@ -342,6 +522,7 @@ void main() {
     const longListName = 'とても長い既定インボックス名 with a long English project label';
     await _pumpAppWithSeedData(tester, listName: longListName);
 
+    await _openListFromHome(tester, longListName);
     await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Rename'));
@@ -435,6 +616,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     await tester.tap(find.byTooltip('List actions'));
     await tester.pumpAndSettle();
@@ -588,7 +770,11 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final task = await fake.createTask(listId: listId, title: 'Done task');
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Done task',
+      dueAt: _todayStartMs(),
+    );
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
@@ -619,11 +805,16 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final parent = await fake.createTask(listId: listId, title: 'Parent task');
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Parent task',
+      dueAt: _todayStartMs(),
+    );
     final child = await fake.createTask(
       listId: listId,
       title: 'Nested child task',
       parentTaskId: parent.id,
+      dueAt: _todayStartMs(),
     );
 
     await tester.pumpWidget(
@@ -658,11 +849,16 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final parent = await fake.createTask(listId: listId, title: 'Closed root');
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Closed root',
+      dueAt: _todayStartMs(),
+    );
     final child = await fake.createTask(
       listId: listId,
       title: 'Open child under closed root',
       parentTaskId: parent.id,
+      dueAt: _todayStartMs(),
     );
     await fake.setTaskStatus(taskId: parent.id, status: 'done');
 
@@ -691,7 +887,11 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final task = await fake.createTask(listId: listId, title: 'Skipped task');
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Skipped task',
+      dueAt: _todayStartMs(),
+    );
     await fake.setTaskStatus(taskId: task.id, status: 'wont_do');
 
     await tester.pumpWidget(
@@ -702,7 +902,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Skipped task'), findsOneWidget);
-    expect(find.text("Won't do"), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
     await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
@@ -768,7 +967,11 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final task = await fake.createTask(listId: listId, title: 'Done task');
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Done task',
+      dueAt: _todayStartMs(),
+    );
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
@@ -796,6 +999,7 @@ void main() {
     final skipped = await fake.createTask(
       listId: listId,
       title: 'Skipped task',
+      dueAt: _todayStartMs(),
     );
     await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
@@ -803,6 +1007,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
@@ -1292,6 +1497,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent detail task',
+        dueAt: _todayStartMs(),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -1342,6 +1548,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Detail parent',
+      dueAt: _todayStartMs(),
     );
     final branchChild = await fake.createTask(
       listId: listId,
@@ -1399,6 +1606,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent task',
+        dueAt: _todayStartMs(),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -1442,6 +1650,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent task',
+        dueAt: _todayStartMs(),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -1558,13 +1767,14 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Stable inline title',
+      dueAt: _todayStartMs(),
     );
     await fake.updateTask(
       taskId: task.id,
       title: task.title,
       note: 'Stable inline note',
       priority: 0,
-      dueAt: null,
+      dueAt: _todayStartMs(),
     );
 
     await tester.pumpWidget(
@@ -1717,14 +1927,16 @@ void main() {
   testWidgets('due date chip sets and clears due date immediately', (
     tester,
   ) async {
-    final fake = await _pumpAppWithSeedData(
-      tester,
-      listName: 'Inbox',
-      taskTitle: 'Buy milk',
-    );
-
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final task = (await fake.getTasks(listId: listId)).single;
+    final task = await fake.createTask(listId: listId, title: 'Buy milk');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
@@ -1782,7 +1994,11 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    final parent = await fake.createTask(listId: listId, title: 'Parent task');
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Parent task',
+      dueAt: _todayStartMs(),
+    );
     final child = await fake.createTask(
       listId: listId,
       title: 'Child task',
@@ -1818,8 +2034,16 @@ void main() {
       final fake = FakeBridgeService();
       await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final listId = (await fake.getLists()).first.id;
-      await fake.createTask(listId: listId, title: 'Buy milk');
-      final next = await fake.createTask(listId: listId, title: 'Next task');
+      await fake.createTask(
+        listId: listId,
+        title: 'Buy milk',
+        dueAt: _todayStartMs(),
+      );
+      final next = await fake.createTask(
+        listId: listId,
+        title: 'Next task',
+        dueAt: _todayStartMs(),
+      );
 
       await tester.pumpWidget(
         TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),

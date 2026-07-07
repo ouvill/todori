@@ -14,7 +14,7 @@ use todori_domain::{
 };
 use todori_storage::{
     open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
-    TaskRepository, TaskUndoEntry, TaskUndoOperation,
+    TaskRepository, TaskUndoEntry, TaskUndoOperation, TodayTask,
 };
 
 use crate::dev_key_store::FileDeviceKeyStore;
@@ -66,6 +66,11 @@ pub struct TaskUndoDto {
     pub list_id: String,
     pub task_title: String,
     pub created_at: i64,
+}
+
+pub struct TodayTaskDto {
+    pub task: TaskDto,
+    pub list_name: String,
 }
 
 pub fn greet(name: String) -> String {
@@ -209,6 +214,7 @@ pub fn create_task(
     list_id: String,
     title: String,
     parent_task_id: Option<String>,
+    due_at: Option<i64>,
 ) -> Result<TaskDto, String> {
     let list_id = parse_uuid(&list_id)?;
     let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
@@ -225,8 +231,11 @@ pub fn create_task(
             .max();
         let sort_order =
             fractional_index_after(last_sibling_sort_order).map_err(|error| error.to_string())?;
-        let task = new_task(list_id, parent_task_id, title, sort_order, now_ms)
+        let mut task = new_task(list_id, parent_task_id, title, sort_order, now_ms)
             .map_err(|error| error.to_string())?;
+        if let Some(due_at) = due_at {
+            task = update_due_at(task, Some(due_at), now_ms).map_err(|error| error.to_string())?;
+        }
 
         if let Some(parent_id) = parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
@@ -299,6 +308,18 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
             .list_active_by_list(list_id)
             .map_err(|error| error.to_string())
             .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+    })
+}
+
+pub fn get_today_tasks(
+    today_start_ms: i64,
+    today_end_ms: i64,
+) -> Result<Vec<TodayTaskDto>, String> {
+    with_task_repository(|repository| {
+        repository
+            .list_today(today_start_ms, today_end_ms)
+            .map_err(|error| error.to_string())
+            .map(|tasks| tasks.into_iter().map(today_task_to_dto).collect())
     })
 }
 
@@ -541,6 +562,13 @@ fn task_to_dto(task: Task) -> TaskDto {
         assignee: task.assignee.map(|id| id.to_string()),
         created_at: task.created_at,
         updated_at: task.updated_at,
+    }
+}
+
+fn today_task_to_dto(today_task: TodayTask) -> TodayTaskDto {
+    TodayTaskDto {
+        task: task_to_dto(today_task.task),
+        list_name: today_task.list_name,
     }
 }
 

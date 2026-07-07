@@ -39,10 +39,17 @@ abstract class BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
+    int? dueAt,
   });
 
   /// Returns tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
+
+  /// Returns Today smart-view tasks across active lists.
+  Future<List<rust_api.TodayTaskDto>> getTodayTasks({
+    required int todayStartMs,
+    required int todayEndMs,
+  });
 
   /// Returns the number of tasks in `listId`, including completed tasks.
   Future<int> countTasksInList({required String listId});
@@ -123,15 +130,26 @@ class FrbBridgeService implements BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
+    int? dueAt,
   }) => rust_api.createTask(
     listId: listId,
     title: title,
     parentTaskId: parentTaskId,
+    dueAt: dueAt,
   );
 
   @override
   Future<List<rust_api.TaskDto>> getTasks({required String listId}) =>
       rust_api.getTasks(listId: listId);
+
+  @override
+  Future<List<rust_api.TodayTaskDto>> getTodayTasks({
+    required int todayStartMs,
+    required int todayEndMs,
+  }) => rust_api.getTodayTasks(
+    todayStartMs: todayStartMs,
+    todayEndMs: todayEndMs,
+  );
 
   @override
   Future<int> countTasksInList({required String listId}) =>

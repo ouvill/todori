@@ -96,6 +96,14 @@ pub struct TaskUndoEntry {
     pub consumed_at: Option<i64>,
 }
 
+/// A task returned by the cross-list Today smart view, annotated with its
+/// containing list name for UI context.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TodayTask {
+    pub task: Task,
+    pub list_name: String,
+}
+
 /// タスクの永続化を担うリポジトリ。
 ///
 /// SQLite(SQLCipher)実装は [`SqliteTaskRepository`] を参照。同期シグネチャのみを定義する。
@@ -104,6 +112,11 @@ pub trait TaskRepository {
     fn insert(&mut self, task: Task) -> Result<(), StorageError>;
     fn update(&mut self, task: Task) -> Result<(), StorageError>;
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError>;
+    fn list_today(
+        &self,
+        today_start_ms: i64,
+        today_end_ms: i64,
+    ) -> Result<Vec<TodayTask>, StorageError>;
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
 }
@@ -566,6 +579,40 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(tasks)
     }
 
+    fn list_today(
+        &self,
+        today_start_ms: i64,
+        today_end_ms: i64,
+    ) -> Result<Vec<TodayTask>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
+                    tasks.note, tasks.status, tasks.priority, tasks.due_at,
+                    tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
+                    tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
+                    tasks.assignee, tasks.created_at, tasks.updated_at,
+                    lists.name
+             FROM tasks
+             INNER JOIN lists ON lists.id = tasks.list_id
+             WHERE lists.archived_at IS NULL
+               AND tasks.due_at IS NOT NULL
+               AND tasks.due_at < ?2
+               AND (
+                   tasks.status IN ('todo', 'in_progress')
+                   OR (
+                       tasks.status IN ('done', 'wont_do')
+                       AND tasks.completed_at >= ?1
+                       AND tasks.completed_at < ?2
+                   )
+               )
+             ORDER BY tasks.due_at ASC, tasks.sort_order ASC, tasks.id ASC",
+        )?;
+        let tasks = statement
+            .query_map(params![today_start_ms, today_end_ms], row_to_today_task)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(tasks)
+    }
+
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError> {
         count_task_descendants_on(&self.connection, task_id)
     }
@@ -952,6 +999,13 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         assignee: parse_optional_uuid(assignee, 14)?,
         created_at: row.get(15)?,
         updated_at: row.get(16)?,
+    })
+}
+
+fn row_to_today_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodayTask> {
+    Ok(TodayTask {
+        task: row_to_task(row)?,
+        list_name: row.get(17)?,
     })
 }
 
@@ -1828,6 +1882,154 @@ mod tests {
             vec![active]
         );
         assert!(task_repository.latest_unconsumed_undo().unwrap().is_none());
+    }
+
+    #[test]
+    fn list_today_filters_due_active_and_closed_tasks_across_active_lists() {
+        let file = NamedTempFile::new().unwrap();
+        let today_start = 1_800_000_000_000;
+        let today_end = today_start + 86_400_000;
+        let overdue = today_start - 86_400_000;
+        let tomorrow = today_end + 1_000;
+
+        let inbox = new_list("Inbox".to_string(), "a0".to_string(), today_start).unwrap();
+        let work = new_list("Work".to_string(), "a1".to_string(), today_start).unwrap();
+        let mut archived = new_list("Archive".to_string(), "a2".to_string(), today_start).unwrap();
+        archived.archived_at = Some(today_start + 1);
+
+        let mut due_today = new_task(
+            inbox.id,
+            None,
+            "Due today".to_string(),
+            "a0".to_string(),
+            today_start,
+        )
+        .unwrap();
+        due_today.due_at = Some(today_start);
+        let mut overdue_task = new_task(
+            work.id,
+            None,
+            "Overdue".to_string(),
+            "a0".to_string(),
+            today_start,
+        )
+        .unwrap();
+        overdue_task.due_at = Some(overdue);
+        let mut tomorrow_task = new_task(
+            inbox.id,
+            None,
+            "Tomorrow".to_string(),
+            "a1".to_string(),
+            today_start,
+        )
+        .unwrap();
+        tomorrow_task.due_at = Some(tomorrow);
+        let no_due = new_task(
+            inbox.id,
+            None,
+            "No due".to_string(),
+            "a2".to_string(),
+            today_start,
+        )
+        .unwrap();
+        let mut archived_task = new_task(
+            archived.id,
+            None,
+            "Archived".to_string(),
+            "a0".to_string(),
+            today_start,
+        )
+        .unwrap();
+        archived_task.due_at = Some(today_start);
+        let mut closed_today = new_task(
+            work.id,
+            None,
+            "Closed today".to_string(),
+            "a1".to_string(),
+            today_start,
+        )
+        .unwrap();
+        closed_today.due_at = Some(today_start);
+        closed_today =
+            transition_task(closed_today, TaskStatus::Done, None, today_start + 1_000).unwrap();
+        let mut closed_yesterday = new_task(
+            work.id,
+            None,
+            "Closed yesterday".to_string(),
+            "a2".to_string(),
+            today_start,
+        )
+        .unwrap();
+        closed_yesterday.due_at = Some(today_start);
+        closed_yesterday = transition_task(
+            closed_yesterday,
+            TaskStatus::Done,
+            None,
+            today_start - 1_000,
+        )
+        .unwrap();
+        let mut wont_do_today = new_task(
+            work.id,
+            None,
+            "Wont do today".to_string(),
+            "a3".to_string(),
+            today_start,
+        )
+        .unwrap();
+        wont_do_today.due_at = Some(today_start);
+        wont_do_today = transition_task(
+            wont_do_today,
+            TaskStatus::WontDo,
+            Some("not needed".to_string()),
+            today_start + 2_000,
+        )
+        .unwrap();
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(inbox.clone()).unwrap();
+            list_repository.insert(work.clone()).unwrap();
+            list_repository.insert(archived).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut task_repository = SqliteTaskRepository::new(connection);
+        for task in [
+            due_today,
+            overdue_task,
+            tomorrow_task,
+            no_due,
+            archived_task,
+            closed_today,
+            closed_yesterday,
+            wont_do_today,
+        ] {
+            task_repository.insert(task).unwrap();
+        }
+
+        let today_tasks = task_repository.list_today(today_start, today_end).unwrap();
+        let titles = today_tasks
+            .iter()
+            .map(|entry| entry.task.title.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            titles,
+            vec!["Overdue", "Due today", "Closed today", "Wont do today"]
+        );
+        assert_eq!(
+            today_tasks
+                .iter()
+                .find(|entry| entry.task.title == "Overdue")
+                .unwrap()
+                .list_name,
+            "Work"
+        );
+        assert!(!titles.contains(&"Tomorrow"));
+        assert!(!titles.contains(&"No due"));
+        assert!(!titles.contains(&"Archived"));
+        assert!(!titles.contains(&"Closed yesterday"));
     }
 
     #[test]

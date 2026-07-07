@@ -97,15 +97,22 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
-    await fake.createTask(listId: listId, title: 'Review launch brief');
+    final today = _todayStartMs();
+    await fake.createTask(
+      listId: listId,
+      title: 'Review launch brief',
+      dueAt: today,
+    );
     final skipped = await fake.createTask(
       listId: listId,
       title: 'Replace the planning spreadsheet',
+      dueAt: today,
     );
     await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
     final done = await fake.createTask(
       listId: listId,
       title: 'Send weekly notes',
+      dueAt: today,
     );
     await fake.setTaskStatus(taskId: done.id, status: 'done');
 
@@ -223,6 +230,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Ship the release notes',
+      dueAt: _todayStartMs(),
     );
     await fake.createTask(
       listId: listId,
@@ -478,15 +486,39 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   );
 
   final standup = await fake.createTask(listId: homeListId, title: '朝会に参加する');
+  await fake.updateTask(
+    taskId: standup.id,
+    title: standup.title,
+    note: '',
+    priority: 0,
+    dueAt: today,
+  );
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
 
   final skipped = await fake.createTask(
     listId: homeListId,
     title: 'Replace the planning spreadsheet',
   );
+  await fake.updateTask(
+    taskId: skipped.id,
+    title: skipped.title,
+    note: '',
+    priority: 0,
+    dueAt: today,
+  );
   await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
-  await fake.createTask(listId: workListId, title: '四半期レビュー資料を作成する');
+  final workReview = await fake.createTask(
+    listId: workListId,
+    title: '四半期レビュー資料を作成する',
+  );
+  await fake.updateTask(
+    taskId: workReview.id,
+    title: workReview.title,
+    note: '',
+    priority: 3,
+    dueAt: today,
+  );
 
   await tester.pumpWidget(
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -497,6 +529,11 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     fake: fake,
     parentWithSubtasksTitle: parentWithSubtasksTitle,
   );
+}
+
+int _todayStartMs() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
 }
 
 Future<void> _seedArchivedListData(WidgetTester tester) async {

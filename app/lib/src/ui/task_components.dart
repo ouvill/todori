@@ -156,10 +156,12 @@ List<TaskMetadataItem> taskMetadataItemsFor({
   bool includeNoDueDate = false,
   bool includeStatus = false,
   bool includeSubtaskProgress = true,
+  bool includeWontDoStatus = true,
+  String? listName,
 }) {
   final overdue = isTaskOverdue(task);
   return [
-    if (includeStatus || task.status == 'wont_do')
+    if (includeStatus || (includeWontDoStatus && task.status == 'wont_do'))
       TaskMetadataItem(
         icon: taskStatusIcon(task.status),
         label: taskStatusLabel(l10n, task.status),
@@ -180,6 +182,8 @@ List<TaskMetadataItem> taskMetadataItemsFor({
         icon: Icons.account_tree_outlined,
         label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
       ),
+    if (listName != null)
+      TaskMetadataItem(icon: Icons.list_alt_outlined, label: listName),
   ];
 }
 
