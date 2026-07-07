@@ -517,16 +517,29 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: 'Draft the launch checklist',
     parentTaskId: launch.id,
   );
-  await fake.setTaskStatus(taskId: checklist.id, status: 'done');
+  await fake.updateTask(
+    taskId: checklist.id,
+    title: checklist.title,
+    note: '',
+    priority: 1,
+    dueAt: today,
+  );
   await fake.createTask(
     listId: homeListId,
     title: 'Review checklist with design',
     parentTaskId: launch.id,
   );
-  await fake.createTask(
+  final finalCopy = await fake.createTask(
     listId: homeListId,
     title: 'Confirm final copy in the hero panel',
     parentTaskId: checklist.id,
+  );
+  await fake.updateTask(
+    taskId: finalCopy.id,
+    title: finalCopy.title,
+    note: '',
+    priority: 0,
+    dueAt: overdue,
   );
   await fake.createTask(
     listId: homeListId,

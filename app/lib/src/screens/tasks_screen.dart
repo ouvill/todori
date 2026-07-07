@@ -514,6 +514,7 @@ class _TasksBodyState extends State<_TasksBody> {
         countBySection[section] = countBySection[section]! + 1;
       }
     }
+    final standaloneTaskIds = targetSectionByTaskId.keys.toSet();
     final childrenByParent = <String, List<TaskDto>>{};
     for (final entry in sortedEntries) {
       final parentId = entry.task.parentTaskId;
@@ -536,7 +537,8 @@ class _TasksBodyState extends State<_TasksBody> {
         depth: depth,
         children: [
           for (final child in childrenByParent[task.id] ?? const <TaskDto>[])
-            buildHomeNode(child, depth + 1, nextPath),
+            if (!standaloneTaskIds.contains(child.id))
+              buildHomeNode(child, depth + 1, nextPath),
         ],
       );
     }
@@ -544,19 +546,19 @@ class _TasksBodyState extends State<_TasksBody> {
     for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
       final task = entry.task;
       final section = targetSectionByTaskId[task.id];
-      if (section == null ||
-          _hasSuppressingHomeAncestor(
-            task,
-            taskById,
-            targetSectionByTaskId,
-            _homeSectionOrder(section),
-          )) {
+      if (section == null) {
         continue;
       }
       final roots = [buildHomeNode(task, 0, const <String>{})];
       bySection[section]!.addAll(
         flattenTaskTree(roots).map(
-          (node) => _HomeSectionRowData(node: node, rootListId: task.listId),
+          (node) => _HomeSectionRowData(
+            node: node,
+            rootListId: task.listId,
+            parentTaskName: node.depth == 0
+                ? taskById[node.task.parentTaskId]?.title
+                : null,
+          ),
         ),
       );
     }
@@ -572,6 +574,7 @@ class _TasksBodyState extends State<_TasksBody> {
                 row.node,
                 section,
                 rootListId: row.rootListId,
+                parentTaskName: row.parentTaskName,
               ),
           ],
         ),
@@ -583,6 +586,7 @@ class _TasksBodyState extends State<_TasksBody> {
     FlattenedTaskTreeNode node,
     _HomeSectionKind section, {
     required String rootListId,
+    required String? parentTaskName,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final task = node.task;
@@ -607,6 +611,10 @@ class _TasksBodyState extends State<_TasksBody> {
         ),
         isLastSibling: node.isLastSibling,
         ancestorLineContinuations: node.ancestorLineContinuations,
+        parentTaskName: parentTaskName,
+        parentTaskSemanticLabel: parentTaskName == null
+            ? null
+            : l10n.parentTaskLinkSemantics(parentTaskName),
         listName: node.depth > 0 && task.listId == rootListId
             ? ''
             : widget.homeListNameByTaskId[task.id] ?? '',
@@ -1064,10 +1072,15 @@ class _HomeSectionData {
 }
 
 class _HomeSectionRowData {
-  const _HomeSectionRowData({required this.node, required this.rootListId});
+  const _HomeSectionRowData({
+    required this.node,
+    required this.rootListId,
+    required this.parentTaskName,
+  });
 
   final FlattenedTaskTreeNode node;
   final String rootListId;
+  final String? parentTaskName;
 }
 
 class _HomeSectionsPanel extends StatelessWidget {
@@ -1271,15 +1284,6 @@ _HomeSectionKind _homeSectionForDueAt(
   return _HomeSectionKind.upcoming;
 }
 
-int _homeSectionOrder(_HomeSectionKind section) {
-  return switch (section) {
-    _HomeSectionKind.overdue => 0,
-    _HomeSectionKind.today => 1,
-    _HomeSectionKind.tomorrow => 2,
-    _HomeSectionKind.upcoming => 3,
-  };
-}
-
 int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {
   final aDueAt = a.task.dueAt;
   final bDueAt = b.task.dueAt;
@@ -1296,25 +1300,6 @@ int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {
     }
   }
   return compareTasksForSortMode(a.task, b.task, sortMode);
-}
-
-bool _hasSuppressingHomeAncestor(
-  TaskDto task,
-  Map<String, TaskDto> taskById,
-  Map<String, _HomeSectionKind> targetSectionByTaskId,
-  int currentSectionOrder,
-) {
-  final visited = <String>{task.id};
-  var parentId = task.parentTaskId;
-  while (parentId != null && visited.add(parentId)) {
-    final parentSection = targetSectionByTaskId[parentId];
-    if (parentSection != null &&
-        _homeSectionOrder(parentSection) <= currentSectionOrder) {
-      return true;
-    }
-    parentId = taskById[parentId]?.parentTaskId;
-  }
-  return false;
 }
 
 class _CompletedSectionHeader extends StatelessWidget {

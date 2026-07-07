@@ -607,6 +607,22 @@ impl TaskRepository for SqliteTaskRepository {
                  SELECT child.id
                  FROM tasks child
                  INNER JOIN home_scope parent ON child.parent_task_id = parent.id
+             ),
+             home_ancestors(id) AS (
+                 SELECT tasks.parent_task_id
+                 FROM tasks
+                 INNER JOIN home_targets ON home_targets.id = tasks.id
+                 WHERE tasks.parent_task_id IS NOT NULL
+                 UNION
+                 SELECT tasks.parent_task_id
+                 FROM tasks
+                 INNER JOIN home_ancestors ancestor ON ancestor.id = tasks.id
+                 WHERE tasks.parent_task_id IS NOT NULL
+             ),
+             home_display_scope(id) AS (
+                 SELECT id FROM home_scope
+                 UNION
+                 SELECT id FROM home_ancestors
              )
              SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
                     tasks.note, tasks.status, tasks.priority, tasks.due_at,
@@ -617,7 +633,7 @@ impl TaskRepository for SqliteTaskRepository {
                     EXISTS(SELECT 1 FROM home_targets WHERE home_targets.id = tasks.id)
              FROM tasks
              INNER JOIN lists ON lists.id = tasks.list_id
-             INNER JOIN home_scope ON home_scope.id = tasks.id
+             INNER JOIN home_display_scope ON home_display_scope.id = tasks.id
              WHERE lists.archived_at IS NULL
              ORDER BY tasks.due_at IS NULL ASC,
                       tasks.due_at ASC,
@@ -1934,6 +1950,23 @@ mod tests {
             today_start,
         )
         .unwrap();
+        let no_due_parent = new_task(
+            inbox.id,
+            None,
+            "No due parent".to_string(),
+            "a4".to_string(),
+            today_start,
+        )
+        .unwrap();
+        let mut due_child = new_task(
+            inbox.id,
+            Some(no_due_parent.id),
+            "Due child".to_string(),
+            "a0".to_string(),
+            today_start,
+        )
+        .unwrap();
+        due_child.due_at = Some(today_start);
         let mut overdue_task = new_task(
             work.id,
             None,
@@ -2043,6 +2076,8 @@ mod tests {
             closed_yesterday,
             wont_do_today,
             no_due_child,
+            no_due_parent,
+            due_child,
         ] {
             task_repository.insert(task).unwrap();
         }
@@ -2060,11 +2095,13 @@ mod tests {
             vec![
                 "Overdue",
                 "Due today",
+                "Due child",
                 "Closed today",
                 "Wont do today",
                 "Tomorrow",
                 "Upcoming",
-                "No due child"
+                "No due child",
+                "No due parent"
             ]
         );
         assert!(
@@ -2078,6 +2115,20 @@ mod tests {
             !home_tasks
                 .iter()
                 .find(|entry| entry.task.title == "No due child")
+                .unwrap()
+                .is_home_target
+        );
+        assert!(
+            !home_tasks
+                .iter()
+                .find(|entry| entry.task.title == "No due parent")
+                .unwrap()
+                .is_home_target
+        );
+        assert!(
+            home_tasks
+                .iter()
+                .find(|entry| entry.task.title == "Due child")
                 .unwrap()
                 .is_home_target
         );

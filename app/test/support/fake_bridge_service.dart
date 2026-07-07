@@ -229,6 +229,18 @@ class FakeBridgeService implements BridgeService {
     for (final taskId in homeTargetIds) {
       includeSubtree(taskId);
     }
+    void includeAncestors(String taskId) {
+      final task = _tasks.firstWhere((candidate) => candidate.id == taskId);
+      final parentId = task.parentTaskId;
+      if (parentId == null || !homeScopeIds.add(parentId)) {
+        return;
+      }
+      includeAncestors(parentId);
+    }
+
+    for (final taskId in homeTargetIds) {
+      includeAncestors(taskId);
+    }
 
     final homeTasks = _tasks
         .where(

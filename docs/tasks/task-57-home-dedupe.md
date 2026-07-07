@@ -1,5 +1,8 @@
 # task-57: Home重複表示の解消とサブタスク親ラベル
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 2026-07-08人間裁定で、task-55のHomeサブツリー同伴規則を改訂することになった。task-55では、子が親より早いHomeセクションに該当する場合、親配下にも早いセクションにも表示していた。この規則は、3階層それぞれに期日が付くケース（例: 孫=Overdue、子=Today、親=Tomorrow）で同一タスクが最大3回表示され、Homeのノイズになる。
@@ -149,3 +152,100 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-55-home-subtree-nesting.md`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+- `core/storage/src/lib.rs`
+- `app/rust/src/api.rs`
+
+実装結果:
+
+- `app/build/visual_qa/` のPNGを作業前に `app/build/visual_qa_before/` へコピーした。
+- `core/storage/src/lib.rs` の `TaskRepository::list_home` で、Home対象タスクと子孫に加えてHome対象タスクの祖先を `is_home_target=false` として返すようにした。
+- Rust APIとFRB生成物は変更していない。
+- `app/lib/src/screens/tasks_screen.dart` で、期日でHomeセクションに該当する `isHomeTarget` タスクIDを単独表示集合として先に確定するようにした。
+- `app/lib/src/screens/tasks_screen.dart` で、同伴サブツリー構築時に単独表示集合の子孫へ到達した場合、そのノードと配下を祖先側のツリーから追加しないようにした。
+- `app/lib/src/screens/tasks_screen.dart` で、単独表示rootが `parentTaskId` を持つ場合、取得済み祖先から直近親タスク名を解決して `AppHomeTaskRow` へ渡すようにした。
+- `app/lib/src/ui/task_components.dart` の `AppHomeTaskRow` に `parentTaskName` / `parentTaskSemanticLabel` を追加し、親名がある場合はリスト名ラベルの代わりに階層アイコン + 親タスク名を1行省略で表示するようにした。
+- 親ラベルのsemanticsには既存l10n `parentTaskLinkSemantics` を使用した。
+- ルート行は従来どおりリスト名ラベルを表示する。
+- `app/test/support/fake_bridge_service.dart` の `getHomeTasks` も実装と同じくHome対象タスクの祖先を返すようにした。
+
+1タスク1表示の判定方法:
+
+- `targetSectionByTaskId` のkey集合を `standaloneTaskIds` として扱う。
+- Homeセクションの単独表示rootは `standaloneTaskIds` の各タスクのみとし、親子関係にかかわらず自分の期日で決まるセクションへ配置する。
+- 同伴サブツリーでは、子が `standaloneTaskIds` に含まれる場合、その子と配下を祖先側へ追加しない。
+- セクション件数は従来どおり未完了のHome対象タスク数を数え、同伴子孫は含めていない。
+
+期日なし子孫の同伴維持:
+
+- `No due child under home parent` が `Home parent with children` の下に同伴表示されることをwidget testで確認した。
+- 単独表示される `Same section child under home parent` の配下にある期日なし `Grandchild under standalone child` が、単独表示子の下に同伴表示されることをwidget testで確認した。
+
+既存操作規則との整合:
+
+- Home行のチェックトグルは既存の `onCompleteTask` / `onReopenTask` 経路を使用している。
+- Home行のスワイプ期日変更は既存の `Slidable` と `onChangeDueDate` 経路を使用している。
+- Home行タップは既存の詳細遷移 `/lists/:listId/tasks/:taskId` を使用している。
+- Homeでは `_TaskDragReorderTarget` を生成せず、D&D対象にしていない。
+
+追加・更新したテスト:
+
+- `core/storage/src/lib.rs` `list_home_filters_due_active_and_closed_tasks_across_active_lists`: 期日あり子の期日なし親が `is_home_target=false` で返り、期日あり子が `is_home_target=true` で返ることを追加検証した。
+- `app/test/widget_test.dart` `home shows standalone due subtask with parent context`: 期日ありサブタスクの単独表示、親タスク名ラベル、リスト名ラベル非表示、親context semantics、通常リスト画面のリスト名ラベル非表示を検証した。
+- `app/test/widget_test.dart` `home shows target subtrees with dedupe and interaction rules`: 孫=Overdue、子=Today、親=Tomorrowの3階層、各タスク行1回表示、祖先側同伴サブツリー剪定、期日なし子孫同伴、親ラベル/semantics、チェック、スワイプ期日変更、詳細遷移、D&D非対象を検証した。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` の `home_tasks` seedに、孫=`Confirm final copy in the hero panel`（昨日期日）、子=`Draft the launch checklist`（今日期日）、親=`Plan the product launch event`（明日期日）の3階層を含めた。
+
+visual QA:
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- before: `app/build/visual_qa_before/home_tasks.png`
+- after: `app/build/visual_qa/home_tasks.png`
+- `app/build/visual_qa/home_tasks.png` を目視し、孫=`Confirm final copy in the hero panel` がOverdue、子=`Draft the launch checklist` がToday、親=`Plan the product launch event` がTomorrowにタスク行として各1回表示され、サブタスク単独行に直近親ラベルが表示されることを確認した。
+- `Renew passport before the trip` と `地図アプリのUI微調整を仕上げる` と `Plan the product launch event` で、ルート行のリスト名ラベル表示を確認した。
+
+品質ゲート:
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（85件、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（36件）
+- `git diff --check`: exit 0
+
+変更ファイル一覧:
+
+- `core/storage/src/lib.rs`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `docs/tasks/README.md`
+- `docs/tasks/task-57-home-dedupe.md`
+
+未解決事項: なし

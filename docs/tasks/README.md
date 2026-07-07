@@ -73,7 +73,7 @@
 | task-54 | 完了 | [task-54-create-task-sheet.md](./task-54-create-task-sheet.md) | 下部クイック追加バーをタスク作成ボトムシートのトリガーへ変更し、タイトル/Note/List/Due/Add taskをLabモック準拠で実装する | task-52・task-53の完了状態に依存。出典: ドッグフーディング2026-07-08#4 |
 | task-55 | 完了 | [task-55-home-subtree-nesting.md](./task-55-home-subtree-nesting.md) | Home各セクションで、表示対象ルートタスクの配下サブツリー全体（期日なしサブタスク含む）を階層ガイド付きで表示する | task-45・task-51・task-53の完了状態に依存。出典: ドッグフーディング2026-07-08#4 |
 | task-56 | 完了 | [task-56-checkbox-polish.md](./task-56-checkbox-polish.md) | チェックボックスpolish。階層ガイドの幾何、未チェックリングの細さ/色、チェックON/OFFマイクロモーションを整える | task-45・task-49・task-53・task-55の完了状態に依存。出典: ドッグフーディング2026-07-08#5 |
-| task-57 | 未着手 | [task-57-home-dedupe.md](./task-57-home-dedupe.md) | Home重複表示の解消。1タスク1表示、同伴サブツリー剪定、サブタスク単独行の親ラベル表示を実装する | task-55・task-56の完了状態に依存。出典: 2026-07-08人間裁定（Home重複表示の解消） |
+| task-57 | 完了 | [task-57-home-dedupe.md](./task-57-home-dedupe.md) | Home重複表示の解消。1タスク1表示、同伴サブツリー剪定、サブタスク単独行の親ラベル表示を実装する | task-55・task-56の完了状態に依存。出典: 2026-07-08人間裁定（Home重複表示の解消） |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

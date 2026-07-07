@@ -919,6 +919,8 @@ class AppHomeTaskRow extends StatelessWidget {
     required this.title,
     required this.isDone,
     required this.listName,
+    required this.parentTaskName,
+    required this.parentTaskSemanticLabel,
     required this.dueLabel,
     required this.dueTone,
     required this.onTap,
@@ -940,6 +942,8 @@ class AppHomeTaskRow extends StatelessWidget {
   final bool isDone;
   final int depth;
   final String listName;
+  final String? parentTaskName;
+  final String? parentTaskSemanticLabel;
   final String? dueLabel;
   final HomeDueDateTone dueTone;
   final Key? checkboxKey;
@@ -1013,7 +1017,14 @@ class AppHomeTaskRow extends StatelessWidget {
                                 : colorScheme.onSurface,
                           ),
                         ),
-                        if (listName.isNotEmpty) ...[
+                        if (parentTaskName != null) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          _HomeParentLabel(
+                            parentTaskName: parentTaskName!,
+                            semanticLabel: parentTaskSemanticLabel,
+                            isMuted: isDone,
+                          ),
+                        ] else if (listName.isNotEmpty) ...[
                           const SizedBox(height: AppSpacing.xs),
                           _HomeListLabel(listName: listName, isMuted: isDone),
                         ],
@@ -1039,6 +1050,45 @@ class AppHomeTaskRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _HomeParentLabel extends StatelessWidget {
+  const _HomeParentLabel({
+    required this.parentTaskName,
+    required this.semanticLabel,
+    required this.isMuted,
+  });
+
+  final String parentTaskName;
+  final String? semanticLabel;
+  final bool isMuted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant.withValues(
+      alpha: isMuted ? 0.72 : 1,
+    );
+    final label = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.account_tree_outlined, size: 14, color: color),
+        const SizedBox(width: AppSpacing.xs),
+        Flexible(
+          child: Text(
+            parentTaskName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+    if (semanticLabel == null) {
+      return label;
+    }
+    return Semantics(container: true, label: semanticLabel, child: label);
   }
 }
 
