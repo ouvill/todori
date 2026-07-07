@@ -571,17 +571,23 @@ class _TaskCreateDueChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final locale = Localizations.localeOf(context).toLanguageTag();
+    final value = formatRelativeDueDate(l10n, locale, dueAt);
     return Tooltip(
       message: l10n.taskCreateDueTooltip,
-      child: InkWell(
-        key: const ValueKey('task-create-due-chip'),
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: _TaskCreateChip(
-          icon: LucideIcons.calendarDays300,
-          label: l10n.taskCreateDueChip,
-          value: formatRelativeDueDate(l10n, locale, dueAt),
-          selected: dueAt != null,
+      child: Semantics(
+        button: true,
+        enabled: onTap != null,
+        label: l10n.taskCreateDueChipSemantics(value),
+        child: InkWell(
+          key: const ValueKey('task-create-due-chip'),
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: _TaskCreateChip(
+            icon: LucideIcons.calendarDays300,
+            label: l10n.taskCreateDueChip,
+            value: value,
+            selected: dueAt != null,
+          ),
         ),
       ),
     );
@@ -928,6 +934,7 @@ class AppHomeTaskRow extends StatelessWidget {
     required this.dueTone,
     required this.onTap,
     this.depth = 0,
+    this.semanticLabel,
     this.checkboxKey,
     this.priority = 0,
     this.priorityDotKey,
@@ -949,6 +956,7 @@ class AppHomeTaskRow extends StatelessWidget {
   final String? parentTaskSemanticLabel;
   final String? dueLabel;
   final HomeDueDateTone dueTone;
+  final String? semanticLabel;
   final Key? checkboxKey;
   final int priority;
   final Key? priorityDotKey;
@@ -980,75 +988,81 @@ class AppHomeTaskRow extends StatelessWidget {
               currentVerticalKey: hierarchyGuideKey,
               horizontalKey: hierarchyGuideHorizontalKey,
             ),
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Padding(
-              padding: EdgeInsetsDirectional.only(
-                start:
-                    _homeTaskRowRootLeadingStart +
-                    (effectiveDepth * _taskRowDepthIndent),
-                top: AppSpacing.xs,
-                end: 12,
-                bottom: AppSpacing.xs,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  AppTaskCheckbox(
-                    checkboxKey: checkboxKey,
-                    isDone: isDone,
-                    tooltip: toggleDoneTooltip,
-                    onToggleDone: onToggleDone,
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        AppAnimatedTaskTitle(
-                          title,
-                          isDone: isDone,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            decoration: isDone
-                                ? TextDecoration.lineThrough
-                                : null,
-                            color: isDone
-                                ? colorScheme.onSurfaceVariant
-                                : colorScheme.onSurface,
+          Semantics(
+            container: true,
+            explicitChildNodes: true,
+            button: true,
+            label: semanticLabel,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: EdgeInsetsDirectional.only(
+                  start:
+                      _homeTaskRowRootLeadingStart +
+                      (effectiveDepth * _taskRowDepthIndent),
+                  top: AppSpacing.xs,
+                  end: 12,
+                  bottom: AppSpacing.xs,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    AppTaskCheckbox(
+                      checkboxKey: checkboxKey,
+                      isDone: isDone,
+                      tooltip: toggleDoneTooltip,
+                      onToggleDone: onToggleDone,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AppAnimatedTaskTitle(
+                            title,
+                            isDone: isDone,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              decoration: isDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: isDone
+                                  ? colorScheme.onSurfaceVariant
+                                  : colorScheme.onSurface,
+                            ),
                           ),
-                        ),
-                        if (parentTaskName != null) ...[
-                          const SizedBox(height: AppSpacing.xs),
-                          _HomeParentLabel(
-                            parentTaskName: parentTaskName!,
-                            semanticLabel: parentTaskSemanticLabel,
-                            isMuted: isDone,
-                          ),
-                        ] else if (listName.isNotEmpty) ...[
-                          const SizedBox(height: AppSpacing.xs),
-                          _HomeListLabel(listName: listName, isMuted: isDone),
+                          if (parentTaskName != null) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            _HomeParentLabel(
+                              parentTaskName: parentTaskName!,
+                              semanticLabel: parentTaskSemanticLabel,
+                              isMuted: isDone,
+                            ),
+                          ] else if (listName.isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            _HomeListLabel(listName: listName, isMuted: isDone),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  if (priority > 0 || dueLabel != null) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    _HomeTaskTrailingMetadata(
-                      priority: priority,
-                      priorityDotKey: priorityDotKey,
-                      prioritySemanticLabel: prioritySemanticLabel,
-                      isPriorityMuted: isDone,
-                      dueLabel: dueLabel,
-                      dueSemanticLabel: dueSemanticLabel,
-                      dueTone: dueTone,
-                      isDueMuted: isDone,
-                    ),
+                    if (priority > 0 || dueLabel != null) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      _HomeTaskTrailingMetadata(
+                        priority: priority,
+                        priorityDotKey: priorityDotKey,
+                        prioritySemanticLabel: prioritySemanticLabel,
+                        isPriorityMuted: isDone,
+                        dueLabel: dueLabel,
+                        dueSemanticLabel: dueSemanticLabel,
+                        dueTone: dueTone,
+                        isDueMuted: isDone,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -1251,6 +1265,7 @@ class AppTaskRow extends StatelessWidget {
     required this.metadata,
     required this.onTap,
     this.depth = 0,
+    this.semanticLabel,
     this.checkboxKey,
     this.priority = 0,
     this.priorityDotKey,
@@ -1268,6 +1283,7 @@ class AppTaskRow extends StatelessWidget {
   final String title;
   final bool isDone;
   final int depth;
+  final String? semanticLabel;
   final Key? checkboxKey;
   final int priority;
   final Key? priorityDotKey;
@@ -1319,80 +1335,86 @@ class AppTaskRow extends StatelessWidget {
           // Density-compressed row (task-30/task-43): a metadata-less task is
           // just the leading control and title; priority lives in the
           // metadata row so wrapped titles keep a stable left edge.
-          InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Padding(
-              padding: EdgeInsetsDirectional.only(
-                start:
-                    _taskRowRootLeadingStart +
-                    (effectiveDepth * _taskRowDepthIndent),
-                top: AppSpacing.xs,
-                end: AppSpacing.sm,
-                bottom: AppSpacing.xs,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  AppTaskCheckbox(
-                    checkboxKey: checkboxKey,
-                    isDone: isDone,
-                    tooltip: toggleDoneTooltip,
-                    onToggleDone: onToggleDone,
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: AppAnimatedTaskTitle(
-                                title,
-                                isDone: isDone,
-                                softWrap: true,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : null,
-                                  color: isDone
-                                      ? colorScheme.onSurfaceVariant
-                                      : colorScheme.onSurface,
+          Semantics(
+            container: true,
+            explicitChildNodes: true,
+            button: true,
+            label: semanticLabel,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: onTap,
+              child: Padding(
+                padding: EdgeInsetsDirectional.only(
+                  start:
+                      _taskRowRootLeadingStart +
+                      (effectiveDepth * _taskRowDepthIndent),
+                  top: AppSpacing.xs,
+                  end: AppSpacing.sm,
+                  bottom: AppSpacing.xs,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    AppTaskCheckbox(
+                      checkboxKey: checkboxKey,
+                      isDone: isDone,
+                      tooltip: toggleDoneTooltip,
+                      onToggleDone: onToggleDone,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: AppAnimatedTaskTitle(
+                                  title,
+                                  isDone: isDone,
+                                  softWrap: true,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    decoration: isDone
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    color: isDone
+                                        ? colorScheme.onSurfaceVariant
+                                        : colorScheme.onSurface,
+                                  ),
                                 ),
                               ),
+                            ],
+                          ),
+                          if (metadata.isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            TaskMetadata(
+                              items: metadata,
+                              priority: priority,
+                              priorityDotKey: priorityDotKey,
+                              prioritySemanticLabel: prioritySemanticLabel,
+                              isPriorityMuted: isDone,
+                            ),
+                          ] else if (priority > 0) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            TaskMetadata(
+                              items: const [],
+                              priority: priority,
+                              priorityDotKey: priorityDotKey,
+                              prioritySemanticLabel: prioritySemanticLabel,
+                              isPriorityMuted: isDone,
                             ),
                           ],
-                        ),
-                        if (metadata.isNotEmpty) ...[
-                          const SizedBox(height: AppSpacing.xs),
-                          TaskMetadata(
-                            items: metadata,
-                            priority: priority,
-                            priorityDotKey: priorityDotKey,
-                            prioritySemanticLabel: prioritySemanticLabel,
-                            isPriorityMuted: isDone,
-                          ),
-                        ] else if (priority > 0) ...[
-                          const SizedBox(height: AppSpacing.xs),
-                          TaskMetadata(
-                            items: const [],
-                            priority: priority,
-                            priorityDotKey: priorityDotKey,
-                            prioritySemanticLabel: prioritySemanticLabel,
-                            isPriorityMuted: isDone,
-                          ),
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  if (trailing != null) ...[
-                    const SizedBox(width: AppSpacing.xs),
-                    SizedBox(height: 48, child: Center(child: trailing)),
+                    if (trailing != null) ...[
+                      const SizedBox(width: AppSpacing.xs),
+                      SizedBox(height: 48, child: Center(child: trailing)),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

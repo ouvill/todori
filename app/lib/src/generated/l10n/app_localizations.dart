@@ -434,6 +434,12 @@ abstract class AppLocalizations {
   /// **'Choose due date'**
   String get taskCreateDueTooltip;
 
+  /// No description provided for @taskCreateDueChipSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Due date: {dueAt}'**
+  String taskCreateDueChipSemantics(String dueAt);
+
   /// No description provided for @tasksEmpty.
   ///
   /// In en, this message translates to:
@@ -511,6 +517,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{dueAt}'**
   String taskDueAt(String dueAt);
+
+  /// No description provided for @taskRowStatusSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Status: {status}'**
+  String taskRowStatusSemantics(String status);
+
+  /// No description provided for @taskRowDueSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Due: {dueAt}'**
+  String taskRowDueSemantics(String dueAt);
+
+  /// No description provided for @taskRowListSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'List: {listName}'**
+  String taskRowListSemantics(String listName);
+
+  /// No description provided for @taskRowSubtaskLevelSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtask level {level}'**
+  String taskRowSubtaskLevelSemantics(int level);
+
+  /// No description provided for @taskRowOpenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Double tap to open task'**
+  String get taskRowOpenHint;
 
   /// No description provided for @dueToday.
   ///

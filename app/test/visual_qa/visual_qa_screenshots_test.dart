@@ -103,6 +103,15 @@ void main() {
     await _screenshot(tester, 'home_tasks_empty');
   });
 
+  testWidgets('home_tasks_text_scale_2: Home at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _seedRealisticData(tester);
+    await _screenshot(tester, 'home_tasks_text_scale_2');
+  });
+
   testWidgets('quick_add_home_normal: Home quick add bar', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
@@ -115,6 +124,17 @@ void main() {
     await _openTaskCreateSheetWithKeyboard(tester);
     await _screenshot(tester, 'task_create_sheet_home');
   });
+
+  testWidgets(
+    'task_create_sheet_home_text_scale_2: Home create sheet at Dynamic Type 2.0',
+    (tester) async {
+      _setMobileViewport(tester);
+      _useTextScale(tester, 2.0);
+      await _seedRealisticData(tester);
+      await _openTaskCreateSheetWithKeyboard(tester);
+      await _screenshot(tester, 'task_create_sheet_home_text_scale_2');
+    },
+  );
 
   testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
     _setMobileViewport(tester);
@@ -284,6 +304,17 @@ void main() {
     await _screenshot(tester, 'lists');
   });
 
+  testWidgets('lists_text_scale_2: list management at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _seedArchivedListData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'lists_text_scale_2');
+  });
+
   testWidgets('lists_archived: archived section expanded', (tester) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
@@ -321,6 +352,16 @@ void main() {
     final seed = await _seedRealisticData(tester);
     await _openTask(tester, seed.parentWithSubtasksTitle);
     await _screenshot(tester, 'task_detail');
+  });
+
+  testWidgets('task_detail_text_scale_2: detail at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    final seed = await _seedRealisticData(tester);
+    await _openTask(tester, seed.parentWithSubtasksTitle);
+    await _screenshot(tester, 'task_detail_text_scale_2');
   });
 
   testWidgets('task_detail_editing: inline title editing on task detail', (
@@ -757,16 +798,20 @@ Future<void> _seedArchivedListData(WidgetTester tester) async {
 /// because the home task list may not have built (and thus cannot find) an
 /// item that is entirely below the fold yet.
 Future<void> _openTask(WidgetTester tester, String title) async {
-  final visibleTitle = find.text(title).hitTestable().first;
-  for (
-    var attempts = 0;
-    attempts < 6 && !tester.any(visibleTitle);
-    attempts++
-  ) {
+  final titleFinder = find.text(title);
+  for (var attempts = 0; attempts < 12; attempts++) {
+    final visibleTitle = titleFinder.hitTestable();
+    if (tester.any(visibleTitle)) {
+      await tester.tap(visibleTitle.first);
+      await tester.pumpAndSettle();
+      return;
+    }
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -220));
     await tester.pumpAndSettle();
   }
-  await tester.tap(visibleTitle);
+  await tester.ensureVisible(titleFinder.first);
+  await tester.pumpAndSettle();
+  await tester.tap(titleFinder.hitTestable().first);
   await tester.pumpAndSettle();
 }
 
@@ -780,6 +825,11 @@ void _setMobileViewport(WidgetTester tester) {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+void _useTextScale(WidgetTester tester, double textScaleFactor) {
+  tester.platformDispatcher.textScaleFactorTestValue = textScaleFactor;
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
 Future<void> _openTaskCreateSheetWithKeyboard(WidgetTester tester) async {

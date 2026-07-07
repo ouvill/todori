@@ -192,6 +192,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get taskCreateDueTooltip => '期限日を選択';
 
   @override
+  String taskCreateDueChipSemantics(String dueAt) {
+    return '期限日: $dueAt';
+  }
+
+  @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';
 
   @override
@@ -237,6 +242,29 @@ class AppLocalizationsJa extends AppLocalizations {
   String taskDueAt(String dueAt) {
     return '$dueAt';
   }
+
+  @override
+  String taskRowStatusSemantics(String status) {
+    return '状態: $status';
+  }
+
+  @override
+  String taskRowDueSemantics(String dueAt) {
+    return '期限: $dueAt';
+  }
+
+  @override
+  String taskRowListSemantics(String listName) {
+    return 'リスト: $listName';
+  }
+
+  @override
+  String taskRowSubtaskLevelSemantics(int level) {
+    return 'サブタスク階層 $level';
+  }
+
+  @override
+  String get taskRowOpenHint => 'ダブルタップでタスクを開く';
 
   @override
   String get dueToday => '今日';

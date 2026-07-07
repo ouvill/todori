@@ -105,6 +105,14 @@
   "taskCreateListTooltip": "Choose list",
   "taskCreateDueChip": "Due",
   "taskCreateDueTooltip": "Choose due date",
+  "taskCreateDueChipSemantics": "Due date: {dueAt}",
+  "@taskCreateDueChipSemantics": {
+    "placeholders": {
+      "dueAt": {
+        "type": "String"
+      }
+    }
+  },
   "tasksEmpty": "No tasks yet. Tap + to create one.",
   "tasksEmptyTitle": "No tasks yet.",
   "tasksEmptyBody": "Tap + to create one.",
@@ -146,6 +154,39 @@
       }
     }
   },
+  "taskRowStatusSemantics": "Status: {status}",
+  "@taskRowStatusSemantics": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "taskRowDueSemantics": "Due: {dueAt}",
+  "@taskRowDueSemantics": {
+    "placeholders": {
+      "dueAt": {
+        "type": "String"
+      }
+    }
+  },
+  "taskRowListSemantics": "List: {listName}",
+  "@taskRowListSemantics": {
+    "placeholders": {
+      "listName": {
+        "type": "String"
+      }
+    }
+  },
+  "taskRowSubtaskLevelSemantics": "Subtask level {level}",
+  "@taskRowSubtaskLevelSemantics": {
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "taskRowOpenHint": "Double tap to open task",
   "dueToday": "Today",
   "dueTomorrow": "Tomorrow",
   "taskDueOverdue": "Overdue: {dueAt}",

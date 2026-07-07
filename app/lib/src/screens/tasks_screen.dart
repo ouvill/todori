@@ -751,6 +751,18 @@ class _TasksBodyState extends State<_TasksBody> {
         prioritySemanticLabel: l10n.taskPriority(
           taskPriorityLabel(l10n, task.priority),
         ),
+        semanticLabel: _taskRowSemanticLabel(
+          l10n: l10n,
+          title: task.title,
+          status: taskStatusLabel(l10n, task.status),
+          priority: taskPriorityLabel(l10n, task.priority),
+          dueLabel: dueLabel,
+          listName: node.depth > 0 && task.listId == rootListId
+              ? null
+              : widget.homeListNameByTaskId[task.id],
+          parentTaskName: parentTaskName,
+          depth: node.depth,
+        ),
         toggleDoneTooltip: isTaskClosed(task)
             ? l10n.reopenTaskTooltip
             : l10n.completeTaskTooltip,
@@ -1067,6 +1079,24 @@ class _TasksBodyState extends State<_TasksBody> {
         priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
         prioritySemanticLabel: l10n.taskPriority(
           taskPriorityLabel(l10n, task.priority),
+        ),
+        semanticLabel: _taskRowSemanticLabel(
+          l10n: l10n,
+          title: task.title,
+          status: taskStatusLabel(l10n, task.status),
+          priority: taskPriorityLabel(l10n, task.priority),
+          dueLabel: task.dueAt == null
+              ? null
+              : formatRelativeDueDate(
+                  l10n,
+                  Localizations.localeOf(context).toLanguageTag(),
+                  task.dueAt,
+                ),
+          listName: widget.isTodaySmartView
+              ? widget.homeListNameByTaskId[task.id]
+              : null,
+          parentTaskName: null,
+          depth: node.depth,
         ),
         hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
         hierarchyGuideHorizontalKey: ValueKey(
@@ -2091,6 +2121,30 @@ String _undoMessage(AppLocalizations l10n, String operationType) {
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,
   };
+}
+
+String _taskRowSemanticLabel({
+  required AppLocalizations l10n,
+  required String title,
+  required String status,
+  required String priority,
+  required String? dueLabel,
+  required String? listName,
+  required String? parentTaskName,
+  required int depth,
+}) {
+  final parts = <String>[
+    title,
+    l10n.taskRowStatusSemantics(status),
+    l10n.taskPriority(priority),
+    if (dueLabel != null) l10n.taskRowDueSemantics(dueLabel),
+    if (parentTaskName != null) l10n.parentTaskLinkSemantics(parentTaskName),
+    if (listName != null && listName.isNotEmpty)
+      l10n.taskRowListSemantics(listName),
+    if (depth > 0) l10n.taskRowSubtaskLevelSemantics(depth + 1),
+    l10n.taskRowOpenHint,
+  ];
+  return parts.join('. ');
 }
 
 class _TaskDragReorderTarget extends StatelessWidget {

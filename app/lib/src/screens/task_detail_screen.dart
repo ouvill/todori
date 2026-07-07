@@ -225,6 +225,20 @@ class TaskDetailScreen extends ConsumerWidget {
                         prioritySemanticLabel: l10n.taskPriority(
                           taskPriorityLabel(l10n, subtask.priority),
                         ),
+                        semanticLabel: _detailTaskRowSemanticLabel(
+                          l10n: l10n,
+                          title: subtask.title,
+                          status: taskStatusLabel(l10n, subtask.status),
+                          priority: taskPriorityLabel(l10n, subtask.priority),
+                          dueLabel: subtask.dueAt == null
+                              ? null
+                              : formatRelativeDueDate(
+                                  l10n,
+                                  locale,
+                                  subtask.dueAt,
+                                ),
+                          depth: node.depth,
+                        ),
                         hierarchyGuideKey: ValueKey(
                           'task-hierarchy-guide-${subtask.id}',
                         ),
@@ -638,6 +652,25 @@ String _undoMessage(AppLocalizations l10n, String operationType) {
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,
   };
+}
+
+String _detailTaskRowSemanticLabel({
+  required AppLocalizations l10n,
+  required String title,
+  required String status,
+  required String priority,
+  required String? dueLabel,
+  required int depth,
+}) {
+  final parts = <String>[
+    title,
+    l10n.taskRowStatusSemantics(status),
+    l10n.taskPriority(priority),
+    if (dueLabel != null) l10n.taskRowDueSemantics(dueLabel),
+    if (depth > 0) l10n.taskRowSubtaskLevelSemantics(depth + 1),
+    l10n.taskRowOpenHint,
+  ];
+  return parts.join('. ');
 }
 
 String formatReminderDateTime(String locale, int epochMs) {
@@ -1268,9 +1301,16 @@ class _DetailPill extends StatelessWidget {
               child: content,
             ),
           );
-    final semantics = semanticLabel == null
+    final effectiveSemanticLabel =
+        semanticLabel ?? (onTap == null ? null : label);
+    final semantics = effectiveSemanticLabel == null && onTap == null
         ? wrapped
-        : Semantics(label: semanticLabel, child: wrapped);
+        : Semantics(
+            label: effectiveSemanticLabel,
+            button: onTap != null,
+            enabled: onTap != null,
+            child: wrapped,
+          );
     if (tooltip == null) {
       return semantics;
     }

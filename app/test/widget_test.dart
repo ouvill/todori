@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show CheckedState;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -836,7 +837,7 @@ void main() {
           'Parent task: Parent without due',
         ),
       ),
-      findsOneWidget,
+      findsWidgets,
     );
     semantics.dispose();
     expect(
@@ -853,6 +854,99 @@ void main() {
       findsOneWidget,
     );
     _expectNoVisibleMoveButtons();
+  });
+
+  testWidgets('home task rows expose meaningful semantics summaries', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final today = _todayStartMs();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final task = await fake.createTask(
+      listId: inbox.id,
+      title: 'Prepare accessibility notes',
+      dueAt: today,
+    );
+    await fake.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: '',
+      priority: 3,
+      dueAt: today,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    final semantics = tester.ensureSemantics();
+    expect(
+      find.semantics.byPredicate((node) {
+        final label = node.getSemanticsData().label;
+        return label.contains('Prepare accessibility notes') &&
+            label.contains('Status:') &&
+            label.contains('Priority:') &&
+            label.contains('Due:') &&
+            label.contains('Double tap to open task');
+      }),
+      findsWidgets,
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('task checkbox exposes button and checked semantics', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppTaskCheckbox(
+            isDone: true,
+            tooltip: 'Reopen task',
+            onToggleDone: () {},
+          ),
+        ),
+      ),
+    );
+
+    final semantics = tester.ensureSemantics();
+    expect(
+      find.semantics.byPredicate((node) {
+        final data = node.getSemanticsData();
+        return data.label.contains('Reopen task') &&
+            data.flagsCollection.isButton &&
+            data.flagsCollection.isChecked == CheckedState.isTrue;
+      }),
+      findsOneWidget,
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('task creation sheet chips expose current semantic values', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+
+    final semantics = tester.ensureSemantics();
+    expect(
+      find.semantics.byPredicate((node) {
+        final data = node.getSemanticsData();
+        return data.label.contains('Due date: Today') &&
+            data.flagsCollection.isButton;
+      }),
+      findsWidgets,
+    );
+    semantics.dispose();
   });
 
   testWidgets('home shows target subtrees with dedupe and interaction rules', (
@@ -1032,7 +1126,7 @@ void main() {
           'Parent task: Today child standalone',
         ),
       ),
-      findsOneWidget,
+      findsWidgets,
     );
     semantics.dispose();
 

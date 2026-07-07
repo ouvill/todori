@@ -193,6 +193,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get taskCreateDueTooltip => 'Choose due date';
 
   @override
+  String taskCreateDueChipSemantics(String dueAt) {
+    return 'Due date: $dueAt';
+  }
+
+  @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';
 
   @override
@@ -238,6 +243,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String taskDueAt(String dueAt) {
     return '$dueAt';
   }
+
+  @override
+  String taskRowStatusSemantics(String status) {
+    return 'Status: $status';
+  }
+
+  @override
+  String taskRowDueSemantics(String dueAt) {
+    return 'Due: $dueAt';
+  }
+
+  @override
+  String taskRowListSemantics(String listName) {
+    return 'List: $listName';
+  }
+
+  @override
+  String taskRowSubtaskLevelSemantics(int level) {
+    return 'Subtask level $level';
+  }
+
+  @override
+  String get taskRowOpenHint => 'Double tap to open task';
 
   @override
   String get dueToday => 'Today';
