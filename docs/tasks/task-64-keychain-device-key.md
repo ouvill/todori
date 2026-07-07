@@ -254,6 +254,10 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
   - entitlements差異: `app/macos/Runner/DebugProfile.entitlements` / `Release.entitlements` は変更なし。Keychain sharingは有効化していない。
   - Keychain動作結果: Codexサンドボックス内では実Keychainアクセスが `errSecNotAvailable (-25291)` / `Operation not permitted` で失敗した。
 
+### 親ホスト検証
+
+- 親ホスト検証（2026-07-08）: 実Keychain roundtrip ignoredテスト合格。macOS debugアプリの起動→再起動で鍵保持とDBオープンを確認（login.keychainにdev.todori.todori.device-keyアイテム確認）。iOS Simulatorのflutter run通し確認は人間帰還後の確認事項として残す。
+
 ### 品質ゲート
 
 - `cargo fmt --all -- --check`: 成功
@@ -282,6 +286,5 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 
 ### 未解決事項
 
-- Codexサンドボックス内では実Keychainアクセスが `errSecNotAvailable (-25291)` で拒否されるため、`cargo test -p todori_app_bridge -- --ignored` の成功確認は未実施。親ホストで `errSecMissingEntitlement (-34018)` からlegacy fallback経由で通ることを再検証する必要がある。
-- Codexサンドボックス内ではCoreSimulatorService、Xcode SwiftPM diagnostics cache書き込みが拒否されるため、iOS Simulatorでの `flutter run` 再起動確認とmacOS `.app` 起動確認は未実施。
+- iOS Simulatorまたは実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンの通し確認は人間帰還後に実施する。
 - 新規crateは `security-framework` 3.7.0 のみ追加した。それ以外の新規crate追加は行っていない。

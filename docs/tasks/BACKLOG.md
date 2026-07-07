@@ -88,29 +88,29 @@
 - **2026-07-08 docs/03編集承認**: プロダクトオーナーが `docs/03_技術仕様書.md` の全面編集を許可した。変更時は外科的差分とし、日付・ADR参照注記を維持する。
 - **FTS5検索の配線完了**: task-62で、v4マイグレーションによる `tasks_fts` 再構築・同期トリガー・storage/bridge検索API・英日検索テストを実装した。検索UIはPhase 3送りのまま。
 - **設定値の永続化機構とF-01 UIモード保存口完了**: task-63で、v5マイグレーションによる `settings` テーブル、storage/bridge/Dart providerの設定読み書きAPI、`ui_mode` 既定値 `simple` helperを実装した。UIモード選択/切替UIはPhase 3送りのまま。
-- **iOS/macOS Keychain DeviceKeyStore実装済み**: task-64で、Rust側からApple Security frameworkを呼ぶ方式、`AfterFirstUnlockThisDeviceOnly` 相当、既存 `device.key` からのデータロス回避移行、iOS Simulator/macOS dogfooding確認手順を実装・記録した。
+- **iOS/macOS Keychain DeviceKeyStore完了**: task-64で、Rust側からApple Security frameworkを呼ぶ方式、`AfterFirstUnlockThisDeviceOnly` 相当、既存 `device.key` からのデータロス回避移行、iOS Simulator/macOS dogfooding確認手順を実装・記録した。2026-07-08親レビュー合格。親ホストで実Keychain roundtrip ignoredテスト、macOS debugアプリの起動→再起動、鍵保持、DBオープン、login.keychain上の `dev.todori.todori.device-key` アイテム確認まで合格。iOS Simulator/実機の `flutter run` 通し確認は人間帰還後確認に残す。
+- **ローカル通知task-65指示書化済み（未着手）**: M4-01 / F-24・F-25対応として、`flutter_local_notifications` 採用、v6 `reminders`、bridge API、詳細画面リマインダーチップ、通知権限、スヌーズ最小版、起動時再スケジュール、完了/削除時キャンセル、Rust/Flutterテストと手動確認手順を指示書化した。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | task-64 iOS/macOS Keychain DeviceKeyStore | 本番用DK保存。Rust側からApple Security frameworkを呼び、`FileDeviceKeyStore` を置き換える | M4-02 | 完了。Rust側Keychain store、ファイルDK移行、fallback、検証記録を追加 |
-| 2 | ローカル通知 | F-24〜F-26。iOS先行で実装する | M4 | E2EE設計上、通知はサーバーpushではなくローカル通知が正 |
-| 3 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
-| 4 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | Phase 2同期前のローカル性能基準としても使う |
-| 5 | Closedセクション見出しの冗長表記整理 | Closedセクション見出しが `"Closed 2 closed"` のように冗長表示される文言を整理する | Phase 1軽量レーン | 出典: 親レビュー2026-07-07 |
-| 6 | オンボーディング/初回起動体験 | 範囲設計のplannerタスクから開始する。DK復旧不可の注意表示（計画書§5リスク表）を含む。マスコットの利用はvisual-direction.mdの方針に従う | M4系 | 出典: 2026-07-06人間裁定（要人間判断→確定） |
-| 7 | 自然言語日付入力の解析 | クイック追加バー入力中の `tomorrow` / `next Friday` / `明日` 等を日付として解釈する | 将来枠 | 出典: 2026-07-07 Home裁定。task-52ではスコープ外 |
-| 8 | SQLCipherクロスビルドのiOS/Android CI検証 | iOS/AndroidのSQLCipherビルド差分をCIで継続検証する | Phase1計画書§6 | |
-| 9 | Phase 1リリース前にthemeModeをライト固定 | ダークモード正式対応まではアプリの`themeMode`をlight固定にする。dark系トークン・コードは残置し、priority dot固定hexのコントラスト検証等の磨き込みはダークモード対応再開時（裁定により直近スコープ外）に行う | M5系 | 出典: 2026-07-06人間裁定 |
-| 10 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | 人間帰還後。署名・証明書・ストア提出判断が必要 |
-| 11 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | 人間帰還後。配布判断が必要 |
-| 12 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | 人間帰還後。法務/プライバシー判断が必要 |
-| 13 | P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4.8、§6.3、§6.4、§11.1 |
-| 14 | P2-M2 サーバー実装 | Postgresスキーマ、OPAQUE登録/ログイン、push/pull、seq採番、§6.6不変条件、リポジトリ内完結のPostgresテスト環境を実装する | P2-M2 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§6.1、§6.2、§6.6、§7 |
-| 15 | P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4、§7 |
-| 16 | P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5 |
-| 17 | P2-M5 削除同期とマルチプラットフォーム検証 | ADR-010ドラフト、保守的な削除同期実装、Android/macOSビルド・動作検証を行う | P2-M5 | 出典: `docs/08_Phase2計画書.md`。ADR-010は人間レビュー待ちを明記 |
+| 1 | task-65 ローカル通知 | F-24〜F-25。iOS先行でローカル通知、通知取消、スヌーズ最小版を実装する | M4-01 | 未着手。E2EE設計上、通知はサーバーpushではなくローカル通知が正。`flutter_local_notifications` は人間の包括承認済み |
+| 2 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
+| 3 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | Phase 2同期前のローカル性能基準としても使う |
+| 4 | Closedセクション見出しの冗長表記整理 | Closedセクション見出しが `"Closed 2 closed"` のように冗長表示される文言を整理する | Phase 1軽量レーン | 出典: 親レビュー2026-07-07 |
+| 5 | オンボーディング/初回起動体験 | 範囲設計のplannerタスクから開始する。DK復旧不可の注意表示（計画書§5リスク表）を含む。マスコットの利用はvisual-direction.mdの方針に従う | M4系 | 出典: 2026-07-06人間裁定（要人間判断→確定） |
+| 6 | 自然言語日付入力の解析 | クイック追加バー入力中の `tomorrow` / `next Friday` / `明日` 等を日付として解釈する | 将来枠 | 出典: 2026-07-07 Home裁定。task-52ではスコープ外 |
+| 7 | SQLCipherクロスビルドのiOS/Android CI検証 | iOS/AndroidのSQLCipherビルド差分をCIで継続検証する | Phase1計画書§6 | |
+| 8 | Phase 1リリース前にthemeModeをライト固定 | ダークモード正式対応まではアプリの`themeMode`をlight固定にする。dark系トークン・コードは残置し、priority dot固定hexのコントラスト検証等の磨き込みはダークモード対応再開時（裁定により直近スコープ外）に行う | M5系 | 出典: 2026-07-06人間裁定 |
+| 9 | iOSリリースビルド/署名/ストア提出準備 | macOS環境でReleaseビルドが成功し、ストア提出前のコンプライアンス確認項目を整理する | M5-01 | 人間帰還後。署名・証明書・ストア提出判断が必要 |
+| 10 | macOS dogfoodingビルド配布 | macOS desktopで主要操作が通り、既知差分をリリースノートに記録する | M5-02 | 人間帰還後。配布判断が必要 |
+| 11 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | 人間帰還後。法務/プライバシー判断が必要 |
+| 12 | P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4.8、§6.3、§6.4、§11.1 |
+| 13 | P2-M2 サーバー実装 | Postgresスキーマ、OPAQUE登録/ログイン、push/pull、seq採番、§6.6不変条件、リポジトリ内完結のPostgresテスト環境を実装する | P2-M2 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§6.1、§6.2、§6.6、§7 |
+| 14 | P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4、§7 |
+| 15 | P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5 |
+| 16 | P2-M5 削除同期とマルチプラットフォーム検証 | ADR-010ドラフト、保守的な削除同期実装、Android/macOSビルド・動作検証を行う | P2-M5 | 出典: `docs/08_Phase2計画書.md`。ADR-010は人間レビュー待ちを明記 |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -130,6 +130,7 @@
 
 ## 要人間判断
 
+- iOS Simulator/実機でのKeychain動作通し確認。task-64は親ホストの実Keychain roundtripとmacOS debugアプリ再起動確認まで合格済みだが、iOS Simulator/実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンは人間帰還後に確認する。出典: task-64完了報告。
 - ADR-010（削除同期表現）の承認。ADR-009後のローカル恒久削除と、Phase 2同期上のtombstone/GC/復帰端末の扱いを最終決定する。出典: `docs/08_Phase2計画書.md` P2-M5。
 - AWS/ECR/Lambda/Neon本番デプロイ実行。クレデンシャル投入、WAF/API GatewayまたはCloudFront前段、実環境の更新は人間帰還後に行う。出典: `docs/08_Phase2計画書.md` §2、§6。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
