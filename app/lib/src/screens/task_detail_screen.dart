@@ -80,6 +80,9 @@ class TaskDetailScreen extends ConsumerWidget {
           final subtaskNodes = flattenTaskTree(
             descendantTaskTreeOf(task.id, tasks),
           );
+          final parentTask = task.parentTaskId == null
+              ? null
+              : _findTaskById(tasks, task.parentTaskId!);
           final theme = Theme.of(context);
           final colorScheme = theme.colorScheme;
           final locale = Localizations.localeOf(context).toLanguageTag();
@@ -93,12 +96,54 @@ class TaskDetailScreen extends ConsumerWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InlineTitleEditor(
-                    key: ValueKey('task-title-editor-${task.id}'),
-                    title: task.title,
-                    semanticLabel: l10n.editTaskTitleSemantics,
-                    onSave: (title) =>
-                        _updateTaskFields(context, ref, task, title: title),
+                  if (parentTask != null) ...[
+                    _ParentTaskLink(
+                      parentTask: parentTask,
+                      tooltip: l10n.parentTaskLinkTooltip(parentTask.title),
+                      semanticLabel: l10n.parentTaskLinkSemantics(
+                        parentTask.title,
+                      ),
+                      onTap: () =>
+                          context.push('/lists/$listId/tasks/${parentTask.id}'),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                  ],
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xs),
+                        child: AppTaskCheckbox(
+                          checkboxKey: ValueKey('task-detail-done-${task.id}'),
+                          isDone: isTaskClosed(task),
+                          tooltip: isTaskClosed(task)
+                              ? l10n.reopenTaskTooltip
+                              : l10n.completeTaskTooltip,
+                          onToggleDone: () {
+                            unawaited(
+                              isTaskClosed(task)
+                                  ? _setTaskStatus(context, ref, task, 'todo')
+                                  : _setTaskStatus(context, ref, task, 'done'),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: _InlineTitleEditor(
+                          key: ValueKey('task-title-editor-${task.id}'),
+                          title: task.title,
+                          isClosed: isTaskClosed(task),
+                          semanticLabel: l10n.editTaskTitleSemantics,
+                          onSave: (title) => _updateTaskFields(
+                            context,
+                            ref,
+                            task,
+                            title: title,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   _InlineNoteEditor(
@@ -507,11 +552,13 @@ class _InlineTitleEditor extends StatefulWidget {
   const _InlineTitleEditor({
     super.key,
     required this.title,
+    required this.isClosed,
     required this.semanticLabel,
     required this.onSave,
   });
 
   final String title;
+  final bool isClosed;
   final String semanticLabel;
   final Future<bool> Function(String title) onSave;
 
@@ -617,52 +664,61 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final titleStyle = theme.textTheme.headlineSmall;
+    final colorScheme = theme.colorScheme;
+    final titleStyle = theme.textTheme.headlineSmall?.copyWith(
+      decoration: widget.isClosed ? TextDecoration.lineThrough : null,
+      color: widget.isClosed ? colorScheme.onSurfaceVariant : null,
+    );
     final titleStrut = StrutStyle.fromTextStyle(
       titleStyle ?? const TextStyle(),
       forceStrutHeight: true,
     );
-    final colorScheme = theme.colorScheme;
     if (_editing) {
-      return Semantics(
-        label: widget.semanticLabel,
-        textField: true,
-        child: Padding(
-          padding: _inlineEditorPadding,
-          child: EditableText(
-            key: const ValueKey('task-title-inline-field'),
-            controller: _controller,
-            focusNode: _focusNode,
-            cursorColor: colorScheme.primary,
-            backgroundCursorColor: colorScheme.surfaceContainerHighest,
-            readOnly: _saving,
-            autofocus: true,
-            minLines: 1,
-            maxLines: null,
-            style: titleStyle ?? const TextStyle(),
-            strutStyle: titleStrut,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => unawaited(_commit(fromSubmitted: true)),
-            onTapOutside: (_) => _focusNode.unfocus(),
+      return SizedBox(
+        width: double.infinity,
+        child: Semantics(
+          label: widget.semanticLabel,
+          textField: true,
+          child: Padding(
+            padding: _inlineEditorPadding,
+            child: EditableText(
+              key: const ValueKey('task-title-inline-field'),
+              controller: _controller,
+              focusNode: _focusNode,
+              cursorColor: colorScheme.primary,
+              backgroundCursorColor: colorScheme.surfaceContainerHighest,
+              readOnly: _saving,
+              autofocus: true,
+              minLines: 1,
+              maxLines: null,
+              style: titleStyle ?? const TextStyle(),
+              strutStyle: titleStrut,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => unawaited(_commit(fromSubmitted: true)),
+              onTapOutside: (_) => _focusNode.unfocus(),
+            ),
           ),
         ),
       );
     }
 
-    return Semantics(
-      button: true,
-      label: widget.semanticLabel,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: _startEditing,
-        child: Padding(
-          padding: _inlineEditorPadding,
-          child: Text(
-            widget.title,
-            key: const ValueKey('task-title-inline-read-text'),
-            strutStyle: titleStrut,
-            style: titleStyle,
+    return SizedBox(
+      width: double.infinity,
+      child: Semantics(
+        button: true,
+        label: widget.semanticLabel,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _startEditing,
+          child: Padding(
+            padding: _inlineEditorPadding,
+            child: Text(
+              widget.title,
+              key: const ValueKey('task-title-inline-read-text'),
+              strutStyle: titleStrut,
+              style: titleStyle,
+            ),
           ),
         ),
       ),
@@ -780,44 +836,116 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
       forceStrutHeight: true,
     );
     if (_editing) {
-      return Semantics(
-        label: widget.semanticLabel,
-        textField: true,
-        child: Padding(
-          padding: _inlineEditorPadding,
-          child: EditableText(
-            key: const ValueKey('task-note-inline-field'),
-            controller: _controller,
-            focusNode: _focusNode,
-            cursorColor: colorScheme.primary,
-            backgroundCursorColor: colorScheme.surfaceContainerHighest,
-            readOnly: _saving,
-            autofocus: true,
-            minLines: 2,
-            maxLines: 6,
-            style: noteStyle ?? const TextStyle(height: 1.35),
-            strutStyle: noteStrut,
-            keyboardType: TextInputType.multiline,
-            onTapOutside: (_) => _focusNode.unfocus(),
+      return SizedBox(
+        width: double.infinity,
+        child: Semantics(
+          label: widget.semanticLabel,
+          textField: true,
+          child: Padding(
+            padding: _inlineEditorPadding,
+            child: EditableText(
+              key: const ValueKey('task-note-inline-field'),
+              controller: _controller,
+              focusNode: _focusNode,
+              cursorColor: colorScheme.primary,
+              backgroundCursorColor: colorScheme.surfaceContainerHighest,
+              readOnly: _saving,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 6,
+              style: noteStyle ?? const TextStyle(height: 1.35),
+              strutStyle: noteStrut,
+              keyboardType: TextInputType.multiline,
+              onTapOutside: (_) => _focusNode.unfocus(),
+            ),
           ),
         ),
       );
     }
 
     final text = widget.note.isEmpty ? widget.placeholder : widget.note;
-    return Semantics(
-      button: true,
-      label: widget.semanticLabel,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: _startEditing,
-        child: Padding(
-          padding: _inlineEditorPadding,
-          child: Text(
-            text,
-            key: const ValueKey('task-note-inline-read-text'),
-            strutStyle: noteStrut,
-            style: noteStyle,
+    return SizedBox(
+      width: double.infinity,
+      child: Semantics(
+        button: true,
+        label: widget.semanticLabel,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _startEditing,
+          child: Padding(
+            padding: _inlineEditorPadding,
+            child: Text(
+              text,
+              key: const ValueKey('task-note-inline-read-text'),
+              strutStyle: noteStrut,
+              style: noteStyle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParentTaskLink extends StatelessWidget {
+  const _ParentTaskLink({
+    required this.parentTask,
+    required this.tooltip,
+    required this.semanticLabel,
+    required this.onTap,
+  });
+
+  final TaskDto parentTask;
+  final String tooltip;
+  final String semanticLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        label: semanticLabel,
+        button: true,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(
+                  AppSpacing.sm,
+                  AppSpacing.xs,
+                  AppSpacing.sm,
+                  AppSpacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.subdirectory_arrow_left_outlined,
+                      size: 18,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        parentTask.title,
+                        key: ValueKey('parent-task-link-${parentTask.id}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

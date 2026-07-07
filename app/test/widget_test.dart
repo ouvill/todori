@@ -1534,10 +1534,246 @@ void main() {
 
       await tester.tap(find.text('Detail child task'));
       await tester.pumpAndSettle();
-      expect(find.text('Detail child task'), findsWidgets);
-      expect(find.text('Parent detail task'), findsNothing);
+      final detailTitle = tester.widget<Text>(
+        find.byKey(const ValueKey('task-title-inline-read-text')),
+      );
+      expect(detailTitle.data, 'Detail child task');
+      expect(
+        find.byKey(ValueKey('parent-task-link-${parent.id}')),
+        findsOneWidget,
+      );
     },
   );
+
+  testWidgets('detail title checkbox marks an open task done', (tester) async {
+    final fake = await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Detail checkbox task',
+    );
+
+    await tester.tap(find.text('Detail checkbox task'));
+    await tester.pumpAndSettle();
+
+    final listId = (await fake.getLists()).first.id;
+    final task = (await fake.getTasks(listId: listId)).single;
+    await tester.tap(find.byKey(ValueKey('task-detail-done-${task.id}')));
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: listId);
+    expect(tasks.single.status, 'done');
+    expect(find.text('Task closed.'), findsOneWidget);
+    expect(find.byTooltip('Reopen task'), findsOneWidget);
+
+    final title = tester.widget<Text>(
+      find.byKey(const ValueKey('task-title-inline-read-text')),
+    );
+    final titleContext = tester.element(
+      find.byKey(const ValueKey('task-title-inline-read-text')),
+    );
+    expect(title.style?.decoration, TextDecoration.lineThrough);
+    expect(
+      title.style?.color,
+      Theme.of(titleContext).colorScheme.onSurfaceVariant,
+    );
+  });
+
+  testWidgets('detail title checkbox reopens done and wont_do tasks', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final done = await fake.createTask(
+      listId: listId,
+      title: 'Done detail task',
+      dueAt: _todayStartMs(),
+    );
+    await fake.setTaskStatus(taskId: done.id, status: 'done');
+    final wontDo = await fake.createTask(
+      listId: listId,
+      title: 'Wont do detail task',
+      dueAt: _todayStartMs(),
+    );
+    await fake.setTaskStatus(taskId: wontDo.id, status: 'wont_do');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Done detail task'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-detail-done-${done.id}')));
+    await tester.pumpAndSettle();
+
+    var tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == done.id).status, 'todo');
+    expect(find.text('Complete parent task?'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Wont do detail task'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-detail-done-${wontDo.id}')));
+    await tester.pumpAndSettle();
+
+    tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == wontDo.id).status, 'todo');
+    expect(find.text('Complete parent task?'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
+  });
+
+  testWidgets(
+    'detail title checkbox confirms before completing parent with open descendants',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Detail parent checkbox task',
+        dueAt: _todayStartMs(),
+      );
+      await fake.createTask(
+        listId: listId,
+        title: 'Open child remains open',
+        parentTaskId: parent.id,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Detail parent checkbox task'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(ValueKey('task-detail-done-${parent.id}')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Complete parent task?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      var tasks = await fake.getTasks(listId: listId);
+      expect(tasks.singleWhere((task) => task.id == parent.id).status, 'todo');
+
+      await tester.tap(find.byKey(ValueKey('task-detail-done-${parent.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      tasks = await fake.getTasks(listId: listId);
+      expect(tasks.singleWhere((task) => task.id == parent.id).status, 'done');
+    },
+  );
+
+  testWidgets('detail parent link opens the immediate parent task', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final grandparent = await fake.createTask(
+      listId: listId,
+      title: 'Grandparent task',
+      dueAt: _todayStartMs(),
+    );
+    final parent = await fake.createTask(
+      listId: listId,
+      title:
+          'Immediate parent task with a title long enough to be ellipsized in the link row',
+      parentTaskId: grandparent.id,
+      dueAt: _todayStartMs(),
+    );
+    await fake.createTask(
+      listId: listId,
+      title: 'Child detail task',
+      parentTaskId: parent.id,
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Child detail task'));
+    await tester.pumpAndSettle();
+
+    final parentLink = find.byKey(ValueKey('parent-task-link-${parent.id}'));
+    expect(parentLink, findsOneWidget);
+    expect(find.text('Grandparent task'), findsNothing);
+    expect(tester.widget<Text>(parentLink).maxLines, 1);
+    expect(tester.widget<Text>(parentLink).overflow, TextOverflow.ellipsis);
+
+    await tester.tap(parentLink);
+    await tester.pumpAndSettle();
+
+    final detailTitle = tester.widget<Text>(
+      find.byKey(const ValueKey('task-title-inline-read-text')),
+    );
+    expect(
+      detailTitle.data,
+      'Immediate parent task with a title long enough to be ellipsized in the link row',
+    );
+    expect(
+      find.byKey(ValueKey('parent-task-link-${grandparent.id}')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Immediate parent task'), findsOneWidget);
+  });
+
+  testWidgets('detail title and note right padding starts inline editing', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Short title',
+      dueAt: _todayStartMs(),
+    );
+    await fake.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: 'Short note',
+      priority: 0,
+      dueAt: task.dueAt,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Short title'));
+    await tester.pumpAndSettle();
+
+    final titleEditor = tester.getRect(
+      find.byKey(ValueKey('task-title-editor-${task.id}')),
+    );
+    await tester.tapAt(Offset(titleEditor.right - 8, titleEditor.center.dy));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      findsOneWidget,
+    );
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    final noteEditor = tester.getRect(
+      find.byKey(ValueKey('task-note-editor-${task.id}')),
+    );
+    await tester.tapAt(Offset(noteEditor.right - 8, noteEditor.center.dy));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('task-note-inline-field')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('detail subtasks show descendant tree with hierarchy guides', (
     tester,

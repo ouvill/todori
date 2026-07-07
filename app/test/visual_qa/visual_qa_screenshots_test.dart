@@ -163,10 +163,12 @@ void main() {
     await _screenshot(tester, 'list_actions_menu');
   });
 
-  testWidgets('task_detail: parent task with three subtasks', (tester) async {
+  testWidgets('task_detail: subtask detail with parent link', (tester) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
     await _openTask(tester, seed.parentWithSubtasksTitle);
+    await tester.tap(find.text('Draft the launch checklist'));
+    await tester.pumpAndSettle();
     await _screenshot(tester, 'task_detail');
   });
 

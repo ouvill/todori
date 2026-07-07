@@ -143,6 +143,22 @@
   "addNotePlaceholder": "Add note",
   "editTaskTitleSemantics": "Edit task title",
   "editTaskNoteSemantics": "Edit task note",
+  "parentTaskLinkTooltip": "Open parent task: {title}",
+  "@parentTaskLinkTooltip": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "parentTaskLinkSemantics": "Parent task: {title}",
+  "@parentTaskLinkSemantics": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "changeDueDateTooltip": "Change due date",
   "changePriorityTooltip": "Change priority",
   "subtasksTitle": "Subtasks",

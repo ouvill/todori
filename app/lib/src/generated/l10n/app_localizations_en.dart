@@ -212,6 +212,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editTaskNoteSemantics => 'Edit task note';
 
   @override
+  String parentTaskLinkTooltip(String title) {
+    return 'Open parent task: $title';
+  }
+
+  @override
+  String parentTaskLinkSemantics(String title) {
+    return 'Parent task: $title';
+  }
+
+  @override
   String get changeDueDateTooltip => 'Change due date';
 
   @override

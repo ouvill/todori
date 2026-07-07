@@ -1,5 +1,8 @@
 # task-49: 詳細画面の親リンク・全幅タップ・タイトル横チェック
 
+> ステータス: 完了（2026-07-07実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07ドッグフーディング第3回で、タスク詳細画面について次の3点が見つかった。
@@ -147,3 +150,88 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-07
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-44-checkbox-toggle-consistency.md`
+- `docs/tasks/task-45-tree-guides-and-detail.md`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/widget_test.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `app/lib/src/ui/task_components.dart` の `_TaskRowLeading` を `AppTaskCheckbox` として公開し、`AppTaskRow` と詳細画面タイトル行で同じ円形チェックボックスを使うようにした。
+- `app/lib/src/screens/task_detail_screen.dart` の詳細タイトル行を `AppTaskCheckbox` + `_InlineTitleEditor` の横並びにし、未完了は `_setTaskStatus(..., 'done')`、Closedは `_setTaskStatus(..., 'todo')` へ渡すようにした。
+- 未完了子孫を持つ親完了確認ダイアログは `TaskDetailScreen._setTaskStatus` の既存分岐を通す実装のまま維持した。
+- Closedタイトルの muted + 取り消し線表現は `_InlineTitleEditor` に `isClosed` を渡し、読み取り/編集共通の `headlineSmall` style に `TextDecoration.lineThrough` と `colorScheme.onSurfaceVariant` を適用した。
+- 親リンク行は `task.parentTaskId` があり、同じ `tasksProvider(listId)` の結果から直近親が見つかる場合だけ `_ParentTaskLink` を表示する。リンクは親タイトル1行省略、tooltip/semantics付きで、タップ時に `/lists/$listId/tasks/${parentTask.id}` へ遷移する。
+- 親が `tasksProvider(listId)` の結果に存在しない場合は `parentTask == null` としてリンクを表示しない分岐にした。visual QA / widget test のseedでは親欠落ケースは観測していない。
+- `_InlineTitleEditor` と `_InlineNoteEditor` の読み取り/編集Widgetを `SizedBox(width: double.infinity)` で包み、タイトルはチェックボックス右側の編集領域、ノートは行幅全体をタップ対象にした。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` の `task_detail.png` は、親を持つ `Draft the launch checklist` 詳細を開くようにした。
+- Rust/domain/storage/FRB API、DB schema、生成FRBファイルの変更はなし。
+
+追加・更新したl10nキー:
+
+- `parentTaskLinkTooltip`
+- `parentTaskLinkSemantics`
+
+追加・更新したwidget test:
+
+- `detail title checkbox marks an open task done`: 詳細タイトル横チェックで未完了タスクを `done` にし、Closedタイトルの取り消し線と `onSurfaceVariant` 色を検証した。
+- `detail title checkbox reopens done and wont_do tasks`: 詳細タイトル横チェックで `done` / `wont_do` を確認ダイアログなしで `todo` に戻すことを検証した。
+- `detail title checkbox confirms before completing parent with open descendants`: 未完了子孫を持つ親を詳細タイトル横チェックで完了しようとしたとき、確認ダイアログが表示されることを検証した。
+- `detail parent link opens the immediate parent task`: 子タスク詳細で直近親リンクだけを表示し、親詳細へ遷移すること、リンクTextが1行省略設定であることを検証した。
+- `detail title and note right padding starts inline editing`: タイトル/ノートの右側余白タップでインライン編集に入ることを検証した。
+- `detail subtask checkbox toggles without triggering row navigation`: 子タスク詳細遷移後に親リンクが表示される仕様へ期待値を更新した。
+
+visual QAスクリーンショット:
+
+- before退避先: `app/build/visual_qa_before/`
+- after: `app/build/visual_qa/task_detail.png`
+- `app/build/visual_qa/task_detail.png` を目視し、タイトル上の親リンク行とタイトル横チェックボックスが表示されていることを確認した。
+
+検証結果:
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（75件、skip 1件）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（29 PNG生成）
+- `git diff --check`: 成功
+
+変更ファイル一覧:
+
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/lib/src/generated/l10n/app_localizations.dart`
+- `app/lib/src/generated/l10n/app_localizations_en.dart`
+- `app/lib/src/generated/l10n/app_localizations_ja.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-49-detail-refinements.md`
+
+未解決事項:
+
+- なし

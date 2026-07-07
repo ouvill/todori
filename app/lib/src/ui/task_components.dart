@@ -362,7 +362,7 @@ class AppTaskRow extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _TaskRowLeading(
+                  AppTaskCheckbox(
                     checkboxKey: checkboxKey,
                     isDone: isDone,
                     tooltip: toggleDoneTooltip,
@@ -534,8 +534,9 @@ class _GuideLine extends StatelessWidget {
   }
 }
 
-class _TaskRowLeading extends StatelessWidget {
-  const _TaskRowLeading({
+class AppTaskCheckbox extends StatelessWidget {
+  const AppTaskCheckbox({
+    super.key,
     required this.isDone,
     required this.onToggleDone,
     this.checkboxKey,

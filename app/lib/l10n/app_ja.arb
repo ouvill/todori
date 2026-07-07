@@ -59,6 +59,8 @@
   "addNotePlaceholder": "ノートを追加",
   "editTaskTitleSemantics": "タスクのタイトルを編集",
   "editTaskNoteSemantics": "タスクのノートを編集",
+  "parentTaskLinkTooltip": "親タスクを開く: {title}",
+  "parentTaskLinkSemantics": "親タスク: {title}",
   "changeDueDateTooltip": "期限日を変更",
   "changePriorityTooltip": "優先度を変更",
   "subtasksTitle": "サブタスク",

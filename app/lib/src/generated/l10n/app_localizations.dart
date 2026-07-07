@@ -452,6 +452,18 @@ abstract class AppLocalizations {
   /// **'Edit task note'**
   String get editTaskNoteSemantics;
 
+  /// No description provided for @parentTaskLinkTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Open parent task: {title}'**
+  String parentTaskLinkTooltip(String title);
+
+  /// No description provided for @parentTaskLinkSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent task: {title}'**
+  String parentTaskLinkSemantics(String title);
+
   /// No description provided for @changeDueDateTooltip.
   ///
   /// In en, this message translates to:
