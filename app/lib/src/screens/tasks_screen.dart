@@ -357,6 +357,7 @@ class _TasksBodyState extends State<_TasksBody> {
   final Map<String, _PendingHomeCompletion> _pendingHomeCompletions = {};
   final Map<String, Timer> _pendingHomeCompletionTimers = {};
   final Map<String, Future<bool>> _homeCompletionOperations = {};
+  final Set<String> _optimisticHomeCompletionIds = {};
   _TaskDropIndicator? _dropIndicator;
 
   @override
@@ -366,6 +367,7 @@ class _TasksBodyState extends State<_TasksBody> {
       _showCompleted = false;
     }
     _syncPendingHomeCompletionsWithWidget();
+    _syncOptimisticHomeCompletionsWithWidget();
   }
 
   @override
@@ -681,7 +683,12 @@ class _TasksBodyState extends State<_TasksBody> {
     _PendingHomeExitPhase pendingExitPhase = _PendingHomeExitPhase.none,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    final task = node.task;
+    final sourceTask = node.task;
+    final task =
+        _optimisticHomeCompletionIds.contains(sourceTask.id) &&
+            !isTaskClosed(sourceTask)
+        ? _taskSnapshotWithStatus(sourceTask, 'done')
+        : sourceTask;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final dueLabel = task.dueAt == null
         ? null
@@ -742,13 +749,11 @@ class _TasksBodyState extends State<_TasksBody> {
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
     );
-    final effectiveRow = pendingExitPhase == _PendingHomeExitPhase.none
+    final effectiveRow = pendingExitPhase != _PendingHomeExitPhase.exiting
         ? row
-        : _PendingHomeCompletionExit(
-            exiting: pendingExitPhase == _PendingHomeExitPhase.exiting,
-            child: row,
-          );
+        : _PendingHomeCompletionExit(child: row);
     return _TaskSwipeActions(
+      key: ValueKey('task-swipe-actions-${task.id}'),
       task: task,
       isClosed: isTaskClosed(task),
       onLeadingAction: isTaskClosed(task)
@@ -777,12 +782,29 @@ class _TasksBodyState extends State<_TasksBody> {
     required bool countsInSection,
   }) async {
     final task = node.task;
-    if (_pendingHomeCompletions.containsKey(task.id)) {
+    if (_pendingHomeCompletions.containsKey(task.id) ||
+        _optimisticHomeCompletionIds.contains(task.id)) {
       return;
     }
     if (MediaQuery.disableAnimationsOf(context) ||
         hasIncompleteDescendants(task.id, widget.tasks)) {
       await widget.onCompleteTask(task);
+      return;
+    }
+    if (!countsInSection) {
+      _startOptimisticHomeCompletion(task.id);
+      final operation = widget.onCompleteTask(task);
+      _homeCompletionOperations[task.id] = operation;
+      try {
+        final completed = await operation;
+        _homeCompletionOperations.remove(task.id);
+        if (!completed) {
+          _cancelOptimisticHomeCompletion(task.id);
+        }
+      } catch (_) {
+        _cancelOptimisticHomeCompletion(task.id);
+        rethrow;
+      }
       return;
     }
 
@@ -816,7 +838,27 @@ class _TasksBodyState extends State<_TasksBody> {
       _homeCompletionOperations.remove(task.id);
     }
     _cancelPendingHomeCompletion(task.id);
+    _cancelOptimisticHomeCompletion(task.id);
     await widget.onReopenTask(task);
+  }
+
+  void _startOptimisticHomeCompletion(String taskId) {
+    setState(() {
+      _optimisticHomeCompletionIds.add(taskId);
+    });
+  }
+
+  void _cancelOptimisticHomeCompletion(String taskId) {
+    if (!_optimisticHomeCompletionIds.contains(taskId)) {
+      return;
+    }
+    if (!mounted) {
+      _optimisticHomeCompletionIds.remove(taskId);
+      return;
+    }
+    setState(() {
+      _optimisticHomeCompletionIds.remove(taskId);
+    });
   }
 
   void _startPendingHomeCompletion({
@@ -913,6 +955,19 @@ class _TasksBodyState extends State<_TasksBody> {
     }
   }
 
+  void _syncOptimisticHomeCompletionsWithWidget() {
+    if (_optimisticHomeCompletionIds.isEmpty) {
+      return;
+    }
+    final taskById = {
+      for (final entry in widget.homeTaskEntries) entry.task.id: entry.task,
+    };
+    _optimisticHomeCompletionIds.removeWhere((taskId) {
+      final task = taskById[taskId];
+      return task == null || isTaskClosed(task);
+    });
+  }
+
   Widget _buildTaskRow(
     BuildContext context,
     FlattenedTaskTreeNode node,
@@ -974,6 +1029,7 @@ class _TasksBodyState extends State<_TasksBody> {
       ),
     );
     final swipeRow = _TaskSwipeActions(
+      key: ValueKey('task-swipe-actions-${task.id}'),
       task: task,
       isClosed: isTaskClosed(task),
       onLeadingAction: isTaskClosed(task)
@@ -1056,6 +1112,7 @@ class _TasksBodyState extends State<_TasksBody> {
 
 class _TaskSwipeActions extends StatelessWidget {
   const _TaskSwipeActions({
+    super.key,
     required this.task,
     required this.isClosed,
     required this.onLeadingAction,
@@ -1394,19 +1451,12 @@ class _PendingHomeCompletion {
 }
 
 class _PendingHomeCompletionExit extends StatelessWidget {
-  const _PendingHomeCompletionExit({
-    required this.exiting,
-    required this.child,
-  });
+  const _PendingHomeCompletionExit({required this.child});
 
-  final bool exiting;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    if (!exiting) {
-      return child;
-    }
     return TweenAnimationBuilder<double>(
       key: const ValueKey('home-pending-completion-exit'),
       tween: Tween<double>(begin: 1, end: 0),

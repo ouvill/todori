@@ -1598,7 +1598,7 @@ void main() {
 
     await tester.tap(checkboxFinder);
     await tester.pump(const Duration(milliseconds: 125));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 125));
 
     final active = await fake.getTasks(listId: listId);
     expect(active.single.status, 'done');
@@ -1812,12 +1812,29 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    final checkboxFinder = find.byKey(ValueKey('task-done-${task.id}'));
+    final checkboxStateBefore = tester.state(
+      find.ancestor(of: checkboxFinder, matching: find.byType(AppTaskCheckbox)),
+    );
+
+    await tester.tap(checkboxFinder);
     await tester.pump();
+    final checkboxStateAfter = tester.state(
+      find.ancestor(of: checkboxFinder, matching: find.byType(AppTaskCheckbox)),
+    );
+    expect(identical(checkboxStateBefore, checkboxStateAfter), isTrue);
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('Root due today pending exit'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('task-completion-particles')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('task-strikethrough-overlay')),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(milliseconds: 749));
     expect(find.text('Root due today pending exit'), findsOneWidget);
@@ -1869,6 +1886,10 @@ void main() {
         tester.getTopLeft(find.text('Child due today moves')).dy,
         lessThan(tester.getTopLeft(find.text('Tomorrow').first).dy),
       );
+      expect(
+        find.byKey(const ValueKey('home-pending-completion-exit')),
+        findsNothing,
+      );
 
       await tester.pump(const Duration(milliseconds: 1020));
 
@@ -1876,6 +1897,84 @@ void main() {
       expect(
         tester.getTopLeft(find.text('Child due today moves')).dy,
         greaterThan(tester.getTopLeft(find.text('Parent due tomorrow')).dy),
+      );
+    },
+  );
+
+  testWidgets(
+    'home accompanied subtask completes in place without exit remount',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Visible parent today',
+        dueAt: _todayStartMs(),
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Accompanied child no due',
+        parentTaskId: parent.id,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      final checkboxFinder = find.byKey(ValueKey('task-done-${child.id}'));
+      final checkboxStateBefore = tester.state(
+        find.ancestor(
+          of: checkboxFinder,
+          matching: find.byType(AppTaskCheckbox),
+        ),
+      );
+      final rowTopBefore = tester
+          .getTopLeft(find.byKey(ValueKey('task-row-${child.id}')))
+          .dy;
+
+      await tester.tap(checkboxFinder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      final checkboxStateAfter = tester.state(
+        find.ancestor(
+          of: checkboxFinder,
+          matching: find.byType(AppTaskCheckbox),
+        ),
+      );
+      final rowTopAfter = tester
+          .getTopLeft(find.byKey(ValueKey('task-row-${child.id}')))
+          .dy;
+      final tasks = await fake.getTasks(listId: listId);
+
+      expect(identical(checkboxStateBefore, checkboxStateAfter), isTrue);
+      expect(rowTopAfter, closeTo(rowTopBefore, 0.001));
+      expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
+      expect(
+        find.byKey(const ValueKey('home-pending-completion-exit')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('task-completion-particles')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('task-strikethrough-overlay')),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(milliseconds: 900));
+
+      expect(find.text('Accompanied child no due'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('home-pending-completion-exit')),
+        findsNothing,
+      );
+      expect(
+        tester.getTopLeft(find.byKey(ValueKey('task-row-${child.id}'))).dy,
+        closeTo(rowTopBefore, 0.001),
       );
     },
   );

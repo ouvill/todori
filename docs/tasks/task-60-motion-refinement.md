@@ -246,3 +246,37 @@ visual QA:
 未解決事項:
 
 - なし
+
+### 2026-07-08 実機リグレッション修正追記
+
+修正内容:
+
+- `app/lib/src/screens/tasks_screen.dart`
+  - Home完了pendingの `holding` 中に `_PendingHomeCompletionExit` を挟まないよう変更し、`AppTaskCheckbox` / `AppAnimatedTaskTitle` のElement/Stateが完了遷移中も維持されるようにした。
+  - `_TaskSwipeActions` にtask id由来の安定keyを付与し、行単位のElement照合を安定化した。
+  - 親配下に同伴表示されているサブタスク（`countsInSection == false`）は退場pendingに入れず、同じ行へ退場なしの楽観完了状態だけを流すようにした。providerから完了済みデータが返ったら楽観状態を解除する。
+  - 単独表示行（完了後にClosedへ移る/親配下へ移る/消える行）は従来どおり遅延退場対象とし、実際に表示位置・セクションが変わる場合だけfade/translate退場を走らせる。
+- `app/test/widget_test.dart`
+  - Home単独ルート完了でcheckbox Stateが維持され、パーティクルと取り消し線overlayが中間フレームに出ることを確認する期待値を追加した。
+  - Home単独サブタスク完了では退場開始前にfade keyが出ないことを確認した。
+  - Home同伴サブタスク完了で同一State・同一位置を維持し、退場fadeなしで完了モーションが進むことを確認するtestを追加した。
+  - 完了遅延中を検証する既存testの時間制御を `pumpAndSettle` から固定 `pump` に変更し、遅延timerを意図せず進めないようにした。
+
+確認結果:
+
+- `cd app && flutter analyze`: exit 0
+- `cd app && flutter test`: exit 0（96件成功、visual QA harness 1件skip）
+- `sh app/tool/visual_qa.sh`: exit 0（37件成功）
+
+visual QA:
+
+- 事前退避先: `app/build/visual_qa_before_task60_regression_20260708042148/`
+- 出力先: `app/build/visual_qa/`
+- midframe確認対象: `app/build/visual_qa/completion_motion_midframe.png`
+- endframe確認対象: `app/build/visual_qa/completion_motion_endframe.png`
+- static確認対象: `app/build/visual_qa/completion_motion_static.png`
+- 目視確認: `completion_motion_midframe.png` でチェック周囲のパーティクルと、伸長途中の複数行取り消し線が写っていることを確認した。
+
+未解決事項:
+
+- なし
