@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
@@ -23,6 +23,8 @@ const _taskCheckboxVisualSize = 22.0;
 const _taskCheckboxVisualCenterOffset = _taskCheckboxVisualSize / 2;
 const _taskCheckboxVisualRadius = _taskCheckboxVisualSize / 2;
 const _taskHierarchyHorizontalEndGap = 4.0;
+const _taskCompletionParticlesKey = ValueKey('task-completion-particles');
+const _taskStrikethroughOverlayKey = ValueKey('task-strikethrough-overlay');
 
 class TaskMetadataItem {
   const TaskMetadataItem({
@@ -1004,8 +1006,9 @@ class AppHomeTaskRow extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        AppAnimatedTaskTitle(
                           title,
+                          isDone: isDone,
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium?.copyWith(
@@ -1346,8 +1349,9 @@ class AppTaskRow extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Expanded(
-                              child: Text(
+                              child: AppAnimatedTaskTitle(
                                 title,
+                                isDone: isDone,
                                 softWrap: true,
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   decoration: isDone
@@ -1519,7 +1523,7 @@ class _GuideLine extends StatelessWidget {
   }
 }
 
-class AppTaskCheckbox extends StatelessWidget {
+class AppTaskCheckbox extends StatefulWidget {
   const AppTaskCheckbox({
     super.key,
     required this.isDone,
@@ -1534,15 +1538,54 @@ class AppTaskCheckbox extends StatelessWidget {
   final String? tooltip;
 
   @override
+  State<AppTaskCheckbox> createState() => _AppTaskCheckboxState();
+}
+
+class _AppTaskCheckboxState extends State<AppTaskCheckbox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _particlesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _particlesController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant AppTaskCheckbox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
+      _particlesController.forward(from: 0);
+    } else if (oldWidget.isDone && !widget.isDone) {
+      _particlesController.stop();
+      _particlesController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _particlesController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final mark = TweenAnimationBuilder<double>(
-      key: ValueKey('task-checkbox-animation-$checkboxKey'),
-      tween: Tween<double>(end: isDone ? 1 : 0),
-      duration: isDone
+      key: ValueKey('task-checkbox-animation-${widget.checkboxKey}'),
+      tween: Tween<double>(end: widget.isDone ? 1 : 0),
+      duration: reduceMotion
+          ? Duration.zero
+          : widget.isDone
           ? const Duration(milliseconds: 250)
           : const Duration(milliseconds: 150),
-      curve: isDone ? Curves.easeOutBack : Curves.easeOutCubic,
+      curve: widget.isDone ? Curves.easeOutBack : Curves.easeOutCubic,
       builder: (context, progress, child) {
         return CustomPaint(
           size: const Size.square(_taskCheckboxVisualSize),
@@ -1555,34 +1598,59 @@ class AppTaskCheckbox extends StatelessWidget {
       },
     );
     final control = SizedBox(
-      key: checkboxKey,
+      key: widget.checkboxKey,
       width: _taskCheckboxTapSize,
       height: _taskCheckboxTapSize,
-      child: onToggleDone == null
-          ? Align(alignment: AlignmentDirectional.centerStart, child: mark)
+      child: widget.onToggleDone == null
+          ? _TaskCheckboxVisual(
+              mark: mark,
+              particles: reduceMotion
+                  ? null
+                  : _CompletionParticles(animation: _particlesController),
+            )
           : InkResponse(
-              onTap: onToggleDone,
+              onTap: widget.onToggleDone,
               radius: _taskCheckboxTapSize / 2,
               containedInkWell: true,
               customBorder: const CircleBorder(),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: mark,
+              child: _TaskCheckboxVisual(
+                mark: mark,
+                particles: reduceMotion
+                    ? null
+                    : _CompletionParticles(animation: _particlesController),
               ),
             ),
     );
-    final label = tooltip;
+    final label = widget.tooltip;
     final semanticControl = Semantics(
       label: label,
       button: true,
-      checked: isDone,
-      enabled: onToggleDone != null,
+      checked: widget.isDone,
+      enabled: widget.onToggleDone != null,
       child: control,
     );
     if (label == null) {
       return semanticControl;
     }
     return Tooltip(message: label, child: semanticControl);
+  }
+}
+
+class _TaskCheckboxVisual extends StatelessWidget {
+  const _TaskCheckboxVisual({required this.mark, required this.particles});
+
+  final Widget mark;
+  final Widget? particles;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        if (particles != null) Positioned.fill(child: particles!),
+        Align(alignment: AlignmentDirectional.centerStart, child: mark),
+      ],
+    );
   }
 }
 
@@ -1651,6 +1719,293 @@ class _TaskCheckboxPainter extends CustomPainter {
     return oldDelegate.progress != progress ||
         oldDelegate.checkedColor != checkedColor ||
         oldDelegate.ringColor != ringColor;
+  }
+}
+
+class _CompletionParticles extends StatelessWidget {
+  const _CompletionParticles({required this.animation});
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        if (animation.value == 0) {
+          return const SizedBox.shrink();
+        }
+        return CustomPaint(
+          key: _taskCompletionParticlesKey,
+          painter: _CompletionParticlesPainter(
+            progress: animation.value,
+            colors: const [
+              _priorityHighCoral,
+              _priorityMediumAmber,
+              _priorityLowSoftSage,
+              _priorityHighCoral,
+              _priorityLowSoftSage,
+              _priorityMediumAmber,
+              _priorityHighCoral,
+              _priorityLowSoftSage,
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CompletionParticlesPainter extends CustomPainter {
+  const _CompletionParticlesPainter({
+    required this.progress,
+    required this.colors,
+  });
+
+  final double progress;
+  final List<Color> colors;
+
+  static const List<double> _angles = [
+    -2.55,
+    -1.95,
+    -1.18,
+    -0.48,
+    0.16,
+    0.78,
+    1.46,
+    2.28,
+  ];
+  static const List<double> _radii = [18, 21, 24, 22, 20, 24, 19, 17];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = progress.clamp(0.0, 1.0);
+    if (t <= 0) {
+      return;
+    }
+    final travel = Curves.easeOutCubic.transform(t);
+    final opacity = 1 - Curves.easeInCubic.transform(t);
+    final origin = Offset(_taskCheckboxVisualCenterOffset, size.height / 2);
+    for (var i = 0; i < _angles.length; i += 1) {
+      final angle = _angles[i];
+      final radius = _radii[i] * travel;
+      final offset = Offset(math.cos(angle), math.sin(angle)) * radius;
+      final particleRadius = 1.45 + (1.1 * (1 - t));
+      final paint = Paint()
+        ..style = PaintingStyle.fill
+        ..color = colors[i % colors.length].withValues(alpha: opacity);
+      canvas.drawCircle(origin + offset, particleRadius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CompletionParticlesPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.colors != colors;
+  }
+}
+
+class AppAnimatedTaskTitle extends StatefulWidget {
+  const AppAnimatedTaskTitle(
+    this.data, {
+    super.key,
+    required this.isDone,
+    this.style,
+    this.strutStyle,
+    this.maxLines,
+    this.overflow,
+    this.softWrap,
+    this.textKey,
+  });
+
+  final String data;
+  final bool isDone;
+  final TextStyle? style;
+  final StrutStyle? strutStyle;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final bool? softWrap;
+  final Key? textKey;
+
+  @override
+  State<AppAnimatedTaskTitle> createState() => _AppAnimatedTaskTitleState();
+}
+
+class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  bool _drawingAnimatedStrike = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 300),
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed && mounted) {
+            setState(() => _drawingAnimatedStrike = false);
+          }
+        });
+  }
+
+  @override
+  void didUpdateWidget(covariant AppAnimatedTaskTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
+      setState(() => _drawingAnimatedStrike = true);
+      _controller.forward(from: 0);
+    } else if (oldWidget.isDone && !widget.isDone) {
+      _controller.stop();
+      _controller.value = 0;
+      _drawingAnimatedStrike = false;
+    } else if (reduceMotion && _drawingAnimatedStrike) {
+      _controller.stop();
+      _controller.value = 1;
+      _drawingAnimatedStrike = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final drawOverlay =
+        widget.isDone && _drawingAnimatedStrike && !reduceMotion;
+    final effectiveStyle = drawOverlay
+        ? widget.style?.copyWith(decoration: TextDecoration.none)
+        : widget.style;
+    final text = Text(
+      widget.data,
+      key: widget.textKey,
+      maxLines: widget.maxLines,
+      overflow: widget.overflow,
+      softWrap: widget.softWrap,
+      strutStyle: widget.strutStyle,
+      style: effectiveStyle,
+    );
+    if (!drawOverlay) {
+      return text;
+    }
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        text,
+        Positioned.fill(
+          key: _taskStrikethroughOverlayKey,
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _AnimatedStrikethroughPainter(
+                    text: widget.data,
+                    style: widget.style,
+                    strutStyle: widget.strutStyle,
+                    maxLines: widget.maxLines,
+                    overflow: widget.overflow,
+                    textDirection: Directionality.of(context),
+                    locale: Localizations.maybeLocaleOf(context),
+                    textScaler: MediaQuery.textScalerOf(context),
+                    progress: Curves.easeOutCubic.transform(_controller.value),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AnimatedStrikethroughPainter extends CustomPainter {
+  const _AnimatedStrikethroughPainter({
+    required this.text,
+    required this.style,
+    required this.strutStyle,
+    required this.maxLines,
+    required this.overflow,
+    required this.textDirection,
+    required this.locale,
+    required this.textScaler,
+    required this.progress,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final StrutStyle? strutStyle;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final TextDirection textDirection;
+  final Locale? locale;
+  final TextScaler textScaler;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textStyle = (style ?? const TextStyle()).copyWith(
+      decoration: TextDecoration.none,
+    );
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: textStyle),
+      textDirection: textDirection,
+      maxLines: maxLines,
+      ellipsis: overflow == TextOverflow.ellipsis ? '\u2026' : null,
+      locale: locale,
+      strutStyle: strutStyle,
+      textScaler: textScaler,
+    )..layout(maxWidth: size.width);
+    final lines = painter.computeLineMetrics();
+    if (lines.isEmpty) {
+      return;
+    }
+
+    final strikeColor =
+        style?.decorationColor ?? style?.color ?? const Color(0xFF000000);
+    final fontSize = textStyle.fontSize ?? 14;
+    final strokeWidth = math.max(
+      1.0,
+      (style?.decorationThickness ?? 1.0) * (fontSize / 14),
+    );
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = strokeWidth
+      ..color = strikeColor;
+    final scaledProgress = (progress.clamp(0.0, 1.0)) * lines.length;
+    for (var i = 0; i < lines.length; i += 1) {
+      final lineProgress = (scaledProgress - i).clamp(0.0, 1.0);
+      if (lineProgress <= 0) {
+        continue;
+      }
+      final line = lines[i];
+      final startX = line.left;
+      final endX = startX + (line.width * lineProgress);
+      final y = line.baseline - (line.ascent * 0.34);
+      canvas.drawLine(Offset(startX, y), Offset(endX, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AnimatedStrikethroughPainter oldDelegate) {
+    return oldDelegate.text != text ||
+        oldDelegate.style != style ||
+        oldDelegate.strutStyle != strutStyle ||
+        oldDelegate.maxLines != maxLines ||
+        oldDelegate.overflow != overflow ||
+        oldDelegate.textDirection != textDirection ||
+        oldDelegate.locale != locale ||
+        oldDelegate.textScaler != textScaler ||
+        oldDelegate.progress != progress;
   }
 }
 

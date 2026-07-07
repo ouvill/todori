@@ -22,6 +22,8 @@ import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/theme.dart';
 
 import 'design_lab_mocks.dart';
 import '../support/fake_bridge_service.dart';
@@ -146,6 +148,64 @@ void main() {
     await tester.pumpAndSettle();
     await _screenshot(tester, 'task_swipe_due_trailing');
   });
+
+  testWidgets(
+    'completion_motion_midframe: check particles and animated strikethrough',
+    (tester) async {
+      _setMobileViewport(tester);
+      var isDone = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTodoriTheme(Brightness.light),
+          home: Scaffold(
+            body: Center(
+              child: StatefulBuilder(
+                builder: (context, setState) {
+                  final theme = Theme.of(context);
+                  final colorScheme = theme.colorScheme;
+                  return SizedBox(
+                    width: 260,
+                    child: Row(
+                      children: [
+                        AppTaskCheckbox(
+                          checkboxKey: const ValueKey('visual-motion-checkbox'),
+                          isDone: isDone,
+                          tooltip: 'Toggle visual motion task',
+                          onToggleDone: () => setState(() => isDone = !isDone),
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: AppAnimatedTaskTitle(
+                            'Confirm final copy in the hero panel',
+                            isDone: isDone,
+                            maxLines: 2,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              decoration: isDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: isDone
+                                  ? colorScheme.onSurfaceVariant
+                                  : colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('visual-motion-checkbox')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+      await _screenshotCurrentFrame(tester, 'completion_motion_midframe');
+      await tester.pumpAndSettle();
+    },
+  );
 
   testWidgets('wont_do_row: closed section with a wont_do row', (tester) async {
     _setMobileViewport(tester);
@@ -721,6 +781,14 @@ void _useJaLocale(WidgetTester tester) {
 /// a one-way export for human review.
 Future<void> _screenshot(WidgetTester tester, String name) async {
   await tester.pumpAndSettle();
+  await _writeScreenshot(tester, name);
+}
+
+Future<void> _screenshotCurrentFrame(WidgetTester tester, String name) async {
+  await _writeScreenshot(tester, name);
+}
+
+Future<void> _writeScreenshot(WidgetTester tester, String name) async {
   await tester.runAsync(() async {
     final element = tester.element(find.byType(MaterialApp));
     final image = await captureImage(element);

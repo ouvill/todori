@@ -713,9 +713,10 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
           onTap: _startEditing,
           child: Padding(
             padding: _inlineEditorPadding,
-            child: Text(
+            child: AppAnimatedTaskTitle(
               widget.title,
-              key: const ValueKey('task-title-inline-read-text'),
+              textKey: const ValueKey('task-title-inline-read-text'),
+              isDone: widget.isClosed,
               strutStyle: titleStrut,
               style: titleStyle,
             ),

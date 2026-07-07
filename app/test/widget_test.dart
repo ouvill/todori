@@ -1622,6 +1622,142 @@ void main() {
     expect(find.text('Closed'), findsNothing);
   });
 
+  testWidgets(
+    'completion motion exposes intermediate particle and strike frame',
+    (tester) async {
+      var isDone = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(disableAnimations: false),
+            child: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  final style = Theme.of(context).textTheme.titleMedium;
+                  return Center(
+                    child: SizedBox(
+                      width: 180,
+                      child: Row(
+                        children: [
+                          AppTaskCheckbox(
+                            checkboxKey: const ValueKey('motion-checkbox'),
+                            isDone: isDone,
+                            tooltip: 'Toggle motion task',
+                            onToggleDone: () =>
+                                setState(() => isDone = !isDone),
+                          ),
+                          Expanded(
+                            child: AppAnimatedTaskTitle(
+                              'Motion title wraps to a second line',
+                              isDone: isDone,
+                              maxLines: 2,
+                              style: style?.copyWith(
+                                decoration: isDone
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('task-completion-particles')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('task-strikethrough-overlay')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('motion-checkbox')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(
+        find.byKey(const ValueKey('task-completion-particles')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('task-strikethrough-overlay')),
+        findsOneWidget,
+      );
+
+      await tester.pumpAndSettle();
+      final completedTitle = tester.widget<Text>(
+        find.text('Motion title wraps to a second line'),
+      );
+      expect(completedTitle.style?.decoration, TextDecoration.lineThrough);
+    },
+  );
+
+  testWidgets('completion motion is skipped when reduce motion is enabled', (
+    tester,
+  ) async {
+    var isDone = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                final style = Theme.of(context).textTheme.titleMedium;
+                return Center(
+                  child: Row(
+                    children: [
+                      AppTaskCheckbox(
+                        checkboxKey: const ValueKey('reduce-motion-checkbox'),
+                        isDone: isDone,
+                        tooltip: 'Toggle reduce motion task',
+                        onToggleDone: () => setState(() => isDone = !isDone),
+                      ),
+                      Expanded(
+                        child: AppAnimatedTaskTitle(
+                          'Reduce motion title',
+                          isDone: isDone,
+                          style: style?.copyWith(
+                            decoration: isDone
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('reduce-motion-checkbox')));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('task-completion-particles')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('task-strikethrough-overlay')),
+      findsNothing,
+    );
+    final completedTitle = tester.widget<Text>(
+      find.text('Reduce motion title'),
+    );
+    expect(completedTitle.style?.decoration, TextDecoration.lineThrough);
+  });
+
   testWidgets('leading swipe completes through confirmation and undo flow', (
     tester,
   ) async {
