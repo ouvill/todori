@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 7;
+pub const LATEST_SCHEMA_VERSION: i32 = 8;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -43,6 +43,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 7,
         name: "add_performance_indexes",
         apply: add_performance_indexes,
+    },
+    Migration {
+        target_version: 8,
+        name: "add_sync_outbox_and_cursors",
+        apply: add_sync_outbox_and_cursors,
     },
 ];
 
@@ -135,6 +140,36 @@ pub struct Reminder {
     pub created_at: i64,
 }
 
+/// ACKまでSQLCipher内に保持する送信待ち同期blob。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncOutboxEntry {
+    pub id: i64,
+    pub record_id: Uuid,
+    pub collection: String,
+    pub hlc: String,
+    pub deleted: bool,
+    pub blob: Vec<u8>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSyncOutboxEntry {
+    pub record_id: Uuid,
+    pub collection: String,
+    pub hlc: String,
+    pub deleted: bool,
+    pub blob: Vec<u8>,
+    pub created_at: i64,
+}
+
+/// テナントDB内のpull cursor。ローカルDBはテナントごとに分離する。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncCursor {
+    pub name: String,
+    pub seq: i64,
+    pub updated_at: i64,
+}
+
 /// タスクの永続化を担うリポジトリ。
 ///
 /// SQLite(SQLCipher)実装は [`SqliteTaskRepository`] を参照。同期シグネチャのみを定義する。
@@ -194,6 +229,18 @@ pub trait ReminderRepository {
         reminder_id: Uuid,
         snoozed_until: i64,
     ) -> Result<Reminder, StorageError>;
+}
+
+/// 同期outboxとpull cursorの永続化を担うリポジトリ。
+pub trait SyncStateRepository {
+    fn enqueue_outbox(
+        &mut self,
+        entry: NewSyncOutboxEntry,
+    ) -> Result<SyncOutboxEntry, StorageError>;
+    fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError>;
+    fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError>;
+    fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError>;
+    fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -414,6 +461,27 @@ fn add_performance_indexes(transaction: &Transaction<'_>) -> rusqlite::Result<()
          CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
              ON tasks(due_at, status, completed_at, list_id)
              WHERE due_at IS NOT NULL;",
+    )
+}
+
+fn add_sync_outbox_and_cursors(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_outbox (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             record_id TEXT NOT NULL,
+             collection TEXT NOT NULL,
+             hlc TEXT NOT NULL,
+             deleted INTEGER NOT NULL DEFAULT 0,
+             blob BLOB NOT NULL,
+             created_at INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_sync_outbox_stable_order
+             ON sync_outbox(created_at, id);
+         CREATE TABLE IF NOT EXISTS sync_cursors (
+             name TEXT PRIMARY KEY NOT NULL,
+             seq INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );",
     )
 }
 
@@ -1349,6 +1417,101 @@ impl ReminderRepository for SqliteReminderRepository {
     }
 }
 
+/// SQLite-backed implementation of [`SyncStateRepository`].
+pub struct SqliteSyncStateRepository {
+    connection: Connection,
+}
+
+impl SqliteSyncStateRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl SyncStateRepository for SqliteSyncStateRepository {
+    fn enqueue_outbox(
+        &mut self,
+        entry: NewSyncOutboxEntry,
+    ) -> Result<SyncOutboxEntry, StorageError> {
+        self.connection.execute(
+            "INSERT INTO sync_outbox (
+                 record_id, collection, hlc, deleted, blob, created_at
+             ) VALUES (
+                 ?1, ?2, ?3, ?4, ?5, ?6
+             )",
+            params![
+                entry.record_id.to_string(),
+                entry.collection,
+                entry.hlc,
+                entry.deleted,
+                entry.blob,
+                entry.created_at,
+            ],
+        )?;
+        let id = self.connection.last_insert_rowid();
+        self.connection
+            .query_row(
+                "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+                 FROM sync_outbox
+                 WHERE id = ?1",
+                [id],
+                row_to_sync_outbox_entry,
+            )
+            .map_err(StorageError::from)
+    }
+
+    fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+        let limit = i64::try_from(limit).map_err(|_| {
+            StorageError::IncompatibleSchema("outbox limit exceeded i64".to_string())
+        })?;
+        let mut statement = self.connection.prepare(
+            "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+             FROM sync_outbox
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?1",
+        )?;
+        let entries = statement
+            .query_map([limit], row_to_sync_outbox_entry)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(entries)
+    }
+
+    fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError> {
+        self.connection
+            .execute("DELETE FROM sync_outbox WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT name, seq, updated_at
+                 FROM sync_cursors
+                 WHERE name = ?1",
+                [name],
+                row_to_sync_cursor,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError> {
+        self.connection.execute(
+            "INSERT INTO sync_cursors (name, seq, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET
+                 seq = excluded.seq,
+                 updated_at = excluded.updated_at",
+            params![name, seq, updated_at],
+        )?;
+        Ok(())
+    }
+}
+
 fn ensure_task_exists(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
     let exists = connection
         .query_row(
@@ -1468,6 +1631,27 @@ fn row_to_reminder(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reminder> {
         remind_at: row.get(2)?,
         snoozed_until: row.get(3)?,
         created_at: row.get(4)?,
+    })
+}
+
+fn row_to_sync_outbox_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncOutboxEntry> {
+    let record_id: String = row.get(1)?;
+    Ok(SyncOutboxEntry {
+        id: row.get(0)?,
+        record_id: parse_uuid(record_id, 1)?,
+        collection: row.get(2)?,
+        hlc: row.get(3)?,
+        deleted: row.get(4)?,
+        blob: row.get(5)?,
+        created_at: row.get(6)?,
+    })
+}
+
+fn row_to_sync_cursor(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncCursor> {
+    Ok(SyncCursor {
+        name: row.get(0)?,
+        seq: row.get(1)?,
+        updated_at: row.get(2)?,
     })
 }
 
@@ -1676,6 +1860,15 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v7_database(path: &Path, key: &[u8; 32]) {
+        create_v6_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_performance_indexes(&transaction).unwrap();
+        set_user_version(&transaction, 7).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -1765,6 +1958,48 @@ mod tests {
 
     fn reminder_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
         let mut statement = connection.prepare("PRAGMA table_info(reminders)").unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .find_map(|(name, column_type, not_null)| {
+                (name == target).then_some((column_type, not_null))
+            })
+    }
+
+    fn sync_outbox_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(sync_outbox)")
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .find_map(|(name, column_type, not_null)| {
+                (name == target).then_some((column_type, not_null))
+            })
+    }
+
+    fn sync_cursor_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(sync_cursors)")
+            .unwrap();
         statement
             .query_map([], |row| {
                 Ok((
@@ -2271,6 +2506,44 @@ mod tests {
     }
 
     #[test]
+    fn v7_database_migrates_to_v8_and_adds_sync_state_tables() {
+        let file = NamedTempFile::new().unwrap();
+        create_v7_database(file.path(), &KEY);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "record_id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "collection"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "hlc"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "deleted"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "blob"),
+            Some(("BLOB".to_string(), 1))
+        );
+        assert_eq!(
+            sync_cursor_column(&connection, "seq"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert!(index_exists(&connection, "idx_sync_outbox_stable_order"));
+    }
+
+    #[test]
     #[ignore = "task-67 manual performance verification for a 10k encrypted seed"]
     fn task_67_reports_10000_task_storage_timings() {
         let file = NamedTempFile::new().unwrap();
@@ -2456,6 +2729,14 @@ mod tests {
             reminder_column(&connection, "snoozed_until"),
             Some(("INTEGER".to_string(), 0))
         );
+        assert_eq!(
+            sync_outbox_column(&connection, "created_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            sync_cursor_column(&connection, "updated_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
     }
 
     #[test]
@@ -2498,6 +2779,14 @@ mod tests {
         assert_eq!(
             reminder_column(&connection, "created_at"),
             Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "blob"),
+            Some(("BLOB".to_string(), 1))
+        );
+        assert_eq!(
+            sync_cursor_column(&connection, "name"),
+            Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
             SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
@@ -2545,6 +2834,10 @@ mod tests {
         );
         assert_eq!(
             reminder_column(&connection, "task_id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "hlc"),
             Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
@@ -2604,6 +2897,107 @@ mod tests {
             )
             .unwrap();
         assert_eq!(updated_at, 1_799_000_001_000);
+    }
+
+    #[test]
+    fn sqlite_sync_state_repository_keeps_outbox_until_ack_in_stable_order() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+        let first_record_id = Uuid::now_v7();
+        let second_record_id = Uuid::now_v7();
+
+        let first = repository
+            .enqueue_outbox(NewSyncOutboxEntry {
+                record_id: first_record_id,
+                collection: "tasks".to_string(),
+                hlc: "01-first".to_string(),
+                deleted: false,
+                blob: vec![1, 2, 3],
+                created_at: 1_799_000_000_000,
+            })
+            .unwrap();
+        let second = repository
+            .enqueue_outbox(NewSyncOutboxEntry {
+                record_id: second_record_id,
+                collection: "lists".to_string(),
+                hlc: "01-second".to_string(),
+                deleted: true,
+                blob: vec![4, 5, 6],
+                created_at: 1_799_000_000_000,
+            })
+            .unwrap();
+
+        assert_eq!(first.record_id, first_record_id);
+        assert_eq!(second.record_id, second_record_id);
+        assert!(first.id < second.id);
+        assert_eq!(
+            repository.list_outbox(10).unwrap(),
+            vec![first.clone(), second.clone()]
+        );
+        assert_eq!(repository.list_outbox(1).unwrap(), vec![first.clone()]);
+
+        repository.ack_outbox(first.id).unwrap();
+
+        assert_eq!(repository.list_outbox(10).unwrap(), vec![second]);
+    }
+
+    #[test]
+    fn sqlite_sync_state_repository_preserves_outbox_after_reopen() {
+        let file = NamedTempFile::new().unwrap();
+        let record_id = Uuid::now_v7();
+        let stored = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteSyncStateRepository::new(connection);
+            repository
+                .enqueue_outbox(NewSyncOutboxEntry {
+                    record_id,
+                    collection: "tasks".to_string(),
+                    hlc: "01-reopen".to_string(),
+                    deleted: false,
+                    blob: vec![7, 8, 9],
+                    created_at: 1_799_000_000_000,
+                })
+                .unwrap()
+        };
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteSyncStateRepository::new(connection);
+
+        assert_eq!(repository.list_outbox(10).unwrap(), vec![stored]);
+    }
+
+    #[test]
+    fn sqlite_sync_state_repository_roundtrips_pull_cursor() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+
+        assert_eq!(repository.get_cursor("default").unwrap(), None);
+
+        repository
+            .set_cursor("default", 41, 1_799_000_000_000)
+            .unwrap();
+        assert_eq!(
+            repository.get_cursor("default").unwrap(),
+            Some(SyncCursor {
+                name: "default".to_string(),
+                seq: 41,
+                updated_at: 1_799_000_000_000,
+            })
+        );
+
+        repository
+            .set_cursor("default", 42, 1_799_000_001_000)
+            .unwrap();
+        assert_eq!(
+            repository.get_cursor("default").unwrap(),
+            Some(SyncCursor {
+                name: "default".to_string(),
+                seq: 42,
+                updated_at: 1_799_000_001_000,
+            })
+        );
     }
 
     #[test]

@@ -50,6 +50,22 @@ CREATE TABLE IF NOT EXISTS reminders (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sync_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    hlc TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    blob BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sync_cursors (
+    name TEXT PRIMARY KEY NOT NULL,
+    seq INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order ON tasks(list_id, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
@@ -65,6 +81,8 @@ CREATE INDEX IF NOT EXISTS idx_task_undo_entries_task_id
 CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_pending
     ON reminders(snoozed_until, remind_at);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_stable_order
+    ON sync_outbox(created_at, id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
     title,

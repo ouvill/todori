@@ -86,7 +86,7 @@
 | task-66 | 完了 | [task-66-a11y-pass.md](./task-66-a11y-pass.md) | アクセシビリティ検証パス。Dynamic Type 2.0、スクリーンリーダーラベル、Tooltip/Semantics棚卸し、コントラスト計算、Reduce Motion確認を行う | task-48・task-54・task-60・task-65の完了状態に依存。M4-03 |
 | task-67 | 完了 | [task-67-performance-verification.md](./task-67-performance-verification.md) | 性能検証。1万件seedでRust層起動近似・Home横断・単一リスト・検索・migration、Flutter大量pump、オフライン動作を計測する | task-66までの完了状態に依存。M4-04 / F-50〜F-52 |
 | task-68 | 完了 | [task-68-home-virtualization.md](./task-68-home-virtualization.md) | Home/Tasksリスト描画の仮想化。task-67で判明したHome 7140件相当の全行Widget構築をSliver遅延構築へ移行する | task-67の完了状態に依存。task-67未解決事項の引き継ぎ |
-| task-69 | 未着手 | [task-69-sync-foundation.md](./task-69-sync-foundation.md) | P2-M1 クライアント同期基盤。HLC、フィールドHLCマップ、LWWマージ、blob暗号エンベロープ、storage v8 outbox、proptest収束性検証を実装する | `docs/08_Phase2計画書.md` P2-M1、`docs/03_技術仕様書.md` §4・§5・§6・§11.1、ADR-005に依存。サーバー/ネットワーク/UIはスコープ外 |
+| task-69 | 完了 | [task-69-sync-foundation.md](./task-69-sync-foundation.md) | P2-M1 クライアント同期基盤。HLC、フィールドHLCマップ、LWWマージ、blob暗号エンベロープ、storage v8 outbox、proptest収束性検証を実装する | `docs/08_Phase2計画書.md` P2-M1、`docs/03_技術仕様書.md` §4・§5・§6・§11.1、ADR-005に依存。サーバー/ネットワーク/UIはスコープ外 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
