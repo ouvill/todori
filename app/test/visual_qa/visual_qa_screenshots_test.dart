@@ -203,7 +203,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 90));
       await _screenshotCurrentFrame(tester, 'completion_motion_midframe');
+      await tester.pump(const Duration(milliseconds: 210));
+      await _screenshotCurrentFrame(tester, 'completion_motion_endframe');
       await tester.pumpAndSettle();
+      await _screenshotCurrentFrame(tester, 'completion_motion_static');
     },
   );
 

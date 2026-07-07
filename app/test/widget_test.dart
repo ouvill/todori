@@ -12,7 +12,7 @@ import 'package:todori/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
 
-const _taskCheckboxVisualCenterOffset = 11.0;
+const _taskCheckboxVisualCenterOffset = 24.0;
 const _taskCheckboxVisualRadius = 11.0;
 const _taskHierarchyHorizontalEndGap = 4.0;
 
@@ -868,7 +868,7 @@ void main() {
           .widget<Text>(find.text('Closed child under home parent'))
           .style
           ?.decoration,
-      TextDecoration.lineThrough,
+      TextDecoration.none,
     );
     expect(
       find.byKey(ValueKey('task-done-${overdueGrandchild.id}')),
@@ -936,7 +936,7 @@ void main() {
           .widget<Text>(find.text('No due child under home parent'))
           .style
           ?.decoration,
-      TextDecoration.lineThrough,
+      TextDecoration.none,
     );
 
     await tester.ensureVisible(find.text('No due child under home parent'));
@@ -1012,7 +1012,7 @@ void main() {
             .widget<Text>(find.text('Closed overdue grandchild'))
             .style
             ?.decoration,
-        TextDecoration.lineThrough,
+        TextDecoration.none,
       );
       expect(
         find.byKey(
@@ -1097,7 +1097,7 @@ void main() {
     expect(find.text('Closed overdue root'), findsOneWidget);
     expect(
       tester.widget<Text>(find.text('Closed overdue root')).style?.decoration,
-      TextDecoration.lineThrough,
+      TextDecoration.none,
     );
   });
 
@@ -1604,12 +1604,10 @@ void main() {
     expect(active.single.status, 'done');
     expect(find.text('Task closed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
+    expect(find.text('Buy milk'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1100));
     expect(find.text('Buy milk'), findsNothing);
     expect(find.text('Closed'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
-    await tester.pumpAndSettle();
-    expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.byTooltip('Reopen task'), findsOneWidget);
 
     await tester.tap(find.text('Undo'));
     await tester.pump(const Duration(milliseconds: 75));
@@ -1695,7 +1693,11 @@ void main() {
       final completedTitle = tester.widget<Text>(
         find.text('Motion title wraps to a second line'),
       );
-      expect(completedTitle.style?.decoration, TextDecoration.lineThrough);
+      expect(completedTitle.style?.decoration, TextDecoration.none);
+      expect(
+        find.byKey(const ValueKey('task-strikethrough-overlay')),
+        findsOneWidget,
+      );
     },
   );
 
@@ -1750,12 +1752,206 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('task-strikethrough-overlay')),
-      findsNothing,
+      findsOneWidget,
     );
     final completedTitle = tester.widget<Text>(
       find.text('Reduce motion title'),
     );
-    expect(completedTitle.style?.decoration, TextDecoration.lineThrough);
+    expect(completedTitle.style?.decoration, TextDecoration.none);
+  });
+
+  testWidgets('task checkbox keeps 48px hit area centered on visual mark', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: AppTaskCheckbox(
+              checkboxKey: const ValueKey('geometry-checkbox'),
+              isDone: false,
+              tooltip: 'Toggle geometry task',
+              onToggleDone: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final checkbox = find.byKey(const ValueKey('geometry-checkbox'));
+    final checkboxRect = tester.getRect(checkbox);
+    final markRect = tester.getRect(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is CustomPaint && widget.size == const Size.square(22),
+          )
+          .first,
+    );
+
+    expect(checkboxRect.size, const Size.square(48));
+    expect(markRect.size, const Size.square(22));
+    expect(markRect.center.dx, closeTo(checkboxRect.center.dx, 0.001));
+    expect(markRect.center.dy, closeTo(checkboxRect.center.dy, 0.001));
+  });
+
+  testWidgets('home completion keeps standalone root until delayed exit', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Root due today pending exit',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Root due today pending exit'), findsOneWidget);
+    expect(find.text('Closed'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 749));
+    expect(find.text('Root due today pending exit'), findsOneWidget);
+    expect(find.text('Closed'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 2));
+    expect(
+      find.byKey(const ValueKey('home-pending-completion-exit')),
+      findsOneWidget,
+    );
+    expect(find.text('Root due today pending exit'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(find.text('Root due today pending exit'), findsNothing);
+    expect(find.text('Closed'), findsOneWidget);
+  });
+
+  testWidgets(
+    'home completion keeps standalone subtask before moving under ancestor',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final today = _todayStartMs();
+      final tomorrow = today + const Duration(days: 1).inMilliseconds;
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Parent due tomorrow',
+        dueAt: tomorrow,
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Child due today moves',
+        parentTaskId: parent.id,
+        dueAt: today,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(ValueKey('task-done-${child.id}')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Child due today moves'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Child due today moves')).dy,
+        lessThan(tester.getTopLeft(find.text('Tomorrow').first).dy),
+      );
+
+      await tester.pump(const Duration(milliseconds: 1020));
+
+      expect(find.text('Child due today moves'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Child due today moves')).dy,
+        greaterThan(tester.getTopLeft(find.text('Parent due tomorrow')).dy),
+      );
+    },
+  );
+
+  testWidgets(
+    'home completion pending state handles multi-complete and reopen',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final first = await fake.createTask(
+        listId: listId,
+        title: 'First pending reopen',
+        dueAt: _todayStartMs(),
+      );
+      final second = await fake.createTask(
+        listId: listId,
+        title: 'Second pending complete',
+        dueAt: _todayStartMs(),
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(ValueKey('task-done-${first.id}')));
+      await tester.tap(find.byKey(ValueKey('task-done-${second.id}')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+
+      expect(find.text('First pending reopen'), findsOneWidget);
+      expect(find.text('Second pending complete'), findsOneWidget);
+
+      await tester.tap(find.byKey(ValueKey('task-done-${first.id}')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      final tasks = await fake.getTasks(listId: listId);
+      expect(tasks.singleWhere((task) => task.id == first.id).status, 'todo');
+      expect(tasks.singleWhere((task) => task.id == second.id).status, 'done');
+      expect(find.text('First pending reopen'), findsOneWidget);
+      expect(find.text('Second pending complete'), findsNothing);
+    },
+  );
+
+  testWidgets('home reduce motion completion reconfigures immediately', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Reduce motion home task',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.byKey(const ValueKey('home-pending-completion-exit')),
+      findsNothing,
+    );
+    expect(find.text('Reduce motion home task'), findsNothing);
+    expect(find.text('Closed'), findsOneWidget);
   });
 
   testWidgets('leading swipe completes through confirmation and undo flow', (
@@ -2156,7 +2352,7 @@ void main() {
     expect(find.text("Won't do"), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
     final title = tester.widget<Text>(find.text('Skipped task'));
-    expect(title.style?.decoration, TextDecoration.lineThrough);
+    expect(title.style?.decoration, TextDecoration.none);
   });
 
   testWidgets('task list drag and drop reorders root tasks with boundaries', (
@@ -2471,8 +2667,8 @@ void main() {
 
     final doneTitle = tester.widget<Text>(find.text('Review checklist'));
     final wontDoTitle = tester.widget<Text>(find.text('Skip launch microsite'));
-    expect(doneTitle.style?.decoration, TextDecoration.lineThrough);
-    expect(wontDoTitle.style?.decoration, TextDecoration.lineThrough);
+    expect(doneTitle.style?.decoration, TextDecoration.none);
+    expect(wontDoTitle.style?.decoration, TextDecoration.none);
     expect(find.byTooltip('Reopen task'), findsNWidgets(2));
     expect(
       find.byKey(ValueKey('task-drop-target-${wontDoChild.id}')),
@@ -2904,7 +3100,7 @@ void main() {
     final titleContext = tester.element(
       find.byKey(const ValueKey('task-title-inline-read-text')),
     );
-    expect(title.style?.decoration, TextDecoration.lineThrough);
+    expect(title.style?.decoration, TextDecoration.none);
     expect(
       title.style?.color,
       Theme.of(titleContext).colorScheme.onSurfaceVariant,

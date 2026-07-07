@@ -1,5 +1,8 @@
 # task-60: チェック完了モーション受け入れFBの精度改善
 
+> ステータス: 完了（2026-07-08）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 task-59でチェック完了モーションを実装し、チェック線path描画、局所パーティクル、左から右へ伸びる取り消し線、Reduce Motion分岐が入った。2026-07-08のモーション体感受け入れでは、方向性は維持したまま、精度に関するフィードバックが3件出た。
@@ -138,3 +141,108 @@ task-59でチェック完了モーションを実装し、チェック線path描
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md` セクション3、裁定済み事項
+- `docs/tasks/task-59-check-completion-motion.md` と完了報告
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `app/lib/src/ui/task_components.dart` の `AppTaskCheckbox` で、48x48の `SizedBox` 内に22x22のチェック円を `Center` 配置し、`_taskCheckboxVisualCenterOffset` を24.0へ変更した。
+- `InkResponse` の `radius` は24.0、`containedInkWell: true`、`CircleBorder` を維持した。チェック円中心、48x48ヒット領域中心、Ink波紋中心、パーティクル起点は同じ48x48領域中心になった。
+- 階層ガイド計算は `_taskCheckboxVisualCenterOffset` を参照する既存経路のまま、チェック中心変更に追従した。
+- `AppAnimatedTaskTitle` は完了状態の静止表示でも `TextDecoration.lineThrough` を使わず、`_AnimatedStrikethroughPainter` をprogress 1.0で使う方式へ変更した。
+- アニメ中と静止中の取り消し線は同じ `TextPainter` 計測、同じline y計算、同じstroke width計算、同じCustomPainterで描画される。単一行・複数行とも同じ経路で描画される。
+- `app/lib/src/screens/tasks_screen.dart` のHome表示に `_pendingHomeCompletions`、`_pendingHomeCompletionTimers`、`_homeCompletionOperations` を追加した。
+- ペンディング状態は `taskId -> _PendingHomeCompletion` のMapで、旧セクション、旧行index、完了表示用スナップショット行、件数加算対象かどうかを保持する。
+- Homeで完了した単独表示行は、通常再構成から同一task idを一時除外し、旧セクション位置に完了表示のスナップショットを差し込む。800ms後に `_PendingHomeExitPhase.exiting` へ移し、200msのfade/translate後にMapから削除する。
+- timerは `_pendingHomeCompletionTimers` にtask id単位で保持し、dispose、再オープン、キャンセル、外部更新時にcancelする。
+- 完了操作中の再オープンは `_homeCompletionOperations[taskId]` のFuture完了を待ってからpendingをcancelし、`todo` へ戻す。
+- Reduce Motion有効時は `_handleHomeCompleteTask` でpendingを作らず、従来どおり `onCompleteTask` を即時実行する。
+- 未完了子孫を持つタスクは既存確認ダイアログ経路を維持し、pending遅延を使わない。
+- Undoスナックバーの表示タイミングとUndo実行経路は `_showLatestUndoSnackBar` / `_applyUndo` の既存実装を変更していない。
+- 新規pub/crate依存は追加していない。
+- UI表示文言は追加していない。
+
+適用確認:
+
+- 完了によりClosedへ移るルートタスク: `home completion keeps standalone root until delayed exit` で、旧位置残留、800ms後退場、Closed再構成をpump制御で確認した。
+- 表示中祖先下へ移るサブタスク: `home completion keeps standalone subtask before moving under ancestor` で、Today単独表示から完了後に親の下へ移る経路をpump制御で確認した。
+- Homeから非表示になる単独表示行: 実装はpending idを通常Home再構成から除外し、旧セクションのpending行をtimer削除後に外す共通経路で処理する。専用widget testは追加していない。
+- 複数同時完了とアニメーション中再オープン: `home completion pending state handles multi-complete and reopen` で2件の同時pendingと、片方の再オープン後に古いpending行が残らないことを確認した。
+- 連打: `_handleHomeCompleteTask` は既存pending task idへの追加完了処理をreturnする。`home completion pending state handles multi-complete and reopen` で同じtask idのpending中再操作がreopen経路として処理されることを確認した。
+- Reduce Motion: `home reduce motion completion reconfigures immediately` で `FakeAccessibilityFeatures(disableAnimations: true)` 時にpending exit keyが出ず、即時にClosedへ再構成されることを確認した。
+- Undo: `checking a task marks it done through the bridge service` で完了後のUndoスナックバー表示、Undo実行、`todo` への復元を確認した。
+
+追加・更新したwidget test:
+
+- 追加: `task checkbox keeps 48px hit area centered on visual mark`
+  - 48x48ヒット領域と22x22チェック描画の中心一致を確認した。
+- 追加: `home completion keeps standalone root until delayed exit`
+  - Home単独ルート行の旧位置残留、800ms後退場開始、退場後Closed再構成を確認した。
+- 追加: `home completion keeps standalone subtask before moving under ancestor`
+  - 単独表示サブタスクが完了中は旧セクションに残り、退場後に表示中親の下へ移ることを確認した。
+- 追加: `home completion pending state handles multi-complete and reopen`
+  - 複数同時pending、pending中再オープン、timer後の古いpending行削除を確認した。
+- 追加: `home reduce motion completion reconfigures immediately`
+  - Reduce Motion時の即時再構成を確認した。
+- 更新: `completion motion exposes intermediate particle and strike frame`
+  - 静止状態の取り消し線がTextDecorationではなくPainter経路で描かれることを確認する期待値へ変更した。
+- 更新: `completion motion is skipped when reduce motion is enabled`
+  - Reduce Motion時も静止取り消し線Painterがprogress 1.0で出ることを確認する期待値へ変更した。
+- 更新: 既存の完了/Closed行表示テスト
+  - 静止取り消し線が `TextDecoration.lineThrough` ではなくPainter経路になったため、Text本体のdecoration期待値を `TextDecoration.none` へ変更した。
+
+visual QA:
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- 実装後出力先: `app/build/visual_qa/`
+- 既存スクリーンショット: `app/build/visual_qa/completion_motion_midframe.png`
+- 追加スクリーンショット: `app/build/visual_qa/completion_motion_endframe.png`
+- 追加スクリーンショット: `app/build/visual_qa/completion_motion_static.png`
+- `completion_motion_endframe.png` はタップ後300msのpump制御で生成した。
+- `completion_motion_static.png` は `pumpAndSettle` 後に生成した。
+- 目視確認: `completion_motion_endframe.png` と `completion_motion_static.png` の複数行取り消し線は同じPainter経路で描かれ、線の高さ・太さ・位置に目視上のズレは見えなかった。
+
+モーション最終受け入れ:
+
+- 完了遅延遷移はwidget testのpump制御で確認した。
+- 体感の最終受け入れは人間ドッグフーディングで行う。
+
+品質ゲート:
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（95件成功、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（37件成功）
+- `git diff --check`: exit 0
+
+変更ファイル一覧:
+
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `docs/tasks/task-60-motion-refinement.md`
+
+未解決事項:
+
+- なし

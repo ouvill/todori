@@ -20,7 +20,7 @@ const _taskRowRootLeadingStart = 12.0;
 const _taskRowDepthIndent = AppSpacing.lg;
 const _taskCheckboxTapSize = 48.0;
 const _taskCheckboxVisualSize = 22.0;
-const _taskCheckboxVisualCenterOffset = _taskCheckboxVisualSize / 2;
+const _taskCheckboxVisualCenterOffset = _taskCheckboxTapSize / 2;
 const _taskCheckboxVisualRadius = _taskCheckboxVisualSize / 2;
 const _taskHierarchyHorizontalEndGap = 4.0;
 const _taskCompletionParticlesKey = ValueKey('task-completion-particles');
@@ -1648,7 +1648,7 @@ class _TaskCheckboxVisual extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         if (particles != null) Positioned.fill(child: particles!),
-        Align(alignment: AlignmentDirectional.centerStart, child: mark),
+        Center(child: mark),
       ],
     );
   }
@@ -1785,7 +1785,7 @@ class _CompletionParticlesPainter extends CustomPainter {
     }
     final travel = Curves.easeOutCubic.transform(t);
     final opacity = 1 - Curves.easeInCubic.transform(t);
-    final origin = Offset(_taskCheckboxVisualCenterOffset, size.height / 2);
+    final origin = size.center(Offset.zero);
     for (var i = 0; i < _angles.length; i += 1) {
       final angle = _angles[i];
       final radius = _radii[i] * travel;
@@ -1877,9 +1877,10 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final drawOverlay =
+    final drawAnimatedStrike =
         widget.isDone && _drawingAnimatedStrike && !reduceMotion;
-    final effectiveStyle = drawOverlay
+    final drawStrike = widget.isDone;
+    final effectiveStyle = drawStrike
         ? widget.style?.copyWith(decoration: TextDecoration.none)
         : widget.style;
     final text = Text(
@@ -1891,7 +1892,7 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
       strutStyle: widget.strutStyle,
       style: effectiveStyle,
     );
-    if (!drawOverlay) {
+    if (!drawStrike) {
       return text;
     }
 
@@ -1905,6 +1906,9 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
             child: AnimatedBuilder(
               animation: _controller,
               builder: (context, child) {
+                final strikeProgress = drawAnimatedStrike
+                    ? Curves.easeOutCubic.transform(_controller.value)
+                    : 1.0;
                 return CustomPaint(
                   painter: _AnimatedStrikethroughPainter(
                     text: widget.data,
@@ -1915,7 +1919,7 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
                     textDirection: Directionality.of(context),
                     locale: Localizations.maybeLocaleOf(context),
                     textScaler: MediaQuery.textScalerOf(context),
-                    progress: Curves.easeOutCubic.transform(_controller.value),
+                    progress: strikeProgress,
                   ),
                 );
               },
