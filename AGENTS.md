@@ -17,7 +17,7 @@ Todoriは E2EE（エンドツーエンド暗号化）Todoアプリである。UI
 - `docs/07_Phase1計画書.md` ── **現在の実行計画**。マイルストーン（M1〜M5）と完了条件を定義する
 - `docs/tasks/` ── 作業指示書と完了報告。実際の実装作業はこのディレクトリの指示書単位で行う
 
-**`docs/01`〜`03` は変更禁止**である。実装中にこれらの記述と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、仕様書を書き換えずに、当該タスクの完了報告の「未解決事項」に記録すること。
+**`docs/01`・`docs/02` の変更には人間承認が必要**である。`docs/03_技術仕様書.md` は2026-07-08にプロダクトオーナーが全面編集を許可した（コミットをチェックポイントとして復元可能なため）。ただし変更時は外科的差分とし、日付・ADR参照注記を維持すること。実装中に仕様と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、該当タスクの完了報告の「未解決事項」に記録すること。
 
 ## リポジトリ構成
 
@@ -57,6 +57,7 @@ sh app/tool/check_hardcoded_strings.sh
 - ホスト: macOS（Apple Silicon）、Xcode 26.6、CocoaPods 1.16.2
 - Rustターゲット導入済み: `aarch64-apple-darwin` / `aarch64-apple-ios` / `aarch64-apple-ios-sim` / `x86_64-apple-ios` / `aarch64-linux-android`。`cargo-ndk` 導入済み
 - `flutter_rust_bridge_codegen` 2.12.0（`~/.cargo/bin`）。Rust側crate（`flutter_rust_bridge`）とDart側pub（`flutter_rust_bridge`）の**バージョンは `=2.12.0` 固定で一致必須**
+- Docker 29.x 利用可能（daemon稼働確認済み2026-07-08）。サーバーテスト用PostgresはDocker（testcontainers等）で用意する
 
 ## 重要な設計制約・ハマりどころ（変更・違反禁止）
 
