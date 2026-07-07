@@ -308,12 +308,6 @@ abstract class AppLocalizations {
   /// **'Closed'**
   String get completedTasksTitle;
 
-  /// No description provided for @completedTasksCount.
-  ///
-  /// In en, this message translates to:
-  /// **'{count} closed'**
-  String completedTasksCount(int count);
-
   /// No description provided for @showCompletedTasksTooltip.
   ///
   /// In en, this message translates to:

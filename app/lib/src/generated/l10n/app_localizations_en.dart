@@ -125,11 +125,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get completedTasksTitle => 'Closed';
 
   @override
-  String completedTasksCount(int count) {
-    return '$count closed';
-  }
-
-  @override
   String get showCompletedTasksTooltip => 'Show closed tasks';
 
   @override

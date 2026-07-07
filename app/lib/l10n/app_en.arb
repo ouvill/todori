@@ -70,14 +70,6 @@
     }
   },
   "completedTasksTitle": "Closed",
-  "completedTasksCount": "{count} closed",
-  "@completedTasksCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "showCompletedTasksTooltip": "Show closed tasks",
   "hideCompletedTasksTooltip": "Hide closed tasks",
   "homeListMenuTooltip": "Open lists",

@@ -35,7 +35,6 @@
   "homeTasksSectionTitle": "タスク",
   "homePendingCount": "未完了 {count}件",
   "completedTasksTitle": "クローズ済み",
-  "completedTasksCount": "クローズ {count}件",
   "showCompletedTasksTooltip": "クローズ済みタスクを表示",
   "hideCompletedTasksTooltip": "クローズ済みタスクを隠す",
   "homeListMenuTooltip": "リストを開く",

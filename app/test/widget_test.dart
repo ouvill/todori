@@ -3010,7 +3010,14 @@ void main() {
     expect(find.text('Closed parent'), findsNothing);
     expect(find.text('Open child under closed parent'), findsNothing);
     expect(find.text('Closed'), findsOneWidget);
-    expect(find.text('1 closed'), findsOneWidget);
+    expect(find.text('1 closed'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('completed-section-count')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
@@ -3326,9 +3333,14 @@ void main() {
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(ValueKey('task-row-${wontDo.id}')));
+    final wontDoRow = find.byKey(ValueKey('task-row-${wontDo.id}'));
+    await tester.scrollUntilVisible(
+      wontDoRow,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(ValueKey('task-row-${wontDo.id}')));
+    await tester.tap(wontDoRow);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-detail-done-${wontDo.id}')));
     await tester.pumpAndSettle();
