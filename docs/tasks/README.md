@@ -71,7 +71,7 @@
 | task-52 | 完了 | [task-52-quick-add-bar.md](./task-52-quick-add-bar.md) | 下部常設クイック追加バー。既存Add task pill/FAB+入力ダイアログを置換し、HomeではInbox+今日期日、通常リストではそのリスト+期日なしで即作成する | task-51の完了状態に依存。2026-07-07 Home改善サイクル第1回 |
 | task-53 | 完了 | [task-53-swipe-and-motion.md](./task-53-swipe-and-motion.md) | タスク行スワイプと軽量モーション。`flutter_slidable` / `flutter_animate` を追加し、leading=完了、trailing=期日変更、150〜250ms級モーションを実装する | task-51・task-52の完了状態に依存。依存追加は2026-07-07人間承認済み |
 | task-54 | 未着手 | [task-54-create-task-sheet.md](./task-54-create-task-sheet.md) | 下部クイック追加バーをタスク作成ボトムシートのトリガーへ変更し、タイトル/Note/List/Due/Add taskをLabモック準拠で実装する | task-52・task-53の完了状態に依存。出典: ドッグフーディング2026-07-08#4 |
-| task-55 | 未着手 | [task-55-home-subtree-nesting.md](./task-55-home-subtree-nesting.md) | Home各セクションで、表示対象ルートタスクの配下サブツリー全体（期日なしサブタスク含む）を階層ガイド付きで表示する | task-45・task-51・task-53の完了状態に依存。出典: ドッグフーディング2026-07-08#4 |
+| task-55 | 完了 | [task-55-home-subtree-nesting.md](./task-55-home-subtree-nesting.md) | Home各セクションで、表示対象ルートタスクの配下サブツリー全体（期日なしサブタスク含む）を階層ガイド付きで表示する | task-45・task-51・task-53の完了状態に依存。出典: ドッグフーディング2026-07-08#4 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

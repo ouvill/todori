@@ -102,6 +102,7 @@ pub struct TaskUndoEntry {
 pub struct HomeTask {
     pub task: Task,
     pub list_name: String,
+    pub is_home_target: bool,
 }
 
 /// タスクの永続化を担うリポジトリ。
@@ -585,25 +586,43 @@ impl TaskRepository for SqliteTaskRepository {
         tomorrow_start_ms: i64,
     ) -> Result<Vec<HomeTask>, StorageError> {
         let mut statement = self.connection.prepare(
-            "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
+            "WITH RECURSIVE home_targets(id) AS (
+                 SELECT tasks.id
+                 FROM tasks
+                 INNER JOIN lists ON lists.id = tasks.list_id
+                 WHERE lists.archived_at IS NULL
+                   AND tasks.due_at IS NOT NULL
+                   AND (
+                       tasks.status IN ('todo', 'in_progress')
+                       OR (
+                           tasks.status IN ('done', 'wont_do')
+                           AND tasks.completed_at >= ?1
+                           AND tasks.completed_at < ?2
+                       )
+                   )
+             ),
+             home_scope(id) AS (
+                 SELECT id FROM home_targets
+                 UNION
+                 SELECT child.id
+                 FROM tasks child
+                 INNER JOIN home_scope parent ON child.parent_task_id = parent.id
+             )
+             SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
                     tasks.note, tasks.status, tasks.priority, tasks.due_at,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
                     tasks.assignee, tasks.created_at, tasks.updated_at,
-                    lists.name
+                    lists.name,
+                    EXISTS(SELECT 1 FROM home_targets WHERE home_targets.id = tasks.id)
              FROM tasks
              INNER JOIN lists ON lists.id = tasks.list_id
+             INNER JOIN home_scope ON home_scope.id = tasks.id
              WHERE lists.archived_at IS NULL
-               AND tasks.due_at IS NOT NULL
-               AND (
-                   tasks.status IN ('todo', 'in_progress')
-                   OR (
-                       tasks.status IN ('done', 'wont_do')
-                       AND tasks.completed_at >= ?1
-                       AND tasks.completed_at < ?2
-                   )
-               )
-             ORDER BY tasks.due_at ASC, tasks.sort_order ASC, tasks.id ASC",
+             ORDER BY tasks.due_at IS NULL ASC,
+                      tasks.due_at ASC,
+                      tasks.sort_order ASC,
+                      tasks.id ASC",
         )?;
         let tasks = statement
             .query_map(params![today_start_ms, tomorrow_start_ms], row_to_home_task)?
@@ -1005,6 +1024,7 @@ fn row_to_home_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<HomeTask> {
     Ok(HomeTask {
         task: row_to_task(row)?,
         list_name: row.get(17)?,
+        is_home_target: row.get(18)?,
     })
 }
 
@@ -1906,6 +1926,14 @@ mod tests {
         )
         .unwrap();
         due_today.due_at = Some(today_start);
+        let no_due_child = new_task(
+            inbox.id,
+            Some(due_today.id),
+            "No due child".to_string(),
+            "a0".to_string(),
+            today_start,
+        )
+        .unwrap();
         let mut overdue_task = new_task(
             work.id,
             None,
@@ -2014,6 +2042,7 @@ mod tests {
             closed_today,
             closed_yesterday,
             wont_do_today,
+            no_due_child,
         ] {
             task_repository.insert(task).unwrap();
         }
@@ -2034,8 +2063,23 @@ mod tests {
                 "Closed today",
                 "Wont do today",
                 "Tomorrow",
-                "Upcoming"
+                "Upcoming",
+                "No due child"
             ]
+        );
+        assert!(
+            home_tasks
+                .iter()
+                .find(|entry| entry.task.title == "Due today")
+                .unwrap()
+                .is_home_target
+        );
+        assert!(
+            !home_tasks
+                .iter()
+                .find(|entry| entry.task.title == "No due child")
+                .unwrap()
+                .is_home_target
         );
         assert_eq!(
             home_tasks

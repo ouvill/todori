@@ -133,11 +133,16 @@ Future<TaskDto> undoTaskOperation({required String undoId}) =>
 class HomeTaskDto {
   final TaskDto task;
   final String listName;
+  final bool isHomeTarget;
 
-  const HomeTaskDto({required this.task, required this.listName});
+  const HomeTaskDto({
+    required this.task,
+    required this.listName,
+    required this.isHomeTarget,
+  });
 
   @override
-  int get hashCode => task.hashCode ^ listName.hashCode;
+  int get hashCode => task.hashCode ^ listName.hashCode ^ isHomeTarget.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -145,7 +150,8 @@ class HomeTaskDto {
       other is HomeTaskDto &&
           runtimeType == other.runtimeType &&
           task == other.task &&
-          listName == other.listName;
+          listName == other.listName &&
+          isHomeTarget == other.isHomeTarget;
 }
 
 class ListDto {

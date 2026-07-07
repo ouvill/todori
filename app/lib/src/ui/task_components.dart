@@ -914,25 +914,35 @@ class AppHomeTaskRow extends StatelessWidget {
     required this.dueLabel,
     required this.dueTone,
     required this.onTap,
+    this.depth = 0,
     this.checkboxKey,
     this.priority = 0,
     this.priorityDotKey,
     this.prioritySemanticLabel,
     this.dueSemanticLabel,
+    this.hierarchyGuideKey,
+    this.hierarchyGuideHorizontalKey,
+    this.isLastSibling = true,
+    this.ancestorLineContinuations = const <bool>[],
     this.toggleDoneTooltip,
     this.onToggleDone,
   });
 
   final String title;
   final bool isDone;
+  final int depth;
   final String listName;
-  final String dueLabel;
+  final String? dueLabel;
   final HomeDueDateTone dueTone;
   final Key? checkboxKey;
   final int priority;
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
   final String? dueSemanticLabel;
+  final Key? hierarchyGuideKey;
+  final Key? hierarchyGuideHorizontalKey;
+  final bool isLastSibling;
+  final List<bool> ancestorLineContinuations;
   final String? toggleDoneTooltip;
   final VoidCallback? onToggleDone;
   final VoidCallback onTap;
@@ -941,62 +951,83 @@ class AppHomeTaskRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final effectiveDepth = math.min(depth, 4);
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(
-            12,
-            AppSpacing.xs,
-            12,
-            AppSpacing.xs,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              AppTaskCheckbox(
-                checkboxKey: checkboxKey,
-                isDone: isDone,
-                tooltip: toggleDoneTooltip,
-                onToggleDone: onToggleDone,
+      child: Stack(
+        children: [
+          if (effectiveDepth > 0)
+            _TaskHierarchyGuide(
+              depth: effectiveDepth,
+              isLastSibling: isLastSibling,
+              ancestorLineContinuations: ancestorLineContinuations,
+              currentVerticalKey: hierarchyGuideKey,
+              horizontalKey: hierarchyGuideHorizontalKey,
+            ),
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: EdgeInsetsDirectional.only(
+                start: effectiveDepth > 0
+                    ? AppSpacing.md + (effectiveDepth * AppSpacing.lg)
+                    : 12,
+                top: AppSpacing.xs,
+                end: 12,
+                bottom: AppSpacing.xs,
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        decoration: isDone ? TextDecoration.lineThrough : null,
-                        color: isDone
-                            ? colorScheme.onSurfaceVariant
-                            : colorScheme.onSurface,
-                      ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  AppTaskCheckbox(
+                    checkboxKey: checkboxKey,
+                    isDone: isDone,
+                    tooltip: toggleDoneTooltip,
+                    onToggleDone: onToggleDone,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            decoration: isDone
+                                ? TextDecoration.lineThrough
+                                : null,
+                            color: isDone
+                                ? colorScheme.onSurfaceVariant
+                                : colorScheme.onSurface,
+                          ),
+                        ),
+                        if (listName.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          _HomeListLabel(listName: listName, isMuted: isDone),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: AppSpacing.xs),
-                    _HomeListLabel(listName: listName, isMuted: isDone),
+                  ),
+                  if (priority > 0 || dueLabel != null) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    _HomeTaskTrailingMetadata(
+                      priority: priority,
+                      priorityDotKey: priorityDotKey,
+                      prioritySemanticLabel: prioritySemanticLabel,
+                      isPriorityMuted: isDone,
+                      dueLabel: dueLabel,
+                      dueSemanticLabel: dueSemanticLabel,
+                      dueTone: dueTone,
+                    ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(width: AppSpacing.sm),
-              _HomeTaskTrailingMetadata(
-                priority: priority,
-                priorityDotKey: priorityDotKey,
-                prioritySemanticLabel: prioritySemanticLabel,
-                isPriorityMuted: isDone,
-                dueLabel: dueLabel,
-                dueSemanticLabel: dueSemanticLabel,
-                dueTone: dueTone,
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1045,7 +1076,7 @@ class _HomeTaskTrailingMetadata extends StatelessWidget {
 
   final int priority;
   final bool isPriorityMuted;
-  final String dueLabel;
+  final String? dueLabel;
   final HomeDueDateTone dueTone;
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
@@ -1068,13 +1099,14 @@ class _HomeTaskTrailingMetadata extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
           ],
-          Flexible(
-            child: _HomeDueDatePill(
-              label: dueLabel,
-              semanticLabel: dueSemanticLabel,
-              tone: dueTone,
+          if (dueLabel != null)
+            Flexible(
+              child: _HomeDueDatePill(
+                label: dueLabel!,
+                semanticLabel: dueSemanticLabel,
+                tone: dueTone,
+              ),
             ),
-          ),
         ],
       ),
     );

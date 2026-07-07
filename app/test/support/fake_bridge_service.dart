@@ -191,31 +191,60 @@ class FakeBridgeService implements BridgeService {
       for (final list in _lists)
         if (list.archivedAt == null) list.id: list,
     };
+    final homeTargetIds = <String>{};
+    for (final task in _tasks) {
+      final dueAt = task.dueAt;
+      if (dueAt == null || !activeListById.containsKey(task.listId)) {
+        continue;
+      }
+      if (task.status == 'todo' || task.status == 'in_progress') {
+        homeTargetIds.add(task.id);
+      } else if (task.status == 'done' || task.status == 'wont_do') {
+        final completedAt = task.completedAt;
+        if (completedAt != null &&
+            completedAt >= todayStartMs &&
+            completedAt < tomorrowStartMs) {
+          homeTargetIds.add(task.id);
+        }
+      }
+    }
+    final childrenByParent = <String, List<TaskDto>>{};
+    for (final task in _tasks) {
+      final parentId = task.parentTaskId;
+      if (parentId == null) {
+        continue;
+      }
+      childrenByParent.putIfAbsent(parentId, () => <TaskDto>[]).add(task);
+    }
+    final homeScopeIds = <String>{};
+    void includeSubtree(String taskId) {
+      if (!homeScopeIds.add(taskId)) {
+        return;
+      }
+      for (final child in childrenByParent[taskId] ?? const <TaskDto>[]) {
+        includeSubtree(child.id);
+      }
+    }
+
+    for (final taskId in homeTargetIds) {
+      includeSubtree(taskId);
+    }
+
     final homeTasks = _tasks
-        .where((task) {
-          final dueAt = task.dueAt;
-          if (dueAt == null || !activeListById.containsKey(task.listId)) {
-            return false;
-          }
-          if (task.status == 'todo' || task.status == 'in_progress') {
-            return true;
-          }
-          if (task.status == 'done' || task.status == 'wont_do') {
-            final completedAt = task.completedAt;
-            return completedAt != null &&
-                completedAt >= todayStartMs &&
-                completedAt < tomorrowStartMs;
-          }
-          return false;
-        })
+        .where(
+          (task) =>
+              homeScopeIds.contains(task.id) &&
+              activeListById.containsKey(task.listId),
+        )
         .map(
           (task) => HomeTaskDto(
             task: task,
             listName: activeListById[task.listId]!.name,
+            isHomeTarget: homeTargetIds.contains(task.id),
           ),
         )
         .toList();
-    homeTasks.sort((a, b) => _compareHomeTasks(a.task, b.task));
+    homeTasks.sort(_compareHomeTaskEntries);
     return List.unmodifiable(homeTasks);
   }
 
@@ -561,12 +590,22 @@ int _compareTasks(TaskDto a, TaskDto b) {
   return a.id.compareTo(b.id);
 }
 
-int _compareHomeTasks(TaskDto a, TaskDto b) {
-  final dueAt = a.dueAt!.compareTo(b.dueAt!);
-  if (dueAt != 0) {
-    return dueAt;
+int _compareHomeTaskEntries(HomeTaskDto a, HomeTaskDto b) {
+  final aDueAt = a.task.dueAt;
+  final bDueAt = b.task.dueAt;
+  if (aDueAt == null && bDueAt != null) {
+    return 1;
   }
-  return _compareTasks(a, b);
+  if (aDueAt != null && bDueAt == null) {
+    return -1;
+  }
+  if (aDueAt != null && bDueAt != null) {
+    final dueAt = aDueAt.compareTo(bDueAt);
+    if (dueAt != 0) {
+      return dueAt;
+    }
+  }
+  return _compareTasks(a.task, b.task);
 }
 
 int _compareLists(ListDto a, ListDto b) {

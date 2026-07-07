@@ -849,11 +849,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   HomeTaskDto dco_decode_home_task_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return HomeTaskDto(
       task: dco_decode_task_dto(arr[0]),
       listName: dco_decode_String(arr[1]),
+      isHomeTarget: dco_decode_bool(arr[2]),
     );
   }
 
@@ -1030,7 +1031,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_task = sse_decode_task_dto(deserializer);
     var var_listName = sse_decode_String(deserializer);
-    return HomeTaskDto(task: var_task, listName: var_listName);
+    var var_isHomeTarget = sse_decode_bool(deserializer);
+    return HomeTaskDto(
+      task: var_task,
+      listName: var_listName,
+      isHomeTarget: var_isHomeTarget,
+    );
   }
 
   @protected
@@ -1275,6 +1281,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_task_dto(self.task, serializer);
     sse_encode_String(self.listName, serializer);
+    sse_encode_bool(self.isHomeTarget, serializer);
   }
 
   @protected

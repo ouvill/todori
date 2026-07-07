@@ -686,6 +686,178 @@ void main() {
     },
   );
 
+  testWidgets(
+    'home shows target subtrees with duplicate and interaction rules',
+    (tester) async {
+      final fake = FakeBridgeService();
+      final today = _todayStartMs();
+      final overdue = today - const Duration(days: 1).inMilliseconds;
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final inbox = (await fake.getLists()).singleWhere(
+        (list) => list.isDefault,
+      );
+      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+      final parent = await fake.createTask(
+        listId: inbox.id,
+        title: 'Home parent with children',
+        dueAt: today,
+      );
+      final noDueChild = await fake.createTask(
+        listId: inbox.id,
+        title: 'No due child under home parent',
+        parentTaskId: parent.id,
+      );
+      final sameSectionChild = await fake.createTask(
+        listId: inbox.id,
+        title: 'Same section child under home parent',
+        parentTaskId: parent.id,
+        dueAt: today,
+      );
+      final otherListChild = await fake.createTask(
+        listId: work.id,
+        title: 'Other list child under home parent',
+        parentTaskId: parent.id,
+      );
+      final earlierChild = await fake.createTask(
+        listId: inbox.id,
+        title: 'Earlier child also standalone',
+        parentTaskId: parent.id,
+        dueAt: overdue,
+      );
+      final closedChild = await fake.createTask(
+        listId: inbox.id,
+        title: 'Closed child under home parent',
+        parentTaskId: parent.id,
+      );
+      await fake.setTaskStatus(taskId: closedChild.id, status: 'done');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Home parent with children'), findsOneWidget);
+      expect(find.text('No due child under home parent'), findsOneWidget);
+      expect(find.text('Same section child under home parent'), findsOneWidget);
+      expect(find.text('Other list child under home parent'), findsOneWidget);
+      expect(find.text('Earlier child also standalone'), findsNWidgets(2));
+      expect(find.text('Closed child under home parent'), findsOneWidget);
+      expect(find.text('No due date'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-today')),
+          matching: find.text('2'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-overdue')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey('task-row-${noDueChild.id}')),
+          matching: find.text('Inbox'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey('task-row-${otherListChild.id}')),
+          matching: find.text('Work'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('task-hierarchy-guide-${noDueChild.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('task-drop-target-${noDueChild.id}')),
+        findsNothing,
+      );
+      expect(
+        tester
+            .widget<Text>(find.text('Closed child under home parent'))
+            .style
+            ?.decoration,
+        TextDecoration.lineThrough,
+      );
+      expect(
+        find.byKey(ValueKey('task-done-${earlierChild.id}')),
+        findsNWidgets(2),
+      );
+
+      await tester.tap(
+        find.byKey(ValueKey('task-done-${earlierChild.id}')).first,
+      );
+      await tester.pumpAndSettle();
+      final earlierChildTexts = tester.widgetList<Text>(
+        find.text('Earlier child also standalone'),
+      );
+      expect(
+        earlierChildTexts.every(
+          (text) => text.style?.decoration == TextDecoration.lineThrough,
+        ),
+        isTrue,
+      );
+
+      await tester.tap(find.text('Today').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Home parent with children'), findsNothing);
+      expect(find.text('No due child under home parent'), findsNothing);
+      expect(find.text('Earlier child also standalone'), findsOneWidget);
+      await tester.tap(find.text('Today').first);
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('No due child under home parent'));
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(ValueKey('task-row-${noDueChild.id}')),
+        const Offset(-280, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('task-swipe-due-${noDueChild.id}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('due-sheet-tomorrow')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
+      await tester.pumpAndSettle();
+      final updatedNoDueChild = (await fake.getTasks(
+        listId: inbox.id,
+      )).singleWhere((task) => task.id == noDueChild.id);
+      expect(
+        updatedNoDueChild.dueAt,
+        today + const Duration(days: 1).inMilliseconds,
+      );
+
+      await tester.ensureVisible(find.text('No due child under home parent'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('task-done-${noDueChild.id}')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.text('No due child under home parent'))
+            .style
+            ?.decoration,
+        TextDecoration.lineThrough,
+      );
+
+      await tester.ensureVisible(find.text('No due child under home parent'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No due child under home parent'));
+      await tester.pumpAndSettle();
+      expect(find.text('Task detail'), findsOneWidget);
+      expect(find.byTooltip('Task actions'), findsOneWidget);
+      expect(find.text('No due child under home parent'), findsOneWidget);
+
+      expect(sameSectionChild.parentTaskId, parent.id);
+      expect(earlierChild.parentTaskId, parent.id);
+    },
+  );
+
   testWidgets('long task titles survive narrow width and Dynamic Type', (
     tester,
   ) async {

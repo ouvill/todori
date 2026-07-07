@@ -71,6 +71,7 @@ pub struct TaskUndoDto {
 pub struct HomeTaskDto {
     pub task: TaskDto,
     pub list_name: String,
+    pub is_home_target: bool,
 }
 
 pub fn greet(name: String) -> String {
@@ -573,6 +574,7 @@ fn home_task_to_dto(home_task: HomeTask) -> HomeTaskDto {
     HomeTaskDto {
         task: task_to_dto(home_task.task),
         list_name: home_task.list_name,
+        is_home_target: home_task.is_home_target,
     }
 }
 

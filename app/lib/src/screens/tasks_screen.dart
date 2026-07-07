@@ -45,10 +45,12 @@ class TasksScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final AsyncValue<List<TaskDto>> tasksAsync;
     final Map<String, String> homeListNameByTaskId;
+    final List<HomeTaskDto> homeTaskEntries;
     if (isTodaySmartView) {
       final homeTasksAsync = ref.watch(homeTasksProvider);
+      homeTaskEntries = homeTasksAsync.value ?? const <HomeTaskDto>[];
       homeListNameByTaskId = {
-        for (final homeTask in homeTasksAsync.value ?? const <HomeTaskDto>[])
+        for (final homeTask in homeTaskEntries)
           homeTask.task.id: homeTask.listName,
       };
       tasksAsync = homeTasksAsync.whenData(
@@ -56,6 +58,7 @@ class TasksScreen extends ConsumerWidget {
             homeTasks.map((homeTask) => homeTask.task).toList(growable: false),
       );
     } else {
+      homeTaskEntries = const <HomeTaskDto>[];
       homeListNameByTaskId = const {};
       tasksAsync = ref.watch(tasksProvider(listId));
     }
@@ -133,6 +136,7 @@ class TasksScreen extends ConsumerWidget {
             sortMenu: sortMenu,
             listActionsMenu: listActionsMenu,
             homeListNameByTaskId: homeListNameByTaskId,
+            homeTaskEntries: homeTaskEntries,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
             onChangeDueDate: (task, dueAt) => _changeDueDate(ref, task, dueAt),
@@ -314,6 +318,7 @@ class _TasksBody extends StatefulWidget {
     required this.sortMenu,
     required this.listActionsMenu,
     required this.homeListNameByTaskId,
+    required this.homeTaskEntries,
     required this.onCompleteTask,
     required this.onReopenTask,
     required this.onChangeDueDate,
@@ -329,6 +334,7 @@ class _TasksBody extends StatefulWidget {
   final Widget sortMenu;
   final Widget? listActionsMenu;
   final Map<String, String> homeListNameByTaskId;
+  final List<HomeTaskDto> homeTaskEntries;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function(TaskDto task, int dueAt) onChangeDueDate;
@@ -484,25 +490,89 @@ class _TasksBodyState extends State<_TasksBody> {
 
   List<_HomeSectionData> _buildHomeSections(BuildContext context) {
     final ranges = homeLocalRangesMs();
-    final sortedTasks = [...widget.tasks]
-      ..sort((a, b) => compareTasksForSortMode(a, b, widget.sortMode));
+    final sortedEntries = [...widget.homeTaskEntries]
+      ..sort((a, b) => _compareHomeEntries(a, b, widget.sortMode));
     final bySection = {
-      for (final section in _HomeSectionKind.values) section: <TaskDto>[],
+      for (final section in _HomeSectionKind.values)
+        section: <_HomeSectionRowData>[],
     };
-    for (final task in sortedTasks) {
-      final dueAt = task.dueAt;
+    final countBySection = {
+      for (final section in _HomeSectionKind.values) section: 0,
+    };
+    final taskById = {
+      for (final entry in sortedEntries) entry.task.id: entry.task,
+    };
+    final targetSectionByTaskId = <String, _HomeSectionKind>{};
+    for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
+      final dueAt = entry.task.dueAt;
       if (dueAt == null) {
         continue;
       }
-      bySection[_homeSectionForDueAt(dueAt, ranges)]!.add(task);
+      final section = _homeSectionForDueAt(dueAt, ranges);
+      targetSectionByTaskId[entry.task.id] = section;
+      if (!isTaskClosed(entry.task)) {
+        countBySection[section] = countBySection[section]! + 1;
+      }
+    }
+    final childrenByParent = <String, List<TaskDto>>{};
+    for (final entry in sortedEntries) {
+      final parentId = entry.task.parentTaskId;
+      if (parentId == null) {
+        continue;
+      }
+      childrenByParent.putIfAbsent(parentId, () => <TaskDto>[]).add(entry.task);
+    }
+    for (final children in childrenByParent.values) {
+      children.sort((a, b) => compareTasksForSortMode(a, b, widget.sortMode));
+    }
+
+    TaskTreeNode buildHomeNode(TaskDto task, int depth, Set<String> path) {
+      if (path.contains(task.id)) {
+        return TaskTreeNode(task: task, depth: depth, children: const []);
+      }
+      final nextPath = {...path, task.id};
+      return TaskTreeNode(
+        task: task,
+        depth: depth,
+        children: [
+          for (final child in childrenByParent[task.id] ?? const <TaskDto>[])
+            buildHomeNode(child, depth + 1, nextPath),
+        ],
+      );
+    }
+
+    for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
+      final task = entry.task;
+      final section = targetSectionByTaskId[task.id];
+      if (section == null ||
+          _hasSuppressingHomeAncestor(
+            task,
+            taskById,
+            targetSectionByTaskId,
+            _homeSectionOrder(section),
+          )) {
+        continue;
+      }
+      final roots = [buildHomeNode(task, 0, const <String>{})];
+      bySection[section]!.addAll(
+        flattenTaskTree(roots).map(
+          (node) => _HomeSectionRowData(node: node, rootListId: task.listId),
+        ),
+      );
     }
     return [
       for (final section in _HomeSectionKind.values)
         _HomeSectionData(
           kind: section,
+          count: countBySection[section]!,
           rows: [
-            for (final task in bySection[section]!)
-              _buildHomeTaskRow(context, task, section),
+            for (final row in bySection[section]!)
+              _buildHomeTaskRow(
+                context,
+                row.node,
+                section,
+                rootListId: row.rootListId,
+              ),
           ],
         ),
     ];
@@ -510,12 +580,19 @@ class _TasksBodyState extends State<_TasksBody> {
 
   Widget _buildHomeTaskRow(
     BuildContext context,
-    TaskDto task,
-    _HomeSectionKind section,
-  ) {
+    FlattenedTaskTreeNode node,
+    _HomeSectionKind section, {
+    required String rootListId,
+  }) {
     final l10n = AppLocalizations.of(context)!;
+    final task = node.task;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
+    final dueLabel = task.dueAt == null
+        ? null
+        : formatRelativeDueDate(l10n, locale, task.dueAt);
+    final taskDueSection = task.dueAt == null
+        ? section
+        : _homeSectionForDueAt(task.dueAt!, homeLocalRangesMs());
     final row = _TaskEntryMotion(
       slide: false,
       child: AppHomeTaskRow(
@@ -523,14 +600,24 @@ class _TasksBodyState extends State<_TasksBody> {
         checkboxKey: ValueKey('task-done-${task.id}'),
         title: task.title,
         isDone: isTaskClosed(task),
-        listName: widget.homeListNameByTaskId[task.id] ?? '',
+        depth: node.depth,
+        hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+        hierarchyGuideHorizontalKey: ValueKey(
+          'task-hierarchy-horizontal-${task.id}',
+        ),
+        isLastSibling: node.isLastSibling,
+        ancestorLineContinuations: node.ancestorLineContinuations,
+        listName: node.depth > 0 && task.listId == rootListId
+            ? ''
+            : widget.homeListNameByTaskId[task.id] ?? '',
         dueLabel: dueLabel,
-        dueTone: switch (section) {
+        dueTone: switch (taskDueSection) {
           _HomeSectionKind.overdue => HomeDueDateTone.overdue,
           _HomeSectionKind.today => HomeDueDateTone.today,
           _ => HomeDueDateTone.future,
         },
-        dueSemanticLabel: section == _HomeSectionKind.overdue
+        dueSemanticLabel:
+            taskDueSection == _HomeSectionKind.overdue && dueLabel != null
             ? l10n.taskDueOverdue(dueLabel)
             : null,
         priority: task.priority,
@@ -965,10 +1052,22 @@ class _HomeTasksHeader extends StatelessWidget {
 enum _HomeSectionKind { overdue, today, tomorrow, upcoming }
 
 class _HomeSectionData {
-  const _HomeSectionData({required this.kind, required this.rows});
+  const _HomeSectionData({
+    required this.kind,
+    required this.count,
+    required this.rows,
+  });
 
   final _HomeSectionKind kind;
+  final int count;
   final List<Widget> rows;
+}
+
+class _HomeSectionRowData {
+  const _HomeSectionRowData({required this.node, required this.rootListId});
+
+  final FlattenedTaskTreeNode node;
+  final String rootListId;
 }
 
 class _HomeSectionsPanel extends StatelessWidget {
@@ -1064,7 +1163,10 @@ class _HomeSection extends StatelessWidget {
                         ),
                       ),
                     ),
-                    _HomeCountBadge(count: data.rows.length),
+                    _HomeCountBadge(
+                      key: ValueKey('home-section-count-${data.kind.name}'),
+                      count: data.count,
+                    ),
                     const SizedBox(width: AppSpacing.xs),
                     SizedBox(
                       width: 48,
@@ -1115,7 +1217,7 @@ class _HomeSection extends StatelessWidget {
 }
 
 class _HomeCountBadge extends StatelessWidget {
-  const _HomeCountBadge({required this.count});
+  const _HomeCountBadge({super.key, required this.count});
 
   final int count;
 
@@ -1167,6 +1269,52 @@ _HomeSectionKind _homeSectionForDueAt(
     return _HomeSectionKind.tomorrow;
   }
   return _HomeSectionKind.upcoming;
+}
+
+int _homeSectionOrder(_HomeSectionKind section) {
+  return switch (section) {
+    _HomeSectionKind.overdue => 0,
+    _HomeSectionKind.today => 1,
+    _HomeSectionKind.tomorrow => 2,
+    _HomeSectionKind.upcoming => 3,
+  };
+}
+
+int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {
+  final aDueAt = a.task.dueAt;
+  final bDueAt = b.task.dueAt;
+  if (aDueAt == null && bDueAt != null) {
+    return 1;
+  }
+  if (aDueAt != null && bDueAt == null) {
+    return -1;
+  }
+  if (aDueAt != null && bDueAt != null) {
+    final dueAt = aDueAt.compareTo(bDueAt);
+    if (dueAt != 0) {
+      return dueAt;
+    }
+  }
+  return compareTasksForSortMode(a.task, b.task, sortMode);
+}
+
+bool _hasSuppressingHomeAncestor(
+  TaskDto task,
+  Map<String, TaskDto> taskById,
+  Map<String, _HomeSectionKind> targetSectionByTaskId,
+  int currentSectionOrder,
+) {
+  final visited = <String>{task.id};
+  var parentId = task.parentTaskId;
+  while (parentId != null && visited.add(parentId)) {
+    final parentSection = targetSectionByTaskId[parentId];
+    if (parentSection != null &&
+        _homeSectionOrder(parentSection) <= currentSectionOrder) {
+      return true;
+    }
+    parentId = taskById[parentId]?.parentTaskId;
+  }
+  return false;
 }
 
 class _CompletedSectionHeader extends StatelessWidget {

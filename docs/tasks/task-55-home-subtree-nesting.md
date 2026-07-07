@@ -1,5 +1,8 @@
 # task-55: Homeサブツリー同伴表示
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 2026-07-08ドッグフーディング第4回で、Homeのセクションに表示される親タスクの下に、期日なしサブタスクもぶら下がって表示されてほしい、というフィードバックが出た。
@@ -155,3 +158,121 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-45-tree-guides-and-detail.md`
+- `docs/tasks/task-51-home-restructure.md`
+- `docs/tasks/task-53-swipe-and-motion.md`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/rust/src/api.rs`
+- `core/storage/src/lib.rs`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `core/storage/src/lib.rs` の `HomeTask` に `is_home_target` を追加した。
+- `core/storage/src/lib.rs` の `TaskRepository::list_home` を再帰CTEに変更し、Home対象タスクを起点にその子孫だけを取得するようにした。
+- `app/rust/src/api.rs` の `HomeTaskDto` に `is_home_target` を追加した。
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行し、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`、`app/rust/src/frb_generated.rs` を更新した。
+- `app/lib/src/screens/tasks_screen.dart` でHomeセクションごとの表示ノードを `FlattenedTaskTreeNode` として構築するようにした。
+- `app/lib/src/screens/tasks_screen.dart` で同一セクション、または親がより早いセクションにある子は単独表示から除外するようにした。
+- `app/lib/src/screens/tasks_screen.dart` で子が親より早いセクションに該当する場合は、その子を早いセクションにも単独表示するようにした。
+- `app/lib/src/ui/task_components.dart` の `AppHomeTaskRow` に階層ガイド用の `depth`、`isLastSibling`、`ancestorLineContinuations`、key引数を追加した。
+- `app/test/support/fake_bridge_service.dart` の `getHomeTasks` を、実装と同じHome対象タスク+子孫取得、`isHomeTarget` 付きDTO返却に変更した。
+
+1万件時に全リスト全件取得を避けるための設計:
+
+- storage層の `list_home` は、まず `due_at IS NOT NULL`、active list、activeまたは当日closed条件に合うHome対象タスクIDを `home_targets` で絞る。
+- その後 `home_targets` を起点に `home_scope` 再帰CTEで子孫だけを取得する。
+- Homeと無関係なactive list内の全タスクは取得しない。
+
+Home表示規則:
+
+- 期日なし子は、Home対象親の配下サブツリーとして表示する。
+- 同一セクションに該当する子は、親の下にだけ表示し、同一セクションの単独行にはしない。
+- 子が親より早いセクションに該当する場合は、早いセクションにも親コンテキストなしで単独表示する。
+- closed子は親の下に残り、既存の `isTaskClosed` 表現によりmuted + 取り消し線で表示する。
+- Homeセクションを折りたたむと、当該セクション内の同伴サブツリーも非表示になる。
+
+既存操作規則との整合:
+
+- Home親/子/単独表示は既存のチェックトグル経路を使用する。
+- Home親/子/単独表示は既存の `Slidable` 期日変更経路を使用する。
+- Home親/子/単独表示は既存の詳細遷移経路を使用する。
+- Homeでは `_TaskDragReorderTarget` を生成せず、D&D対象にしない。
+- 同じタスクが親配下表示と単独表示の両方に出る場合も、同じ `TaskDto` IDをsource of truthとして扱う。
+
+追加・更新したテスト:
+
+- `core/storage/src/lib.rs` `list_home_filters_due_active_and_closed_tasks_across_active_lists`: 期日ありHome対象タスクの期日なし子孫が返り、子孫の `is_home_target` がfalseになることを追加検証した。
+- `app/test/widget_test.dart` `home shows target subtrees with duplicate and interaction rules`: 期日なし子の親配下表示、同一セクション重複排除、親より早い子の別セクション単独表示、closed子の取り消し線、折りたたみ、重複表示時の状態同期、チェックトグル、スワイプ期日変更、詳細遷移、D&D非対象を検証した。
+- `app/test/support/fake_bridge_service.dart` のHome fake取得を更新し、widget testのseedで子孫同伴を検証できるようにした。
+
+visual QA:
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- before: `app/build/visual_qa_before/home_tasks.png`
+- after: `app/build/visual_qa/home_tasks.png`
+- `app/build/visual_qa/home_tasks.png` を目視し、Tomorrowセクションの `Plan the product launch event` の下に、期日なしサブタスク `Draft the launch checklist` と `Confirm final copy in the hero panel` が階層ガイド付きで表示されていることを確認した。
+
+品質ゲート:
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（85件成功、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（36件成功）
+- `git diff --check`: 成功
+
+変更ファイル一覧:
+
+- `core/storage/src/lib.rs`
+- `app/rust/src/api.rs`
+- `app/rust/src/frb_generated.rs`
+- `app/lib/src/rust/api.dart`
+- `app/lib/src/rust/frb_generated.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/README.md`
+- `docs/tasks/task-55-home-subtree-nesting.md`
+
+未解決事項:
+
+- なし
+
+親レビュー指摘対応（fixer追記、2026-07-08）:
+
+- Home同伴サブツリー内の期日なしタスクでは、`No due date` ピルを表示しないようにした。
+- Homeセクション件数バッジを表示行数から分離し、期日でそのセクションに該当する未完了Home対象タスク数のみを数えるようにした。同伴サブツリー行は件数に含めない。
+- Home同伴サブツリー内のリスト名ラベルは、セクションルートと同じリストの場合は非表示にし、異なるリストの場合のみ表示するようにした。
+- `app/test/widget_test.dart` の `home shows target subtrees with duplicate and interaction rules` に、期日なしピル非表示、件数バッジ、同一/別リストの子ラベル表示条件の検証を追加した。
+
+fixer確認結果:
+
+- `cd app && flutter analyze`: 成功
+- `cd app && flutter test`: 成功（85件成功、visual QA harness 1件skip）
+- `sh app/tool/visual_qa.sh`: 成功（36件成功）
+- `app/build/visual_qa/home_tasks.png` を目視し、Tomorrowセクションが「1」、期日なし同伴サブタスクに日付ピルなし、同じInbox配下の子にリスト名ラベルなしであることを確認した。

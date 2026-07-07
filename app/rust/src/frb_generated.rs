@@ -793,9 +793,11 @@ impl SseDecode for crate::api::HomeTaskDto {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_task = <crate::api::TaskDto>::sse_decode(deserializer);
         let mut var_listName = <String>::sse_decode(deserializer);
+        let mut var_isHomeTarget = <bool>::sse_decode(deserializer);
         return crate::api::HomeTaskDto {
             task: var_task,
             list_name: var_listName,
+            is_home_target: var_isHomeTarget,
         };
     }
 }
@@ -1062,6 +1064,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::HomeTaskDto {
         [
             self.task.into_into_dart().into_dart(),
             self.list_name.into_into_dart().into_dart(),
+            self.is_home_target.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1167,6 +1170,7 @@ impl SseEncode for crate::api::HomeTaskDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <crate::api::TaskDto>::sse_encode(self.task, serializer);
         <String>::sse_encode(self.list_name, serializer);
+        <bool>::sse_encode(self.is_home_target, serializer);
     }
 }
 
