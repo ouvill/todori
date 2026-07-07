@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Locale, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,13 +22,25 @@ Future<void> main() async {
     final supportDir = await getApplicationSupportDirectory();
     final dbDir = Directory('${supportDir.path}/todori-db');
     await dbDir.create(recursive: true);
-    await initCore(dbDir: dbDir.path);
+    final defaultInboxName = lookupAppLocalizations(
+      _resolveStartupLocale(PlatformDispatcher.instance.locale),
+    ).defaultInboxName;
+    await initCore(dbDir: dbDir.path, defaultInboxName: defaultInboxName);
   } catch (error, stackTrace) {
     initializationError = error;
     debugPrint('Todori native core initialization failed: $error\n$stackTrace');
   }
 
   runApp(TodoriApp(initializationError: initializationError));
+}
+
+Locale _resolveStartupLocale(Locale platformLocale) {
+  for (final supportedLocale in AppLocalizations.supportedLocales) {
+    if (supportedLocale.languageCode == platformLocale.languageCode) {
+      return supportedLocale;
+    }
+  }
+  return AppLocalizations.supportedLocales.first;
 }
 
 /// Top-level app widget.

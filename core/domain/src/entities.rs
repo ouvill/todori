@@ -46,6 +46,7 @@ pub struct List {
     pub org_id: Option<Uuid>,
     /// fractional index。
     pub sort_order: String,
+    pub is_default: bool,
     pub archived_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,

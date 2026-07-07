@@ -42,11 +42,8 @@ class TasksScreen extends ConsumerWidget {
     final archivedLists = archivedListsAsync.value;
     final currentList =
         _findList(listId, activeLists) ?? _findList(listId, archivedLists);
-    final defaultInboxId = activeLists == null || activeLists.isEmpty
-        ? null
-        : activeLists.first.id;
     final isDefaultInbox =
-        currentList?.archivedAt == null && defaultInboxId == listId;
+        currentList?.archivedAt == null && currentList?.isDefault == true;
 
     final sortMenu = _TaskSortMenu(
       selectedMode: sortMode,

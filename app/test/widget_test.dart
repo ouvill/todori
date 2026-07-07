@@ -12,9 +12,10 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   String taskTitle = 'Buy milk',
 }) async {
   final fake = FakeBridgeService();
-  await fake.createList(name: listName, sortOrder: 'a0');
+  await fake.createDefaultList(name: listName, sortOrder: 'a0');
   final lists = await fake.getLists();
-  await fake.createTask(listId: lists.first.id, title: taskTitle);
+  final defaultList = lists.singleWhere((list) => list.isDefault);
+  await fake.createTask(listId: defaultList.id, title: taskTitle);
 
   await tester.pumpWidget(
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -111,7 +112,7 @@ void main() {
   ) async {
     _useNarrowDynamicTypeView(tester);
     final fake = FakeBridgeService();
-    await fake.createList(
+    await fake.createDefaultList(
       name: 'とても長い日本語のリスト名と English project name',
       sortOrder: 'a0',
     );
@@ -165,42 +166,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('empty state and create dialog survive narrow Dynamic Type', (
-    tester,
-  ) async {
-    _useNarrowDynamicTypeView(tester);
-    final fake = FakeBridgeService();
+  testWidgets(
+    'default inbox empty tasks and create dialog survive narrow Dynamic Type',
+    (tester) async {
+      _useNarrowDynamicTypeView(tester);
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
-    await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
-    );
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
     await tester.pumpAndSettle();
 
-    expect(find.text('Start with a list.'), findsOneWidget);
-    expect(
-      find.text(
-        'Create a list, then Todori will open straight into your tasks.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Add task'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    await tester.ensureVisible(find.text('New list'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('New list'));
-    await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Add task'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add task'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('New list'), findsWidgets);
-    expect(find.text('Create'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('New task'), findsOneWidget);
+      expect(find.text('Create'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('polished list, sort, detail, and dialog surfaces stay stable', (
     tester,
   ) async {
     _useNarrowDynamicTypeView(tester);
     final fake = FakeBridgeService();
-    await fake.createList(
+    await fake.createDefaultList(
       name: '受信箱とても長いリスト名 with a product screenshot length',
       sortOrder: 'a0',
     );
@@ -333,7 +331,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final lists = await fake.getLists();
-      expect(lists.first.name, 'Personal');
+      expect(lists.singleWhere((list) => list.isDefault).name, 'Personal');
       expect(find.text('Personal'), findsOneWidget);
       expect(find.text('Inbox'), findsNothing);
     },
@@ -359,7 +357,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
@@ -399,7 +397,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final work = await fake.createList(name: 'Work', sortOrder: 'a1');
     await fake.archiveList(listId: work.id);
 
@@ -430,7 +428,7 @@ void main() {
 
   testWidgets('default inbox does not expose archive action', (tester) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
@@ -450,7 +448,7 @@ void main() {
     'list delete confirms impact count and removes non-default list',
     (tester) async {
       final fake = FakeBridgeService();
-      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final work = await fake.createList(name: 'Work', sortOrder: 'a1');
       await fake.createTask(listId: work.id, title: 'Open work');
       final completed = await fake.createTask(
@@ -498,7 +496,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
@@ -515,7 +513,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final archive = await fake.createList(name: 'Archive me', sortOrder: 'a1');
     await fake.createTask(listId: archive.id, title: 'Kept history task');
     await fake.archiveList(listId: archive.id);
@@ -588,7 +586,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final task = await fake.createTask(listId: listId, title: 'Done task');
     await fake.setTaskStatus(taskId: task.id, status: 'done');
@@ -619,7 +617,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Parent task');
     final child = await fake.createTask(
@@ -658,7 +656,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Closed root');
     final child = await fake.createTask(
@@ -691,7 +689,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final task = await fake.createTask(listId: listId, title: 'Skipped task');
     await fake.setTaskStatus(taskId: task.id, status: 'wont_do');
@@ -768,7 +766,7 @@ void main() {
 
   testWidgets('detail menu hides done to wont_do transition', (tester) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final task = await fake.createTask(listId: listId, title: 'Done task');
     await fake.setTaskStatus(taskId: task.id, status: 'done');
@@ -793,7 +791,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final skipped = await fake.createTask(
       listId: listId,
@@ -817,7 +815,7 @@ void main() {
 
   testWidgets('task list move buttons reorder root tasks', (tester) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final first = await fake.createTask(listId: listId, title: 'First task');
     final second = await fake.createTask(listId: listId, title: 'Second task');
@@ -861,7 +859,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final manualFirst = await fake.createTask(
       listId: listId,
@@ -963,7 +961,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Plan launch');
     final child = await fake.createTask(
@@ -1031,7 +1029,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Parent');
     final branchChild = await fake.createTask(
@@ -1088,7 +1086,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final activeParent = await fake.createTask(
       listId: listId,
@@ -1145,7 +1143,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Parent');
     final childLater = await fake.createTask(
@@ -1212,7 +1210,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Parent');
     final firstChild = await fake.createTask(
@@ -1289,7 +1287,7 @@ void main() {
     'detail subtask checkbox toggles without triggering row navigation',
     (tester) async {
       final fake = FakeBridgeService();
-      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final listId = (await fake.getLists()).first.id;
       final parent = await fake.createTask(
         listId: listId,
@@ -1339,7 +1337,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(
       listId: listId,
@@ -1396,7 +1394,7 @@ void main() {
     'incomplete descendants require confirmation before parent done',
     (tester) async {
       final fake = FakeBridgeService();
-      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final listId = (await fake.getLists()).first.id;
       final parent = await fake.createTask(
         listId: listId,
@@ -1439,7 +1437,7 @@ void main() {
     'incomplete descendants require confirmation before parent wont_do',
     (tester) async {
       final fake = FakeBridgeService();
-      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final listId = (await fake.getLists()).first.id;
       final parent = await fake.createTask(
         listId: listId,
@@ -1555,7 +1553,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final task = await fake.createTask(
       listId: listId,
@@ -1782,7 +1780,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(listId: listId, title: 'Parent task');
     final child = await fake.createTask(
@@ -1818,7 +1816,7 @@ void main() {
     'delete action does not create undo while complete undo remains',
     (tester) async {
       final fake = FakeBridgeService();
-      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
       final listId = (await fake.getLists()).first.id;
       await fake.createTask(listId: listId, title: 'Buy milk');
       final next = await fake.createTask(listId: listId, title: 'Next task');
@@ -1855,7 +1853,7 @@ void main() {
     tester,
   ) async {
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final archived = await fake.createList(name: 'Archive me', sortOrder: 'a1');
     final task = await fake.createTask(
       listId: archived.id,

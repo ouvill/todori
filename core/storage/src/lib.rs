@@ -7,17 +7,24 @@ use std::{path::Path, str::FromStr};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use thiserror::Error;
-use todori_domain::{List, Task, TaskStatus, Uuid};
+use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 2;
+pub const LATEST_SCHEMA_VERSION: i32 = 3;
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    target_version: 2,
-    name: "add_lists_archived_at",
-    apply: add_lists_archived_at,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        target_version: 2,
+        name: "add_lists_archived_at",
+        apply: add_lists_archived_at,
+    },
+    Migration {
+        target_version: 3,
+        name: "add_lists_is_default",
+        apply: add_lists_is_default,
+    },
+];
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -35,6 +42,11 @@ pub enum StorageError {
     UndoConsumed(Uuid),
     #[error("task changed after undo was created: {0}")]
     UndoConflict(Uuid),
+    #[error("default list cannot be {operation}: {list_id}")]
+    DefaultListProtected {
+        operation: &'static str,
+        list_id: Uuid,
+    },
     #[error("database cannot be read with the provided SQLCipher key")]
     InvalidDatabaseKey,
     #[error("unsupported database schema version: found {found}, latest supported {latest}")]
@@ -105,6 +117,8 @@ pub trait ListRepository {
     fn update(&mut self, list: List) -> Result<(), StorageError>;
     fn list_all(&self) -> Result<Vec<List>, StorageError>;
     fn list_archived(&self) -> Result<Vec<List>, StorageError>;
+    fn get_default(&self) -> Result<Option<List>, StorageError>;
+    fn ensure_default_list(&mut self, name: String, now_ms: i64) -> Result<List, StorageError>;
     fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError>;
     fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError>;
 }
@@ -231,6 +245,24 @@ fn add_lists_archived_at(transaction: &Transaction<'_>) -> rusqlite::Result<()> 
     transaction.execute_batch("ALTER TABLE lists ADD COLUMN archived_at INTEGER NULL;")
 }
 
+fn add_lists_is_default(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE lists ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+         UPDATE lists
+         SET is_default = 1
+         WHERE id = (
+             SELECT id
+             FROM lists
+             WHERE archived_at IS NULL
+             ORDER BY sort_order ASC, created_at ASC, id ASC
+             LIMIT 1
+         );
+         CREATE UNIQUE INDEX idx_lists_single_default
+             ON lists(is_default)
+             WHERE is_default = 1;",
+    )
+}
+
 fn has_user_schema_objects(connection: &Connection) -> Result<bool, StorageError> {
     let count: i64 = connection.query_row(
         "SELECT count(*)
@@ -265,6 +297,11 @@ fn validate_baseline_v1_schema(connection: &Connection) -> Result<(), StorageErr
     if list_columns.iter().any(|column| column == "archived_at") {
         return Err(StorageError::IncompatibleSchema(
             "lists.archived_at exists while user_version is 0".to_string(),
+        ));
+    }
+    if list_columns.iter().any(|column| column == "is_default") {
+        return Err(StorageError::IncompatibleSchema(
+            "lists.is_default exists while user_version is 0".to_string(),
         ));
     }
 
@@ -685,7 +722,7 @@ impl ListRepository for SqliteListRepository {
             .connection
             .query_row(
                 "SELECT id, name, color, icon, org_id, sort_order, archived_at,
-                        created_at, updated_at
+                        is_default, created_at, updated_at
                  FROM lists
                  WHERE id = ?1",
                 [id.to_string()],
@@ -699,10 +736,10 @@ impl ListRepository for SqliteListRepository {
     fn insert(&mut self, list: List) -> Result<(), StorageError> {
         self.connection.execute(
             "INSERT INTO lists (
-                id, name, color, icon, org_id, sort_order, archived_at,
+                id, name, color, icon, org_id, sort_order, is_default, archived_at,
                 created_at, updated_at
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
             )",
             params![
                 list.id.to_string(),
@@ -711,6 +748,7 @@ impl ListRepository for SqliteListRepository {
                 list.icon,
                 list.org_id.map(|id| id.to_string()),
                 list.sort_order,
+                list.is_default,
                 list.archived_at,
                 list.created_at,
                 list.updated_at,
@@ -720,6 +758,12 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn update(&mut self, list: List) -> Result<(), StorageError> {
+        if list.is_default && list.archived_at.is_some() {
+            return Err(StorageError::DefaultListProtected {
+                operation: "archived",
+                list_id: list.id,
+            });
+        }
         let changed = self.connection.execute(
             "UPDATE lists
              SET name = ?2,
@@ -727,9 +771,10 @@ impl ListRepository for SqliteListRepository {
                  icon = ?4,
                  org_id = ?5,
                  sort_order = ?6,
-                 archived_at = ?7,
-                 created_at = ?8,
-                 updated_at = ?9
+                 is_default = ?7,
+                 archived_at = ?8,
+                 created_at = ?9,
+                 updated_at = ?10
              WHERE id = ?1",
             params![
                 list.id.to_string(),
@@ -738,6 +783,7 @@ impl ListRepository for SqliteListRepository {
                 list.icon,
                 list.org_id.map(|id| id.to_string()),
                 list.sort_order,
+                list.is_default,
                 list.archived_at,
                 list.created_at,
                 list.updated_at,
@@ -754,7 +800,7 @@ impl ListRepository for SqliteListRepository {
     fn list_all(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
             "SELECT id, name, color, icon, org_id, sort_order, archived_at,
-                    created_at, updated_at
+                    is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NULL
              ORDER BY sort_order ASC",
@@ -769,7 +815,7 @@ impl ListRepository for SqliteListRepository {
     fn list_archived(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
             "SELECT id, name, color, icon, org_id, sort_order, archived_at,
-                    created_at, updated_at
+                    is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NOT NULL
              ORDER BY archived_at DESC, sort_order ASC",
@@ -779,6 +825,36 @@ impl ListRepository for SqliteListRepository {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(lists)
+    }
+
+    fn get_default(&self) -> Result<Option<List>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                        is_default, created_at, updated_at
+                 FROM lists
+                 WHERE is_default = 1
+                 LIMIT 1",
+                [],
+                row_to_list,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    fn ensure_default_list(&mut self, name: String, now_ms: i64) -> Result<List, StorageError> {
+        if let Some(list) = self.get_default()? {
+            return Ok(list);
+        }
+
+        let existing_count: i64 =
+            self.connection
+                .query_row("SELECT count(*) FROM lists", [], |row| row.get(0))?;
+        let sort_order = format!("a{existing_count}");
+        let list = new_default_list(name, sort_order, now_ms)
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+        self.insert(list.clone())?;
+        Ok(list)
     }
 
     fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError> {
@@ -793,7 +869,13 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
-        self.get(list_id)?;
+        let list = self.get(list_id)?;
+        if list.is_default {
+            return Err(StorageError::DefaultListProtected {
+                operation: "deleted",
+                list_id,
+            });
+        }
         let transaction = self.connection.transaction()?;
         let task_count: i64 = transaction.query_row(
             "SELECT count(*) FROM tasks WHERE list_id = ?1",
@@ -833,8 +915,9 @@ fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
         org_id: parse_optional_uuid(org_id, 4)?,
         sort_order: row.get(5)?,
         archived_at: row.get(6)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        is_default: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -987,6 +1070,7 @@ mod tests {
             icon: "list".to_string(),
             org_id: None,
             sort_order: sort_order.to_string(),
+            is_default: false,
             archived_at: None,
             created_at: 1_799_000_000_000,
             updated_at: 1_799_000_000_000,
@@ -1031,7 +1115,40 @@ mod tests {
             .unwrap();
     }
 
-    fn archived_at_column(connection: &Connection) -> Option<(String, i32)> {
+    fn create_v2_database(path: &Path, key: &[u8; 32]) {
+        create_baseline_v1_database(path, key, true);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_lists_archived_at(&transaction).unwrap();
+        set_user_version(&transaction, 2).unwrap();
+        transaction.commit().unwrap();
+    }
+
+    fn insert_v2_list(connection: &Connection, list: &List) {
+        connection
+            .execute(
+                "INSERT INTO lists (
+                    id, name, color, icon, org_id, sort_order, archived_at,
+                    created_at, updated_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+                )",
+                params![
+                    list.id.to_string(),
+                    list.name,
+                    list.color,
+                    list.icon,
+                    list.org_id.map(|id| id.to_string()),
+                    list.sort_order,
+                    list.archived_at,
+                    list.created_at,
+                    list.updated_at,
+                ],
+            )
+            .unwrap();
+    }
+
+    fn list_column(connection: &Connection, target: &str) -> Option<(String, i32, String)> {
         let mut statement = connection.prepare("PRAGMA table_info(lists)").unwrap();
         statement
             .query_map([], |row| {
@@ -1039,15 +1156,25 @@ mod tests {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, i32>(3)?,
+                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 ))
             })
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()
             .into_iter()
-            .find_map(|(name, column_type, not_null)| {
-                (name == "archived_at").then_some((column_type, not_null))
+            .find_map(|(name, column_type, not_null, default_value)| {
+                (name == target).then_some((column_type, not_null, default_value))
             })
+    }
+
+    fn archived_at_column(connection: &Connection) -> Option<(String, i32)> {
+        list_column(connection, "archived_at")
+            .map(|(column_type, not_null, _)| (column_type, not_null))
+    }
+
+    fn is_default_column(connection: &Connection) -> Option<(String, i32, String)> {
+        list_column(connection, "is_default")
     }
 
     fn count_archived_at_columns(connection: &Connection) -> usize {
@@ -1065,6 +1192,17 @@ mod tests {
     fn schema_version(connection: &Connection) -> i32 {
         connection
             .query_row("PRAGMA schema_version", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn default_list_ids(connection: &Connection) -> Vec<String> {
+        let mut statement = connection
+            .prepare("SELECT id FROM lists WHERE is_default = 1 ORDER BY id ASC")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap()
     }
 
@@ -1191,14 +1329,19 @@ mod tests {
             archived_at_column(&connection),
             Some(("INTEGER".to_string(), 0))
         );
+        assert_eq!(
+            is_default_column(&connection),
+            Some(("INTEGER".to_string(), 1, "0".to_string()))
+        );
     }
 
     #[test]
-    fn v1_database_migrates_to_v2_and_preserves_existing_data() {
+    fn v1_database_migrates_to_v3_and_preserves_existing_data() {
         let file = NamedTempFile::new().unwrap();
         create_baseline_v1_database(file.path(), &KEY, true);
 
-        let list = sample_list("a0");
+        let mut list = sample_list("a0");
+        list.is_default = true;
         let mut task = sample_task();
         task.list_id = list.id;
         {
@@ -1222,6 +1365,10 @@ mod tests {
             Some(("INTEGER".to_string(), 0))
         );
         assert_eq!(
+            is_default_column(&connection),
+            Some(("INTEGER".to_string(), 1, "0".to_string()))
+        );
+        assert_eq!(
             SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
                 .get(list.id)
                 .unwrap(),
@@ -1240,7 +1387,8 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         create_baseline_v1_database(file.path(), &KEY, false);
 
-        let list = sample_list("legacy");
+        let mut list = sample_list("legacy");
+        list.is_default = true;
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
             insert_baseline_v1_list(&connection, &list);
@@ -1257,9 +1405,146 @@ mod tests {
             Some(("INTEGER".to_string(), 0))
         );
         assert_eq!(
+            is_default_column(&connection),
+            Some(("INTEGER".to_string(), 1, "0".to_string()))
+        );
+        assert_eq!(
             SqliteListRepository::new(connection).get(list.id).unwrap(),
             list
         );
+    }
+
+    #[test]
+    fn v2_database_promotes_first_active_list_to_default() {
+        let file = NamedTempFile::new().unwrap();
+        create_v2_database(file.path(), &KEY);
+
+        let archived = List {
+            archived_at: Some(1_799_000_001_000),
+            ..sample_list("a0")
+        };
+        let active_second = sample_list("b0");
+        let mut active_first = sample_list("a1");
+        active_first.created_at = active_second.created_at - 1;
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            insert_v2_list(&connection, &archived);
+            insert_v2_list(&connection, &active_second);
+            insert_v2_list(&connection, &active_first);
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            default_list_ids(&connection),
+            vec![active_first.id.to_string()]
+        );
+    }
+
+    #[test]
+    fn v2_database_with_no_active_lists_does_not_promote_default() {
+        let file = NamedTempFile::new().unwrap();
+        create_v2_database(file.path(), &KEY);
+
+        let archived = List {
+            archived_at: Some(1_799_000_001_000),
+            ..sample_list("a0")
+        };
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            insert_v2_list(&connection, &archived);
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert!(default_list_ids(&connection).is_empty());
+    }
+
+    #[test]
+    fn ensure_default_list_creates_default_when_missing_and_keeps_existing_name() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteListRepository::new(connection);
+
+        let inbox = repository
+            .ensure_default_list("Inbox".to_string(), 1_799_000_000_000)
+            .unwrap();
+        let again = repository
+            .ensure_default_list("インボックス".to_string(), 1_799_000_001_000)
+            .unwrap();
+
+        assert_eq!(inbox.id, again.id);
+        assert_eq!(again.name, "Inbox");
+        assert!(again.is_default);
+        assert_eq!(repository.list_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ensure_default_list_observes_ja_name_in_empty_database() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteListRepository::new(connection);
+
+        let inbox = repository
+            .ensure_default_list("インボックス".to_string(), 1_799_000_000_000)
+            .unwrap();
+
+        assert_eq!(inbox.name, "インボックス");
+        assert!(inbox.is_default);
+    }
+
+    #[test]
+    fn unique_index_prevents_multiple_default_lists() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteListRepository::new(connection);
+        let first = repository
+            .ensure_default_list("Inbox".to_string(), 1_799_000_000_000)
+            .unwrap();
+        let mut second = sample_list("a1");
+        second.is_default = true;
+
+        let result = repository.insert(second);
+
+        assert!(matches!(result, Err(StorageError::Sqlite(_))));
+        assert_eq!(repository.get_default().unwrap().unwrap().id, first.id);
+    }
+
+    #[test]
+    fn default_list_cannot_be_archived_or_deleted_but_can_be_renamed() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteListRepository::new(connection);
+        let mut list = repository
+            .ensure_default_list("Inbox".to_string(), 1_799_000_000_000)
+            .unwrap();
+
+        list.name = "Renamed inbox".to_string();
+        list.updated_at += 1;
+        repository.update(list.clone()).unwrap();
+        assert_eq!(repository.get(list.id).unwrap().name, "Renamed inbox");
+        assert!(repository.get(list.id).unwrap().is_default);
+
+        let mut archived = list.clone();
+        archived.archived_at = Some(1_799_000_001_000);
+        assert!(matches!(
+            repository.update(archived),
+            Err(StorageError::DefaultListProtected {
+                operation: "archived",
+                list_id,
+            }) if list_id == list.id
+        ));
+        assert!(matches!(
+            repository.delete_with_tasks(list.id),
+            Err(StorageError::DefaultListProtected {
+                operation: "deleted",
+                list_id,
+            }) if list_id == list.id
+        ));
     }
 
     #[test]
@@ -1270,6 +1555,7 @@ mod tests {
         let before_schema_version = schema_version(&connection);
         let before_user_version = read_user_version(&connection).unwrap();
         let before_archived_at_count = count_archived_at_columns(&connection);
+        let before_is_default_column = is_default_column(&connection);
         drop(connection);
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -1280,6 +1566,7 @@ mod tests {
             count_archived_at_columns(&connection),
             before_archived_at_count
         );
+        assert_eq!(is_default_column(&connection), before_is_default_column);
     }
 
     #[test]

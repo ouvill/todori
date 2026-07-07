@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `is_default_inbox`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -22,8 +22,13 @@ Future<String> createDraftTask({required String title}) =>
 /// plus derived key in process-global state. Reinitializing with the same DB
 /// path succeeds idempotently; reinitializing with a different DB path returns
 /// an error because `OnceLock` cannot safely swap process-global state.
-Future<void> initCore({required String dbDir}) =>
-    RustLib.instance.api.crateApiInitCore(dbDir: dbDir);
+Future<void> initCore({
+  required String dbDir,
+  required String defaultInboxName,
+}) => RustLib.instance.api.crateApiInitCore(
+  dbDir: dbDir,
+  defaultInboxName: defaultInboxName,
+);
 
 /// Creates a list using the caller-provided fractional `sort_order`.
 ///
@@ -120,6 +125,7 @@ class ListDto {
   final String icon;
   final String? orgId;
   final String sortOrder;
+  final bool isDefault;
   final PlatformInt64? archivedAt;
   final PlatformInt64 createdAt;
   final PlatformInt64 updatedAt;
@@ -131,6 +137,7 @@ class ListDto {
     required this.icon,
     this.orgId,
     required this.sortOrder,
+    required this.isDefault,
     this.archivedAt,
     required this.createdAt,
     required this.updatedAt,
@@ -144,6 +151,7 @@ class ListDto {
       icon.hashCode ^
       orgId.hashCode ^
       sortOrder.hashCode ^
+      isDefault.hashCode ^
       archivedAt.hashCode ^
       createdAt.hashCode ^
       updatedAt.hashCode;
@@ -159,6 +167,7 @@ class ListDto {
           icon == other.icon &&
           orgId == other.orgId &&
           sortOrder == other.sortOrder &&
+          isDefault == other.isDefault &&
           archivedAt == other.archivedAt &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;

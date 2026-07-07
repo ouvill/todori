@@ -10,7 +10,7 @@ void main() {
   setUpAll(() async {
     await RustLib.init();
     tempDir = await Directory.systemTemp.createTemp('todori_core_usecases_');
-    await initCore(dbDir: tempDir.path);
+    await initCore(dbDir: tempDir.path, defaultInboxName: 'Inbox');
   });
 
   tearDownAll(() async {
@@ -19,10 +19,18 @@ void main() {
   });
 
   test('list and task lifecycle is exposed through Rust bridge', () async {
-    final list = await createList(name: 'Inbox', sortOrder: 'a0');
-
     final lists = await getLists();
-    expect(lists.map((entry) => entry.id), contains(list.id));
+    final defaultList = lists.singleWhere((entry) => entry.isDefault);
+    expect(defaultList.name, 'Inbox');
+
+    final list = await createList(name: 'Bridge list', sortOrder: 'a0');
+    expect(list.isDefault, isFalse);
+    final refreshedLists = await getLists();
+    expect(refreshedLists.map((entry) => entry.id), contains(list.id));
+    expect(
+      refreshedLists.singleWhere((entry) => entry.id == list.id).isDefault,
+      isFalse,
+    );
 
     final task = await createTask(
       listId: list.id,
@@ -349,14 +357,21 @@ void main() {
   });
 
   test(
-    'deleteList removes list and tasks but protects default inbox',
+    'default list can be renamed but cannot be archived or deleted',
     () async {
-      final inbox = await createList(name: 'Default inbox', sortOrder: '0000');
+      final inbox = (await getLists()).singleWhere((list) => list.isDefault);
       final work = await createList(name: 'Delete list', sortOrder: '0001');
       final task = await createTask(listId: work.id, title: 'List task');
       await setTaskStatus(taskId: task.id, status: 'done');
 
       expect(await countTasksInList(listId: work.id), 1);
+      final renamed = await renameList(
+        listId: inbox.id,
+        name: 'Renamed default inbox',
+      );
+      expect(renamed.isDefault, isTrue);
+      expect(renamed.name, 'Renamed default inbox');
+      await expectLater(archiveList(listId: inbox.id), throwsA(anything));
       await expectLater(deleteList(listId: inbox.id), throwsA(anything));
 
       await deleteList(listId: work.id);

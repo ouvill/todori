@@ -1,6 +1,8 @@
 {
   "@@locale": "ja",
   "appTitle": "Todori",
+  "defaultInboxName": "インボックス",
+  "defaultListMissing": "既定リストが見つかりません。Todoriを再起動するか、ローカルDBの初期化状態を確認してください。",
   "listsTitle": "リスト",
   "listsSectionTitle": "リスト",
   "listsEmpty": "リストがありません。+をタップして作成してください。",

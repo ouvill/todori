@@ -12,6 +12,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get appTitle => 'Todori';
 
   @override
+  String get defaultInboxName => 'インボックス';
+
+  @override
+  String get defaultListMissing =>
+      '既定リストが見つかりません。Todoriを再起動するか、ローカルDBの初期化状態を確認してください。';
+
+  @override
   String get listsTitle => 'リスト';
 
   @override

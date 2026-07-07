@@ -12,6 +12,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appTitle => 'Todori';
 
   @override
+  String get defaultInboxName => 'Inbox';
+
+  @override
+  String get defaultListMissing =>
+      'Default list is missing. Restart Todori or check local database provisioning.';
+
+  @override
   String get listsTitle => 'Lists';
 
   @override

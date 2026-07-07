@@ -84,7 +84,7 @@ void main() {
   testWidgets('home_tasks_empty: root list with zero tasks', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
@@ -95,7 +95,7 @@ void main() {
   testWidgets('wont_do_row: closed section with a wont_do row', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     await fake.createTask(listId: listId, title: 'Review launch brief');
     final skipped = await fake.createTask(
@@ -139,7 +139,7 @@ void main() {
   testWidgets('list_actions_menu: opened list overflow menu', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final work = await fake.createList(name: '仕事', sortOrder: 'a1');
     await fake.createTask(listId: work.id, title: '四半期レビュー資料を作成する');
 
@@ -192,7 +192,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final work = await fake.createList(name: 'Work', sortOrder: 'a1');
     await fake.createTask(listId: work.id, title: 'Completed planning note');
     final done = await fake.createTask(listId: work.id, title: 'Done task');
@@ -218,7 +218,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
-    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
     final parent = await fake.createTask(
       listId: listId,
@@ -378,7 +378,7 @@ class _SeedData {
 /// - titles mix Japanese and English, and one title is long enough to wrap.
 Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   final fake = FakeBridgeService();
-  await fake.createList(name: 'Inbox', sortOrder: 'a0');
+  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
   await fake.createList(name: '仕事', sortOrder: 'a1');
   final lists = await fake.getLists();
   final homeListId = lists[0].id;
@@ -501,7 +501,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
 
 Future<void> _seedArchivedListData(WidgetTester tester) async {
   final fake = FakeBridgeService();
-  await fake.createList(name: 'Inbox', sortOrder: 'a0');
+  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
   final work = await fake.createList(name: '仕事', sortOrder: 'a1');
   await fake.createTask(listId: work.id, title: '四半期レビュー資料を作成する');
   await fake.archiveList(listId: work.id);

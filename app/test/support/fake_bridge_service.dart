@@ -19,6 +19,21 @@ class FakeBridgeService implements BridgeService {
     required String name,
     required String sortOrder,
   }) async {
+    return _createList(name: name, sortOrder: sortOrder, isDefault: false);
+  }
+
+  Future<ListDto> createDefaultList({
+    required String name,
+    required String sortOrder,
+  }) async {
+    return _createList(name: name, sortOrder: sortOrder, isDefault: true);
+  }
+
+  Future<ListDto> _createList({
+    required String name,
+    required String sortOrder,
+    required bool isDefault,
+  }) async {
     final listSeq = _listSeq++;
     final now = _fakeTimestamp(listSeq);
     final list = ListDto(
@@ -27,6 +42,7 @@ class FakeBridgeService implements BridgeService {
       color: '',
       icon: '',
       sortOrder: sortOrder,
+      isDefault: isDefault,
       createdAt: now,
       updatedAt: now,
     );
@@ -75,6 +91,7 @@ class FakeBridgeService implements BridgeService {
       icon: list.icon,
       orgId: list.orgId,
       sortOrder: list.sortOrder,
+      isDefault: list.isDefault,
       archivedAt: list.archivedAt,
       createdAt: list.createdAt,
       updatedAt: list.updatedAt + _fakeMinuteMs,
@@ -87,8 +104,8 @@ class FakeBridgeService implements BridgeService {
   Future<ListDto> archiveList({required String listId}) async {
     final index = _lists.indexWhere((list) => list.id == listId);
     final list = _lists[index];
-    if (list.archivedAt == null && _isDefaultInbox(list)) {
-      throw Exception('default inbox cannot be archived');
+    if (list.archivedAt == null && list.isDefault) {
+      throw Exception('default list cannot be archived');
     }
     if (list.archivedAt != null) {
       return list;
@@ -249,8 +266,8 @@ class FakeBridgeService implements BridgeService {
   @override
   Future<void> deleteList({required String listId}) async {
     final list = _lists.singleWhere((candidate) => candidate.id == listId);
-    if (_isDefaultInbox(list)) {
-      throw Exception('default inbox cannot be deleted');
+    if (list.isDefault) {
+      throw Exception('default list cannot be deleted');
     }
     final taskIds = _tasks
         .where((task) => task.listId == listId)
@@ -365,14 +382,6 @@ class FakeBridgeService implements BridgeService {
         ),
       ),
     );
-  }
-
-  bool _isDefaultInbox(ListDto list) {
-    final active = _lists
-        .where((candidate) => candidate.archivedAt == null)
-        .toList(growable: false);
-    active.sort(_compareLists);
-    return active.isNotEmpty && active.first.id == list.id;
   }
 
   Set<String> _descendantIds(String taskId) {
@@ -512,6 +521,7 @@ ListDto _copyList(
     icon: list.icon,
     orgId: list.orgId,
     sortOrder: list.sortOrder,
+    isDefault: list.isDefault,
     archivedAt: clearArchivedAt ? null : archivedAt ?? list.archivedAt,
     createdAt: list.createdAt,
     updatedAt: updatedAt ?? list.updatedAt,

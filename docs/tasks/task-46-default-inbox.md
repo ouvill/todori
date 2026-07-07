@@ -173,3 +173,117 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項: `docs/03_技術仕様書.md` への `lists.is_default` 追記が必要（人間承認待ち）であることを必ず含める
+
+## 9. 完了報告
+
+- 作業日: 2026-07-07
+- 読んだ/確認したファイル:
+  - `AGENTS.md`
+  - `docs/tasks/README.md`
+  - `docs/tasks/BACKLOG.md`
+  - `docs/tasks/task-46-default-inbox.md`
+  - `docs/tasks/task-36-schema-migration.md`
+  - `docs/02_機能仕様書.md` F-09
+  - `docs/03_技術仕様書.md` lists/tasks schema、SQLCipher、Device Key関連
+  - `core/storage/src/lib.rs`
+  - `core/storage/src/schema.sql`
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/usecases.rs`
+  - `app/rust/src/api.rs`
+  - `app/lib/main.dart`
+  - `app/lib/src/core/bridge_service.dart`
+  - `app/lib/src/core/providers.dart`
+  - `app/lib/src/screens/home_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/widget_test.dart`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- 作業前退避:
+  - `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+  - `find app/build/visual_qa_before -maxdepth 1 -name '*.png' | wc -l`: `30`
+  - `find app/build/visual_qa -maxdepth 1 -name '*.png' | wc -l`: `30`
+- v3 migration:
+  - `core/storage/src/lib.rs` の `LATEST_SCHEMA_VERSION` を `3` に更新した。
+  - v3 migration `add_lists_is_default` を追加した。
+  - `ALTER TABLE lists ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;` を実行する。
+  - 既存DBでは `archived_at IS NULL` のリストから `ORDER BY sort_order ASC, created_at ASC, id ASC LIMIT 1` で1件を選び、`is_default = 1` にする。
+  - 非アーカイブリストが0件の場合、v3 migrationで `is_default = 1` へ昇格する行はない。
+  - `CREATE UNIQUE INDEX idx_lists_single_default ON lists(is_default) WHERE is_default = 1;` を追加した。
+- domain/storage:
+  - `todori_domain::List` に `is_default: bool` を追加した。
+  - `new_list` は `is_default = false` を設定する。
+  - `new_default_list` は `is_default = true` を設定する。
+  - `SqliteListRepository` の `SELECT` / `INSERT` / `UPDATE` / row mapping に `is_default` を追加した。
+  - `ListRepository` に `get_default` と `ensure_default_list` を追加した。
+  - `ensure_default_list` は既存defaultがあれば名前を変更せず返し、存在しない場合は渡された名前でdefault listを作成する。
+  - storage層でdefault listのarchive相当更新と物理削除を `StorageError::DefaultListProtected` にした。
+- Inbox自動プロビジョニング:
+  - `app/rust/src/api.rs` の `init_core` に `default_inbox_name: String` を追加した。
+  - `init_core` はDB open後に `SqliteListRepository::ensure_default_list(default_inbox_name, now_ms)` を呼ぶ。
+  - `app/lib/main.dart` は `PlatformDispatcher.instance.locale` と `AppLocalizations.supportedLocales` から起動時localeを解決し、`lookupAppLocalizations(locale).defaultInboxName` を `initCore(dbDir: ..., defaultInboxName: ...)` へ渡す。
+  - ARBに `defaultInboxName` を追加した。enは `Inbox`、jaは `インボックス`。
+- FRB/Dart/FakeBridgeService:
+  - `ListDto` に `is_default` / Dart `isDefault` を追加した。
+  - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`: exit 0
+  - `flutter gen-l10n`: exit 0
+  - `FakeBridgeService` は `ListDto.isDefault` を保持する。
+  - `FakeBridgeService.createList` は `isDefault = false` のlistを作成する。
+  - test seed用に `FakeBridgeService.createDefaultList` を追加した。
+- Home/Tasks:
+  - `HomeScreen` は active list の `isDefault == true` のlistをHome対象にする。
+  - default listがない場合、`defaultListMissing` のエラー表示にする。
+  - `TasksScreen` の既定リスト判定は `currentList?.isDefault == true` に変更した。
+  - default listではarchive/delete menuを表示しない。
+- 復元/Undo/remap:
+  - 現行コードには旧trash/restore経路は存在しない。
+  - `undo_task_operation` / `FakeBridgeService.undoTaskOperation` は undo entry の `before` snapshot を同じ `list_id` へ戻す処理であり、先頭リストへのremap処理は存在しない。
+- テストで確認した内容:
+  - Rust storage test `v2_database_promotes_first_active_list_to_default` でv2相当DBの非アーカイブ先頭1件がdefault化されることを確認した。
+  - Rust storage test `v2_database_with_no_active_lists_does_not_promote_default` で非アーカイブ0件では昇格がno-opになることを確認した。
+  - Rust storage test `ensure_default_list_creates_default_when_missing_and_keeps_existing_name` で空DBのen名作成と既存default名を上書きしないことを確認した。
+  - Rust storage test `ensure_default_list_observes_ja_name_in_empty_database` でja名 `インボックス` の作成を確認した。
+  - Rust storage test `unique_index_prevents_multiple_default_lists` で複数defaultがSQLite errorになることを確認した。
+  - Rust storage test `default_list_cannot_be_archived_or_deleted_but_can_be_renamed` でdefault listの改名可、archive/delete不可を確認した。
+  - `app/test/core_usecases_test.dart` で `initCore(dbDir: ..., defaultInboxName: 'Inbox')`、`getLists().singleWhere((entry) => entry.isDefault)`、通常 `createList` の `isDefault == false`、default listの改名可、archive/delete拒否を確認した。
+  - `app/test/widget_test.dart` の `default inbox empty tasks and create dialog survive narrow Dynamic Type` で初回起動相当のdefault Inbox空タスク画面を確認した。
+  - `sh app/tool/visual_qa.sh` で `home_tasks_empty.png` を含む `app/build/visual_qa/*.png` 30枚を生成した。
+- grep証拠:
+  - `grep -RIn "is_default_inbox\|activeLists\.first\|lists\.first\|list_all().*first" app/lib app/test app/rust core || true`: 出力なし。
+  - `grep -RIn "defaultInbox\|default inbox\|first\.id" app/lib app/test app/rust core || true` の残存は、`defaultInboxName` のl10n/API引数、test名/fixture文字列、タスクfixtureの `first.id`、storage test内の `active_first.id` である。
+  - 既定リスト判定としての `sort_order` 先頭ルール、`lists.first`、`activeLists.first`、`is_default_inbox` は残っていない。
+- 品質ゲートの実行結果:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace -- -D warnings`: exit 0
+  - `cargo test --workspace`: exit 0
+  - `cd app && flutter analyze`: exit 0
+  - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+  - `cd app && flutter test`: exit 0
+  - `sh app/tool/check_hardcoded_strings.sh`: exit 0
+  - `sh app/tool/visual_qa.sh`: exit 0、29 tests passed
+  - `git diff --check`: exit 0
+- 変更ファイル一覧:
+  - `app/lib/l10n/app_en.arb`
+  - `app/lib/l10n/app_ja.arb`
+  - `app/lib/main.dart`
+  - `app/lib/src/generated/l10n/app_localizations.dart`
+  - `app/lib/src/generated/l10n/app_localizations_en.dart`
+  - `app/lib/src/generated/l10n/app_localizations_ja.dart`
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/rust/frb_generated.io.dart`
+  - `app/lib/src/screens/home_screen.dart`
+  - `app/lib/src/screens/tasks_screen.dart`
+  - `app/rust/src/api.rs`
+  - `app/rust/src/frb_generated.rs`
+  - `app/test/core_usecases_test.dart`
+  - `app/test/support/fake_bridge_service.dart`
+  - `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - `app/test/widget_test.dart`
+  - `core/domain/src/entities.rs`
+  - `core/domain/src/lib.rs`
+  - `core/domain/src/usecases.rs`
+  - `core/storage/src/lib.rs`
+  - `docs/tasks/task-46-default-inbox.md`
+- 未解決事項:
+  - `docs/03_技術仕様書.md` の `lists` 定義には `is_default` が記載されていない。本タスクでは仕様書変更禁止のため未変更。人間承認後に `lists.is_default` の追記が必要。

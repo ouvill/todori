@@ -499,10 +499,11 @@ fn wire__crate__api__init_core_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_db_dir = <String>::sse_decode(&mut deserializer);
+            let api_default_inbox_name = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok = crate::api::init_core(api_db_dir)?;
+                    let output_ok = crate::api::init_core(api_db_dir, api_default_inbox_name)?;
                     Ok(output_ok)
                 })())
             }
@@ -738,6 +739,13 @@ impl SseDecode for String {
     }
 }
 
+impl SseDecode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u8().unwrap() != 0
+    }
+}
+
 impl SseDecode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -761,6 +769,7 @@ impl SseDecode for crate::api::ListDto {
         let mut var_icon = <String>::sse_decode(deserializer);
         let mut var_orgId = <Option<String>>::sse_decode(deserializer);
         let mut var_sortOrder = <String>::sse_decode(deserializer);
+        let mut var_isDefault = <bool>::sse_decode(deserializer);
         let mut var_archivedAt = <Option<i64>>::sse_decode(deserializer);
         let mut var_createdAt = <i64>::sse_decode(deserializer);
         let mut var_updatedAt = <i64>::sse_decode(deserializer);
@@ -771,6 +780,7 @@ impl SseDecode for crate::api::ListDto {
             icon: var_icon,
             org_id: var_orgId,
             sort_order: var_sortOrder,
+            is_default: var_isDefault,
             archived_at: var_archivedAt,
             created_at: var_createdAt,
             updated_at: var_updatedAt,
@@ -932,13 +942,6 @@ impl SseDecode for () {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
 }
 
-impl SseDecode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_u8().unwrap() != 0
-    }
-}
-
 fn pde_ffi_dispatcher_primary_impl(
     func_id: i32,
     port: flutter_rust_bridge::for_generated::MessagePort,
@@ -996,6 +999,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::ListDto {
             self.icon.into_into_dart().into_dart(),
             self.org_id.into_into_dart().into_dart(),
             self.sort_order.into_into_dart().into_dart(),
+            self.is_default.into_into_dart().into_dart(),
             self.archived_at.into_into_dart().into_dart(),
             self.created_at.into_into_dart().into_dart(),
             self.updated_at.into_into_dart().into_dart(),
@@ -1068,6 +1072,13 @@ impl SseEncode for String {
     }
 }
 
+impl SseEncode for bool {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u8(self as _).unwrap();
+    }
+}
+
 impl SseEncode for i32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1091,6 +1102,7 @@ impl SseEncode for crate::api::ListDto {
         <String>::sse_encode(self.icon, serializer);
         <Option<String>>::sse_encode(self.org_id, serializer);
         <String>::sse_encode(self.sort_order, serializer);
+        <bool>::sse_encode(self.is_default, serializer);
         <Option<i64>>::sse_encode(self.archived_at, serializer);
         <i64>::sse_encode(self.created_at, serializer);
         <i64>::sse_encode(self.updated_at, serializer);
@@ -1212,13 +1224,6 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
-}
-
-impl SseEncode for bool {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_u8(self as _).unwrap();
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]

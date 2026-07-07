@@ -104,6 +104,18 @@ abstract class AppLocalizations {
   /// **'Todori'**
   String get appTitle;
 
+  /// No description provided for @defaultInboxName.
+  ///
+  /// In en, this message translates to:
+  /// **'Inbox'**
+  String get defaultInboxName;
+
+  /// No description provided for @defaultListMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Default list is missing. Restart Todori or check local database provisioning.'**
+  String get defaultListMissing;
+
   /// No description provided for @listsTitle.
   ///
   /// In en, this message translates to:

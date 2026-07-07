@@ -68,6 +68,24 @@ pub fn new_task(
 
 /// リストを作成する。
 pub fn new_list(name: String, sort_order: String, now_ms: i64) -> Result<List, DomainError> {
+    new_list_with_default(name, sort_order, false, now_ms)
+}
+
+/// 既定リストを作成する。
+pub fn new_default_list(
+    name: String,
+    sort_order: String,
+    now_ms: i64,
+) -> Result<List, DomainError> {
+    new_list_with_default(name, sort_order, true, now_ms)
+}
+
+fn new_list_with_default(
+    name: String,
+    sort_order: String,
+    is_default: bool,
+    now_ms: i64,
+) -> Result<List, DomainError> {
     validate_name(&name)?;
 
     Ok(List {
@@ -77,6 +95,7 @@ pub fn new_list(name: String, sort_order: String, now_ms: i64) -> Result<List, D
         icon: "list".to_string(),
         org_id: None,
         sort_order,
+        is_default,
         archived_at: None,
         created_at: now_ms,
         updated_at: now_ms,
@@ -432,9 +451,19 @@ mod tests {
         assert_eq!(list.icon, "list");
         assert_eq!(list.org_id, None);
         assert_eq!(list.sort_order, "a0");
+        assert!(!list.is_default);
         assert_eq!(list.archived_at, None);
         assert_eq!(list.created_at, NOW);
         assert_eq!(list.updated_at, NOW);
+    }
+
+    #[test]
+    fn new_default_list_sets_is_default() {
+        let list = new_default_list("Inbox".to_string(), "a0".to_string(), NOW).unwrap();
+
+        assert_eq!(list.name, "Inbox");
+        assert!(list.is_default);
+        assert_eq!(list.archived_at, None);
     }
 
     #[test]

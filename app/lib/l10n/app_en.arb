@@ -1,6 +1,8 @@
 {
   "@@locale": "en",
   "appTitle": "Todori",
+  "defaultInboxName": "Inbox",
+  "defaultListMissing": "Default list is missing. Restart Todori or check local database provisioning.",
   "listsTitle": "Lists",
   "listsSectionTitle": "Lists",
   "listsEmpty": "No lists yet. Tap + to create one.",

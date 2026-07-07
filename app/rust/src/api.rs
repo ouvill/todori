@@ -33,6 +33,7 @@ pub struct ListDto {
     pub icon: String,
     pub org_id: Option<String>,
     pub sort_order: String,
+    pub is_default: bool,
     pub archived_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -102,7 +103,7 @@ pub fn create_draft_task(title: String) -> String {
 /// plus derived key in process-global state. Reinitializing with the same DB
 /// path succeeds idempotently; reinitializing with a different DB path returns
 /// an error because `OnceLock` cannot safely swap process-global state.
-pub fn init_core(db_dir: String) -> Result<(), String> {
+pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), String> {
     let db_dir = PathBuf::from(db_dir);
     std::fs::create_dir_all(&db_dir).map_err(|error| error.to_string())?;
 
@@ -111,7 +112,11 @@ pub fn init_core(db_dir: String) -> Result<(), String> {
     let db_key = derive_local_db_key(&device_key);
     let db_path = db_dir.join("todori.db");
 
-    open_encrypted(&db_path, &db_key).map_err(|error| error.to_string())?;
+    let connection = open_encrypted(&db_path, &db_key).map_err(|error| error.to_string())?;
+    let mut repository = SqliteListRepository::new(connection);
+    repository
+        .ensure_default_list(default_inbox_name, now_ms()?)
+        .map_err(|error| error.to_string())?;
 
     let new_state = CoreState { db_path, db_key };
     match CORE_STATE.get() {
@@ -173,8 +178,8 @@ pub fn archive_list(list_id: String) -> Result<ListDto, String> {
     let now_ms = now_ms()?;
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
-        if list.archived_at.is_none() && is_default_inbox(repository, list.id)? {
-            return Err("default inbox cannot be archived".to_string());
+        if list.archived_at.is_none() && list.is_default {
+            return Err("default list cannot be archived".to_string());
         }
 
         let updated = domain_archive_list(list, now_ms).map_err(|error| error.to_string())?;
@@ -386,8 +391,9 @@ pub fn delete_task(task_id: String) -> Result<(), String> {
 pub fn delete_list(list_id: String) -> Result<(), String> {
     let list_id = parse_uuid(&list_id)?;
     with_list_repository(|repository| {
-        if is_default_inbox(repository, list_id)? {
-            return Err("default inbox cannot be deleted".to_string());
+        let list = repository.get(list_id).map_err(|error| error.to_string())?;
+        if list.is_default {
+            return Err("default list cannot be deleted".to_string());
         }
         repository
             .delete_with_tasks(list_id)
@@ -491,13 +497,6 @@ fn count_to_i32(count: usize) -> Result<i32, String> {
     i32::try_from(count).map_err(|_| "count exceeds i32 range".to_string())
 }
 
-fn is_default_inbox(repository: &SqliteListRepository, list_id: Uuid) -> Result<bool, String> {
-    repository
-        .list_all()
-        .map_err(|error| error.to_string())
-        .map(|lists| lists.first().is_some_and(|list| list.id == list_id))
-}
-
 fn status_to_string(status: TaskStatus) -> String {
     match status {
         TaskStatus::Todo => "todo",
@@ -516,6 +515,7 @@ fn list_to_dto(list: List) -> ListDto {
         icon: list.icon,
         org_id: list.org_id.map(|id| id.to_string()),
         sort_order: list.sort_order,
+        is_default: list.is_default,
         archived_at: list.archived_at,
         created_at: list.created_at,
         updated_at: list.updated_at,

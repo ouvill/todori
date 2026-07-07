@@ -109,7 +109,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<String> crateApiGreet({required String name});
 
-  Future<void> crateApiInitCore({required String dbDir});
+  Future<void> crateApiInitCore({
+    required String dbDir,
+    required String defaultInboxName,
+  });
 
   Future<ListDto> crateApiRenameList({
     required String listId,
@@ -530,12 +533,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "greet", argNames: ["name"]);
 
   @override
-  Future<void> crateApiInitCore({required String dbDir}) {
+  Future<void> crateApiInitCore({
+    required String dbDir,
+    required String defaultInboxName,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(dbDir, serializer);
+          sse_encode_String(defaultInboxName, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -548,14 +555,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiInitCoreConstMeta,
-        argValues: [dbDir],
+        argValues: [dbDir, defaultInboxName],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiInitCoreConstMeta =>
-      const TaskConstMeta(debugName: "init_core", argNames: ["dbDir"]);
+  TaskConstMeta get kCrateApiInitCoreConstMeta => const TaskConstMeta(
+    debugName: "init_core",
+    argNames: ["dbDir", "defaultInboxName"],
+  );
 
   @override
   Future<ListDto> crateApiRenameList({
@@ -768,6 +777,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool dco_decode_bool(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as bool;
+  }
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -801,8 +816,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ListDto dco_decode_list_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return ListDto(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
@@ -810,9 +825,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       icon: dco_decode_String(arr[3]),
       orgId: dco_decode_opt_String(arr[4]),
       sortOrder: dco_decode_String(arr[5]),
-      archivedAt: dco_decode_opt_box_autoadd_i_64(arr[6]),
-      createdAt: dco_decode_i_64(arr[7]),
-      updatedAt: dco_decode_i_64(arr[8]),
+      isDefault: dco_decode_bool(arr[6]),
+      archivedAt: dco_decode_opt_box_autoadd_i_64(arr[7]),
+      createdAt: dco_decode_i_64(arr[8]),
+      updatedAt: dco_decode_i_64(arr[9]),
     );
   }
 
@@ -921,6 +937,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  bool sse_decode_bool(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_32(deserializer));
@@ -961,6 +983,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_icon = sse_decode_String(deserializer);
     var var_orgId = sse_decode_opt_String(deserializer);
     var var_sortOrder = sse_decode_String(deserializer);
+    var var_isDefault = sse_decode_bool(deserializer);
     var var_archivedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_createdAt = sse_decode_i_64(deserializer);
     var var_updatedAt = sse_decode_i_64(deserializer);
@@ -971,6 +994,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       icon: var_icon,
       orgId: var_orgId,
       sortOrder: var_sortOrder,
+      isDefault: var_isDefault,
       archivedAt: var_archivedAt,
       createdAt: var_createdAt,
       updatedAt: var_updatedAt,
@@ -1126,15 +1150,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getUint8() != 0;
-  }
-
-  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint8(self ? 1 : 0);
   }
 
   @protected
@@ -1182,6 +1206,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.icon, serializer);
     sse_encode_opt_String(self.orgId, serializer);
     sse_encode_String(self.sortOrder, serializer);
+    sse_encode_bool(self.isDefault, serializer);
     sse_encode_opt_box_autoadd_i_64(self.archivedAt, serializer);
     sse_encode_i_64(self.createdAt, serializer);
     sse_encode_i_64(self.updatedAt, serializer);
@@ -1303,11 +1328,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-  }
-
-  @protected
-  void sse_encode_bool(bool self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putUint8(self ? 1 : 0);
   }
 }
