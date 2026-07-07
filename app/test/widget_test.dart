@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
@@ -72,6 +74,49 @@ void _expectTaskTitleOrder(WidgetTester tester, List<String> titles) {
   }
 }
 
+Future<void> _dragTaskOnto(
+  WidgetTester tester, {
+  required String sourceTaskId,
+  required String targetTaskId,
+  required bool dropAfterTarget,
+}) async {
+  final source = find.byKey(ValueKey('task-row-$sourceTaskId'));
+  final target = find.byKey(ValueKey('task-drop-target-$targetTaskId'));
+  await tester.ensureVisible(source);
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+
+  final targetRect = tester.getRect(target);
+  final targetPoint = dropAfterTarget
+      ? targetRect.bottomCenter.translate(0, -4)
+      : targetRect.topCenter.translate(0, 4);
+  final gesture = await tester.startGesture(tester.getCenter(source));
+  await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+  await gesture.moveTo(targetPoint);
+  await tester.pump();
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+void _expectNoVisibleMoveButtons() {
+  expect(find.byTooltip('Move task up'), findsNothing);
+  expect(find.byTooltip('Move task down'), findsNothing);
+}
+
+List<String> _customActionLabels(SemanticsNode node) {
+  return [
+    for (final id
+        in node.getSemanticsData().customSemanticsActionIds ?? const <int>[])
+      ?CustomSemanticsAction.getAction(id)?.label,
+  ];
+}
+
+SemanticsFinder _reorderSemanticsFinder(String actionLabel) {
+  return find.semantics.byPredicate(
+    (node) => _customActionLabels(node).contains(actionLabel),
+  );
+}
+
 void main() {
   testWidgets('lists screen shows lists from the bridge service', (
     tester,
@@ -133,7 +178,7 @@ void main() {
         (list) => list.isDefault,
       );
 
-      await fake.createTask(
+      final inboxDueToday = await fake.createTask(
         listId: inbox.id,
         title: 'Inbox due today',
         dueAt: today,
@@ -171,6 +216,10 @@ void main() {
       expect(find.byTooltip('List actions'), findsNothing);
       expect(find.byTooltip('Move task up'), findsNothing);
       expect(find.byTooltip('Move task down'), findsNothing);
+      expect(
+        find.byKey(ValueKey('task-drop-target-${inboxDueToday.id}')),
+        findsNothing,
+      );
 
       await tester.tap(find.byTooltip('Sort tasks'));
       await tester.pumpAndSettle();
@@ -281,7 +330,11 @@ void main() {
       expect(find.text('Due child only'), findsOneWidget);
       expect(find.text('Parent without due'), findsOneWidget);
       expect(find.text('Inbox'), findsNothing);
-      expect(find.byTooltip('Move task up'), findsWidgets);
+      expect(
+        find.byKey(ValueKey('task-drop-target-${child.id}')),
+        findsOneWidget,
+      );
+      _expectNoVisibleMoveButtons();
     },
   );
 
@@ -322,22 +375,27 @@ void main() {
       find.byKey(ValueKey('task-priority-dot-${first.id}')),
       findsOneWidget,
     );
-    expect(find.byTooltip('Move task up'), findsWidgets);
-    expect(find.byTooltip('Move task down'), findsWidgets);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${second.id}')),
+      findsOneWidget,
+    );
+    _expectNoVisibleMoveButtons();
     expect(find.text('Local protection'), findsNothing);
     expect(tester.takeException(), isNull);
 
-    final secondMoveUp = find.byKey(ValueKey('task-move-up-${second.id}'));
     // Scroll by hunting for the target rather than a fixed pixel delta: the
     // compact row layout (task-30) lets a very long wrapped title occupy
     // more vertical space than a fixed drag distance can predict.
     await tester.scrollUntilVisible(find.textContaining('Second task'), 220);
     await tester.pumpAndSettle();
     expect(find.textContaining('Second task'), findsOneWidget);
-    await tester.ensureVisible(secondMoveUp);
+    final semantics = tester.ensureSemantics();
+    tester.semantics.customAction(
+      _reorderSemanticsFinder('Move task up'),
+      const CustomSemanticsAction(label: 'Move task up'),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(secondMoveUp);
-    await tester.pumpAndSettle();
+    semantics.dispose();
 
     final active = await fake.getTasks(listId: listId);
     expect(active.map((task) => task.id), [second.id, first.id]);
@@ -1018,7 +1076,9 @@ void main() {
     expect(title.style?.decoration, TextDecoration.lineThrough);
   });
 
-  testWidgets('task list move buttons reorder root tasks', (tester) async {
+  testWidgets('task list drag and drop reorders root tasks with boundaries', (
+    tester,
+  ) async {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final listId = (await fake.getLists()).first.id;
@@ -1032,35 +1092,127 @@ void main() {
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
 
+    _expectNoVisibleMoveButtons();
     expect(
-      tester
-          .widget<IconButton>(find.byKey(ValueKey('task-move-up-${first.id}')))
-          .onPressed,
-      isNull,
+      find.byKey(ValueKey('task-drop-target-${first.id}')),
+      findsOneWidget,
     );
     expect(
-      tester
-          .widget<IconButton>(
-            find.byKey(ValueKey('task-move-down-${third.id}')),
-          )
-          .onPressed,
-      isNull,
+      find.byKey(ValueKey('task-drop-target-${second.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('task-drop-target-${third.id}')),
+      findsOneWidget,
     );
 
-    await tester.tap(find.byKey(ValueKey('task-move-down-${first.id}')));
+    await _dragTaskOnto(
+      tester,
+      sourceTaskId: first.id,
+      targetTaskId: third.id,
+      dropAfterTarget: true,
+    );
     await tester.pumpAndSettle();
 
-    final active = await fake.getTasks(listId: listId);
-    expect(active.map((task) => task.id), [second.id, first.id, third.id]);
+    var active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), [second.id, third.id, first.id]);
+    expect(fake.reorderCalls.last.taskId, first.id);
+    expect(fake.reorderCalls.last.previousTaskId, third.id);
+    expect(fake.reorderCalls.last.nextTaskId, isNull);
 
-    final secondTop = tester.getTopLeft(find.text('Second task')).dy;
-    final firstTop = tester.getTopLeft(find.text('First task')).dy;
-    final thirdTop = tester.getTopLeft(find.text('Third task')).dy;
-    expect(secondTop, lessThan(firstTop));
-    expect(firstTop, lessThan(thirdTop));
+    await _dragTaskOnto(
+      tester,
+      sourceTaskId: first.id,
+      targetTaskId: second.id,
+      dropAfterTarget: false,
+    );
+    active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), [first.id, second.id, third.id]);
+    expect(fake.reorderCalls.last.taskId, first.id);
+    expect(fake.reorderCalls.last.previousTaskId, isNull);
+    expect(fake.reorderCalls.last.nextTaskId, second.id);
+
+    await _dragTaskOnto(
+      tester,
+      sourceTaskId: third.id,
+      targetTaskId: second.id,
+      dropAfterTarget: false,
+    );
+    active = await fake.getTasks(listId: listId);
+    expect(active.map((task) => task.id), [first.id, third.id, second.id]);
+    expect(fake.reorderCalls.last.taskId, third.id);
+    expect(fake.reorderCalls.last.previousTaskId, first.id);
+    expect(fake.reorderCalls.last.nextTaskId, second.id);
+
+    _expectTaskTitleOrder(tester, ['First task', 'Third task', 'Second task']);
   });
 
-  testWidgets('task sort menu switches root order and move buttons', (
+  testWidgets(
+    'task drag and drop rejects different parent and closed targets',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Parent task',
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Child task',
+        parentTaskId: parent.id,
+      );
+      final root = await fake.createTask(listId: listId, title: 'Root task');
+      final closed = await fake.createTask(
+        listId: listId,
+        title: 'Closed task',
+      );
+      await fake.setTaskStatus(taskId: closed.id, status: 'done');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await _openListFromHome(tester, 'Inbox');
+
+      await _dragTaskOnto(
+        tester,
+        sourceTaskId: root.id,
+        targetTaskId: child.id,
+        dropAfterTarget: false,
+      );
+      await _dragTaskOnto(
+        tester,
+        sourceTaskId: child.id,
+        targetTaskId: root.id,
+        dropAfterTarget: true,
+      );
+
+      expect(fake.reorderCalls, isEmpty);
+      final tasks = await fake.getTasks(listId: listId);
+      expect(
+        tasks.where((task) => task.parentTaskId == null).map((task) => task.id),
+        [parent.id, root.id, closed.id],
+      );
+      expect(
+        tasks
+            .where((task) => task.parentTaskId == parent.id)
+            .map((task) => task.id),
+        [child.id],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Closed task'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('task-drop-target-${closed.id}')),
+        findsNothing,
+      );
+      _expectNoVisibleMoveButtons();
+    },
+  );
+
+  testWidgets('task sort menu switches root order and drag targets', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -1124,7 +1276,11 @@ void main() {
       'Manual fourth',
     ]);
     expect(find.byTooltip('Sort tasks'), findsOneWidget);
-    expect(find.byTooltip('Move task up'), findsWidgets);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${manualSecond.id}')),
+      findsOneWidget,
+    );
+    _expectNoVisibleMoveButtons();
 
     await _selectTaskSortMode(tester, 'Due date');
     _expectTaskTitleOrder(tester, [
@@ -1133,8 +1289,11 @@ void main() {
       'Manual fourth',
       'Manual second',
     ]);
-    expect(find.byTooltip('Move task up'), findsNothing);
-    expect(find.byTooltip('Move task down'), findsNothing);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${manualSecond.id}')),
+      findsNothing,
+    );
+    _expectNoVisibleMoveButtons();
 
     await _selectTaskSortMode(tester, 'Priority');
     _expectTaskTitleOrder(tester, [
@@ -1159,7 +1318,11 @@ void main() {
       'Manual third',
       'Manual fourth',
     ]);
-    expect(find.byTooltip('Move task up'), findsWidgets);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${manualSecond.id}')),
+      findsOneWidget,
+    );
+    _expectNoVisibleMoveButtons();
   });
 
   testWidgets('task list keeps closed subtasks under their open parent', (
@@ -1227,7 +1390,15 @@ void main() {
     expect(doneTitle.style?.decoration, TextDecoration.lineThrough);
     expect(wontDoTitle.style?.decoration, TextDecoration.lineThrough);
     expect(find.byTooltip('Reopen task'), findsNWidgets(2));
-    expect(find.byTooltip('Move task up'), findsWidgets);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${wontDoChild.id}')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(ValueKey('task-drop-target-${child.id}')),
+      findsOneWidget,
+    );
+    _expectNoVisibleMoveButtons();
   });
 
   testWidgets('hierarchy guides expose L and T branches aligned to checkbox', (
@@ -1408,10 +1579,14 @@ void main() {
       find.byKey(ValueKey('task-hierarchy-guide-${childLater.id}')),
       findsOneWidget,
     );
-    expect(find.byTooltip('Move task up'), findsNothing);
+    expect(
+      find.byKey(ValueKey('task-drop-target-${childSooner.id}')),
+      findsNothing,
+    );
+    _expectNoVisibleMoveButtons();
   });
 
-  testWidgets('subtask move buttons keep the same parent and depth', (
+  testWidgets('subtask semantics reorder keeps the same parent and depth', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -1435,8 +1610,27 @@ void main() {
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
 
-    await tester.tap(find.byKey(ValueKey('task-move-up-${secondChild.id}')));
+    final semantics = tester.ensureSemantics();
+    final firstChildSemantics = _reorderSemanticsFinder(
+      'Move task down',
+    ).evaluate().single;
+    expect(
+      _customActionLabels(firstChildSemantics),
+      contains('Move task down'),
+    );
+    final secondChildSemantics = _reorderSemanticsFinder(
+      'Move task up',
+    ).evaluate().single;
+    expect(_customActionLabels(secondChildSemantics), contains('Move task up'));
+    tester.semantics.customAction(
+      _reorderSemanticsFinder('Move task up'),
+      const CustomSemanticsAction(label: 'Move task up'),
+    );
     await tester.pumpAndSettle();
+    semantics.dispose();
+    expect(fake.reorderCalls.last.taskId, secondChild.id);
+    expect(fake.reorderCalls.last.previousTaskId, isNull);
+    expect(fake.reorderCalls.last.nextTaskId, firstChild.id);
 
     final active = await fake.getTasks(listId: listId);
     expect(

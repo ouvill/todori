@@ -10,6 +10,7 @@ class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
+  final List<FakeReorderCall> reorderCalls = [];
   int _listSeq = 0;
   int _taskSeq = 0;
   int _undoSeq = 0;
@@ -327,6 +328,13 @@ class FakeBridgeService implements BridgeService {
     String? previousTaskId,
     String? nextTaskId,
   }) async {
+    reorderCalls.add(
+      FakeReorderCall(
+        taskId: taskId,
+        previousTaskId: previousTaskId,
+        nextTaskId: nextTaskId,
+      ),
+    );
     if (previousTaskId == taskId || nextTaskId == taskId) {
       throw Exception('task cannot be reordered relative to itself');
     }
@@ -493,6 +501,18 @@ class FakeTaskUndoEntry {
   final int createdAt;
   final TaskUndoDto dto;
   bool consumed = false;
+}
+
+class FakeReorderCall {
+  const FakeReorderCall({
+    required this.taskId,
+    required this.previousTaskId,
+    required this.nextTaskId,
+  });
+
+  final String taskId;
+  final String? previousTaskId;
+  final String? nextTaskId;
 }
 
 extension _TaskDtoCopy on TaskDto {

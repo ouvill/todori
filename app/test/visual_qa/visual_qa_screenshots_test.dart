@@ -16,6 +16,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
@@ -123,6 +124,27 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'wont_do_row');
+  });
+
+  testWidgets('task_list_reorder_dragging: manual reorder drag state', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final seed = await _seedRealisticData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox').last);
+    await tester.pumpAndSettle();
+
+    final source = find.text('地図アプリのUI微調整を仕上げる');
+    final target = find.text(seed.parentWithSubtasksTitle);
+    final gesture = await tester.startGesture(tester.getCenter(source));
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+    await gesture.moveTo(tester.getRect(target).bottomCenter.translate(0, -4));
+    await tester.pump();
+    await _screenshot(tester, 'task_list_reorder_dragging');
+    await gesture.up();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('lists: list management screen with two lists', (tester) async {
