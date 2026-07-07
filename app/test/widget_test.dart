@@ -944,6 +944,150 @@ void main() {
     expect(find.text('Closed'), findsNothing);
   });
 
+  testWidgets('leading swipe completes through confirmation and undo flow', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(
+      listId: listId,
+      title: 'Parent swipe task',
+    );
+    await fake.createTask(
+      listId: listId,
+      title: 'Open child task',
+      parentTaskId: parent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
+
+    await tester.drag(
+      find.byKey(ValueKey('task-row-${parent.id}')),
+      const Offset(280, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-swipe-leading-${parent.id}')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Complete parent task?'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    var tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == parent.id).status, 'done');
+    expect(find.text('Task closed.'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == parent.id).status, 'todo');
+  });
+
+  testWidgets(
+    'trailing swipe opens due sheet and updates today tomorrow and picked date',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final task = await fake.createTask(listId: listId, title: 'Swipe due');
+      final today = _todayStartMs();
+      final tomorrow = today + const Duration(days: 1).inMilliseconds;
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await _openListFromHome(tester, 'Inbox');
+
+      await tester.drag(
+        find.byKey(ValueKey('task-row-${task.id}')),
+        const Offset(-280, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Due date'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('due-sheet-today')));
+      await tester.pumpAndSettle();
+      var tasks = await fake.getTasks(listId: listId);
+      expect(tasks.single.dueAt, today);
+
+      await tester.drag(
+        find.byKey(ValueKey('task-row-${task.id}')),
+        const Offset(-280, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
+      await tester.pumpAndSettle();
+      tasks = await fake.getTasks(listId: listId);
+      expect(tasks.single.dueAt, tomorrow);
+
+      await tester.drag(
+        find.byKey(ValueKey('task-row-${task.id}')),
+        const Offset(-280, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('due-sheet-pick-date')));
+      await tester.pumpAndSettle();
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      tasks = await fake.getTasks(listId: listId);
+      expect(tasks.single.dueAt, isNotNull);
+      expect(find.text('Task saved.'), findsOneWidget);
+    },
+  );
+
+  testWidgets('home due swipe moves a task into the tomorrow section', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Home today task',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(ValueKey('task-row-${task.id}')),
+      const Offset(-280, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: listId);
+    expect(
+      tasks.single.dueAt,
+      _todayStartMs() + const Duration(days: 1).inMilliseconds,
+    );
+    expect(
+      tester.getTopLeft(find.text('Home today task')).dy,
+      greaterThan(tester.getTopLeft(find.text('Tomorrow').first).dy),
+    );
+  });
+
   testWidgets('done root row leading control reopens without undo', (
     tester,
   ) async {
@@ -1211,6 +1355,7 @@ void main() {
       find.byKey(ValueKey('task-drop-target-${first.id}')),
       findsOneWidget,
     );
+    expect(find.byKey(ValueKey('task-slidable-${first.id}')), findsOneWidget);
     expect(
       find.byKey(ValueKey('task-drop-target-${second.id}')),
       findsOneWidget,

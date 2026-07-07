@@ -199,6 +199,17 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidateSelf();
   }
 
+  Future<void> updateDueDate(TaskDto task, int dueAt) async {
+    await updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: task.note,
+      priority: task.priority,
+      dueAt: dueAt,
+    );
+    ref.invalidate(homeTasksProvider);
+  }
+
   /// Transitions `taskId` to `status` and refreshes the task list.
   Future<void> setStatus(
     String taskId,
@@ -290,6 +301,20 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     if (status == 'done' || status == 'wont_do') {
       ref.invalidate(latestTaskUndoProvider);
     }
+    ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidateSelf();
+  }
+
+  Future<void> updateDueDate(TaskDto task, int dueAt) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    final updated = await bridge.updateTask(
+      taskId: task.id,
+      title: task.title,
+      note: task.note,
+      priority: task.priority,
+      dueAt: dueAt,
+    );
+    ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidateSelf();
   }

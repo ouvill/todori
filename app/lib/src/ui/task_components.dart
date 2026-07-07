@@ -960,21 +960,36 @@ class AppTaskCheckbox extends StatelessWidget {
       width: 48,
       height: 48,
       child: Center(
-        child: onToggleDone == null
-            ? Icon(
-                isDone
-                    ? Icons.check_circle_outline
-                    : Icons.radio_button_unchecked,
-                color: isDone
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
-              )
-            : Checkbox(
-                key: checkboxKey,
-                value: isDone,
-                shape: const CircleBorder(),
-                onChanged: (_) => onToggleDone?.call(),
-              ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeOutCubic,
+          transitionBuilder: (child, animation) {
+            return ScaleTransition(
+              scale: Tween<double>(begin: 0.88, end: 1).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            );
+          },
+          child: onToggleDone == null
+              ? Icon(
+                  key: ValueKey('task-checkbox-icon-$isDone'),
+                  isDone
+                      ? Icons.check_circle_outline
+                      : Icons.radio_button_unchecked,
+                  color: isDone
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
+                )
+              : KeyedSubtree(
+                  key: ValueKey('task-checkbox-state-$isDone-$checkboxKey'),
+                  child: Checkbox(
+                    key: checkboxKey,
+                    value: isDone,
+                    shape: const CircleBorder(),
+                    onChanged: (_) => onToggleDone?.call(),
+                  ),
+                ),
+        ),
       ),
     );
     final label = tooltip;

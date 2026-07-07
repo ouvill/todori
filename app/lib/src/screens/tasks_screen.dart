@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:todori/src/core/providers.dart';
@@ -124,6 +125,7 @@ class TasksScreen extends ConsumerWidget {
             homeListNameByTaskId: homeListNameByTaskId,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
+            onChangeDueDate: (task, dueAt) => _changeDueDate(ref, task, dueAt),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
                   .read(tasksProvider(listId).notifier)
@@ -196,6 +198,15 @@ class TasksScreen extends ConsumerWidget {
       return ref.read(homeTasksProvider.notifier).setStatus(task.id, 'todo');
     }
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
+  }
+
+  Future<void> _changeDueDate(WidgetRef ref, TaskDto task, int dueAt) {
+    if (isTodaySmartView) {
+      return ref.read(homeTasksProvider.notifier).updateDueDate(task, dueAt);
+    }
+    return ref
+        .read(tasksProvider(task.listId).notifier)
+        .updateDueDate(task, dueAt);
   }
 
   Future<void> _renameList(
@@ -273,6 +284,7 @@ class _TasksBody extends StatefulWidget {
     required this.homeListNameByTaskId,
     required this.onCompleteTask,
     required this.onReopenTask,
+    required this.onChangeDueDate,
     required this.onMoveTask,
   });
 
@@ -287,6 +299,7 @@ class _TasksBody extends StatefulWidget {
   final Map<String, String> homeListNameByTaskId;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
+  final Future<void> Function(TaskDto task, int dueAt) onChangeDueDate;
   final Future<void> Function({
     required TaskDto task,
     required String? previousTaskId,
@@ -399,19 +412,28 @@ class _TasksBodyState extends State<_TasksBody> {
           onTap: () => setState(() => _showCompleted = !_showCompleted),
         ),
       );
-      if (_showCompleted) {
-        for (final node in completedNodes) {
-          addGap(AppSpacing.sm);
-          children.add(
-            _buildTaskRow(
-              context,
-              node,
-              const <TaskDto>[],
-              isCompletedSection: true,
-            ),
-          );
-        }
-      }
+      children.add(
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _showCompleted
+              ? Column(
+                  children: [
+                    for (final node in completedNodes) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      _buildTaskRow(
+                        context,
+                        node,
+                        const <TaskDto>[],
+                        isCompletedSection: true,
+                      ),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
+        ),
+      );
     }
 
     return SafeArea(
@@ -462,33 +484,45 @@ class _TasksBodyState extends State<_TasksBody> {
     final l10n = AppLocalizations.of(context)!;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
-    return AppHomeTaskRow(
-      key: ValueKey('task-row-${task.id}'),
-      checkboxKey: ValueKey('task-done-${task.id}'),
-      title: task.title,
-      isDone: isTaskClosed(task),
-      listName: widget.homeListNameByTaskId[task.id] ?? '',
-      dueLabel: dueLabel,
-      dueTone: switch (section) {
-        _HomeSectionKind.overdue => HomeDueDateTone.overdue,
-        _HomeSectionKind.today => HomeDueDateTone.today,
-        _ => HomeDueDateTone.future,
-      },
-      dueSemanticLabel: section == _HomeSectionKind.overdue
-          ? l10n.taskDueOverdue(dueLabel)
-          : null,
-      priority: task.priority,
-      priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
-      prioritySemanticLabel: l10n.taskPriority(
-        taskPriorityLabel(l10n, task.priority),
+    final row = _TaskEntryMotion(
+      slide: false,
+      child: AppHomeTaskRow(
+        key: ValueKey('task-row-${task.id}'),
+        checkboxKey: ValueKey('task-done-${task.id}'),
+        title: task.title,
+        isDone: isTaskClosed(task),
+        listName: widget.homeListNameByTaskId[task.id] ?? '',
+        dueLabel: dueLabel,
+        dueTone: switch (section) {
+          _HomeSectionKind.overdue => HomeDueDateTone.overdue,
+          _HomeSectionKind.today => HomeDueDateTone.today,
+          _ => HomeDueDateTone.future,
+        },
+        dueSemanticLabel: section == _HomeSectionKind.overdue
+            ? l10n.taskDueOverdue(dueLabel)
+            : null,
+        priority: task.priority,
+        priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+        prioritySemanticLabel: l10n.taskPriority(
+          taskPriorityLabel(l10n, task.priority),
+        ),
+        toggleDoneTooltip: isTaskClosed(task)
+            ? l10n.reopenTaskTooltip
+            : l10n.completeTaskTooltip,
+        onToggleDone: isTaskClosed(task)
+            ? () => widget.onReopenTask(task)
+            : () => widget.onCompleteTask(task),
+        onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
-      toggleDoneTooltip: isTaskClosed(task)
-          ? l10n.reopenTaskTooltip
-          : l10n.completeTaskTooltip,
-      onToggleDone: isTaskClosed(task)
+    );
+    return _TaskSwipeActions(
+      task: task,
+      isClosed: isTaskClosed(task),
+      onLeadingAction: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : () => widget.onCompleteTask(task),
-      onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
+      onChangeDueDate: widget.onChangeDueDate,
+      child: row,
     );
   }
 
@@ -513,46 +547,57 @@ class _TasksBodyState extends State<_TasksBody> {
     final siblingIndex = siblings.indexWhere(
       (sibling) => sibling.id == task.id,
     );
-    final row = AppTaskRow(
-      key: ValueKey('task-row-${task.id}'),
-      checkboxKey: ValueKey('task-done-${task.id}'),
-      title: task.title,
-      isDone: isTaskClosed(task),
-      depth: node.depth,
-      priority: task.priority,
-      priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
-      prioritySemanticLabel: l10n.taskPriority(
-        taskPriorityLabel(l10n, task.priority),
+    final row = _TaskEntryMotion(
+      child: AppTaskRow(
+        key: ValueKey('task-row-${task.id}'),
+        checkboxKey: ValueKey('task-done-${task.id}'),
+        title: task.title,
+        isDone: isTaskClosed(task),
+        depth: node.depth,
+        priority: task.priority,
+        priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+        prioritySemanticLabel: l10n.taskPriority(
+          taskPriorityLabel(l10n, task.priority),
+        ),
+        hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
+        hierarchyGuideHorizontalKey: ValueKey(
+          'task-hierarchy-horizontal-${task.id}',
+        ),
+        isLastSibling: node.isLastSibling,
+        ancestorLineContinuations: node.ancestorLineContinuations,
+        toggleDoneTooltip: isTaskClosed(task)
+            ? l10n.reopenTaskTooltip
+            : l10n.completeTaskTooltip,
+        metadata: taskMetadataItemsFor(
+          l10n: l10n,
+          locale: Localizations.localeOf(context).toLanguageTag(),
+          task: task,
+          stats: stats,
+          includeSubtaskProgress: false,
+          includeWontDoStatus: !widget.isTodaySmartView,
+          listName: widget.isTodaySmartView
+              ? widget.homeListNameByTaskId[task.id]
+              : null,
+        ),
+        framed: framed,
+        onToggleDone: isTaskClosed(task)
+            ? () => widget.onReopenTask(task)
+            : () => widget.onCompleteTask(task),
+        onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
-      hierarchyGuideKey: ValueKey('task-hierarchy-guide-${task.id}'),
-      hierarchyGuideHorizontalKey: ValueKey(
-        'task-hierarchy-horizontal-${task.id}',
-      ),
-      isLastSibling: node.isLastSibling,
-      ancestorLineContinuations: node.ancestorLineContinuations,
-      toggleDoneTooltip: isTaskClosed(task)
-          ? l10n.reopenTaskTooltip
-          : l10n.completeTaskTooltip,
-      metadata: taskMetadataItemsFor(
-        l10n: l10n,
-        locale: Localizations.localeOf(context).toLanguageTag(),
-        task: task,
-        stats: stats,
-        includeSubtaskProgress: false,
-        includeWontDoStatus: !widget.isTodaySmartView,
-        listName: widget.isTodaySmartView
-            ? widget.homeListNameByTaskId[task.id]
-            : null,
-      ),
-      framed: framed,
-      onToggleDone: isTaskClosed(task)
+    );
+    final swipeRow = _TaskSwipeActions(
+      task: task,
+      isClosed: isTaskClosed(task),
+      onLeadingAction: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : () => widget.onCompleteTask(task),
-      onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
+      onChangeDueDate: widget.onChangeDueDate,
+      child: row,
     );
 
     if (!canDragReorder || siblingIndex < 0) {
-      return row;
+      return swipeRow;
     }
 
     return _TaskDragReorderTarget(
@@ -617,9 +662,223 @@ class _TasksBodyState extends State<_TasksBody> {
               );
             }
           : null,
-      child: row,
+      child: swipeRow,
     );
   }
+}
+
+class _TaskSwipeActions extends StatelessWidget {
+  const _TaskSwipeActions({
+    required this.task,
+    required this.isClosed,
+    required this.onLeadingAction,
+    required this.onChangeDueDate,
+    required this.child,
+  });
+
+  final TaskDto task;
+  final bool isClosed;
+  final Future<void> Function() onLeadingAction;
+  final Future<void> Function(TaskDto task, int dueAt) onChangeDueDate;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Slidable(
+      key: ValueKey('task-slidable-${task.id}'),
+      startActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        extentRatio: 0.28,
+        children: [
+          SlidableAction(
+            key: ValueKey('task-swipe-leading-${task.id}'),
+            onPressed: (_) => unawaited(onLeadingAction()),
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            icon: isClosed
+                ? Icons.radio_button_unchecked
+                : Icons.check_circle_outline,
+            label: isClosed
+                ? l10n.reopenTaskMenuItem
+                : l10n.markTaskDoneMenuItem,
+          ),
+        ],
+      ),
+      endActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        extentRatio: 0.34,
+        children: [
+          SlidableAction(
+            key: ValueKey('task-swipe-due-${task.id}'),
+            onPressed: (_) => unawaited(_showDueDateSheet(context)),
+            backgroundColor: colorScheme.secondaryContainer,
+            foregroundColor: colorScheme.onSecondaryContainer,
+            icon: Icons.event_outlined,
+            label: l10n.changeDueDateTooltip,
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Future<void> _showDueDateSheet(BuildContext context) async {
+    final selection = await showModalBottomSheet<_DueDateSelection>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _DueDateSheet(task: task),
+    );
+    if (!context.mounted || selection == null) {
+      return;
+    }
+
+    final int dueAt;
+    switch (selection.kind) {
+      case _DueDateSelectionKind.today:
+        dueAt = homeLocalRangesMs().todayStartMs;
+        break;
+      case _DueDateSelectionKind.tomorrow:
+        dueAt = homeLocalRangesMs().tomorrowStartMs;
+        break;
+      case _DueDateSelectionKind.pickDate:
+        final initialDate = task.dueAt == null
+            ? DateTime.now()
+            : DateTime.fromMillisecondsSinceEpoch(task.dueAt!).toLocal();
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initialDate,
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+        );
+        if (!context.mounted || picked == null) {
+          return;
+        }
+        dueAt = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+        ).millisecondsSinceEpoch;
+        break;
+    }
+    await onChangeDueDate(task, dueAt);
+    if (!context.mounted) {
+      return;
+    }
+    await _showLatestUndoSnackBar(context);
+  }
+}
+
+class _DueDateSheet extends StatelessWidget {
+  const _DueDateSheet({required this.task});
+
+  final TaskDto task;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(l10n.dueDateLabel),
+              subtitle: Text(
+                task.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            ListTile(
+              key: const ValueKey('due-sheet-today'),
+              leading: const Icon(Icons.today_outlined),
+              title: Text(l10n.dueToday),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(const _DueDateSelection(_DueDateSelectionKind.today)),
+            ),
+            ListTile(
+              key: const ValueKey('due-sheet-tomorrow'),
+              leading: const Icon(Icons.event_available_outlined),
+              title: Text(l10n.dueTomorrow),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(const _DueDateSelection(_DueDateSelectionKind.tomorrow)),
+            ),
+            ListTile(
+              key: const ValueKey('due-sheet-pick-date'),
+              leading: const Icon(Icons.calendar_month_outlined),
+              title: Text(l10n.setDueDateButton),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDate)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskEntryMotion extends StatefulWidget {
+  const _TaskEntryMotion({required this.child, this.slide = true});
+
+  final Widget child;
+  final bool slide;
+
+  @override
+  State<_TaskEntryMotion> createState() => _TaskEntryMotionState();
+}
+
+class _TaskEntryMotionState extends State<_TaskEntryMotion>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+    _opacity = Tween<double>(begin: 0, end: 1).animate(curved);
+    _offset = Tween<Offset>(
+      begin: widget.slide ? const Offset(0, 0.04) : Offset.zero,
+      end: Offset.zero,
+    ).animate(curved);
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(position: _offset, child: widget.child),
+    );
+  }
+}
+
+enum _DueDateSelectionKind { today, tomorrow, pickDate }
+
+class _DueDateSelection {
+  const _DueDateSelection(this.kind);
+
+  final _DueDateSelectionKind kind;
 }
 
 class _HomeTasksHeader extends StatelessWidget {
@@ -793,15 +1052,31 @@ class _HomeSection extends StatelessWidget {
             ),
           ),
         ),
-        if (isExpanded && data.rows.isNotEmpty)
-          for (var index = 0; index < data.rows.length; index += 1) ...[
-            data.rows[index],
-            if (index < data.rows.length - 1)
-              Divider(
-                height: AppSpacing.sm,
-                color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-              ),
-          ],
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: isExpanded && data.rows.isNotEmpty
+              ? Column(
+                  children: [
+                    for (
+                      var index = 0;
+                      index < data.rows.length;
+                      index += 1
+                    ) ...[
+                      data.rows[index],
+                      if (index < data.rows.length - 1)
+                        Divider(
+                          height: AppSpacing.sm,
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.45,
+                          ),
+                        ),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
+        ),
       ],
     );
   }

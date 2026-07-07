@@ -161,3 +161,133 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+### 作業日
+
+- 2026-07-07
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/DESIGN_PLAYBOOK.md`
+- `docs/tasks/task-50-drag-drop-reorder.md`
+- `docs/tasks/task-51-home-restructure.md`
+- `docs/tasks/task-52-quick-add-bar.md`
+- `app/pubspec.yaml`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+### 依存追加
+
+- `flutter_slidable: ^4.0.3` を `app/pubspec.yaml` に追加し、`app/pubspec.lock` では `4.0.3` が解決された。
+- `flutter_animate: ^4.5.2` を `app/pubspec.yaml` に追加し、`app/pubspec.lock` では `4.5.2` が解決された。
+- `flutter_animate` の transitive dependency として `flutter_shaders 0.1.3` が `app/pubspec.lock` に追加された。
+- 実行コマンド: `cd app && flutter pub add flutter_slidable:^4.0.3 flutter_animate:^4.5.2`
+- 結果: exit 0
+- 追加理由: task-53 指示書で人間承認済み依存として指定されているため。
+
+### 実装結果
+
+- `app/lib/src/screens/tasks_screen.dart`
+  - `flutter_slidable` の `Slidable` / `ActionPane` / `SlidableAction` でタスク行を包んだ。
+  - leading swipeは未完了行で既存 `onCompleteTask` を呼び、未完了子孫確認ダイアログと完了Undoスナックバーの既存経路に接続した。
+  - Closed行のleading swipeは既存チェックボックス規則に合わせて `onReopenTask` を呼ぶ再オープンにした。
+  - trailing swipeは期日変更シートを開き、Today / Tomorrow / 日付選択を表示する。
+  - Todayは `homeLocalRangesMs().todayStartMs`、Tomorrowは `homeLocalRangesMs().tomorrowStartMs`、日付選択は `showDatePicker` の選択日ローカル0時を `due_at` に設定する。
+  - 削除のスワイプ導線は追加していない。
+- `app/lib/src/core/providers.dart`
+  - `TasksNotifier.updateDueDate` を追加し、既存 `updateTask` 経路で期日だけを更新して `homeTasksProvider` を invalidate する。
+  - `HomeTasksNotifier.updateDueDate` を追加し、既存 bridge `updateTask` 経路で期日だけを更新して該当 `tasksProvider` と `homeTasksProvider` を invalidate する。
+- `app/lib/src/ui/task_components.dart`
+  - `AppTaskCheckbox` に `AnimatedSwitcher` による scale/fade を追加した。
+- l10n
+  - 新規キーは追加していない。
+  - 既存キー `markTaskDoneMenuItem` / `reopenTaskMenuItem` / `changeDueDateTooltip` / `dueDateLabel` / `dueToday` / `dueTomorrow` / `setDueDateButton` を使用した。
+
+### D&D共存
+
+- 通常リストの手動ソートモードでは既存 `_TaskDragReorderTarget` / `LongPressDraggable` を維持し、その child として Slidable 行を渡す構造にした。
+- `task list drag and drop reorders root tasks with boundaries` で、Slidable key の存在と既存 reorder 境界ID呼び出しを確認した。
+
+### モーション一覧
+
+| 対象 | 実装箇所 | duration | curve | 内容 |
+|---|---|---:|---|---|
+| チェック状態表示 | `AppTaskCheckbox` | 160ms | `Curves.easeOutCubic` | `AnimatedSwitcher` で scale 0.88→1 と fade |
+| 通常タスク行挿入 | `_TaskEntryMotion` | 180ms | `Curves.easeOutCubic` | fade 0→1 と slideY 0.04→0 |
+| Homeタスク行挿入 | `_TaskEntryMotion(slide: false)` | 180ms | `Curves.easeOutCubic` | fade 0→1 |
+| 完了行がClosedへ移る時のClosed領域開閉 | `_TasksBodyState` Closed section | 200ms | `Curves.easeOutCubic` | `AnimatedSize` |
+| Homeセクション開閉 | `_HomeSection` | 200ms | `Curves.easeOutCubic` | `AnimatedSize` |
+
+### テスト
+
+- 追加: `leading swipe completes through confirmation and undo flow`
+  - leading swipe actionが未完了子孫確認を表示し、Continue後に完了し、Undoで戻ることを確認。
+- 追加: `trailing swipe opens due sheet and updates today tomorrow and picked date`
+  - trailing swipeで期日変更シートが開き、Today / Tomorrow / 日付選択から `due_at` が更新されることを確認。
+- 追加: `home due swipe moves a task into the tomorrow section`
+  - Homeで期日をTomorrowへ変更し、更新後にタスクがTomorrowセクション位置へ移ることを確認。
+- 更新: `task list drag and drop reorders root tasks with boundaries`
+  - Slidable key が存在する状態でD&D境界ID呼び出しが維持されることを確認。
+- 既存: タップ詳細遷移、チェックボックス操作、Quick Add入力は `flutter test` 全体で実行。
+
+### visual QA
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- 退避PNG数: 35
+- 実装後出力先: `app/build/visual_qa/`
+- 実装後PNG数: 37
+- 追加スクリーンショット:
+  - `app/build/visual_qa/task_swipe_complete_leading.png`
+  - `app/build/visual_qa/task_swipe_due_trailing.png`
+- 上記2枚を `view_image` で目視確認した。
+
+### 実機/Simulator確認
+
+- 実機/Simulatorでの短時間操作は未実施。
+- スワイプ露出は `app/build/visual_qa/task_swipe_complete_leading.png` と `app/build/visual_qa/task_swipe_due_trailing.png` で確認した。
+- スワイプ操作、期日更新、D&D共存は `app/test/widget_test.dart` の widget test で確認した。
+
+### モーション最終受け入れ
+
+- モーションは静止画で検証不能のため、最終受け入れは人間ドッグフーディングで行う。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（82 passed, 1 skipped）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（36 passed）
+- `git diff --check`: exit 0
+
+### 変更ファイル一覧
+
+- `app/pubspec.yaml`
+- `app/pubspec.lock`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `docs/tasks/task-53-swipe-and-motion.md`
+
+### 未解決事項
+
+- 実機/Simulatorでの短時間操作は未実施。モーションの最終受け入れは人間ドッグフーディングで確認する。

@@ -131,6 +131,26 @@ void main() {
     await _screenshot(tester, 'quick_add_list_inputting');
   });
 
+  testWidgets('task_swipe_complete_leading: leading complete action exposed', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.drag(find.text('地図アプリのUI微調整を仕上げる'), const Offset(280, 0));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_swipe_complete_leading');
+  });
+
+  testWidgets('task_swipe_due_trailing: trailing due action exposed', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.drag(find.text('地図アプリのUI微調整を仕上げる'), const Offset(-280, 0));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_swipe_due_trailing');
+  });
+
   testWidgets('wont_do_row: closed section with a wont_do row', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();
