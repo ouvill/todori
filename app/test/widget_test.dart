@@ -614,6 +614,78 @@ void main() {
     expect(find.byTooltip('Mark task done'), findsOneWidget);
   });
 
+  testWidgets('nested task row checkbox toggles done todo done', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(listId: listId, title: 'Parent task');
+    final child = await fake.createTask(
+      listId: listId,
+      title: 'Nested child task',
+      parentTaskId: parent.id,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
+    expect(find.text('Nested child task'), findsOneWidget);
+    expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+
+    await tester.tap(childCheckbox);
+    await tester.pumpAndSettle();
+    var tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
+
+    await tester.tap(childCheckbox);
+    await tester.pumpAndSettle();
+    tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == child.id).status, 'todo');
+
+    await tester.tap(childCheckbox);
+    await tester.pumpAndSettle();
+    tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
+    expect(tasks.singleWhere((task) => task.id == parent.id).status, 'todo');
+  });
+
+  testWidgets('open child under a closed parent remains toggleable', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final parent = await fake.createTask(listId: listId, title: 'Closed root');
+    final child = await fake.createTask(
+      listId: listId,
+      title: 'Open child under closed root',
+      parentTaskId: parent.id,
+    );
+    await fake.setTaskStatus(taskId: parent.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
+    expect(find.text('Open child under closed root'), findsOneWidget);
+    expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+
+    await tester.tap(childCheckbox);
+    await tester.pumpAndSettle();
+
+    final tasks = await fake.getTasks(listId: listId);
+    expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
+    expect(find.text('Complete parent task?'), findsNothing);
+  });
+
   testWidgets('wont_do root row leading control reopens without undo', (
     tester,
   ) async {
@@ -1156,6 +1228,56 @@ void main() {
   });
 
   testWidgets(
+    'detail subtask checkbox toggles without triggering row navigation',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).first.id;
+      final parent = await fake.createTask(
+        listId: listId,
+        title: 'Parent detail task',
+      );
+      final child = await fake.createTask(
+        listId: listId,
+        title: 'Detail child task',
+        parentTaskId: parent.id,
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Parent detail task'));
+      await tester.pumpAndSettle();
+
+      final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
+      expect(find.text('Task detail'), findsOneWidget);
+      expect(find.text('Parent detail task'), findsOneWidget);
+      expect(find.text('Detail child task'), findsOneWidget);
+      expect(tester.widget<Checkbox>(childCheckbox).onChanged, isNotNull);
+
+      await tester.tap(childCheckbox);
+      await tester.pumpAndSettle();
+
+      var tasks = await fake.getTasks(listId: listId);
+      expect(tasks.singleWhere((task) => task.id == child.id).status, 'done');
+      expect(find.text('Parent detail task'), findsOneWidget);
+      expect(find.text('Task closed.'), findsOneWidget);
+
+      await tester.tap(childCheckbox);
+      await tester.pumpAndSettle();
+      tasks = await fake.getTasks(listId: listId);
+      expect(tasks.singleWhere((task) => task.id == child.id).status, 'todo');
+      expect(find.text('Task closed.'), findsOneWidget);
+
+      await tester.tap(find.text('Detail child task'));
+      await tester.pumpAndSettle();
+      expect(find.text('Detail child task'), findsWidgets);
+      expect(find.text('Parent detail task'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'incomplete descendants require confirmation before parent done',
     (tester) async {
       final fake = FakeBridgeService();
@@ -1349,6 +1471,55 @@ void main() {
     expect(active.single.title, 'Buy milk');
   });
 
+  testWidgets('undo snackbar disappears after four seconds', (tester) async {
+    await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    final checkboxFinder = find.byKey(const ValueKey('task-done-task-0'));
+    await tester.tap(checkboxFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task closed.'), findsOneWidget);
+    expect(find.text('Undo'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task closed.'), findsNothing);
+    expect(find.text('Undo'), findsNothing);
+  });
+
+  testWidgets('undo action hides the undo snackbar before success', (
+    tester,
+  ) async {
+    await _pumpAppWithSeedData(
+      tester,
+      listName: 'Inbox',
+      taskTitle: 'Buy milk',
+    );
+
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('task-title-inline-field')),
+      'Buy oat milk',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task saved.'), findsOneWidget);
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Task saved.'), findsNothing);
+    expect(find.text('Undone.'), findsOneWidget);
+  });
+
   testWidgets('empty inline title is discarded without saving', (tester) async {
     final fake = await _pumpAppWithSeedData(
       tester,
@@ -1511,4 +1682,51 @@ void main() {
       expect(find.text('Undo'), findsOneWidget);
     },
   );
+
+  testWidgets('archived list task checkbox toggles like an active list', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createList(name: 'Inbox', sortOrder: 'a0');
+    final archived = await fake.createList(name: 'Archive me', sortOrder: 'a1');
+    final task = await fake.createTask(
+      listId: archived.id,
+      title: 'Archived list task',
+    );
+    await fake.archiveList(listId: archived.id);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+    await tester.tap(find.byTooltip('Show archived lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive me'));
+    await tester.pumpAndSettle();
+
+    final checkboxFinder = find.byKey(ValueKey('task-done-${task.id}'));
+    await tester.tap(checkboxFinder);
+    await tester.pumpAndSettle();
+
+    var archivedTasks = await fake.getTasks(listId: archived.id);
+    expect(
+      archivedTasks.singleWhere((candidate) => candidate.id == task.id).status,
+      'done',
+    );
+    expect(find.text('Archived list task'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(checkboxFinder);
+    await tester.pumpAndSettle();
+
+    archivedTasks = await fake.getTasks(listId: archived.id);
+    expect(
+      archivedTasks.singleWhere((candidate) => candidate.id == task.id).status,
+      'todo',
+    );
+    expect(find.text('Archived list task'), findsOneWidget);
+    expect(find.text('Task closed.'), findsOneWidget);
+  });
 }

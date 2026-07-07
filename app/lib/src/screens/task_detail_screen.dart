@@ -157,6 +157,7 @@ class TaskDetailScreen extends ConsumerWidget {
                         title: subtask.title,
                         isDone: isTaskClosed(subtask),
                         depth: 1,
+                        checkboxKey: ValueKey('task-done-${subtask.id}'),
                         priority: subtask.priority,
                         priorityDotKey: ValueKey(
                           'task-priority-dot-${subtask.id}',
@@ -167,6 +168,9 @@ class TaskDetailScreen extends ConsumerWidget {
                         hierarchyGuideKey: ValueKey(
                           'task-hierarchy-guide-${subtask.id}',
                         ),
+                        toggleDoneTooltip: isTaskClosed(subtask)
+                            ? l10n.reopenTaskTooltip
+                            : l10n.completeTaskTooltip,
                         metadata: taskMetadataItemsFor(
                           l10n: l10n,
                           locale: locale,
@@ -174,6 +178,13 @@ class TaskDetailScreen extends ConsumerWidget {
                           stats: subtaskStats,
                           includeSubtaskProgress: false,
                         ),
+                        onToggleDone: () {
+                          unawaited(
+                            isTaskClosed(subtask)
+                                ? _setTaskStatus(context, ref, subtask, 'todo')
+                                : _setTaskStatus(context, ref, subtask, 'done'),
+                          );
+                        },
                         onTap: () =>
                             context.push('/lists/$listId/tasks/${subtask.id}'),
                       );
@@ -413,8 +424,11 @@ Future<void> _showLatestUndoSnackBar(BuildContext context) async {
 
   final l10n = AppLocalizations.of(context)!;
   final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
+      duration: const Duration(seconds: 4),
+      persist: false,
       content: Text(_undoMessage(l10n, undo.operationType)),
       margin: const EdgeInsets.all(AppSpacing.md),
       action: SnackBarAction(
@@ -433,10 +447,13 @@ Future<void> _applyUndo(
   AppLocalizations l10n,
   String undoId,
 ) async {
+  messenger.hideCurrentSnackBar();
   try {
     await container.read(latestTaskUndoProvider.notifier).undo(undoId);
     messenger.showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 4),
+        persist: false,
         content: Text(l10n.undoSuccessMessage),
         margin: const EdgeInsets.all(AppSpacing.md),
       ),
@@ -444,6 +461,8 @@ Future<void> _applyUndo(
   } catch (error) {
     messenger.showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 4),
+        persist: false,
         content: Text(l10n.undoFailedMessage(error.toString())),
         margin: const EdgeInsets.all(AppSpacing.md),
       ),

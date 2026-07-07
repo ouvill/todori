@@ -455,8 +455,6 @@ class _TasksBodyState extends State<_TasksBody> {
           : null,
       onToggleDone: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
-          : isCompletedSection
-          ? null
           : () => widget.onCompleteTask(task),
       onTap: () => context.push('/lists/${widget.listId}/tasks/${task.id}'),
     );
@@ -863,8 +861,11 @@ Future<void> _showLatestUndoSnackBar(BuildContext context) async {
 
   final l10n = AppLocalizations.of(context)!;
   final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
+      duration: const Duration(seconds: 4),
+      persist: false,
       content: Text(_undoMessage(l10n, undo.operationType)),
       margin: const EdgeInsets.all(AppSpacing.md),
       action: SnackBarAction(
@@ -883,10 +884,13 @@ Future<void> _applyUndo(
   AppLocalizations l10n,
   String undoId,
 ) async {
+  messenger.hideCurrentSnackBar();
   try {
     await container.read(latestTaskUndoProvider.notifier).undo(undoId);
     messenger.showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 4),
+        persist: false,
         content: Text(l10n.undoSuccessMessage),
         margin: const EdgeInsets.all(AppSpacing.md),
       ),
@@ -894,6 +898,8 @@ Future<void> _applyUndo(
   } catch (error) {
     messenger.showSnackBar(
       SnackBar(
+        duration: const Duration(seconds: 4),
+        persist: false,
         content: Text(l10n.undoFailedMessage(error.toString())),
         margin: const EdgeInsets.all(AppSpacing.md),
       ),
