@@ -61,6 +61,8 @@
 | task-41 | 完了 | [task-41-list-nav-simplify.md](./task-41-list-nav-simplify.md) | リスト一覧行を純粋なナビゲーション行へ単純化し、リスト操作を開いたリスト画面右上overflowへ移設する | task-38の完了状態に依存。2026-07-07ドッグフーディング項目1。2026-07-07親レビュー合格 |
 | task-42 | 完了 | [task-42-detail-inline-edit.md](./task-42-detail-inline-edit.md) | 詳細画面の右上編集ボタンと一括編集ダイアログを撤去し、タイトル/ノート/期日/優先度を詳細画面上で直接編集できるようにする | task-18・task-26・task-40・task-41の完了状態に依存。2026-07-07ドッグフーディング項目4。2026-07-07親レビュー合格 |
 | task-43 | 完了 | [task-43-lab-visual-alignment.md](./task-43-lab-visual-alignment.md) | Design LabのToday/タスク一覧構造へ本番を寄せ、Tasks単一パネル化、priority dotメタデータ行移動、chevron撤去、下中央Add task pill、Closed/Archived/チップ高さの既知nitsを整える | task-42の完了状態に依存。2026-07-07親レビューのDesign Lab比較ギャップ分析 |
+| task-44 | 未着手 | [task-44-checkbox-toggle-consistency.md](./task-44-checkbox-toggle-consistency.md) | チェックボックスを一覧・ネスト行・詳細画面Subtasks・アーカイブ済みリスト内で常時トグル化し、Undoスナックバーを4秒自動消滅へ揃える | task-43の完了状態に依存。2026-07-07ドッグフーディング第2回 |
+| task-45 | 未着手 | [task-45-tree-guides-and-detail.md](./task-45-tree-guides-and-detail.md) | 階層ガイドのL字/T字描画、詳細画面Subtasksの子孫ツリー表示、タイトル/ノート編集開始時のがたつき解消を行う | task-43の完了状態に依存。2026-07-07ドッグフーディング第2回。task-44と実装領域が近いため順序実施推奨 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
