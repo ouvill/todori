@@ -13,8 +13,8 @@ use todori_domain::{
     update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, StorageError,
-    TaskRepository, TaskUndoEntry, TaskUndoOperation, TodayTask,
+    open_encrypted, HomeTask, ListRepository, SqliteListRepository, SqliteTaskRepository,
+    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 
 use crate::dev_key_store::FileDeviceKeyStore;
@@ -68,7 +68,7 @@ pub struct TaskUndoDto {
     pub created_at: i64,
 }
 
-pub struct TodayTaskDto {
+pub struct HomeTaskDto {
     pub task: TaskDto,
     pub list_name: String,
 }
@@ -311,15 +311,15 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
     })
 }
 
-pub fn get_today_tasks(
+pub fn get_home_tasks(
     today_start_ms: i64,
-    today_end_ms: i64,
-) -> Result<Vec<TodayTaskDto>, String> {
+    tomorrow_start_ms: i64,
+) -> Result<Vec<HomeTaskDto>, String> {
     with_task_repository(|repository| {
         repository
-            .list_today(today_start_ms, today_end_ms)
+            .list_home(today_start_ms, tomorrow_start_ms)
             .map_err(|error| error.to_string())
-            .map(|tasks| tasks.into_iter().map(today_task_to_dto).collect())
+            .map(|tasks| tasks.into_iter().map(home_task_to_dto).collect())
     })
 }
 
@@ -565,10 +565,10 @@ fn task_to_dto(task: Task) -> TaskDto {
     }
 }
 
-fn today_task_to_dto(today_task: TodayTask) -> TodayTaskDto {
-    TodayTaskDto {
-        task: task_to_dto(today_task.task),
-        list_name: today_task.list_name,
+fn home_task_to_dto(home_task: HomeTask) -> HomeTaskDto {
+    HomeTaskDto {
+        task: task_to_dto(home_task.task),
+        list_name: home_task.list_name,
     }
 }
 

@@ -162,7 +162,7 @@ void main() {
   });
 
   testWidgets(
-    'home shows Today smart view across active lists with list pills',
+    'home shows four due sections across active lists with list labels',
     (tester) async {
       final fake = FakeBridgeService();
       final today = _todayStartMs();
@@ -195,6 +195,11 @@ void main() {
         dueAt: tomorrow,
       );
       await fake.createTask(
+        listId: work.id,
+        title: 'Upcoming work',
+        dueAt: tomorrow + const Duration(days: 1).inMilliseconds,
+      );
+      await fake.createTask(
         listId: archived.id,
         title: 'Archived today',
         dueAt: today,
@@ -205,13 +210,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.text('Overdue'), findsOneWidget);
       expect(find.text('Today'), findsWidgets);
+      expect(find.text('Tomorrow'), findsWidgets);
+      expect(find.text('Upcoming'), findsOneWidget);
       expect(find.text('Inbox due today'), findsOneWidget);
       expect(find.text('Work overdue'), findsOneWidget);
+      expect(find.text('Tomorrow work'), findsOneWidget);
+      expect(find.text('Upcoming work'), findsOneWidget);
       expect(find.text('Inbox'), findsOneWidget);
-      expect(find.text('Work'), findsOneWidget);
+      expect(find.text('Work'), findsWidgets);
       expect(find.text('No due work'), findsNothing);
-      expect(find.text('Tomorrow work'), findsNothing);
       expect(find.text('Archived today'), findsNothing);
       expect(find.byTooltip('List actions'), findsNothing);
       expect(find.byTooltip('Move task up'), findsNothing);
@@ -227,10 +236,17 @@ void main() {
       expect(find.text('Due date'), findsOneWidget);
       await tester.tap(find.text('Due date').last);
       await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Tomorrow').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Tomorrow work'), findsNothing);
+      await tester.tap(find.text('Tomorrow').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Tomorrow work'), findsOneWidget);
     },
   );
 
-  testWidgets('today add task creates in default inbox with today due date', (
+  testWidgets('home add task creates in default inbox with today due date', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -256,7 +272,7 @@ void main() {
     expect(find.text('Inbox'), findsOneWidget);
   });
 
-  testWidgets('lists screen puts Today first and Today row returns home', (
+  testWidgets('lists screen puts Home first and Home row returns home', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -275,7 +291,7 @@ void main() {
     await _openListsScreen(tester);
 
     expect(
-      tester.getTopLeft(find.text('Today').last).dy,
+      tester.getTopLeft(find.text('Home')).dy,
       lessThan(tester.getTopLeft(find.text('Inbox')).dy),
     );
     expect(
@@ -287,14 +303,14 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Archived (1)')).dy),
     );
 
-    await tester.tap(find.text('Today').last);
+    await tester.tap(find.text('Home'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Open lists'), findsOneWidget);
     expect(find.text('Add task'), findsOneWidget);
   });
 
   testWidgets(
-    'today shows due subtask without parent context and normal list omits list pill',
+    'home shows due subtask without parent context and normal list omits list label',
     (tester) async {
       final fake = FakeBridgeService();
       final today = _todayStartMs();
@@ -799,13 +815,6 @@ void main() {
     expect(active.single.status, 'done');
     expect(find.text('Task closed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
-    expect(find.text('Buy milk'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
-    expect(find.text('1 closed'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
-    await tester.pumpAndSettle();
-
     expect(find.text('Buy milk'), findsOneWidget);
     final doneCheckbox = tester.widget<Checkbox>(checkboxFinder);
     expect(doneCheckbox.value, isTrue);
@@ -838,8 +847,6 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
     expect(find.text('Done task'), findsOneWidget);
@@ -924,8 +931,6 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
-    await tester.pumpAndSettle();
 
     final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
     expect(find.text('Open child under closed root'), findsOneWidget);
@@ -955,8 +960,6 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
     expect(find.text('Skipped task'), findsOneWidget);
@@ -1035,8 +1038,6 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Done task'));
     await tester.pumpAndSettle();
@@ -1794,8 +1795,6 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Done detail task'));

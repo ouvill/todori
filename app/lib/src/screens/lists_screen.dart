@@ -122,9 +122,10 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _ListManagementRow(
-                icon: Icons.wb_sunny_outlined,
+                icon: Icons.home_outlined,
                 color: colorScheme.primary,
-                title: l10n.todayTitle,
+                title: l10n.homeTitle,
+                tooltip: l10n.homeSmartListTooltip,
                 onTap: () => context.go('/'),
               ),
               Divider(color: colorScheme.outlineVariant),
@@ -281,18 +282,20 @@ class _ListManagementRow extends StatelessWidget {
     required this.color,
     required this.title,
     required this.onTap,
+    this.tooltip,
   });
 
   final IconData icon;
   final Color color;
   final String title;
   final VoidCallback onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return InkWell(
+    final row = InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -328,6 +331,14 @@ class _ListManagementRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+    final tooltip = this.tooltip;
+    if (tooltip == null) {
+      return row;
+    }
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(label: tooltip, button: true, child: row),
     );
   }
 }

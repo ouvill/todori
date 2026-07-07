@@ -260,11 +260,35 @@ abstract class AppLocalizations {
   /// **'Tasks'**
   String get tasksTitle;
 
+  /// No description provided for @homeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get homeTitle;
+
   /// No description provided for @todayTitle.
   ///
   /// In en, this message translates to:
   /// **'Today'**
   String get todayTitle;
+
+  /// No description provided for @homeOverdueSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Overdue'**
+  String get homeOverdueSectionTitle;
+
+  /// No description provided for @homeTomorrowSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow'**
+  String get homeTomorrowSectionTitle;
+
+  /// No description provided for @homeUpcomingSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Upcoming'**
+  String get homeUpcomingSectionTitle;
 
   /// No description provided for @homeTasksSectionTitle.
   ///
@@ -307,6 +331,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open lists'**
   String get homeListMenuTooltip;
+
+  /// No description provided for @homeSmartListTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Home'**
+  String get homeSmartListTooltip;
+
+  /// No description provided for @showHomeSectionTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show {section} tasks'**
+  String showHomeSectionTooltip(String section);
+
+  /// No description provided for @hideHomeSectionTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide {section} tasks'**
+  String hideHomeSectionTooltip(String section);
 
   /// No description provided for @homeEmptyTitle.
   ///

@@ -1,5 +1,8 @@
 # task-51: Home画面のセクション再構成
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 2026-07-07 Home改善サイクル第1回で、`assets/brand/explorations/home-20260707/` の3案から、A案（TickTick方向）の構造とC案の行表現を組み合わせたハイブリッドを採用することが人間裁定された。あわせて、横幅の外マージン/内paddingを圧縮し、トップ部分を圧縮し、Tomorrow/Upcomingセクションを含める方針が決まった。
@@ -157,3 +160,188 @@
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+### 作業日
+
+2026-07-07
+
+### 読んだファイル
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/DESIGN_PLAYBOOK.md`
+- `assets/brand/explorations/home-20260707/README.md`
+- `docs/tasks/task-47-today-smart-list.md`
+- `docs/tasks/task-50-drag-drop-reorder.md`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/lists_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/rust/src/api.rs`
+- `core/storage/src/lib.rs`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/core_usecases_test.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+### 作業前退避
+
+- `app/build/visual_qa/*.png` を `app/build/visual_qa_before/` へコピーした。
+- 退避先: `app/build/visual_qa_before/`
+
+### Home取得API/DTO
+
+- `core/storage/src/lib.rs` に `HomeTask { task, list_name }` と `TaskRepository::list_home(today_start_ms, tomorrow_start_ms)` を追加した。
+- `list_home` は `tasks` と `lists` をJOINし、`lists.archived_at IS NULL`、`tasks.due_at IS NOT NULL` を条件にする。
+- active行は `tasks.status IN ('todo', 'in_progress')` を返す。
+- closed行は `tasks.status IN ('done', 'wont_do') AND tasks.completed_at >= today_start_ms AND tasks.completed_at < tomorrow_start_ms` を返す。
+- `app/rust/src/api.rs` に `HomeTaskDto { task: TaskDto, list_name: String }` と `get_home_tasks(today_start_ms, tomorrow_start_ms)` を追加した。
+- Dart側 `homeLocalRangesMs()` で端末ローカル日の `todayStartMs` / `tomorrowStartMs` / `dayAfterTomorrowStartMs` を計算した。
+- UI分類条件は、Overdue=`due_at < todayStartMs`、Today=`[todayStartMs, tomorrowStartMs)`、Tomorrow=`[tomorrowStartMs, dayAfterTomorrowStartMs)`、Upcoming=`due_at >= dayAfterTomorrowStartMs`。
+- 期日なしタスクとアーカイブ済みリスト由来タスクはHome取得対象外。
+- Closed行はHomeの各期日セクション内に表示し、別のClosedセクションには分けていない。
+
+### Dart provider / BridgeService / FakeBridgeService
+
+- `BridgeService` / `FrbBridgeService` に `getHomeTasks(todayStartMs, tomorrowStartMs)` を追加した。
+- `TodayTasksNotifier` / `todayTasksProvider` を `HomeTasksNotifier` / `homeTasksProvider` へ置換した。
+- `HomeTasksNotifier.createTask` は既定Inboxを `isDefault == true` で解決し、`dueAt = todayStartMs` で作成する。
+- `FakeBridgeService.getHomeTasks` は実装と同じ抽出条件、list名付き `HomeTaskDto`、Home作成時の `dueAt` を扱う。
+- `task_detail_screen.dart` の更新/削除/ステータス変更後の無効化先を `homeTasksProvider` に変更した。
+
+### Home UI
+
+- `app/lib/src/screens/tasks_screen.dart` でHomeをOverdue / Today / Tomorrow / Upcomingの4セクションへ変更した。
+- 各セクションは見出し、件数バッジ、開閉chevronを持つ。
+- Homeヘッダーは `DateFormat.MMMEd(locale)` によるセリフの日付1行へ変更した。
+- 大型 `Today` 見出しと日付サブ行はHomeヘッダーから削除した。
+- Homeの外側paddingは `AppSpacing.sm`、パネル内paddingは `AppSpacing.sm` に変更した。
+- Home行は `AppHomeTaskRow` を追加し、左からチェック、タイトル+リスト名ラベル、右寄せpriority dot+日付pillの構成にした。
+- Home行の日付pillはborderなしで、Overdue=淡coral、Today=淡sage、Tomorrow/Upcoming=淡amberを使う。
+- リスト名はタイトル下の小さなアイコン+リスト名ラベルとして表示する。
+- 通常リスト画面は既存 `AppTaskRow`、階層ガイド、Closedセクション、D&D経路を維持した。
+
+### Lists画面
+
+- `app/lib/src/screens/lists_screen.dart` の最上部スマートリンクを `Today` から `Home` へ改名した。
+- 表示名は `l10n.homeTitle`、tooltip/semanticsは `l10n.homeSmartListTooltip` にした。
+- タップ先は `/` のまま。
+
+### l10n
+
+- 追加キー:
+  - `homeTitle`
+  - `homeOverdueSectionTitle`
+  - `homeTomorrowSectionTitle`
+  - `homeUpcomingSectionTitle`
+  - `homeSmartListTooltip`
+  - `showHomeSectionTooltip`
+  - `hideHomeSectionTooltip`
+- `flutter gen-l10n` を実行し、`app/lib/src/generated/l10n/` を更新した。
+
+### テスト
+
+- `core/storage/src/lib.rs`
+  - `list_home_filters_due_active_and_closed_tasks_across_active_lists`: 期日超過/今日/明日/Upcoming、期日なし除外、アーカイブ済み除外、当日Closed表示、前日Closed除外を検証。
+- `app/test/core_usecases_test.dart`
+  - `home smart view is exposed through Rust bridge`: FRB経由のHome取得、list名DTO、Tomorrow/Upcoming返却、期日なし/アーカイブ済み除外を検証。
+- `app/test/widget_test.dart`
+  - `home shows four due sections across active lists with list labels`: 4セクション、件数バッジ、折りたたみ、期日なし除外、アーカイブ済み除外、HomeではD&Dなしを検証。
+  - `home add task creates in default inbox with today due date`: Home追加時の既定Inbox作成と今日期日を検証。
+  - `lists screen puts Home first and Home row returns home`: Lists画面Homeリンクの表示順と `/` 遷移を検証。
+  - `home shows due subtask without parent context and normal list omits list label`: Home行のlist名ラベルと通常リストでの非表示を検証。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+  - Home seedをOverdue / Today / Tomorrow / Upcomingが写る期日分布に変更した。
+  - `wont_do_row` は通常リスト画面のClosedセクションを撮影するよう変更した。
+
+### visual QA
+
+- before:
+  - `app/build/visual_qa_before/home_tasks.png`
+  - `app/build/visual_qa_before/home_tasks_ja.png`
+  - `app/build/visual_qa_before/home_tasks_dark.png`
+  - `app/build/visual_qa_before/home_tasks_empty.png`
+  - `app/build/visual_qa_before/lists.png`
+- after:
+  - `app/build/visual_qa/home_tasks.png`
+  - `app/build/visual_qa/home_tasks_ja.png`
+  - `app/build/visual_qa/home_tasks_dark.png`
+  - `app/build/visual_qa/home_tasks_empty.png`
+  - `app/build/visual_qa/lists.png`
+- 目視比較対象:
+  - `app/build/visual_qa/home_tasks.png`
+  - `assets/brand/explorations/home-20260707/home_a_ticktick.png`
+  - `assets/brand/explorations/home-20260707/home_c_polish.png`
+- 目視比較で確認した採用ポイント:
+  - A案のOverdue / Today / Tomorrow / Upcomingセクション構造に合わせ、`home_tasks.png` に4セクション見出しと件数バッジが表示されている。
+  - C案の行表現に合わせ、タイトル下に小さなリスト名ラベル、右側にpriority dot+日付pillが表示されている。
+  - Homeヘッダーは大型Today見出し+日付サブ行ではなく、日付1行になっている。
+  - 横幅は外側padding `AppSpacing.sm`、パネル内padding `AppSpacing.sm`、Home行左右12pxで表示されている。
+
+### FRB再生成
+
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`: 成功
+- 変更された生成物:
+  - `app/lib/src/rust/api.dart`
+  - `app/lib/src/rust/frb_generated.dart`
+  - `app/lib/src/rust/frb_generated.io.dart`
+  - `app/rust/src/frb_generated.rs`
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（76件成功、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（30件成功）
+- `git diff --check`: 成功
+
+### 変更ファイル一覧
+
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/generated/l10n/app_localizations.dart`
+- `app/lib/src/generated/l10n/app_localizations_en.dart`
+- `app/lib/src/generated/l10n/app_localizations_ja.dart`
+- `app/lib/src/rust/api.dart`
+- `app/lib/src/rust/frb_generated.dart`
+- `app/lib/src/rust/frb_generated.io.dart`
+- `app/lib/src/screens/lists_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/rust/src/api.rs`
+- `app/rust/src/frb_generated.rs`
+- `app/test/core_usecases_test.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `core/storage/src/lib.rs`
+- `docs/tasks/task-51-home-restructure.md`
+
+### 未解決事項
+
+なし
+
+### 親レビュー指摘対応（2026-07-07）
+
+- 指摘: Homeの日付見出しが `displaySmall` 派生になっており、NewsreaderセリフではなくInterで描画されていた。
+- 修正: `app/lib/src/screens/tasks_screen.dart` の `_HomeTasksHeader` で、日付見出しを `theme.textTheme.displayMedium` 派生に変更し、テーマ定義済みのNewsreader + `Hiragino Mincho ProN` フォールバックを維持したまま `fontSize: 30`、`FontWeight.w600`、`colorScheme.primary`、`height: 0.95` を適用した。日付フォーマットは `DateFormat.MMMEd(locale)` のまま変更していない。
+- 確認:
+  - `cd app && flutter analyze && flutter test`: 成功（76件成功、visual QA harness 1件skip）
+  - `sh app/tool/visual_qa.sh`: 成功（30件成功）
+  - `app/build/visual_qa/home_tasks.png`: `Tue, Jul 7` がNewsreaderセリフで描画されることを目視確認した。
+  - `app/build/visual_qa/home_tasks_ja.png`: `7月7日(火)` が明朝系フォールバックで描画されることを目視確認した。

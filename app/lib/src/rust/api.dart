@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `today_task_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -78,12 +78,12 @@ Future<TaskDto> reorderTask({
 Future<List<TaskDto>> getTasks({required String listId}) =>
     RustLib.instance.api.crateApiGetTasks(listId: listId);
 
-Future<List<TodayTaskDto>> getTodayTasks({
+Future<List<HomeTaskDto>> getHomeTasks({
   required PlatformInt64 todayStartMs,
-  required PlatformInt64 todayEndMs,
-}) => RustLib.instance.api.crateApiGetTodayTasks(
+  required PlatformInt64 tomorrowStartMs,
+}) => RustLib.instance.api.crateApiGetHomeTasks(
   todayStartMs: todayStartMs,
-  todayEndMs: todayEndMs,
+  tomorrowStartMs: tomorrowStartMs,
 );
 
 Future<int> countTaskDescendants({required String taskId}) =>
@@ -127,6 +127,24 @@ Future<TaskUndoDto?> getLatestTaskUndo() =>
 
 Future<TaskDto> undoTaskOperation({required String undoId}) =>
     RustLib.instance.api.crateApiUndoTaskOperation(undoId: undoId);
+
+class HomeTaskDto {
+  final TaskDto task;
+  final String listName;
+
+  const HomeTaskDto({required this.task, required this.listName});
+
+  @override
+  int get hashCode => task.hashCode ^ listName.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HomeTaskDto &&
+          runtimeType == other.runtimeType &&
+          task == other.task &&
+          listName == other.listName;
+}
 
 class ListDto {
   final String id;
@@ -303,22 +321,4 @@ class TaskUndoDto {
           listId == other.listId &&
           taskTitle == other.taskTitle &&
           createdAt == other.createdAt;
-}
-
-class TodayTaskDto {
-  final TaskDto task;
-  final String listName;
-
-  const TodayTaskDto({required this.task, required this.listName});
-
-  @override
-  int get hashCode => task.hashCode ^ listName.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TodayTaskDto &&
-          runtimeType == other.runtimeType &&
-          task == other.task &&
-          listName == other.listName;
 }

@@ -52,15 +52,17 @@ void main() {
     );
   });
 
-  test('today smart view is exposed through Rust bridge', () async {
+  test('home smart view is exposed through Rust bridge', () async {
     final now = DateTime.now();
     final todayStart = DateTime(
       now.year,
       now.month,
       now.day,
     ).millisecondsSinceEpoch;
-    final todayEnd = todayStart + const Duration(days: 1).inMilliseconds;
-    final todayList = await createList(name: 'Today bridge', sortOrder: 'tb0');
+    final tomorrowStart = todayStart + const Duration(days: 1).inMilliseconds;
+    final dayAfterTomorrowStart =
+        tomorrowStart + const Duration(days: 1).inMilliseconds;
+    final todayList = await createList(name: 'Home bridge', sortOrder: 'tb0');
     final otherList = await createList(name: 'Other bridge', sortOrder: 'tb1');
     final archivedList = await createList(
       name: 'Archived bridge',
@@ -79,10 +81,15 @@ void main() {
       dueAt: todayStart - const Duration(days: 1).inMilliseconds,
     );
     await createTask(listId: todayList.id, title: 'Bridge no due');
-    await createTask(
+    final tomorrow = await createTask(
       listId: todayList.id,
       title: 'Bridge tomorrow',
-      dueAt: todayEnd,
+      dueAt: tomorrowStart,
+    );
+    final upcoming = await createTask(
+      listId: todayList.id,
+      title: 'Bridge upcoming',
+      dueAt: dayAfterTomorrowStart,
     );
     await createTask(
       listId: archivedList.id,
@@ -96,19 +103,20 @@ void main() {
     );
     await setTaskStatus(taskId: closedToday.id, status: 'done');
 
-    final todayTasks = await getTodayTasks(
+    final homeTasks = await getHomeTasks(
       todayStartMs: todayStart,
-      todayEndMs: todayEnd,
+      tomorrowStartMs: tomorrowStart,
     );
-    final byTitle = {for (final entry in todayTasks) entry.task.title: entry};
+    final byTitle = {for (final entry in homeTasks) entry.task.title: entry};
 
     expect(byTitle['Bridge due today']?.task.id, dueToday.id);
-    expect(byTitle['Bridge due today']?.listName, 'Today bridge');
+    expect(byTitle['Bridge due today']?.listName, 'Home bridge');
     expect(byTitle['Bridge overdue']?.task.id, overdue.id);
     expect(byTitle['Bridge overdue']?.listName, 'Other bridge');
+    expect(byTitle['Bridge tomorrow']?.task.id, tomorrow.id);
+    expect(byTitle['Bridge upcoming']?.task.id, upcoming.id);
     expect(byTitle['Bridge closed today']?.task.status, 'done');
     expect(byTitle, isNot(contains('Bridge no due')));
-    expect(byTitle, isNot(contains('Bridge tomorrow')));
     expect(byTitle, isNot(contains('Bridge archived today')));
   });
 

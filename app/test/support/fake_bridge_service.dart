@@ -182,20 +182,18 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<List<TodayTaskDto>> getTodayTasks({
+  Future<List<HomeTaskDto>> getHomeTasks({
     required int todayStartMs,
-    required int todayEndMs,
+    required int tomorrowStartMs,
   }) async {
     final activeListById = {
       for (final list in _lists)
         if (list.archivedAt == null) list.id: list,
     };
-    final todayTasks = _tasks
+    final homeTasks = _tasks
         .where((task) {
           final dueAt = task.dueAt;
-          if (dueAt == null ||
-              dueAt >= todayEndMs ||
-              !activeListById.containsKey(task.listId)) {
+          if (dueAt == null || !activeListById.containsKey(task.listId)) {
             return false;
           }
           if (task.status == 'todo' || task.status == 'in_progress') {
@@ -205,19 +203,19 @@ class FakeBridgeService implements BridgeService {
             final completedAt = task.completedAt;
             return completedAt != null &&
                 completedAt >= todayStartMs &&
-                completedAt < todayEndMs;
+                completedAt < tomorrowStartMs;
           }
           return false;
         })
         .map(
-          (task) => TodayTaskDto(
+          (task) => HomeTaskDto(
             task: task,
             listName: activeListById[task.listId]!.name,
           ),
         )
         .toList();
-    todayTasks.sort((a, b) => _compareTodayTasks(a.task, b.task));
-    return List.unmodifiable(todayTasks);
+    homeTasks.sort((a, b) => _compareHomeTasks(a.task, b.task));
+    return List.unmodifiable(homeTasks);
   }
 
   @override
@@ -562,7 +560,7 @@ int _compareTasks(TaskDto a, TaskDto b) {
   return a.id.compareTo(b.id);
 }
 
-int _compareTodayTasks(TaskDto a, TaskDto b) {
+int _compareHomeTasks(TaskDto a, TaskDto b) {
   final dueAt = a.dueAt!.compareTo(b.dueAt!);
   if (dueAt != 0) {
     return dueAt;

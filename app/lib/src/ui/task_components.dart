@@ -274,6 +274,239 @@ String formatAbsoluteDate(String locale, int epochMs) {
   return DateFormat.yMMMd(locale).format(date);
 }
 
+enum HomeDueDateTone { overdue, today, future }
+
+class AppHomeTaskRow extends StatelessWidget {
+  const AppHomeTaskRow({
+    super.key,
+    required this.title,
+    required this.isDone,
+    required this.listName,
+    required this.dueLabel,
+    required this.dueTone,
+    required this.onTap,
+    this.checkboxKey,
+    this.priority = 0,
+    this.priorityDotKey,
+    this.prioritySemanticLabel,
+    this.dueSemanticLabel,
+    this.toggleDoneTooltip,
+    this.onToggleDone,
+  });
+
+  final String title;
+  final bool isDone;
+  final String listName;
+  final String dueLabel;
+  final HomeDueDateTone dueTone;
+  final Key? checkboxKey;
+  final int priority;
+  final Key? priorityDotKey;
+  final String? prioritySemanticLabel;
+  final String? dueSemanticLabel;
+  final String? toggleDoneTooltip;
+  final VoidCallback? onToggleDone;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(
+            12,
+            AppSpacing.xs,
+            12,
+            AppSpacing.xs,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              AppTaskCheckbox(
+                checkboxKey: checkboxKey,
+                isDone: isDone,
+                tooltip: toggleDoneTooltip,
+                onToggleDone: onToggleDone,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        decoration: isDone ? TextDecoration.lineThrough : null,
+                        color: isDone
+                            ? colorScheme.onSurfaceVariant
+                            : colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    _HomeListLabel(listName: listName, isMuted: isDone),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              _HomeTaskTrailingMetadata(
+                priority: priority,
+                priorityDotKey: priorityDotKey,
+                prioritySemanticLabel: prioritySemanticLabel,
+                isPriorityMuted: isDone,
+                dueLabel: dueLabel,
+                dueSemanticLabel: dueSemanticLabel,
+                dueTone: dueTone,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeListLabel extends StatelessWidget {
+  const _HomeListLabel({required this.listName, required this.isMuted});
+
+  final String listName;
+  final bool isMuted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant.withValues(
+      alpha: isMuted ? 0.72 : 1,
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.list_alt_outlined, size: 14, color: color),
+        const SizedBox(width: AppSpacing.xs),
+        Flexible(
+          child: Text(
+            listName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeTaskTrailingMetadata extends StatelessWidget {
+  const _HomeTaskTrailingMetadata({
+    required this.priority,
+    required this.isPriorityMuted,
+    required this.dueLabel,
+    required this.dueTone,
+    this.priorityDotKey,
+    this.prioritySemanticLabel,
+    this.dueSemanticLabel,
+  });
+
+  final int priority;
+  final bool isPriorityMuted;
+  final String dueLabel;
+  final HomeDueDateTone dueTone;
+  final Key? priorityDotKey;
+  final String? prioritySemanticLabel;
+  final String? dueSemanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 132),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          if (priority > 0) ...[
+            PriorityDot(
+              key: priorityDotKey,
+              priority: priority,
+              semanticLabel: prioritySemanticLabel,
+              isMuted: isPriorityMuted,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+          ],
+          Flexible(
+            child: _HomeDueDatePill(
+              label: dueLabel,
+              semanticLabel: dueSemanticLabel,
+              tone: dueTone,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeDueDatePill extends StatelessWidget {
+  const _HomeDueDatePill({
+    required this.label,
+    required this.tone,
+    this.semanticLabel,
+  });
+
+  final String label;
+  final HomeDueDateTone tone;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (background, foreground) = switch (tone) {
+      HomeDueDateTone.overdue => (
+        _priorityHighCoral.withValues(alpha: 0.14),
+        _priorityHighCoral,
+      ),
+      HomeDueDateTone.today => (
+        _priorityLowSoftSage.withValues(alpha: 0.26),
+        theme.colorScheme.primary,
+      ),
+      HomeDueDateTone.future => (
+        _priorityMediumAmber.withValues(alpha: 0.18),
+        _priorityMediumAmber,
+      ),
+    };
+    final pill = DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(
+          AppSpacing.sm,
+          AppSpacing.xs,
+          AppSpacing.sm,
+          AppSpacing.xs,
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelMedium?.copyWith(color: foreground),
+        ),
+      ),
+    );
+    if (semanticLabel == null) {
+      return pill;
+    }
+    return Semantics(label: semanticLabel, child: pill);
+  }
+}
+
 class AppTaskRow extends StatelessWidget {
   const AppTaskRow({
     super.key,

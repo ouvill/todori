@@ -99,7 +99,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tasksTitle => 'タスク';
 
   @override
+  String get homeTitle => 'ホーム';
+
+  @override
   String get todayTitle => '今日';
+
+  @override
+  String get homeOverdueSectionTitle => '期限超過';
+
+  @override
+  String get homeTomorrowSectionTitle => '明日';
+
+  @override
+  String get homeUpcomingSectionTitle => '今後';
 
   @override
   String get homeTasksSectionTitle => 'タスク';
@@ -125,6 +137,19 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get homeListMenuTooltip => 'リストを開く';
+
+  @override
+  String get homeSmartListTooltip => 'ホームを開く';
+
+  @override
+  String showHomeSectionTooltip(String section) {
+    return '$sectionのタスクを表示';
+  }
+
+  @override
+  String hideHomeSectionTooltip(String section) {
+    return '$sectionのタスクを隠す';
+  }
 
   @override
   String get homeEmptyTitle => 'まずリストを作成';

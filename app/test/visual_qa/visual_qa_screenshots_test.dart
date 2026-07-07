@@ -121,6 +121,10 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'wont_do_row');
@@ -403,7 +407,7 @@ class _SeedData {
 /// realistic, mixed set of tasks and pumps [TodoriApp] on top of them:
 ///
 /// - priorities: high, medium, low, and none all appear.
-/// - due dates: today, tomorrow, overdue, and no-due-date all appear.
+/// - due dates: overdue, today, tomorrow, upcoming, and no-due-date all appear.
 /// - one task is already completed and one is closed as wont_do.
 /// - one task ("Plan the product launch event") has three subtasks, one of
 ///   which is completed.
@@ -425,6 +429,9 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   ).millisecondsSinceEpoch;
   final overdue = atMidnight(
     now.subtract(const Duration(days: 4)),
+  ).millisecondsSinceEpoch;
+  final upcoming = atMidnight(
+    now.add(const Duration(days: 5)),
   ).millisecondsSinceEpoch;
 
   final uiTweaks = await fake.createTask(
@@ -449,7 +456,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: launch.title,
     note: '',
     priority: 2,
-    dueAt: today,
+    dueAt: tomorrow,
   );
   final checklist = await fake.createTask(
     listId: homeListId,
@@ -482,7 +489,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: roadmap.title,
     note: 'Include churn metrics and the hiring plan.',
     priority: 3,
-    dueAt: tomorrow,
+    dueAt: upcoming,
   );
 
   final groceries = await fake.createTask(
@@ -495,6 +502,18 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     note: '',
     priority: 1,
     dueAt: null,
+  );
+
+  final planning = await fake.createTask(
+    listId: homeListId,
+    title: 'Plan July archive review',
+  );
+  await fake.updateTask(
+    taskId: planning.id,
+    title: planning.title,
+    note: '',
+    priority: 1,
+    dueAt: upcoming,
   );
 
   final passport = await fake.createTask(
@@ -515,7 +534,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: standup.title,
     note: '',
     priority: 0,
-    dueAt: today,
+    dueAt: null,
   );
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
 
@@ -528,7 +547,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: skipped.title,
     note: '',
     priority: 0,
-    dueAt: today,
+    dueAt: null,
   );
   await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 

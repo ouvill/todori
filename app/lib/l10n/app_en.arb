@@ -55,7 +55,11 @@
   "deleteButton": "Delete",
   "createButton": "Create",
   "tasksTitle": "Tasks",
+  "homeTitle": "Home",
   "todayTitle": "Today",
+  "homeOverdueSectionTitle": "Overdue",
+  "homeTomorrowSectionTitle": "Tomorrow",
+  "homeUpcomingSectionTitle": "Upcoming",
   "homeTasksSectionTitle": "Tasks",
   "homePendingCount": "{count} pending",
   "@homePendingCount": {
@@ -77,6 +81,23 @@
   "showCompletedTasksTooltip": "Show closed tasks",
   "hideCompletedTasksTooltip": "Hide closed tasks",
   "homeListMenuTooltip": "Open lists",
+  "homeSmartListTooltip": "Open Home",
+  "showHomeSectionTooltip": "Show {section} tasks",
+  "@showHomeSectionTooltip": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      }
+    }
+  },
+  "hideHomeSectionTooltip": "Hide {section} tasks",
+  "@hideHomeSectionTooltip": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      }
+    }
+  },
   "homeEmptyTitle": "Start with a list.",
   "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",
   "homeNewListButton": "New list",

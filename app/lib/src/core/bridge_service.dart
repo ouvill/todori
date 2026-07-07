@@ -45,10 +45,10 @@ abstract class BridgeService {
   /// Returns tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
 
-  /// Returns Today smart-view tasks across active lists.
-  Future<List<rust_api.TodayTaskDto>> getTodayTasks({
+  /// Returns Home smart-view tasks across active lists.
+  Future<List<rust_api.HomeTaskDto>> getHomeTasks({
     required int todayStartMs,
-    required int todayEndMs,
+    required int tomorrowStartMs,
   });
 
   /// Returns the number of tasks in `listId`, including completed tasks.
@@ -143,12 +143,12 @@ class FrbBridgeService implements BridgeService {
       rust_api.getTasks(listId: listId);
 
   @override
-  Future<List<rust_api.TodayTaskDto>> getTodayTasks({
+  Future<List<rust_api.HomeTaskDto>> getHomeTasks({
     required int todayStartMs,
-    required int todayEndMs,
-  }) => rust_api.getTodayTasks(
+    required int tomorrowStartMs,
+  }) => rust_api.getHomeTasks(
     todayStartMs: todayStartMs,
-    todayEndMs: todayEndMs,
+    tomorrowStartMs: tomorrowStartMs,
   );
 
   @override

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/rust/api.dart'
-    show ListDto, TaskDto, TaskUndoDto, TodayTaskDto;
+    show HomeTaskDto, ListDto, TaskDto, TaskUndoDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -133,6 +133,19 @@ DateTime localDayStart(DateTime dateTime) {
   );
 }
 
+({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs})
+homeLocalRangesMs({DateTime? now}) {
+  final todayStart = localDayStart(now ?? DateTime.now());
+  final tomorrowStart = todayStart.add(const Duration(days: 1));
+  return (
+    todayStartMs: todayStart.millisecondsSinceEpoch,
+    tomorrowStartMs: tomorrowStart.millisecondsSinceEpoch,
+    dayAfterTomorrowStartMs: tomorrowStart
+        .add(const Duration(days: 1))
+        .millisecondsSinceEpoch,
+  );
+}
+
 /// Manages the tasks of a single list, keyed by `listId`.
 ///
 /// Invalidate strategy: [createTask], [updateTask], [setStatus] and [deleteTask] each
@@ -236,25 +249,28 @@ final tasksProvider =
       TasksNotifier.new,
     );
 
-/// Manages the cross-list Today smart view.
-class TodayTasksNotifier extends AsyncNotifier<List<TodayTaskDto>> {
+/// Manages the cross-list Home smart view.
+class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
   @override
-  FutureOr<List<TodayTaskDto>> build() {
-    final range = todayLocalRangeMs();
+  FutureOr<List<HomeTaskDto>> build() {
+    final range = homeLocalRangesMs();
     return ref
         .watch(bridgeServiceProvider)
-        .getTodayTasks(todayStartMs: range.startMs, todayEndMs: range.endMs);
+        .getHomeTasks(
+          todayStartMs: range.todayStartMs,
+          tomorrowStartMs: range.tomorrowStartMs,
+        );
   }
 
   Future<void> createTask(String title) async {
     final lists = await ref.read(listsProvider.future);
     final defaultList = lists.singleWhere((list) => list.isDefault);
     final bridge = ref.read(bridgeServiceProvider);
-    final range = todayLocalRangeMs();
+    final range = homeLocalRangesMs();
     await bridge.createTask(
       listId: defaultList.id,
       title: title,
-      dueAt: range.startMs,
+      dueAt: range.todayStartMs,
     );
     ref.invalidate(tasksProvider(defaultList.id));
     ref.invalidateSelf();
@@ -279,9 +295,9 @@ class TodayTasksNotifier extends AsyncNotifier<List<TodayTaskDto>> {
   }
 }
 
-final todayTasksProvider =
-    AsyncNotifierProvider<TodayTasksNotifier, List<TodayTaskDto>>(
-      TodayTasksNotifier.new,
+final homeTasksProvider =
+    AsyncNotifierProvider<HomeTasksNotifier, List<HomeTaskDto>>(
+      HomeTasksNotifier.new,
     );
 
 /// Identifies a single task for [taskDetailProvider]: the containing list id
@@ -321,7 +337,7 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .read(bridgeServiceProvider)
         .undoTaskOperation(undoId: undoId);
     ref.invalidate(tasksProvider(restored.listId));
-    ref.invalidate(todayTasksProvider);
+    ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;

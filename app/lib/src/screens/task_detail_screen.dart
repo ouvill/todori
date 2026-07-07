@@ -315,7 +315,7 @@ class TaskDetailScreen extends ConsumerWidget {
             priority: nextPriority,
             dueAt: nextDueAt,
           );
-      ref.invalidate(todayTasksProvider);
+      ref.invalidate(homeTasksProvider);
       if (context.mounted) {
         await _showLatestUndoSnackBar(context);
       }
@@ -390,7 +390,7 @@ class TaskDetailScreen extends ConsumerWidget {
       return;
     }
     await ref.read(tasksProvider(listId).notifier).deleteTask(task.id);
-    ref.invalidate(todayTasksProvider);
+    ref.invalidate(homeTasksProvider);
     if (context.mounted) {
       context.pop();
     }
@@ -427,7 +427,7 @@ class TaskDetailScreen extends ConsumerWidget {
     }
 
     await ref.read(tasksProvider(listId).notifier).setStatus(task.id, status);
-    ref.invalidate(todayTasksProvider);
+    ref.invalidate(homeTasksProvider);
     if (context.mounted && (status == 'done' || status == 'wont_do')) {
       await _showLatestUndoSnackBar(context);
     }

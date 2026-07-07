@@ -43,20 +43,19 @@ class TasksScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final AsyncValue<List<TaskDto>> tasksAsync;
-    final Map<String, String> todayListNameByTaskId;
+    final Map<String, String> homeListNameByTaskId;
     if (isTodaySmartView) {
-      final todayTasksAsync = ref.watch(todayTasksProvider);
-      todayListNameByTaskId = {
-        for (final todayTask in todayTasksAsync.value ?? const <TodayTaskDto>[])
-          todayTask.task.id: todayTask.listName,
+      final homeTasksAsync = ref.watch(homeTasksProvider);
+      homeListNameByTaskId = {
+        for (final homeTask in homeTasksAsync.value ?? const <HomeTaskDto>[])
+          homeTask.task.id: homeTask.listName,
       };
-      tasksAsync = todayTasksAsync.whenData(
-        (todayTasks) => todayTasks
-            .map((todayTask) => todayTask.task)
-            .toList(growable: false),
+      tasksAsync = homeTasksAsync.whenData(
+        (homeTasks) =>
+            homeTasks.map((homeTask) => homeTask.task).toList(growable: false),
       );
     } else {
-      todayListNameByTaskId = const {};
+      homeListNameByTaskId = const {};
       tasksAsync = ref.watch(tasksProvider(listId));
     }
     final listsAsync = ref.watch(listsProvider);
@@ -122,7 +121,7 @@ class TasksScreen extends ConsumerWidget {
             sortMode: effectiveSortMode,
             sortMenu: sortMenu,
             listActionsMenu: listActionsMenu,
-            todayListNameByTaskId: todayListNameByTaskId,
+            homeListNameByTaskId: homeListNameByTaskId,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
@@ -185,7 +184,7 @@ class TasksScreen extends ConsumerWidget {
       return;
     }
     if (isTodaySmartView) {
-      await ref.read(todayTasksProvider.notifier).createTask(title.trim());
+      await ref.read(homeTasksProvider.notifier).createTask(title.trim());
       return;
     }
     await ref.read(tasksProvider(listId).notifier).createTask(title.trim());
@@ -218,7 +217,7 @@ class TasksScreen extends ConsumerWidget {
     }
 
     if (isTodaySmartView) {
-      await ref.read(todayTasksProvider.notifier).setStatus(task.id, 'done');
+      await ref.read(homeTasksProvider.notifier).setStatus(task.id, 'done');
     } else {
       await ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'done');
     }
@@ -230,7 +229,7 @@ class TasksScreen extends ConsumerWidget {
 
   Future<void> _reopenTask(WidgetRef ref, TaskDto task) {
     if (isTodaySmartView) {
-      return ref.read(todayTasksProvider.notifier).setStatus(task.id, 'todo');
+      return ref.read(homeTasksProvider.notifier).setStatus(task.id, 'todo');
     }
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
   }
@@ -307,7 +306,7 @@ class _TasksBody extends StatefulWidget {
     required this.sortMode,
     required this.sortMenu,
     required this.listActionsMenu,
-    required this.todayListNameByTaskId,
+    required this.homeListNameByTaskId,
     required this.onCompleteTask,
     required this.onReopenTask,
     required this.onMoveTask,
@@ -321,7 +320,7 @@ class _TasksBody extends StatefulWidget {
   final TaskSortMode sortMode;
   final Widget sortMenu;
   final Widget? listActionsMenu;
-  final Map<String, String> todayListNameByTaskId;
+  final Map<String, String> homeListNameByTaskId;
   final Future<void> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function({
@@ -337,6 +336,7 @@ class _TasksBody extends StatefulWidget {
 
 class _TasksBodyState extends State<_TasksBody> {
   bool _showCompleted = false;
+  final Set<_HomeSectionKind> _collapsedHomeSections = {};
   _TaskDropIndicator? _dropIndicator;
 
   @override
@@ -350,6 +350,39 @@ class _TasksBodyState extends State<_TasksBody> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    if (widget.isHome) {
+      final children = <Widget>[
+        _HomeTasksHeader(
+          sortMenu: widget.sortMenu,
+          listActionsMenu: widget.listActionsMenu,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _HomeSectionsPanel(
+          sections: _buildHomeSections(context),
+          collapsedSections: _collapsedHomeSections,
+          onToggleSection: (section) {
+            setState(() {
+              if (!_collapsedHomeSections.add(section)) {
+                _collapsedHomeSections.remove(section);
+              }
+            });
+          },
+        ),
+      ];
+      return SafeArea(
+        top: true,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.sm,
+            AppSpacing.md,
+            AppSpacing.sm,
+            AppSpacing.xl * 3,
+          ),
+          children: children,
+        ),
+      );
+    }
+
     final roots = buildTaskTree(widget.tasks, sortMode: widget.sortMode);
     final activeRoots = roots
         .where((node) => !isTaskClosed(node.task))
@@ -378,16 +411,6 @@ class _TasksBodyState extends State<_TasksBody> {
       }
     }
 
-    if (widget.isHome) {
-      children.add(
-        _HomeTasksHeader(
-          sortMenu: widget.sortMenu,
-          listActionsMenu: widget.listActionsMenu,
-        ),
-      );
-      addGap(AppSpacing.xl);
-    }
-
     final activeRows = [
       for (final node in activeNodes)
         _buildTaskRow(
@@ -398,18 +421,9 @@ class _TasksBodyState extends State<_TasksBody> {
           framed: !widget.isHome,
         ),
     ];
-    if (widget.isHome) {
-      children.add(
-        _TasksPanel(
-          pendingCount: _pendingCount(widget.tasks),
-          rows: activeRows,
-        ),
-      );
-    } else {
-      for (final row in activeRows) {
-        addGap(AppSpacing.sm);
-        children.add(row);
-      }
+    for (final row in activeRows) {
+      addGap(AppSpacing.sm);
+      children.add(row);
     }
 
     if (completedNodes.isNotEmpty) {
@@ -437,16 +451,80 @@ class _TasksBodyState extends State<_TasksBody> {
     }
 
     return SafeArea(
-      top: widget.isHome,
+      top: false,
       child: ListView(
         padding: EdgeInsets.fromLTRB(
           AppSpacing.md,
-          widget.isHome ? AppSpacing.md : AppSpacing.md,
+          AppSpacing.md,
           AppSpacing.md,
           AppSpacing.xl * 3,
         ),
         children: children,
       ),
+    );
+  }
+
+  List<_HomeSectionData> _buildHomeSections(BuildContext context) {
+    final ranges = homeLocalRangesMs();
+    final sortedTasks = [...widget.tasks]
+      ..sort((a, b) => compareTasksForSortMode(a, b, widget.sortMode));
+    final bySection = {
+      for (final section in _HomeSectionKind.values) section: <TaskDto>[],
+    };
+    for (final task in sortedTasks) {
+      final dueAt = task.dueAt;
+      if (dueAt == null) {
+        continue;
+      }
+      bySection[_homeSectionForDueAt(dueAt, ranges)]!.add(task);
+    }
+    return [
+      for (final section in _HomeSectionKind.values)
+        _HomeSectionData(
+          kind: section,
+          rows: [
+            for (final task in bySection[section]!)
+              _buildHomeTaskRow(context, task, section),
+          ],
+        ),
+    ];
+  }
+
+  Widget _buildHomeTaskRow(
+    BuildContext context,
+    TaskDto task,
+    _HomeSectionKind section,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
+    return AppHomeTaskRow(
+      key: ValueKey('task-row-${task.id}'),
+      checkboxKey: ValueKey('task-done-${task.id}'),
+      title: task.title,
+      isDone: isTaskClosed(task),
+      listName: widget.homeListNameByTaskId[task.id] ?? '',
+      dueLabel: dueLabel,
+      dueTone: switch (section) {
+        _HomeSectionKind.overdue => HomeDueDateTone.overdue,
+        _HomeSectionKind.today => HomeDueDateTone.today,
+        _ => HomeDueDateTone.future,
+      },
+      dueSemanticLabel: section == _HomeSectionKind.overdue
+          ? l10n.taskDueOverdue(dueLabel)
+          : null,
+      priority: task.priority,
+      priorityDotKey: ValueKey('task-priority-dot-${task.id}'),
+      prioritySemanticLabel: l10n.taskPriority(
+        taskPriorityLabel(l10n, task.priority),
+      ),
+      toggleDoneTooltip: isTaskClosed(task)
+          ? l10n.reopenTaskTooltip
+          : l10n.completeTaskTooltip,
+      onToggleDone: isTaskClosed(task)
+          ? () => widget.onReopenTask(task)
+          : () => widget.onCompleteTask(task),
+      onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
     );
   }
 
@@ -499,7 +577,7 @@ class _TasksBodyState extends State<_TasksBody> {
         includeSubtaskProgress: false,
         includeWontDoStatus: !widget.isTodaySmartView,
         listName: widget.isTodaySmartView
-            ? widget.todayListNameByTaskId[task.id]
+            ? widget.homeListNameByTaskId[task.id]
             : null,
       ),
       framed: framed,
@@ -595,7 +673,7 @@ class _HomeTasksHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final today = DateFormat('EEE, MMM d', locale).format(DateTime.now());
+    final today = DateFormat.MMMEd(locale).format(DateTime.now());
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -612,22 +690,16 @@ class _HomeTasksHeader extends StatelessWidget {
             sortMenu,
           ],
         ),
-        const SizedBox(height: AppSpacing.xl),
-        Text(
-          l10n.todayTitle,
-          // Newsreader display serif, kept to a moderate w600 weight per
-          // the design direction (avoid a too-heavy serif+bold combination).
-          style: theme.textTheme.displayMedium?.copyWith(
-            color: colorScheme.primary,
-            fontWeight: FontWeight.w600,
-            height: 0.95,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.md),
         Text(
           today,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
+          // Derive from displayMedium so the Newsreader family and Japanese
+          // serif fallback from the theme stay attached to the Home heading.
+          style: theme.textTheme.displayMedium?.copyWith(
+            color: colorScheme.primary,
+            fontSize: 30,
+            fontWeight: FontWeight.w600,
+            height: 0.95,
           ),
         ),
       ],
@@ -635,17 +707,29 @@ class _HomeTasksHeader extends StatelessWidget {
   }
 }
 
-class _TasksPanel extends StatelessWidget {
-  const _TasksPanel({required this.pendingCount, required this.rows});
+enum _HomeSectionKind { overdue, today, tomorrow, upcoming }
 
-  final int pendingCount;
+class _HomeSectionData {
+  const _HomeSectionData({required this.kind, required this.rows});
+
+  final _HomeSectionKind kind;
   final List<Widget> rows;
+}
+
+class _HomeSectionsPanel extends StatelessWidget {
+  const _HomeSectionsPanel({
+    required this.sections,
+    required this.collapsedSections,
+    required this.onToggleSection,
+  });
+
+  final List<_HomeSectionData> sections;
+  final Set<_HomeSectionKind> collapsedSections;
+  final ValueChanged<_HomeSectionKind> onToggleSection;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.surface.withValues(alpha: 0.9),
@@ -653,33 +737,21 @@ class _TasksPanel extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.all(AppSpacing.sm),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.homeTasksSectionTitle,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: colorScheme.primary,
-                    ),
-                  ),
+            for (var index = 0; index < sections.length; index += 1) ...[
+              _HomeSection(
+                data: sections[index],
+                isExpanded: !collapsedSections.contains(sections[index].kind),
+                onToggle: () => onToggleSection(sections[index].kind),
+              ),
+              if (index < sections.length - 1)
+                Divider(
+                  height: AppSpacing.md,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.6),
                 ),
-                _PendingBadge(count: pendingCount),
-              ],
-            ),
-            if (rows.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.sm),
-              for (var index = 0; index < rows.length; index += 1) ...[
-                rows[index],
-                if (index < rows.length - 1)
-                  Divider(
-                    height: AppSpacing.md,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.6),
-                  ),
-              ],
             ],
           ],
         ),
@@ -688,21 +760,102 @@ class _TasksPanel extends StatelessWidget {
   }
 }
 
-class _PendingBadge extends StatelessWidget {
-  const _PendingBadge({required this.count});
+class _HomeSection extends StatelessWidget {
+  const _HomeSection({
+    required this.data,
+    required this.isExpanded,
+    required this.onToggle,
+  });
 
-  final int count;
+  final _HomeSectionData data;
+  final bool isExpanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final title = _homeSectionTitle(l10n, data.kind);
+    final tooltip = isExpanded
+        ? l10n.hideHomeSectionTooltip(title)
+        : l10n.showHomeSectionTooltip(title);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Tooltip(
+          message: tooltip,
+          child: Semantics(
+            button: true,
+            label: tooltip,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xs,
+                  vertical: AppSpacing.xs,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: data.kind == _HomeSectionKind.overdue
+                              ? const Color(0xFFE8755A)
+                              : colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    _HomeCountBadge(count: data.rows.length),
+                    const SizedBox(width: AppSpacing.xs),
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Center(
+                        child: Icon(
+                          isExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (isExpanded && data.rows.isNotEmpty)
+          for (var index = 0; index < data.rows.length; index += 1) ...[
+            data.rows[index],
+            if (index < data.rows.length - 1)
+              Divider(
+                height: AppSpacing.sm,
+                color: colorScheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+          ],
+      ],
+    );
+  }
+}
+
+class _HomeCountBadge extends StatelessWidget {
+  const _HomeCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
+        color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -710,7 +863,7 @@ class _PendingBadge extends StatelessWidget {
           vertical: AppSpacing.xs,
         ),
         child: Text(
-          l10n.homePendingCount(count),
+          '$count',
           style: theme.textTheme.labelLarge?.copyWith(
             color: colorScheme.onSurfaceVariant,
           ),
@@ -718,6 +871,31 @@ class _PendingBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+String _homeSectionTitle(AppLocalizations l10n, _HomeSectionKind section) {
+  return switch (section) {
+    _HomeSectionKind.overdue => l10n.homeOverdueSectionTitle,
+    _HomeSectionKind.today => l10n.todayTitle,
+    _HomeSectionKind.tomorrow => l10n.homeTomorrowSectionTitle,
+    _HomeSectionKind.upcoming => l10n.homeUpcomingSectionTitle,
+  };
+}
+
+_HomeSectionKind _homeSectionForDueAt(
+  int dueAt,
+  ({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs}) ranges,
+) {
+  if (dueAt < ranges.todayStartMs) {
+    return _HomeSectionKind.overdue;
+  }
+  if (dueAt < ranges.tomorrowStartMs) {
+    return _HomeSectionKind.today;
+  }
+  if (dueAt < ranges.dayAfterTomorrowStartMs) {
+    return _HomeSectionKind.tomorrow;
+  }
+  return _HomeSectionKind.upcoming;
 }
 
 class _CompletedSectionHeader extends StatelessWidget {
@@ -865,15 +1043,6 @@ ListDto? _findList(String listId, List<ListDto>? lists) {
     }
   }
   return null;
-}
-
-int _pendingCount(List<TaskDto> tasks) {
-  final activeRoots = buildTaskTree(
-    tasks,
-  ).where((node) => !isTaskClosed(node.task));
-  return flattenTaskTree(
-    activeRoots.toList(growable: false),
-  ).where((node) => !isTaskClosed(node.task)).length;
 }
 
 bool _hasClosedRoot(List<TaskDto> tasks) {

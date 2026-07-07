@@ -96,10 +96,10 @@ pub struct TaskUndoEntry {
     pub consumed_at: Option<i64>,
 }
 
-/// A task returned by the cross-list Today smart view, annotated with its
+/// A task returned by the cross-list Home smart view, annotated with its
 /// containing list name for UI context.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TodayTask {
+pub struct HomeTask {
     pub task: Task,
     pub list_name: String,
 }
@@ -112,11 +112,11 @@ pub trait TaskRepository {
     fn insert(&mut self, task: Task) -> Result<(), StorageError>;
     fn update(&mut self, task: Task) -> Result<(), StorageError>;
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError>;
-    fn list_today(
+    fn list_home(
         &self,
         today_start_ms: i64,
-        today_end_ms: i64,
-    ) -> Result<Vec<TodayTask>, StorageError>;
+        tomorrow_start_ms: i64,
+    ) -> Result<Vec<HomeTask>, StorageError>;
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
 }
@@ -579,11 +579,11 @@ impl TaskRepository for SqliteTaskRepository {
         Ok(tasks)
     }
 
-    fn list_today(
+    fn list_home(
         &self,
         today_start_ms: i64,
-        today_end_ms: i64,
-    ) -> Result<Vec<TodayTask>, StorageError> {
+        tomorrow_start_ms: i64,
+    ) -> Result<Vec<HomeTask>, StorageError> {
         let mut statement = self.connection.prepare(
             "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
                     tasks.note, tasks.status, tasks.priority, tasks.due_at,
@@ -595,7 +595,6 @@ impl TaskRepository for SqliteTaskRepository {
              INNER JOIN lists ON lists.id = tasks.list_id
              WHERE lists.archived_at IS NULL
                AND tasks.due_at IS NOT NULL
-               AND tasks.due_at < ?2
                AND (
                    tasks.status IN ('todo', 'in_progress')
                    OR (
@@ -607,7 +606,7 @@ impl TaskRepository for SqliteTaskRepository {
              ORDER BY tasks.due_at ASC, tasks.sort_order ASC, tasks.id ASC",
         )?;
         let tasks = statement
-            .query_map(params![today_start_ms, today_end_ms], row_to_today_task)?
+            .query_map(params![today_start_ms, tomorrow_start_ms], row_to_home_task)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(tasks)
@@ -1002,8 +1001,8 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
-fn row_to_today_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodayTask> {
-    Ok(TodayTask {
+fn row_to_home_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<HomeTask> {
+    Ok(HomeTask {
         task: row_to_task(row)?,
         list_name: row.get(17)?,
     })
@@ -1885,12 +1884,13 @@ mod tests {
     }
 
     #[test]
-    fn list_today_filters_due_active_and_closed_tasks_across_active_lists() {
+    fn list_home_filters_due_active_and_closed_tasks_across_active_lists() {
         let file = NamedTempFile::new().unwrap();
         let today_start = 1_800_000_000_000;
-        let today_end = today_start + 86_400_000;
+        let tomorrow_start = today_start + 86_400_000;
         let overdue = today_start - 86_400_000;
-        let tomorrow = today_end + 1_000;
+        let tomorrow = tomorrow_start + 1_000;
+        let upcoming = tomorrow_start + 86_400_000 + 1_000;
 
         let inbox = new_list("Inbox".to_string(), "a0".to_string(), today_start).unwrap();
         let work = new_list("Work".to_string(), "a1".to_string(), today_start).unwrap();
@@ -1924,11 +1924,20 @@ mod tests {
         )
         .unwrap();
         tomorrow_task.due_at = Some(tomorrow);
+        let mut upcoming_task = new_task(
+            inbox.id,
+            None,
+            "Upcoming".to_string(),
+            "a2".to_string(),
+            today_start,
+        )
+        .unwrap();
+        upcoming_task.due_at = Some(upcoming);
         let no_due = new_task(
             inbox.id,
             None,
             "No due".to_string(),
-            "a2".to_string(),
+            "a3".to_string(),
             today_start,
         )
         .unwrap();
@@ -1999,6 +2008,7 @@ mod tests {
             due_today,
             overdue_task,
             tomorrow_task,
+            upcoming_task,
             no_due,
             archived_task,
             closed_today,
@@ -2008,25 +2018,33 @@ mod tests {
             task_repository.insert(task).unwrap();
         }
 
-        let today_tasks = task_repository.list_today(today_start, today_end).unwrap();
-        let titles = today_tasks
+        let home_tasks = task_repository
+            .list_home(today_start, tomorrow_start)
+            .unwrap();
+        let titles = home_tasks
             .iter()
             .map(|entry| entry.task.title.as_str())
             .collect::<Vec<_>>();
 
         assert_eq!(
             titles,
-            vec!["Overdue", "Due today", "Closed today", "Wont do today"]
+            vec![
+                "Overdue",
+                "Due today",
+                "Closed today",
+                "Wont do today",
+                "Tomorrow",
+                "Upcoming"
+            ]
         );
         assert_eq!(
-            today_tasks
+            home_tasks
                 .iter()
                 .find(|entry| entry.task.title == "Overdue")
                 .unwrap()
                 .list_name,
             "Work"
         );
-        assert!(!titles.contains(&"Tomorrow"));
         assert!(!titles.contains(&"No due"));
         assert!(!titles.contains(&"Archived"));
         assert!(!titles.contains(&"Closed yesterday"));

@@ -34,6 +34,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto dco_decode_box_autoadd_task_undo_dto(dynamic raw);
 
   @protected
+  HomeTaskDto dco_decode_home_task_dto(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -43,6 +46,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ListDto dco_decode_list_dto(dynamic raw);
 
   @protected
+  List<HomeTaskDto> dco_decode_list_home_task_dto(dynamic raw);
+
+  @protected
   List<ListDto> dco_decode_list_list_dto(dynamic raw);
 
   @protected
@@ -50,9 +56,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TaskDto> dco_decode_list_task_dto(dynamic raw);
-
-  @protected
-  List<TodayTaskDto> dco_decode_list_today_task_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -71,9 +74,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskUndoDto dco_decode_task_undo_dto(dynamic raw);
-
-  @protected
-  TodayTaskDto dco_decode_today_task_dto(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -99,6 +99,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  HomeTaskDto sse_decode_home_task_dto(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -108,6 +111,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ListDto sse_decode_list_dto(SseDeserializer deserializer);
 
   @protected
+  List<HomeTaskDto> sse_decode_list_home_task_dto(SseDeserializer deserializer);
+
+  @protected
   List<ListDto> sse_decode_list_list_dto(SseDeserializer deserializer);
 
   @protected
@@ -115,11 +121,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TaskDto> sse_decode_list_task_dto(SseDeserializer deserializer);
-
-  @protected
-  List<TodayTaskDto> sse_decode_list_today_task_dto(
-    SseDeserializer deserializer,
-  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -140,9 +141,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskUndoDto sse_decode_task_undo_dto(SseDeserializer deserializer);
-
-  @protected
-  TodayTaskDto sse_decode_today_task_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -172,6 +170,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_home_task_dto(HomeTaskDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -179,6 +180,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_dto(ListDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_home_task_dto(
+    List<HomeTaskDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_list_dto(List<ListDto> self, SseSerializer serializer);
@@ -191,12 +198,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_task_dto(List<TaskDto> self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_list_today_task_dto(
-    List<TodayTaskDto> self,
-    SseSerializer serializer,
-  );
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -221,9 +222,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_task_undo_dto(TaskUndoDto self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_today_task_dto(TodayTaskDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
