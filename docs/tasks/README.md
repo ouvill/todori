@@ -64,7 +64,7 @@
 | task-44 | 完了 | [task-44-checkbox-toggle-consistency.md](./task-44-checkbox-toggle-consistency.md) | チェックボックスを一覧・ネスト行・詳細画面Subtasks・アーカイブ済みリスト内で常時トグル化し、Undoスナックバーを4秒自動消滅へ揃える | task-43の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 | task-45 | 完了 | [task-45-tree-guides-and-detail.md](./task-45-tree-guides-and-detail.md) | 階層ガイドのL字/T字描画、詳細画面Subtasksの子孫ツリー表示、タイトル/ノート編集開始時のがたつき解消を行う | task-43の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 | task-46 | 完了 | [task-46-default-inbox.md](./task-46-default-inbox.md) | 既定Inboxの自動プロビジョニングと永続識別。v3マイグレーションで `lists.is_default` を追加し、sort_order先頭ルールを置き換える | task-36〜45の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
-| task-47 | 未着手 | [task-47-today-smart-list.md](./task-47-today-smart-list.md) | Todayスマートリスト化。Todayを全リスト横断（アーカイブ済みリスト除外）の期日今日+期日超過ビューへ移行し、Add taskは既定Inboxへ今日期日で作成する | task-46の完了状態に依存。2026-07-07ドッグフーディング第2回 |
+| task-47 | 完了 | [task-47-today-smart-list.md](./task-47-today-smart-list.md) | Todayスマートリスト化。Todayを全リスト横断（アーカイブ済みリスト除外）の期日今日+期日超過ビューへ移行し、Add taskは既定Inboxへ今日期日で作成する | task-46の完了状態に依存。2026-07-07ドッグフーディング第2回。2026-07-07親レビュー合格 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
