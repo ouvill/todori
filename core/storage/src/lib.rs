@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 4;
+pub const LATEST_SCHEMA_VERSION: i32 = 5;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -28,6 +28,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 4,
         name: "rebuild_tasks_fts_triggers",
         apply: rebuild_tasks_fts_triggers,
+    },
+    Migration {
+        target_version: 5,
+        name: "add_settings",
+        apply: add_settings,
     },
 ];
 
@@ -141,6 +146,14 @@ pub trait ListRepository {
     fn ensure_default_list(&mut self, name: String, now_ms: i64) -> Result<List, StorageError>;
     fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError>;
     fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError>;
+}
+
+/// 設定値の永続化を担うリポジトリ。
+///
+/// 値はSQLCipher暗号化DB内に保存し、キーごとの最新値だけを保持する。
+pub trait SettingsRepository {
+    fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError>;
+    fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -326,6 +339,16 @@ fn rebuild_tasks_fts_triggers(transaction: &Transaction<'_>) -> rusqlite::Result
          BEGIN
              DELETE FROM tasks_fts WHERE task_id = OLD.id;
          END;",
+    )
+}
+
+fn add_settings(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE settings (
+             key TEXT PRIMARY KEY,
+             value TEXT NOT NULL,
+             updated_at INTEGER NOT NULL
+         );",
     )
 }
 
@@ -1072,6 +1095,48 @@ impl ListRepository for SqliteListRepository {
     }
 }
 
+/// SQLite-backed implementation of [`SettingsRepository`].
+pub struct SqliteSettingsRepository {
+    connection: Connection,
+}
+
+impl SqliteSettingsRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl SettingsRepository for SqliteSettingsRepository {
+    fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT value
+                 FROM settings
+                 WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), StorageError> {
+        self.connection.execute(
+            "INSERT INTO settings (key, value, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET
+                 value = excluded.value,
+                 updated_at = excluded.updated_at",
+            params![key, value, updated_at],
+        )?;
+        Ok(())
+    }
+}
+
 fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
     let id: String = row.get(0)?;
     let org_id: Option<String> = row.get(4)?;
@@ -1310,6 +1375,15 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v4_database(path: &Path, key: &[u8; 32]) {
+        create_v3_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        rebuild_tasks_fts_triggers(&transaction).unwrap();
+        set_user_version(&transaction, 4).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -1361,6 +1435,25 @@ mod tests {
 
     fn is_default_column(connection: &Connection) -> Option<(String, i32, String)> {
         list_column(connection, "is_default")
+    }
+
+    fn setting_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
+        let mut statement = connection.prepare("PRAGMA table_info(settings)").unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .find_map(|(name, column_type, not_null)| {
+                (name == target).then_some((column_type, not_null))
+            })
     }
 
     fn count_archived_at_columns(connection: &Connection) -> usize {
@@ -1687,10 +1780,22 @@ mod tests {
             is_default_column(&connection),
             Some(("INTEGER".to_string(), 1, "0".to_string()))
         );
+        assert_eq!(
+            setting_column(&connection, "key"),
+            Some(("TEXT".to_string(), 0))
+        );
+        assert_eq!(
+            setting_column(&connection, "value"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            setting_column(&connection, "updated_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
     }
 
     #[test]
-    fn v1_database_migrates_to_v3_and_preserves_existing_data() {
+    fn v1_database_migrates_to_latest_and_preserves_existing_data() {
         let file = NamedTempFile::new().unwrap();
         create_baseline_v1_database(file.path(), &KEY, true);
 
@@ -1721,6 +1826,10 @@ mod tests {
         assert_eq!(
             is_default_column(&connection),
             Some(("INTEGER".to_string(), 1, "0".to_string()))
+        );
+        assert_eq!(
+            setting_column(&connection, "value"),
+            Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
             SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
@@ -1763,8 +1872,90 @@ mod tests {
             Some(("INTEGER".to_string(), 1, "0".to_string()))
         );
         assert_eq!(
+            setting_column(&connection, "updated_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
             SqliteListRepository::new(connection).get(list.id).unwrap(),
             list
+        );
+    }
+
+    #[test]
+    fn sqlite_settings_repository_returns_none_for_missing_key() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteSettingsRepository::new(connection);
+
+        assert_eq!(repository.get_setting("ui_mode").unwrap(), None);
+    }
+
+    #[test]
+    fn sqlite_settings_repository_roundtrips_setting() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSettingsRepository::new(connection);
+
+        repository
+            .set_setting("ui_mode", "simple", 1_799_000_000_000)
+            .unwrap();
+
+        assert_eq!(
+            repository.get_setting("ui_mode").unwrap(),
+            Some("simple".to_string())
+        );
+    }
+
+    #[test]
+    fn sqlite_settings_repository_overwrites_existing_setting() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSettingsRepository::new(connection);
+
+        repository
+            .set_setting("ui_mode", "simple", 1_799_000_000_000)
+            .unwrap();
+        repository
+            .set_setting("ui_mode", "advanced", 1_799_000_001_000)
+            .unwrap();
+
+        assert_eq!(
+            repository.get_setting("ui_mode").unwrap(),
+            Some("advanced".to_string())
+        );
+        let updated_at: i64 = repository
+            .connection()
+            .query_row(
+                "SELECT updated_at FROM settings WHERE key = ?1",
+                ["ui_mode"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(updated_at, 1_799_000_001_000);
+    }
+
+    #[test]
+    fn v4_database_migrates_to_v5_and_adds_settings_table() {
+        let file = NamedTempFile::new().unwrap();
+        create_v4_database(file.path(), &KEY);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            setting_column(&connection, "key"),
+            Some(("TEXT".to_string(), 0))
+        );
+        assert_eq!(
+            setting_column(&connection, "value"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            setting_column(&connection, "updated_at"),
+            Some(("INTEGER".to_string(), 1))
         );
     }
 

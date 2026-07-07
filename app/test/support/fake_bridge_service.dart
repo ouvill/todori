@@ -10,6 +10,7 @@ class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
+  final Map<String, String> _settings = {};
   final List<FakeReorderCall> reorderCalls = [];
   int _listSeq = 0;
   int _taskSeq = 0;
@@ -430,6 +431,16 @@ class FakeBridgeService implements BridgeService {
     entry.consumed = true;
     _tasks[index] = entry.before;
     return entry.before;
+  }
+
+  @override
+  Future<String?> getSetting({required String key}) async {
+    return _settings[key];
+  }
+
+  @override
+  Future<void> setSetting({required String key, required String value}) async {
+    _settings[key] = value;
   }
 
   TaskDto _reorderBoundary(String boundaryId, TaskDto task) {

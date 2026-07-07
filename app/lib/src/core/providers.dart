@@ -16,6 +16,69 @@ final bridgeServiceProvider = Provider<BridgeService>(
   (ref) => const FrbBridgeService(),
 );
 
+const uiModeSettingKey = 'ui_mode';
+const defaultUiMode = 'simple';
+const simpleUiMode = 'simple';
+const advancedUiMode = 'advanced';
+const _supportedUiModes = {simpleUiMode, advancedUiMode};
+
+/// Thin typed entry point for app settings stored in the encrypted local DB.
+///
+/// The generic key/value methods are kept for future notification, theme, and
+/// account settings. Feature-specific helpers own defaults and validation.
+class SettingsRepository {
+  SettingsRepository(this._bridge);
+
+  final BridgeService _bridge;
+
+  Future<String?> getSetting(String key) {
+    return _bridge.getSetting(key: key);
+  }
+
+  Future<void> setSetting(String key, String value) {
+    return _bridge.setSetting(key: key, value: value);
+  }
+
+  Future<String> getUiMode() async {
+    final persisted = await getSetting(uiModeSettingKey);
+    if (persisted == null || !_supportedUiModes.contains(persisted)) {
+      return defaultUiMode;
+    }
+    return persisted;
+  }
+
+  Future<void> setUiMode(String uiMode) {
+    if (!_supportedUiModes.contains(uiMode)) {
+      throw ArgumentError.value(uiMode, 'uiMode', 'unsupported UI mode');
+    }
+    return setSetting(uiModeSettingKey, uiMode);
+  }
+}
+
+final settingsRepositoryProvider = Provider<SettingsRepository>(
+  (ref) => SettingsRepository(ref.watch(bridgeServiceProvider)),
+);
+
+/// Provides the reserved F-01 UI mode setting.
+///
+/// Phase 1 exposes only the persistence port. Selection/onboarding UI is a
+/// Phase 3 concern.
+class UiModeNotifier extends AsyncNotifier<String> {
+  @override
+  FutureOr<String> build() {
+    return ref.watch(settingsRepositoryProvider).getUiMode();
+  }
+
+  Future<void> setUiMode(String uiMode) async {
+    await ref.read(settingsRepositoryProvider).setUiMode(uiMode);
+    ref.invalidateSelf();
+  }
+}
+
+final uiModeProvider = AsyncNotifierProvider<UiModeNotifier, String>(
+  UiModeNotifier.new,
+);
+
 /// Generates a placeholder, monotonically-appending sort order string (e.g.
 /// `a0`, `a1`, `a2`, ...) for newly created lists in this UI skeleton.
 ///

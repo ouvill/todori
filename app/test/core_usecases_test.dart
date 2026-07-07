@@ -490,4 +490,15 @@ void main() {
     await undoTaskOperation(undoId: consumedUndo.id);
     expect(() => undoTaskOperation(undoId: consumedUndo.id), throwsA(anything));
   });
+
+  test('settings roundtrip through Rust bridge', () async {
+    const key = 'ui_mode';
+
+    await setSetting(key: key, value: 'simple');
+    expect(await getSetting(key: key), 'simple');
+
+    await setSetting(key: key, value: 'advanced');
+    expect(await getSetting(key: key), 'advanced');
+    expect(await getSetting(key: 'missing_bridge_setting'), isNull);
+  });
 }

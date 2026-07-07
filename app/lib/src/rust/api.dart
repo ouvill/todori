@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_settings_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -132,6 +132,12 @@ Future<TaskUndoDto?> getLatestTaskUndo() =>
 
 Future<TaskDto> undoTaskOperation({required String undoId}) =>
     RustLib.instance.api.crateApiUndoTaskOperation(undoId: undoId);
+
+Future<String?> getSetting({required String key}) =>
+    RustLib.instance.api.crateApiGetSetting(key: key);
+
+Future<void> setSetting({required String key, required String value}) =>
+    RustLib.instance.api.crateApiSetSetting(key: key, value: value);
 
 class HomeTaskDto {
   final TaskDto task;

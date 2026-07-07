@@ -92,6 +92,12 @@ abstract class BridgeService {
 
   /// Applies a task undo entry.
   Future<rust_api.TaskDto> undoTaskOperation({required String undoId});
+
+  /// Returns a persisted app setting, if it exists.
+  Future<String?> getSetting({required String key});
+
+  /// Persists an app setting.
+  Future<void> setSetting({required String key, required String value});
 }
 
 /// Default [BridgeService] implementation backed by the FRB-generated
@@ -214,4 +220,12 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<rust_api.TaskDto> undoTaskOperation({required String undoId}) =>
       rust_api.undoTaskOperation(undoId: undoId);
+
+  @override
+  Future<String?> getSetting({required String key}) =>
+      rust_api.getSetting(key: key);
+
+  @override
+  Future<void> setSetting({required String key, required String value}) =>
+      rust_api.setSetting(key: key, value: value);
 }

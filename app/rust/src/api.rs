@@ -13,8 +13,9 @@ use todori_domain::{
     update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, HomeTask, ListRepository, SqliteListRepository, SqliteTaskRepository,
-    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
+    open_encrypted, HomeTask, ListRepository, SettingsRepository, SqliteListRepository,
+    SqliteSettingsRepository, SqliteTaskRepository, StorageError, TaskRepository, TaskUndoEntry,
+    TaskUndoOperation,
 };
 
 use crate::dev_key_store::FileDeviceKeyStore;
@@ -457,6 +458,23 @@ pub fn undo_task_operation(undo_id: String) -> Result<TaskDto, String> {
     })
 }
 
+pub fn get_setting(key: String) -> Result<Option<String>, String> {
+    with_settings_repository(|repository| {
+        repository
+            .get_setting(&key)
+            .map_err(|error| error.to_string())
+    })
+}
+
+pub fn set_setting(key: String, value: String) -> Result<(), String> {
+    let now_ms = now_ms()?;
+    with_settings_repository(|repository| {
+        repository
+            .set_setting(&key, &value, now_ms)
+            .map_err(|error| error.to_string())
+    })
+}
+
 /// Opens a fresh SQLCipher connection per API call.
 ///
 /// `rusqlite::Connection` is not `Sync`, so the bridge does not keep a shared
@@ -480,6 +498,18 @@ fn with_list_repository<T>(
     let state = core_state()?;
     let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
     let mut repository = SqliteListRepository::new(connection);
+    f(&mut repository)
+}
+
+/// Opens a fresh SQLCipher connection per settings API call.
+///
+/// See `with_task_repository` for the connection management tradeoff.
+fn with_settings_repository<T>(
+    f: impl FnOnce(&mut SqliteSettingsRepository) -> Result<T, String>,
+) -> Result<T, String> {
+    let state = core_state()?;
+    let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
+    let mut repository = SqliteSettingsRepository::new(connection);
     f(&mut repository)
 }
 
