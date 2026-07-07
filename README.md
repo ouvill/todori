@@ -45,6 +45,10 @@ cargo test --workspace
 cd app && flutter run
 ```
 
+### 性能検証メモ
+
+Phase 1の性能検証は `docs/tasks/task-67-performance-verification.md` に記録している。task-67で判明したHome 7140件相当の全行Widget構築ボトルネックは、task-68でHome/TasksのSliver遅延構築へ引き継ぎ、解消済み。
+
 ## License
 
 Todoriは [`LICENSE`](./LICENSE)（AGPL-3.0-only）のもとで公開されています。コントリビューションには [`CONTRIBUTING.md`](./CONTRIBUTING.md) および [`CLA.md`](./CLA.md)（Contributor License Agreement）への同意が必要です。

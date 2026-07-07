@@ -119,6 +119,22 @@ Future<void> _openListFromHome(WidgetTester tester, String listName) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _scrollUntilVisible(
+  WidgetTester tester,
+  Finder finder, {
+  double delta = 220,
+}) async {
+  if (finder.evaluate().isNotEmpty) {
+    return;
+  }
+  await tester.scrollUntilVisible(
+    finder,
+    delta,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void _expectTaskTitleOrder(WidgetTester tester, List<String> titles) {
   final tops = [
     for (final title in titles) tester.getTopLeft(find.text(title)).dy,
@@ -395,12 +411,22 @@ void main() {
       expect(find.text('Today'), findsWidgets);
       expect(find.text('Tomorrow'), findsWidgets);
       expect(find.text('Upcoming'), findsOneWidget);
-      expect(find.text('Inbox due today'), findsOneWidget);
+      await _scrollUntilVisible(tester, find.text('Work overdue'));
       expect(find.text('Work overdue'), findsOneWidget);
-      expect(find.text('Tomorrow work'), findsOneWidget);
-      expect(find.text('Upcoming work'), findsOneWidget);
+      expect(
+        tester
+            .getRect(find.byKey(ValueKey('task-done-${workOverdue.id}')))
+            .left,
+        closeTo(tester.getTopLeft(find.text('Overdue')).dx, 0.75),
+      );
+      await _scrollUntilVisible(tester, find.text('Inbox due today'));
+      expect(find.text('Inbox due today'), findsOneWidget);
       expect(find.text('Inbox'), findsOneWidget);
+      await _scrollUntilVisible(tester, find.text('Tomorrow work'));
+      expect(find.text('Tomorrow work'), findsOneWidget);
       expect(find.text('Work'), findsWidgets);
+      await _scrollUntilVisible(tester, find.text('Upcoming work'));
+      expect(find.text('Upcoming work'), findsOneWidget);
       expect(find.text('No due work'), findsNothing);
       expect(find.text('Archived today'), findsNothing);
       expect(find.byTooltip('List actions'), findsNothing);
@@ -410,13 +436,12 @@ void main() {
         find.byKey(ValueKey('task-drop-target-${inboxDueToday.id}')),
         findsNothing,
       );
-      expect(
-        tester
-            .getRect(find.byKey(ValueKey('task-done-${workOverdue.id}')))
-            .left,
-        closeTo(tester.getTopLeft(find.text('Overdue')).dx, 0.75),
-      );
 
+      await _scrollUntilVisible(
+        tester,
+        find.byTooltip('Sort tasks'),
+        delta: -220,
+      );
       await tester.tap(find.byTooltip('Sort tasks'));
       await tester.pumpAndSettle();
       expect(find.text('Manual'), findsNothing);
@@ -1010,19 +1035,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(ValueKey('task-row-${parent.id}')), findsOneWidget);
-    for (final task in [
-      noDueChild,
-      sameSectionChild,
-      prunedGrandchild,
-      otherListChild,
-      earlierChild,
-      overdueGrandchild,
-      closedChild,
-    ]) {
-      expect(find.byKey(ValueKey('task-row-${task.id}')), findsOneWidget);
-      expect(find.byKey(ValueKey('task-done-${task.id}')), findsOneWidget);
-    }
-    expect(find.text('No due date'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('home-section-count-today')),
@@ -1044,6 +1056,31 @@ void main() {
       ),
       findsOneWidget,
     );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${overdueGrandchild.id}')),
+    );
+    expect(
+      find.byKey(ValueKey('task-row-${overdueGrandchild.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('task-done-${overdueGrandchild.id}')),
+      findsOneWidget,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${parent.id}')),
+    );
+    for (final task in [noDueChild, sameSectionChild, prunedGrandchild]) {
+      await _scrollUntilVisible(
+        tester,
+        find.byKey(ValueKey('task-row-${task.id}')),
+      );
+      expect(find.byKey(ValueKey('task-row-${task.id}')), findsOneWidget);
+      expect(find.byKey(ValueKey('task-done-${task.id}')), findsOneWidget);
+    }
+    expect(find.text('No due date'), findsNothing);
     expect(
       find.descendant(
         of: find.byKey(ValueKey('task-row-${noDueChild.id}')),
@@ -1065,12 +1102,42 @@ void main() {
       ),
       findsOneWidget,
     );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${otherListChild.id}')),
+    );
+    for (final task in [otherListChild, closedChild]) {
+      expect(find.byKey(ValueKey('task-row-${task.id}')), findsOneWidget);
+      expect(find.byKey(ValueKey('task-done-${task.id}')), findsOneWidget);
+    }
+    expect(
+      find.descendant(
+        of: find.byKey(ValueKey('task-row-${otherListChild.id}')),
+        matching: find.text('Work'),
+      ),
+      findsOneWidget,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${earlierChild.id}')),
+      delta: -220,
+    );
+    expect(find.byKey(ValueKey('task-row-${earlierChild.id}')), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('task-done-${earlierChild.id}')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byKey(ValueKey('task-row-${earlierChild.id}')),
         matching: find.text('Home parent with children'),
       ),
       findsOneWidget,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${overdueGrandchild.id}')),
+      delta: -220,
     );
     expect(
       find.descendant(
@@ -1079,21 +1146,41 @@ void main() {
       ),
       findsOneWidget,
     );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${noDueChild.id}')),
+    );
     expect(
       find.byKey(ValueKey('task-hierarchy-guide-${noDueChild.id}')),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('task-drop-target-${noDueChild.id}')),
+      findsNothing,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${sameSectionChild.id}')),
     );
     expect(
       find.byKey(ValueKey('task-hierarchy-guide-${sameSectionChild.id}')),
       findsNothing,
     );
     expect(
+      find.byKey(ValueKey('task-done-${sameSectionChild.id}')),
+      findsOneWidget,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${prunedGrandchild.id}')),
+    );
+    expect(
       find.byKey(ValueKey('task-hierarchy-guide-${prunedGrandchild.id}')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(ValueKey('task-drop-target-${noDueChild.id}')),
-      findsNothing,
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${closedChild.id}')),
     );
     expect(
       tester
@@ -1102,16 +1189,21 @@ void main() {
           ?.decoration,
       TextDecoration.none,
     );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${overdueGrandchild.id}')),
+      delta: -220,
+    );
     expect(
       find.byKey(ValueKey('task-done-${overdueGrandchild.id}')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(ValueKey('task-done-${sameSectionChild.id}')),
-      findsOneWidget,
-    );
 
     final semantics = tester.ensureSemantics();
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${sameSectionChild.id}')),
+    );
     expect(
       find.semantics.byPredicate(
         (node) => node.getSemanticsData().label.contains(
@@ -1119,6 +1211,11 @@ void main() {
         ),
       ),
       findsWidgets,
+    );
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${overdueGrandchild.id}')),
+      delta: -220,
     );
     expect(
       find.semantics.byPredicate(
@@ -1130,17 +1227,31 @@ void main() {
     );
     semantics.dispose();
 
+    await _scrollUntilVisible(tester, find.text('Tomorrow'));
     await tester.tap(find.text('Tomorrow').first);
     await tester.pumpAndSettle();
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-row-${earlierChild.id}')),
+      delta: -220,
+    );
     expect(find.byKey(ValueKey('task-row-${earlierChild.id}')), findsOneWidget);
     expect(find.text('No due child under home parent'), findsNothing);
     expect(find.byKey(ValueKey('task-row-${parent.id}')), findsNothing);
+    await _scrollUntilVisible(
+      tester,
+      find.text('Overdue grandchild standalone'),
+      delta: -220,
+    );
     expect(find.text('Overdue grandchild standalone'), findsOneWidget);
+    await _scrollUntilVisible(tester, find.text('Tomorrow'));
     await tester.tap(find.text('Tomorrow').first);
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('No due child under home parent'));
-    await tester.pumpAndSettle();
+    await _scrollUntilVisible(
+      tester,
+      find.text('No due child under home parent'),
+    );
     await tester.drag(
       find.byKey(ValueKey('task-row-${noDueChild.id}')),
       const Offset(-280, 0),

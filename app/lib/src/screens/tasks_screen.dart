@@ -380,58 +380,90 @@ class _TasksBodyState extends State<_TasksBody> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     if (widget.isHome) {
-      final closedRows = _buildHomeClosedRows(context);
-      final children = <Widget>[
-        _HomeTasksHeader(
-          sortMenu: widget.sortMenu,
-          listActionsMenu: widget.listActionsMenu,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _HomeSectionsPanel(
-          sections: _buildHomeSections(context),
-          collapsedSections: _collapsedHomeSections,
-          onToggleSection: (section) {
-            setState(() {
-              if (!_collapsedHomeSections.add(section)) {
-                _collapsedHomeSections.remove(section);
-              }
-            });
-          },
-        ),
-        if (closedRows.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _CompletedSectionHeader(
-            count: closedRows.length,
-            isExpanded: _showCompleted,
-            onTap: () => setState(() => _showCompleted = !_showCompleted),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: _showCompleted
-                ? Column(
-                    children: [
-                      for (final row in closedRows) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        row,
-                      ],
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ];
+      final closedRows = _buildHomeClosedRowData();
       return SafeArea(
         top: true,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.sm,
-            AppSpacing.md,
-            AppSpacing.sm,
-            AppSpacing.xl * 3,
-          ),
-          children: children,
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.xl * 3,
+              ),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: _HomeTasksHeader(
+                      sortMenu: widget.sortMenu,
+                      listActionsMenu: widget.listActionsMenu,
+                    ),
+                  ),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: AppSpacing.md),
+                  ),
+                  _HomeSectionsPanelSliver(
+                    sections: _buildHomeSections(),
+                    collapsedSections: _collapsedHomeSections,
+                    onToggleSection: (section) {
+                      setState(() {
+                        if (!_collapsedHomeSections.add(section)) {
+                          _collapsedHomeSections.remove(section);
+                        }
+                      });
+                    },
+                    rowBuilder: (context, row, section) => _buildHomeTaskRow(
+                      context,
+                      row.node,
+                      section,
+                      rootListId: row.rootListId,
+                      parentTaskName: row.parentTaskName,
+                      countsInSection: row.countsInSection,
+                      pendingExitPhase: row.pendingExitPhase,
+                      disableInteractions: row.disableInteractions,
+                      isPendingRoot: row.isPendingRoot,
+                    ),
+                  ),
+                  if (closedRows.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: AppSpacing.lg),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _CompletedSectionHeader(
+                        count: closedRows.length,
+                        isExpanded: _showCompleted,
+                        onTap: () =>
+                            setState(() => _showCompleted = !_showCompleted),
+                      ),
+                    ),
+                    if (_showCompleted)
+                      SliverList.builder(
+                        itemCount: closedRows.length * 2,
+                        itemBuilder: (context, index) {
+                          if (index.isEven) {
+                            return const SizedBox(height: AppSpacing.sm);
+                          }
+                          final row = closedRows[index ~/ 2];
+                          return _buildHomeTaskRow(
+                            context,
+                            row.node,
+                            row.node.task.dueAt == null
+                                ? _HomeSectionKind.today
+                                : _homeSectionForDueAt(
+                                    row.node.task.dueAt!,
+                                    homeLocalRangesMs(),
+                                  ),
+                            rootListId: row.rootListId,
+                            parentTaskName: row.parentTaskName,
+                          );
+                        },
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -449,7 +481,7 @@ class _TasksBodyState extends State<_TasksBody> {
         .map((node) => node.task)
         .where((task) => !isTaskClosed(task))
         .toList(growable: false);
-    if (!widget.isHome && activeNodes.isEmpty && completedNodes.isEmpty) {
+    if (activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
         icon: LucideIcons.listChecks300,
         title: l10n.tasksEmptyTitle,
@@ -457,76 +489,71 @@ class _TasksBodyState extends State<_TasksBody> {
       );
     }
 
-    final children = <Widget>[];
-    void addGap(double height) {
-      if (children.isNotEmpty) {
-        children.add(SizedBox(height: height));
-      }
-    }
-
-    final activeRows = [
-      for (final node in activeNodes)
-        _buildTaskRow(
-          context,
-          node,
-          activeReorderTasks,
-          isCompletedSection: false,
-          framed: !widget.isHome,
-        ),
-    ];
-    for (final row in activeRows) {
-      addGap(AppSpacing.sm);
-      children.add(row);
-    }
-
-    if (completedNodes.isNotEmpty) {
-      addGap(activeNodes.isEmpty ? AppSpacing.sm : AppSpacing.lg);
-      children.add(
-        _CompletedSectionHeader(
-          count: completedRoots.length,
-          isExpanded: _showCompleted,
-          onTap: () => setState(() => _showCompleted = !_showCompleted),
-        ),
-      );
-      children.add(
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _showCompleted
-              ? Column(
-                  children: [
-                    for (final node in completedNodes) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      _buildTaskRow(
-                        context,
-                        node,
-                        const <TaskDto>[],
-                        isCompletedSection: true,
-                      ),
-                    ],
-                  ],
-                )
-              : const SizedBox.shrink(),
-        ),
-      );
-    }
-
     return SafeArea(
       top: false,
-      child: ListView(
-        padding: EdgeInsets.fromLTRB(
-          AppSpacing.md,
-          AppSpacing.md,
-          AppSpacing.md,
-          AppSpacing.xl * 3,
-        ),
-        children: children,
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.xl * 3,
+            ),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                if (activeNodes.isNotEmpty)
+                  _TaskRowsSliver(
+                    nodes: activeNodes,
+                    separatorHeight: AppSpacing.sm,
+                    rowBuilder: (context, node) => _buildTaskRow(
+                      context,
+                      node,
+                      activeReorderTasks,
+                      isCompletedSection: false,
+                    ),
+                  ),
+                if (completedNodes.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: activeNodes.isEmpty
+                          ? AppSpacing.sm
+                          : AppSpacing.lg,
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _CompletedSectionHeader(
+                      count: completedRoots.length,
+                      isExpanded: _showCompleted,
+                      onTap: () =>
+                          setState(() => _showCompleted = !_showCompleted),
+                    ),
+                  ),
+                  if (_showCompleted)
+                    SliverList.builder(
+                      itemCount: completedNodes.length * 2,
+                      itemBuilder: (context, index) {
+                        if (index.isEven) {
+                          return const SizedBox(height: AppSpacing.sm);
+                        }
+                        return _buildTaskRow(
+                          context,
+                          completedNodes[index ~/ 2],
+                          const <TaskDto>[],
+                          isCompletedSection: true,
+                        );
+                      },
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  List<_HomeSectionData> _buildHomeSections(BuildContext context) {
+  List<_HomeSectionData> _buildHomeSections() {
     final ranges = homeLocalRangesMs();
     final pendingRowsByTaskId = _pendingHomeCompletionRowsByTaskId();
     final pendingRootIds = _pendingHomeCompletions.keys.toSet();
@@ -645,25 +672,12 @@ class _TasksBodyState extends State<_TasksBody> {
         _HomeSectionData(
           kind: section,
           count: countBySection[section]!,
-          rows: [
-            for (final row in bySection[section]!)
-              _buildHomeTaskRow(
-                context,
-                row.node,
-                section,
-                rootListId: row.rootListId,
-                parentTaskName: row.parentTaskName,
-                countsInSection: row.countsInSection,
-                pendingExitPhase: row.pendingExitPhase,
-                disableInteractions: row.disableInteractions,
-                isPendingRoot: row.isPendingRoot,
-              ),
-          ],
+          rows: bySection[section]!,
         ),
     ];
   }
 
-  List<Widget> _buildHomeClosedRows(BuildContext context) {
+  List<_HomeSectionRowData> _buildHomeClosedRowData() {
     final pendingIds = _pendingHomeCompletionTaskIds();
     final closedRoots =
         widget.homeTaskEntries
@@ -674,16 +688,12 @@ class _TasksBodyState extends State<_TasksBody> {
           ..sort((a, b) => compareTasksForSortMode(a, b, widget.sortMode));
     return [
       for (final task in closedRoots)
-        _buildHomeTaskRow(
-          context,
-          FlattenedTaskTreeNode(
+        _HomeSectionRowData(
+          node: FlattenedTaskTreeNode(
             node: TaskTreeNode(task: task, depth: 0, children: const []),
             isLastSibling: task == closedRoots.last,
             ancestorLineContinuations: const <bool>[],
           ),
-          task.dueAt == null
-              ? _HomeSectionKind.today
-              : _homeSectionForDueAt(task.dueAt!, homeLocalRangesMs()),
           rootListId: task.listId,
           parentTaskName: null,
         ),
@@ -807,7 +817,11 @@ class _TasksBodyState extends State<_TasksBody> {
       onChangeDueDate: widget.onChangeDueDate,
       child: effectiveRow,
     );
-    return IgnorePointer(ignoring: disableInteractions, child: swipeRow);
+    return IgnorePointer(
+      key: ValueKey('task-home-row-shell-${task.id}'),
+      ignoring: disableInteractions,
+      child: swipeRow,
+    );
   }
 
   Future<void> _handleHomeCompleteTask(
@@ -1412,6 +1426,35 @@ class _TaskEntryMotionState extends State<_TaskEntryMotion>
   }
 }
 
+class _TaskRowsSliver extends StatelessWidget {
+  const _TaskRowsSliver({
+    required this.nodes,
+    required this.separatorHeight,
+    required this.rowBuilder,
+  });
+
+  final List<FlattenedTaskTreeNode> nodes;
+  final double separatorHeight;
+  final Widget Function(BuildContext context, FlattenedTaskTreeNode node)
+  rowBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    if (nodes.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    return SliverList.builder(
+      itemCount: nodes.length * 2 - 1,
+      itemBuilder: (context, index) {
+        if (index.isOdd) {
+          return SizedBox(height: separatorHeight);
+        }
+        return rowBuilder(context, nodes[index ~/ 2]);
+      },
+    );
+  }
+}
+
 enum _DueDateSelectionKind { today, tomorrow, pickDate }
 
 class _DueDateSelection {
@@ -1480,7 +1523,7 @@ class _HomeSectionData {
 
   final _HomeSectionKind kind;
   final int count;
-  final List<Widget> rows;
+  final List<_HomeSectionRowData> rows;
 }
 
 class _HomeSectionRowData {
@@ -1576,41 +1619,50 @@ class _PendingHomeCompletionExit extends StatelessWidget {
   }
 }
 
-class _HomeSectionsPanel extends StatelessWidget {
-  const _HomeSectionsPanel({
+class _HomeSectionsPanelSliver extends StatelessWidget {
+  const _HomeSectionsPanelSliver({
     required this.sections,
     required this.collapsedSections,
     required this.onToggleSection,
+    required this.rowBuilder,
   });
 
   final List<_HomeSectionData> sections;
   final Set<_HomeSectionKind> collapsedSections;
   final ValueChanged<_HomeSectionKind> onToggleSection;
+  final Widget Function(
+    BuildContext context,
+    _HomeSectionRowData row,
+    _HomeSectionKind section,
+  )
+  rowBuilder;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
+    return DecoratedSliver(
       decoration: BoxDecoration(
         color: colorScheme.surface.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: Padding(
+      sliver: SliverPadding(
         padding: const EdgeInsets.all(AppSpacing.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        sliver: SliverMainAxisGroup(
+          slivers: [
             for (var index = 0; index < sections.length; index += 1) ...[
-              _HomeSection(
+              _HomeSectionSliver(
                 data: sections[index],
                 isExpanded: !collapsedSections.contains(sections[index].kind),
                 onToggle: () => onToggleSection(sections[index].kind),
+                rowBuilder: rowBuilder,
               ),
               if (index < sections.length - 1)
-                Divider(
-                  height: AppSpacing.md,
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+                SliverToBoxAdapter(
+                  child: Divider(
+                    height: AppSpacing.md,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+                  ),
                 ),
             ],
           ],
@@ -1620,8 +1672,56 @@ class _HomeSectionsPanel extends StatelessWidget {
   }
 }
 
-class _HomeSection extends StatelessWidget {
-  const _HomeSection({
+class _HomeSectionSliver extends StatelessWidget {
+  const _HomeSectionSliver({
+    required this.data,
+    required this.isExpanded,
+    required this.onToggle,
+    required this.rowBuilder,
+  });
+
+  final _HomeSectionData data;
+  final bool isExpanded;
+  final VoidCallback onToggle;
+  final Widget Function(
+    BuildContext context,
+    _HomeSectionRowData row,
+    _HomeSectionKind section,
+  )
+  rowBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _HomeSectionHeader(
+            data: data,
+            isExpanded: isExpanded,
+            onToggle: onToggle,
+          ),
+        ),
+        if (isExpanded && data.rows.isNotEmpty)
+          SliverList.builder(
+            itemCount: data.rows.length * 2 - 1,
+            itemBuilder: (context, index) {
+              if (index.isOdd) {
+                final colorScheme = Theme.of(context).colorScheme;
+                return Divider(
+                  height: AppSpacing.sm,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.45),
+                );
+              }
+              return rowBuilder(context, data.rows[index ~/ 2], data.kind);
+            },
+          ),
+      ],
+    );
+  }
+}
+
+class _HomeSectionHeader extends StatelessWidget {
+  const _HomeSectionHeader({
     required this.data,
     required this.isExpanded,
     required this.onToggle,
@@ -1640,84 +1740,54 @@ class _HomeSection extends StatelessWidget {
     final tooltip = isExpanded
         ? l10n.hideHomeSectionTooltip(title)
         : l10n.showHomeSectionTooltip(title);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Tooltip(
-          message: tooltip,
-          child: Semantics(
-            button: true,
-            label: tooltip,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: onToggle,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.xs,
-                  vertical: AppSpacing.xs,
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xs,
+              vertical: AppSpacing.xs,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: data.kind == _HomeSectionKind.overdue
+                          ? const Color(0xFFE8755A)
+                          : colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: data.kind == _HomeSectionKind.overdue
-                              ? const Color(0xFFE8755A)
-                              : colorScheme.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    _HomeCountBadge(
-                      key: ValueKey('home-section-count-${data.kind.name}'),
-                      count: data.count,
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
-                    SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: Center(
-                        child: Icon(
-                          isExpanded
-                              ? LucideIcons.chevronUp300
-                              : LucideIcons.chevronDown300,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
+                _HomeCountBadge(
+                  key: ValueKey('home-section-count-${data.kind.name}'),
+                  count: data.count,
                 ),
-              ),
+                const SizedBox(width: AppSpacing.xs),
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(
+                    child: Icon(
+                      isExpanded
+                          ? LucideIcons.chevronUp300
+                          : LucideIcons.chevronDown300,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: isExpanded && data.rows.isNotEmpty
-              ? Column(
-                  children: [
-                    for (
-                      var index = 0;
-                      index < data.rows.length;
-                      index += 1
-                    ) ...[
-                      data.rows[index],
-                      if (index < data.rows.length - 1)
-                        Divider(
-                          height: AppSpacing.sm,
-                          color: colorScheme.outlineVariant.withValues(
-                            alpha: 0.45,
-                          ),
-                        ),
-                    ],
-                  ],
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
+      ),
     );
   }
 }
