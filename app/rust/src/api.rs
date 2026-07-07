@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use todori_crypto::{derive_local_db_key, ensure_device_key};
+use todori_crypto::derive_local_db_key;
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rename_list as domain_rename_list, transition_task,
@@ -18,7 +18,7 @@ use todori_storage::{
     TaskUndoOperation,
 };
 
-use crate::dev_key_store::FileDeviceKeyStore;
+use crate::dev_key_store::load_or_create_device_key;
 
 static CORE_STATE: OnceLock<CoreState> = OnceLock::new();
 
@@ -105,17 +105,16 @@ pub fn create_draft_task(title: String) -> String {
 
 /// Initializes Todori core for the process using `db_dir`.
 ///
-/// This creates or loads a development plaintext `device.key`, derives the
-/// SQLCipher key, initializes `<db_dir>/todori.db`, and stores only the DB path
-/// plus derived key in process-global state. Reinitializing with the same DB
-/// path succeeds idempotently; reinitializing with a different DB path returns
-/// an error because `OnceLock` cannot safely swap process-global state.
+/// This creates or loads a platform Device Key, derives the SQLCipher key,
+/// initializes `<db_dir>/todori.db`, and stores only the DB path plus derived
+/// key in process-global state. Reinitializing with the same DB path succeeds
+/// idempotently; reinitializing with a different DB path returns an error
+/// because `OnceLock` cannot safely swap process-global state.
 pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), String> {
     let db_dir = PathBuf::from(db_dir);
     std::fs::create_dir_all(&db_dir).map_err(|error| error.to_string())?;
 
-    let mut key_store = FileDeviceKeyStore::new(&db_dir);
-    let device_key = ensure_device_key(&mut key_store).map_err(|error| error.to_string())?;
+    let device_key = load_or_create_device_key(&db_dir).map_err(|error| error.to_string())?;
     let db_key = derive_local_db_key(&device_key);
     let db_path = db_dir.join("todori.db");
 

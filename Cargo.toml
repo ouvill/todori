@@ -38,6 +38,7 @@ tempfile = "3"
 
 # app/rust
 flutter_rust_bridge = "2.12.0"
+security-framework = { version = "3.7.0", features = ["OSX_10_15"] }
 
 # cli
 clap = { version = "4", features = ["derive"] }

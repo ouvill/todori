@@ -14,3 +14,6 @@ serde_json.workspace = true
 todori-crypto.workspace = true
 todori-domain.workspace = true
 todori-storage.workspace = true
+
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+security-framework.workspace = true
