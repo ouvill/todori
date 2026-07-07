@@ -1,5 +1,8 @@
 # task-58: Home完了タスクの単独表示抑止と同伴表示
 
+> ステータス: 完了（worker実装）
+> 作業日: 2026-07-08
+
 ## 1. 背景とコンテキスト
 
 2026-07-08のドッグフーディングで、完了済みなのに期日超過のサブサブタスクがHomeのOverdueに単独表示されたままになる問題が見つかった。プロダクトオーナー裁定は「期限つきでもタスクが完了したら親ツリーの下に移動する」である。
@@ -135,3 +138,84 @@ task-57でHomeは1タスク1表示へ改訂されたが、現行のHomeセクシ
 - 品質ゲートの実行結果
 - 変更ファイル一覧
 - 未解決事項（なければ「なし」）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-57-home-dedupe.md`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/core/task_tree.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/ui/task_components.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/widget_test.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/tool/visual_qa.sh`
+
+実装結果:
+
+- `app/build/visual_qa/` のPNGを作業前に `app/build/visual_qa_before/` へコピーした。
+- `app/lib/src/screens/tasks_screen.dart` の `_buildHomeSections` で、Home日付セクションの単独表示候補を `entry.isHomeTarget` かつ `!isTaskClosed(entry.task)` かつ `dueAt != null` のタスクへ限定した。
+- `app/lib/src/screens/tasks_screen.dart` の `countBySection` は同じ未完了単独表示候補だけを加算する実装にした。
+- `app/lib/src/screens/tasks_screen.dart` に `_buildHomeClosedRows` を追加し、`parentTaskId == null` かつ `isTaskClosed(task)` のHome entriesをHomeのClosed折りたたみ行へ表示した。
+- 完了子孫は `standaloneTaskIds` に含まれないため、表示中祖先の `buildHomeNode` 配下に残る。
+- 表示中祖先がいない完了サブタスクは日付セクションにもClosedセクションにも追加しない。
+- `app/test/visual_qa/visual_qa_screenshots_test.dart` の `home_tasks` seedで、`Confirm final copy in the hero panel` を昨日期日かつ完了状態にした。
+- Rust API、storage query、FRB生成物は変更していない。
+
+セクション件数の確認:
+
+- `home nests closed due descendants under visible ancestors only` で、Overdue件数が0、Today件数が1であることを確認した。
+- `home routes closed roots to Closed instead of date sections` で、完了ルートのOverdue件数が0であることを確認した。
+- `home hides closed subtasks without a visible ancestor` で、祖先非表示の完了サブタスクがHomeに表示されず、Overdue件数が0であることを確認した。
+
+task-57規則の確認:
+
+- 既存 `home shows target subtrees with dedupe and interaction rules` を更新せず成功させ、1タスク1表示、未完了単独表示子孫の剪定、サブタスク単独行の親ラベルを確認した。
+- `home nests closed due descendants under visible ancestors only` で、完了済み孫が親サブタスク配下の階層ガイド付き同伴行として表示されることを確認した。
+
+追加・更新したwidget test:
+
+- 追加: `home nests closed due descendants under visible ancestors only`。完了済み期日超過孫がOverdueに出ず、Todayの親サブタスク配下に取り消し線付きで表示され、Today折りたたみで一緒に隠れることを検証した。
+- 追加: `home routes closed roots to Closed instead of date sections`。完了ルートが日付セクションへ出ず、Closed折りたたみ内に表示されることを検証した。
+- 追加: `home hides closed subtasks without a visible ancestor`。表示中祖先がいない完了サブタスクがHomeに表示されないことを検証した。
+- 更新: `checking a task marks it done through the bridge service`。Homeで完了したルートタスクがClosed折りたたみへ移ることを検証した。
+- 更新: `done root row leading control reopens without undo`。HomeのClosed折りたたみ内から再オープンできることを検証した。
+- 更新: `wont_do root row leading control reopens without undo`。HomeのClosed折りたたみ内から再オープンできることを検証した。
+- 更新: `detail menu hides done to wont_do transition`。HomeのClosed折りたたみ内の完了ルートから詳細へ遷移して検証した。
+- 更新: `detail title checkbox reopens done and wont_do tasks`。HomeのClosed折りたたみ内の完了ルートから詳細へ遷移して検証した。
+
+visual QA:
+
+- 作業前退避先: `app/build/visual_qa_before/`
+- スクリーンショット: `app/build/visual_qa/home_tasks.png`
+- `app/build/visual_qa/home_tasks.png` を目視し、`Confirm final copy in the hero panel` がOverdueに単独表示されず、Todayの `Draft the launch checklist` の下にチェック済み、muted、取り消し線付きで表示されることを確認した。
+
+品質ゲート:
+
+- `cargo fmt --all -- --check`: exit 0
+- `cargo clippy --workspace -- -D warnings`: exit 0
+- `cargo test --workspace`: exit 0
+- `cd app && flutter analyze`: exit 0
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0
+- `cd app && flutter test`: exit 0（88件成功、visual QA harness 1件skip）
+- `sh app/tool/check_hardcoded_strings.sh`: exit 0
+- `sh app/tool/visual_qa.sh`: exit 0（36件成功）
+- `git diff --check`: exit 0
+
+変更ファイル一覧:
+
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/test/visual_qa/visual_qa_screenshots_test.dart`
+- `app/test/widget_test.dart`
+- `docs/tasks/task-58-home-closed-nesting.md`
+
+未解決事項: なし

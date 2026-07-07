@@ -464,7 +464,7 @@ class _SeedData {
 /// - due dates: overdue, today, tomorrow, upcoming, and no-due-date all appear.
 /// - one task is already completed and one is closed as wont_do.
 /// - one task ("Plan the product launch event") has three subtasks, one of
-///   which is completed.
+///   which is completed after an overdue due date.
 /// - titles mix Japanese and English, and one title is long enough to wrap.
 Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   final fake = FakeBridgeService();
@@ -541,6 +541,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     priority: 0,
     dueAt: overdue,
   );
+  await fake.setTaskStatus(taskId: finalCopy.id, status: 'done');
   await fake.createTask(
     listId: homeListId,
     title: 'デザインレビューのフィードバックを反映する',

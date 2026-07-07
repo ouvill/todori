@@ -366,6 +366,7 @@ class _TasksBodyState extends State<_TasksBody> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     if (widget.isHome) {
+      final closedRows = _buildHomeClosedRows(context);
       final children = <Widget>[
         _HomeTasksHeader(
           sortMenu: widget.sortMenu,
@@ -383,6 +384,29 @@ class _TasksBodyState extends State<_TasksBody> {
             });
           },
         ),
+        if (closedRows.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _CompletedSectionHeader(
+            count: closedRows.length,
+            isExpanded: _showCompleted,
+            onTap: () => setState(() => _showCompleted = !_showCompleted),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _showCompleted
+                ? Column(
+                    children: [
+                      for (final row in closedRows) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        row,
+                      ],
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
       ];
       return SafeArea(
         top: true,
@@ -504,15 +528,16 @@ class _TasksBodyState extends State<_TasksBody> {
     };
     final targetSectionByTaskId = <String, _HomeSectionKind>{};
     for (final entry in sortedEntries.where((entry) => entry.isHomeTarget)) {
+      if (isTaskClosed(entry.task)) {
+        continue;
+      }
       final dueAt = entry.task.dueAt;
       if (dueAt == null) {
         continue;
       }
       final section = _homeSectionForDueAt(dueAt, ranges);
       targetSectionByTaskId[entry.task.id] = section;
-      if (!isTaskClosed(entry.task)) {
-        countBySection[section] = countBySection[section]! + 1;
-      }
+      countBySection[section] = countBySection[section]! + 1;
     }
     final standaloneTaskIds = targetSectionByTaskId.keys.toSet();
     final childrenByParent = <String, List<TaskDto>>{};
@@ -577,6 +602,31 @@ class _TasksBodyState extends State<_TasksBody> {
                 parentTaskName: row.parentTaskName,
               ),
           ],
+        ),
+    ];
+  }
+
+  List<Widget> _buildHomeClosedRows(BuildContext context) {
+    final closedRoots =
+        widget.homeTaskEntries
+            .map((entry) => entry.task)
+            .where((task) => task.parentTaskId == null && isTaskClosed(task))
+            .toList(growable: false)
+          ..sort((a, b) => compareTasksForSortMode(a, b, widget.sortMode));
+    return [
+      for (final task in closedRoots)
+        _buildHomeTaskRow(
+          context,
+          FlattenedTaskTreeNode(
+            node: TaskTreeNode(task: task, depth: 0, children: const []),
+            isLastSibling: task == closedRoots.last,
+            ancestorLineContinuations: const <bool>[],
+          ),
+          task.dueAt == null
+              ? _HomeSectionKind.today
+              : _homeSectionForDueAt(task.dueAt!, homeLocalRangesMs()),
+          rootListId: task.listId,
+          parentTaskName: null,
         ),
     ];
   }

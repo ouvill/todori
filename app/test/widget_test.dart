@@ -950,6 +950,164 @@ void main() {
     expect(earlierChild.parentTaskId, parent.id);
   });
 
+  testWidgets(
+    'home nests closed due descendants under visible ancestors only',
+    (tester) async {
+      final fake = FakeBridgeService();
+      final today = _todayStartMs();
+      final overdue = today - const Duration(days: 1).inMilliseconds;
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final inbox = (await fake.getLists()).singleWhere(
+        (list) => list.isDefault,
+      );
+      final hiddenRoot = await fake.createTask(
+        listId: inbox.id,
+        title: 'Hidden root without due',
+      );
+      final todayChild = await fake.createTask(
+        listId: inbox.id,
+        title: 'Today parent subtask',
+        parentTaskId: hiddenRoot.id,
+        dueAt: today,
+      );
+      final closedOverdueGrandchild = await fake.createTask(
+        listId: inbox.id,
+        title: 'Closed overdue grandchild',
+        parentTaskId: todayChild.id,
+        dueAt: overdue,
+      );
+      await fake.setTaskStatus(
+        taskId: closedOverdueGrandchild.id,
+        status: 'done',
+      );
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(ValueKey('task-row-${hiddenRoot.id}')), findsNothing);
+      expect(find.byKey(ValueKey('task-row-${todayChild.id}')), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('task-row-${closedOverdueGrandchild.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-overdue')),
+          matching: find.text('0'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-today')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.text('Closed overdue grandchild'))
+            .style
+            ?.decoration,
+        TextDecoration.lineThrough,
+      );
+      expect(
+        find.byKey(
+          ValueKey('task-hierarchy-guide-${closedOverdueGrandchild.id}'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(find.text('Closed overdue grandchild')).dy,
+        greaterThan(tester.getTopLeft(find.text('Today parent subtask')).dy),
+      );
+
+      await tester.tap(find.text('Today').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Today parent subtask'), findsNothing);
+      expect(find.text('Closed overdue grandchild'), findsNothing);
+    },
+  );
+
+  testWidgets('home routes closed roots to Closed instead of date sections', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final today = _todayStartMs();
+    final overdue = today - const Duration(days: 1).inMilliseconds;
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final closedRoot = await fake.createTask(
+      listId: inbox.id,
+      title: 'Closed overdue root',
+      dueAt: overdue,
+    );
+    await fake.setTaskStatus(taskId: closedRoot.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('home-section-count-overdue')),
+        matching: find.text('0'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Closed overdue root'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Closed overdue root'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.text('Closed overdue root')).style?.decoration,
+      TextDecoration.lineThrough,
+    );
+  });
+
+  testWidgets('home hides closed subtasks without a visible ancestor', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final today = _todayStartMs();
+    final overdue = today - const Duration(days: 1).inMilliseconds;
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final hiddenRoot = await fake.createTask(
+      listId: inbox.id,
+      title: 'No due ancestor',
+    );
+    final closedChild = await fake.createTask(
+      listId: inbox.id,
+      title: 'Closed child without home ancestor',
+      parentTaskId: hiddenRoot.id,
+      dueAt: overdue,
+    );
+    await fake.setTaskStatus(taskId: closedChild.id, status: 'done');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No due ancestor'), findsNothing);
+    expect(find.text('Closed child without home ancestor'), findsNothing);
+    expect(find.text('Closed'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('home-section-count-overdue')),
+        matching: find.text('0'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('long task titles survive narrow width and Dynamic Type', (
     tester,
   ) async {
@@ -1416,6 +1574,10 @@ void main() {
     expect(active.single.status, 'done');
     expect(find.text('Task closed.'), findsOneWidget);
     expect(find.text('Undo'), findsOneWidget);
+    expect(find.text('Buy milk'), findsNothing);
+    expect(find.text('Closed'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('Buy milk'), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
@@ -1592,6 +1754,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Done task'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('Done task'), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
@@ -1708,6 +1873,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Skipped task'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('Skipped task'), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
@@ -1784,6 +1952,8 @@ void main() {
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Done task'));
     await tester.pumpAndSettle();
@@ -2598,6 +2768,8 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Done detail task'));
     await tester.pumpAndSettle();
@@ -2611,7 +2783,9 @@ void main() {
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Wont do detail task'));
+    await tester.ensureVisible(find.byKey(ValueKey('task-row-${wontDo.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-row-${wontDo.id}')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-detail-done-${wontDo.id}')));
     await tester.pumpAndSettle();
