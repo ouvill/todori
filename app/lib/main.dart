@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
@@ -26,6 +28,20 @@ Future<void> main() async {
       _resolveStartupLocale(PlatformDispatcher.instance.locale),
     ).defaultInboxName;
     await initCore(dbDir: dbDir.path, defaultInboxName: defaultInboxName);
+    final startupL10n = lookupAppLocalizations(
+      _resolveStartupLocale(PlatformDispatcher.instance.locale),
+    );
+    final notificationContent = ReminderNotificationContent(
+      title: startupL10n.reminderNotificationTitle,
+      body: startupL10n.reminderNotificationBody,
+      snoozeActionTitle: startupL10n.reminderSnoozeOneHourAction,
+    );
+    final notificationService = ReminderNotificationService(
+      bridge: const FrbBridgeService(),
+      gateway: FlutterLocalReminderNotificationGateway(),
+    );
+    await notificationService.initialize(notificationContent);
+    await notificationService.reschedulePending(notificationContent);
   } catch (error, stackTrace) {
     initializationError = error;
     debugPrint('Todori native core initialization failed: $error\n$stackTrace');

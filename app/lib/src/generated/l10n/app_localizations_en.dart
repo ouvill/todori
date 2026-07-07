@@ -278,6 +278,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get changeDueDateTooltip => 'Change due date';
 
   @override
+  String get reminderChipEmpty => 'Reminder';
+
+  @override
+  String get reminderChipTooltipSet => 'Set reminder';
+
+  @override
+  String get reminderChipTooltipChange => 'Change reminder';
+
+  @override
+  String get clearReminderButton => 'Clear reminder';
+
+  @override
+  String get reminderPermissionDenied =>
+      'Notifications are off. The reminder was saved, but Todori could not schedule a local notification.';
+
+  @override
+  String failedToSaveReminder(String error) {
+    return 'Failed to save reminder: $error';
+  }
+
+  @override
+  String get reminderNotificationTitle => 'Todori reminder';
+
+  @override
+  String get reminderNotificationBody => 'A task reminder is due.';
+
+  @override
+  String get reminderSnoozeOneHourAction => '+1 hour';
+
+  @override
   String get changePriorityTooltip => 'Change priority';
 
   @override

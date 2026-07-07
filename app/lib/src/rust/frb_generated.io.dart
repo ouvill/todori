@@ -55,6 +55,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<ReminderDto> dco_decode_list_reminder_dto(dynamic raw);
+
+  @protected
   List<TaskDto> dco_decode_list_task_dto(dynamic raw);
 
   @protected
@@ -68,6 +71,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw);
+
+  @protected
+  ReminderDto dco_decode_reminder_dto(dynamic raw);
 
   @protected
   TaskDto dco_decode_task_dto(dynamic raw);
@@ -120,6 +126,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<ReminderDto> sse_decode_list_reminder_dto(SseDeserializer deserializer);
+
+  @protected
   List<TaskDto> sse_decode_list_task_dto(SseDeserializer deserializer);
 
   @protected
@@ -135,6 +144,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto? sse_decode_opt_box_autoadd_task_undo_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer);
 
   @protected
   TaskDto sse_decode_task_dto(SseDeserializer deserializer);
@@ -197,6 +209,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_reminder_dto(
+    List<ReminderDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_task_dto(List<TaskDto> self, SseSerializer serializer);
 
   @protected
@@ -216,6 +234,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     TaskUndoDto? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_task_dto(TaskDto self, SseSerializer serializer);

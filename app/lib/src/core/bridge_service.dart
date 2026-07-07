@@ -98,6 +98,37 @@ abstract class BridgeService {
 
   /// Persists an app setting.
   Future<void> setSetting({required String key, required String value});
+
+  /// Replaces this task's Phase 1 reminder with a single local reminder.
+  Future<rust_api.ReminderDto> setTaskReminder({
+    required String taskId,
+    required int remindAt,
+  });
+
+  /// Clears all reminders for a task and returns the cleared rows.
+  Future<List<rust_api.ReminderDto>> clearTaskReminders({
+    required String taskId,
+  });
+
+  /// Returns all reminders for a task.
+  Future<List<rust_api.ReminderDto>> getTaskReminders({required String taskId});
+
+  /// Returns all reminders below a task subtree.
+  Future<List<rust_api.ReminderDto>> getTaskSubtreeReminders({
+    required String taskId,
+  });
+
+  /// Returns all reminders for tasks in a list.
+  Future<List<rust_api.ReminderDto>> getListReminders({required String listId});
+
+  /// Returns future reminders for open tasks.
+  Future<List<rust_api.ReminderDto>> listPendingReminders({required int nowMs});
+
+  /// Updates a reminder's snooze time.
+  Future<rust_api.ReminderDto> snoozeReminder({
+    required String reminderId,
+    required int snoozedUntil,
+  });
 }
 
 /// Default [BridgeService] implementation backed by the FRB-generated
@@ -228,4 +259,44 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<void> setSetting({required String key, required String value}) =>
       rust_api.setSetting(key: key, value: value);
+
+  @override
+  Future<rust_api.ReminderDto> setTaskReminder({
+    required String taskId,
+    required int remindAt,
+  }) => rust_api.setTaskReminder(taskId: taskId, remindAt: remindAt);
+
+  @override
+  Future<List<rust_api.ReminderDto>> clearTaskReminders({
+    required String taskId,
+  }) => rust_api.clearTaskReminders(taskId: taskId);
+
+  @override
+  Future<List<rust_api.ReminderDto>> getTaskReminders({
+    required String taskId,
+  }) => rust_api.getTaskReminders(taskId: taskId);
+
+  @override
+  Future<List<rust_api.ReminderDto>> getTaskSubtreeReminders({
+    required String taskId,
+  }) => rust_api.getTaskSubtreeReminders(taskId: taskId);
+
+  @override
+  Future<List<rust_api.ReminderDto>> getListReminders({
+    required String listId,
+  }) => rust_api.getListReminders(listId: listId);
+
+  @override
+  Future<List<rust_api.ReminderDto>> listPendingReminders({
+    required int nowMs,
+  }) => rust_api.listPendingReminders(nowMs: nowMs);
+
+  @override
+  Future<rust_api.ReminderDto> snoozeReminder({
+    required String reminderId,
+    required int snoozedUntil,
+  }) => rust_api.snoozeReminder(
+    reminderId: reminderId,
+    snoozedUntil: snoozedUntil,
+  );
 }

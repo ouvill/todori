@@ -184,6 +184,22 @@
     }
   },
   "changeDueDateTooltip": "Change due date",
+  "reminderChipEmpty": "Reminder",
+  "reminderChipTooltipSet": "Set reminder",
+  "reminderChipTooltipChange": "Change reminder",
+  "clearReminderButton": "Clear reminder",
+  "reminderPermissionDenied": "Notifications are off. The reminder was saved, but Todori could not schedule a local notification.",
+  "failedToSaveReminder": "Failed to save reminder: {error}",
+  "@failedToSaveReminder": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "reminderNotificationTitle": "Todori reminder",
+  "reminderNotificationBody": "A task reminder is due.",
+  "reminderSnoozeOneHourAction": "+1 hour",
   "changePriorityTooltip": "Change priority",
   "subtasksTitle": "Subtasks",
   "subtasksEmpty": "No subtasks yet.",

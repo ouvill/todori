@@ -52,6 +52,37 @@ void main() {
     );
   });
 
+  test('task reminders are exposed through Rust bridge', () async {
+    final list = await createList(name: 'Reminder bridge', sortOrder: 'rb0');
+    final task = await createTask(listId: list.id, title: 'Reminder task');
+    final remindAt = DateTime.now()
+        .add(const Duration(hours: 2))
+        .millisecondsSinceEpoch;
+
+    final reminder = await setTaskReminder(taskId: task.id, remindAt: remindAt);
+
+    expect(reminder.taskId, task.id);
+    expect(reminder.remindAt, remindAt);
+    expect(await getTaskReminders(taskId: task.id), [reminder]);
+    expect(
+      (await listPendingReminders(
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      )).map((entry) => entry.id),
+      contains(reminder.id),
+    );
+
+    final snoozedUntil = remindAt + const Duration(hours: 1).inMilliseconds;
+    final snoozed = await snoozeReminder(
+      reminderId: reminder.id,
+      snoozedUntil: snoozedUntil,
+    );
+    expect(snoozed.snoozedUntil, snoozedUntil);
+
+    final cleared = await clearTaskReminders(taskId: task.id);
+    expect(cleared.single.id, reminder.id);
+    expect(await getTaskReminders(taskId: task.id), isEmpty);
+  });
+
   test('home smart view is exposed through Rust bridge', () async {
     final now = DateTime.now();
     final todayStart = DateTime(

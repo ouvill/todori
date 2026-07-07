@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1854069984;
+  int get rustContentHash => 1953107683;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -77,6 +77,10 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
 abstract class RustLibApi extends BaseApi {
   Future<ListDto> crateApiArchiveList({required String listId});
+
+  Future<List<ReminderDto>> crateApiClearTaskReminders({
+    required String taskId,
+  });
 
   Future<int> crateApiCountTaskDescendants({required String taskId});
 
@@ -110,9 +114,17 @@ abstract class RustLibApi extends BaseApi {
 
   Future<TaskUndoDto?> crateApiGetLatestTaskUndo();
 
+  Future<List<ReminderDto>> crateApiGetListReminders({required String listId});
+
   Future<List<ListDto>> crateApiGetLists();
 
   Future<String?> crateApiGetSetting({required String key});
+
+  Future<List<ReminderDto>> crateApiGetTaskReminders({required String taskId});
+
+  Future<List<ReminderDto>> crateApiGetTaskSubtreeReminders({
+    required String taskId,
+  });
 
   Future<List<TaskDto>> crateApiGetTasks({required String listId});
 
@@ -121,6 +133,10 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiInitCore({
     required String dbDir,
     required String defaultInboxName,
+  });
+
+  Future<List<ReminderDto>> crateApiListPendingReminders({
+    required PlatformInt64 nowMs,
   });
 
   Future<ListDto> crateApiRenameList({
@@ -138,10 +154,20 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSetSetting({required String key, required String value});
 
+  Future<ReminderDto> crateApiSetTaskReminder({
+    required String taskId,
+    required PlatformInt64 remindAt,
+  });
+
   Future<TaskDto> crateApiSetTaskStatus({
     required String taskId,
     required String status,
     String? closedReason,
+  });
+
+  Future<ReminderDto> crateApiSnoozeReminder({
+    required String reminderId,
+    required PlatformInt64 snoozedUntil,
   });
 
   Future<ListDto> crateApiUnarchiveList({required String listId});
@@ -194,7 +220,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "archive_list", argNames: ["listId"]);
 
   @override
-  Future<int> crateApiCountTaskDescendants({required String taskId}) {
+  Future<List<ReminderDto>> crateApiClearTaskReminders({
+    required String taskId,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -204,6 +232,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClearTaskRemindersConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClearTaskRemindersConstMeta => const TaskConstMeta(
+    debugName: "clear_task_reminders",
+    argNames: ["taskId"],
+  );
+
+  @override
+  Future<int> crateApiCountTaskDescendants({required String taskId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
             port: port_,
           );
         },
@@ -234,7 +292,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -264,7 +322,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -296,7 +354,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -336,7 +394,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -366,7 +424,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -394,7 +452,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 9,
             port: port_,
           );
         },
@@ -421,7 +479,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -453,7 +511,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 11,
             port: port_,
           );
         },
@@ -482,7 +540,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 12,
             port: port_,
           );
         },
@@ -501,6 +559,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_latest_task_undo", argNames: []);
 
   @override
+  Future<List<ReminderDto>> crateApiGetListReminders({required String listId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(listId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetListRemindersConstMeta,
+        argValues: [listId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetListRemindersConstMeta => const TaskConstMeta(
+    debugName: "get_list_reminders",
+    argNames: ["listId"],
+  );
+
+  @override
   Future<List<ListDto>> crateApiGetLists() {
     return handler.executeNormal(
       NormalTask(
@@ -509,7 +597,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 14,
             port: port_,
           );
         },
@@ -537,7 +625,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 15,
             port: port_,
           );
         },
@@ -556,6 +644,69 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_setting", argNames: ["key"]);
 
   @override
+  Future<List<ReminderDto>> crateApiGetTaskReminders({required String taskId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetTaskRemindersConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetTaskRemindersConstMeta => const TaskConstMeta(
+    debugName: "get_task_reminders",
+    argNames: ["taskId"],
+  );
+
+  @override
+  Future<List<ReminderDto>> crateApiGetTaskSubtreeReminders({
+    required String taskId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 17,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetTaskSubtreeRemindersConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetTaskSubtreeRemindersConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_task_subtree_reminders",
+        argNames: ["taskId"],
+      );
+
+  @override
   Future<List<TaskDto>> crateApiGetTasks({required String listId}) {
     return handler.executeNormal(
       NormalTask(
@@ -565,7 +716,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 18,
             port: port_,
           );
         },
@@ -593,7 +744,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 19,
             port: port_,
           );
         },
@@ -625,7 +776,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 20,
             port: port_,
           );
         },
@@ -646,6 +797,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<List<ReminderDto>> crateApiListPendingReminders({
+    required PlatformInt64 nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 21,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiListPendingRemindersConstMeta,
+        argValues: [nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiListPendingRemindersConstMeta =>
+      const TaskConstMeta(
+        debugName: "list_pending_reminders",
+        argNames: ["nowMs"],
+      );
+
+  @override
   Future<ListDto> crateApiRenameList({
     required String listId,
     required String name,
@@ -659,7 +843,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 22,
             port: port_,
           );
         },
@@ -695,7 +879,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 23,
             port: port_,
           );
         },
@@ -725,7 +909,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 24,
             port: port_,
           );
         },
@@ -757,7 +941,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 25,
             port: port_,
           );
         },
@@ -776,6 +960,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "set_setting", argNames: ["key", "value"]);
 
   @override
+  Future<ReminderDto> crateApiSetTaskReminder({
+    required String taskId,
+    required PlatformInt64 remindAt,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          sse_encode_i_64(remindAt, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 26,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSetTaskReminderConstMeta,
+        argValues: [taskId, remindAt],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSetTaskReminderConstMeta => const TaskConstMeta(
+    debugName: "set_task_reminder",
+    argNames: ["taskId", "remindAt"],
+  );
+
+  @override
   Future<TaskDto> crateApiSetTaskStatus({
     required String taskId,
     required String status,
@@ -791,7 +1009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 27,
             port: port_,
           );
         },
@@ -812,6 +1030,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<ReminderDto> crateApiSnoozeReminder({
+    required String reminderId,
+    required PlatformInt64 snoozedUntil,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(reminderId, serializer);
+          sse_encode_i_64(snoozedUntil, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 28,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_reminder_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSnoozeReminderConstMeta,
+        argValues: [reminderId, snoozedUntil],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSnoozeReminderConstMeta => const TaskConstMeta(
+    debugName: "snooze_reminder",
+    argNames: ["reminderId", "snoozedUntil"],
+  );
+
+  @override
   Future<ListDto> crateApiUnarchiveList({required String listId}) {
     return handler.executeNormal(
       NormalTask(
@@ -821,7 +1073,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 29,
             port: port_,
           );
         },
@@ -849,7 +1101,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 30,
             port: port_,
           );
         },
@@ -889,7 +1141,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1003,6 +1255,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ReminderDto> dco_decode_list_reminder_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_reminder_dto).toList();
+  }
+
+  @protected
   List<TaskDto> dco_decode_list_task_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_task_dto).toList();
@@ -1030,6 +1288,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_task_undo_dto(raw);
+  }
+
+  @protected
+  ReminderDto dco_decode_reminder_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return ReminderDto(
+      id: dco_decode_String(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      remindAt: dco_decode_i_64(arr[2]),
+      snoozedUntil: dco_decode_opt_box_autoadd_i_64(arr[3]),
+      createdAt: dco_decode_i_64(arr[4]),
+    );
   }
 
   @protected
@@ -1206,6 +1479,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ReminderDto> sse_decode_list_reminder_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ReminderDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_reminder_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<TaskDto> sse_decode_list_task_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1261,6 +1546,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_remindAt = sse_decode_i_64(deserializer);
+    var var_snoozedUntil = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_createdAt = sse_decode_i_64(deserializer);
+    return ReminderDto(
+      id: var_id,
+      taskId: var_taskId,
+      remindAt: var_remindAt,
+      snoozedUntil: var_snoozedUntil,
+      createdAt: var_createdAt,
+    );
   }
 
   @protected
@@ -1437,6 +1739,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_reminder_dto(
+    List<ReminderDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_reminder_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_task_dto(List<TaskDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
@@ -1489,6 +1803,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_box_autoadd_task_undo_dto(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_i_64(self.remindAt, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.snoozedUntil, serializer);
+    sse_encode_i_64(self.createdAt, serializer);
   }
 
   @protected

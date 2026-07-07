@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_settings_repository`, `with_task_repository`
+// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_reminder_repository`, `with_settings_repository`, `with_task_repository`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
 
 Future<String> greet({required String name}) =>
@@ -17,11 +17,11 @@ Future<String> createDraftTask({required String title}) =>
 
 /// Initializes Todori core for the process using `db_dir`.
 ///
-/// This creates or loads a development plaintext `device.key`, derives the
-/// SQLCipher key, initializes `<db_dir>/todori.db`, and stores only the DB path
-/// plus derived key in process-global state. Reinitializing with the same DB
-/// path succeeds idempotently; reinitializing with a different DB path returns
-/// an error because `OnceLock` cannot safely swap process-global state.
+/// This creates or loads a platform Device Key, derives the SQLCipher key,
+/// initializes `<db_dir>/todori.db`, and stores only the DB path plus derived
+/// key in process-global state. Reinitializing with the same DB path succeeds
+/// idempotently; reinitializing with a different DB path returns an error
+/// because `OnceLock` cannot safely swap process-global state.
 Future<void> initCore({
   required String dbDir,
   required String defaultInboxName,
@@ -139,6 +139,38 @@ Future<String?> getSetting({required String key}) =>
 Future<void> setSetting({required String key, required String value}) =>
     RustLib.instance.api.crateApiSetSetting(key: key, value: value);
 
+Future<ReminderDto> setTaskReminder({
+  required String taskId,
+  required PlatformInt64 remindAt,
+}) => RustLib.instance.api.crateApiSetTaskReminder(
+  taskId: taskId,
+  remindAt: remindAt,
+);
+
+Future<List<ReminderDto>> clearTaskReminders({required String taskId}) =>
+    RustLib.instance.api.crateApiClearTaskReminders(taskId: taskId);
+
+Future<List<ReminderDto>> getTaskReminders({required String taskId}) =>
+    RustLib.instance.api.crateApiGetTaskReminders(taskId: taskId);
+
+Future<List<ReminderDto>> getTaskSubtreeReminders({required String taskId}) =>
+    RustLib.instance.api.crateApiGetTaskSubtreeReminders(taskId: taskId);
+
+Future<List<ReminderDto>> getListReminders({required String listId}) =>
+    RustLib.instance.api.crateApiGetListReminders(listId: listId);
+
+Future<List<ReminderDto>> listPendingReminders({
+  required PlatformInt64 nowMs,
+}) => RustLib.instance.api.crateApiListPendingReminders(nowMs: nowMs);
+
+Future<ReminderDto> snoozeReminder({
+  required String reminderId,
+  required PlatformInt64 snoozedUntil,
+}) => RustLib.instance.api.crateApiSnoozeReminder(
+  reminderId: reminderId,
+  snoozedUntil: snoozedUntil,
+);
+
 class HomeTaskDto {
   final TaskDto task;
   final String listName;
@@ -216,6 +248,41 @@ class ListDto {
           archivedAt == other.archivedAt &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
+}
+
+class ReminderDto {
+  final String id;
+  final String taskId;
+  final PlatformInt64 remindAt;
+  final PlatformInt64? snoozedUntil;
+  final PlatformInt64 createdAt;
+
+  const ReminderDto({
+    required this.id,
+    required this.taskId,
+    required this.remindAt,
+    this.snoozedUntil,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      remindAt.hashCode ^
+      snoozedUntil.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReminderDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          remindAt == other.remindAt &&
+          snoozedUntil == other.snoozedUntil &&
+          createdAt == other.createdAt;
 }
 
 class TaskDto {

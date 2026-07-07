@@ -583,6 +583,16 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     priority: 2,
     dueAt: tomorrow,
   );
+  await fake.setTaskReminder(
+    taskId: launch.id,
+    remindAt: DateTime(
+      now.year,
+      now.month,
+      now.day,
+      16,
+      30,
+    ).millisecondsSinceEpoch,
+  );
   final checklist = await fake.createTask(
     listId: homeListId,
     title: 'Draft the launch checklist',
@@ -594,6 +604,16 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     note: '',
     priority: 1,
     dueAt: today,
+  );
+  await fake.setTaskReminder(
+    taskId: checklist.id,
+    remindAt: DateTime(
+      now.year,
+      now.month,
+      now.day,
+      16,
+      30,
+    ).millisecondsSinceEpoch,
   );
   await fake.createTask(
     listId: homeListId,

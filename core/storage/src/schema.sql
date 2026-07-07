@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS task_undo_entries (
     consumed_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+    id TEXT PRIMARY KEY NOT NULL,
+    task_id TEXT NOT NULL,
+    remind_at INTEGER NOT NULL,
+    snoozed_until INTEGER,
+    created_at INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
@@ -50,6 +58,9 @@ CREATE INDEX IF NOT EXISTS idx_task_undo_entries_latest
     ON task_undo_entries(consumed_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_task_undo_entries_task_id
     ON task_undo_entries(task_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_pending
+    ON reminders(snoozed_until, remind_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
     title,

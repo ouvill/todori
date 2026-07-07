@@ -572,6 +572,60 @@ abstract class AppLocalizations {
   /// **'Change due date'**
   String get changeDueDateTooltip;
 
+  /// No description provided for @reminderChipEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder'**
+  String get reminderChipEmpty;
+
+  /// No description provided for @reminderChipTooltipSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Set reminder'**
+  String get reminderChipTooltipSet;
+
+  /// No description provided for @reminderChipTooltipChange.
+  ///
+  /// In en, this message translates to:
+  /// **'Change reminder'**
+  String get reminderChipTooltipChange;
+
+  /// No description provided for @clearReminderButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear reminder'**
+  String get clearReminderButton;
+
+  /// No description provided for @reminderPermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications are off. The reminder was saved, but Todori could not schedule a local notification.'**
+  String get reminderPermissionDenied;
+
+  /// No description provided for @failedToSaveReminder.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save reminder: {error}'**
+  String failedToSaveReminder(String error);
+
+  /// No description provided for @reminderNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Todori reminder'**
+  String get reminderNotificationTitle;
+
+  /// No description provided for @reminderNotificationBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A task reminder is due.'**
+  String get reminderNotificationBody;
+
+  /// No description provided for @reminderSnoozeOneHourAction.
+  ///
+  /// In en, this message translates to:
+  /// **'+1 hour'**
+  String get reminderSnoozeOneHourAction;
+
   /// No description provided for @changePriorityTooltip.
   ///
   /// In en, this message translates to:

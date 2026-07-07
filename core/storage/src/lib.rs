@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 5;
+pub const LATEST_SCHEMA_VERSION: i32 = 6;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -33,6 +33,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 5,
         name: "add_settings",
         apply: add_settings,
+    },
+    Migration {
+        target_version: 6,
+        name: "add_reminders",
+        apply: add_reminders,
     },
 ];
 
@@ -115,6 +120,16 @@ pub struct HomeTask {
     pub is_home_target: bool,
 }
 
+/// A local reminder scheduled on the device for a task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reminder {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub remind_at: i64,
+    pub snoozed_until: Option<i64>,
+    pub created_at: i64,
+}
+
 /// タスクの永続化を担うリポジトリ。
 ///
 /// SQLite(SQLCipher)実装は [`SqliteTaskRepository`] を参照。同期シグネチャのみを定義する。
@@ -154,6 +169,26 @@ pub trait ListRepository {
 pub trait SettingsRepository {
     fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError>;
     fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), StorageError>;
+}
+
+/// リマインダーの永続化を担うリポジトリ。
+pub trait ReminderRepository {
+    fn set_task_reminder(
+        &mut self,
+        task_id: Uuid,
+        remind_at: i64,
+        created_at: i64,
+    ) -> Result<Reminder, StorageError>;
+    fn clear_task_reminders(&mut self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
+    fn list_task_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
+    fn list_task_subtree_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
+    fn list_list_reminders(&self, list_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
+    fn list_pending_reminders(&self, now_ms: i64) -> Result<Vec<Reminder>, StorageError>;
+    fn snooze_reminder(
+        &mut self,
+        reminder_id: Uuid,
+        snoozed_until: i64,
+    ) -> Result<Reminder, StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -349,6 +384,21 @@ fn add_settings(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
              value TEXT NOT NULL,
              updated_at INTEGER NOT NULL
          );",
+    )
+}
+
+fn add_reminders(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS reminders (
+             id TEXT PRIMARY KEY NOT NULL,
+             task_id TEXT NOT NULL,
+             remind_at INTEGER NOT NULL,
+             snoozed_until INTEGER,
+             created_at INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
+         CREATE INDEX IF NOT EXISTS idx_reminders_pending
+             ON reminders(snoozed_until, remind_at);",
     )
 }
 
@@ -853,6 +903,18 @@ fn delete_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<usiz
          WHERE task_id IN (SELECT id FROM subtree)",
         [task_id.to_string()],
     )?;
+    connection.execute(
+        "WITH RECURSIVE subtree(id) AS (
+            SELECT id FROM tasks WHERE id = ?1
+            UNION ALL
+            SELECT tasks.id
+            FROM tasks
+            INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+         )
+         DELETE FROM reminders
+         WHERE task_id IN (SELECT id FROM subtree)",
+        [task_id.to_string()],
+    )?;
     let deleted = connection.execute(
         "WITH RECURSIVE subtree(id) AS (
             SELECT id FROM tasks WHERE id = ?1
@@ -1080,6 +1142,11 @@ impl ListRepository for SqliteListRepository {
             [list_id.to_string()],
         )?;
         transaction.execute(
+            "DELETE FROM reminders
+             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+            [list_id.to_string()],
+        )?;
+        transaction.execute(
             "DELETE FROM tasks WHERE list_id = ?1",
             [list_id.to_string()],
         )?;
@@ -1135,6 +1202,186 @@ impl SettingsRepository for SqliteSettingsRepository {
         )?;
         Ok(())
     }
+}
+
+/// SQLite-backed implementation of [`ReminderRepository`].
+pub struct SqliteReminderRepository {
+    connection: Connection,
+}
+
+impl SqliteReminderRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl ReminderRepository for SqliteReminderRepository {
+    fn set_task_reminder(
+        &mut self,
+        task_id: Uuid,
+        remind_at: i64,
+        created_at: i64,
+    ) -> Result<Reminder, StorageError> {
+        ensure_task_exists(&self.connection, task_id)?;
+        let reminder = Reminder {
+            id: Uuid::now_v7(),
+            task_id,
+            remind_at,
+            snoozed_until: None,
+            created_at,
+        };
+        let transaction = self.connection.transaction()?;
+        delete_task_reminders_on(&transaction, task_id)?;
+        insert_reminder_on(&transaction, &reminder)?;
+        transaction.commit()?;
+        Ok(reminder)
+    }
+
+    fn clear_task_reminders(&mut self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError> {
+        let reminders = list_task_reminders_on(&self.connection, task_id)?;
+        delete_task_reminders_on(&self.connection, task_id)?;
+        Ok(reminders)
+    }
+
+    fn list_task_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError> {
+        list_task_reminders_on(&self.connection, task_id)
+    }
+
+    fn list_task_subtree_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError> {
+        ensure_task_exists(&self.connection, task_id)?;
+        let mut statement = self.connection.prepare(
+            "WITH RECURSIVE subtree(id) AS (
+                 SELECT id FROM tasks WHERE id = ?1
+                 UNION ALL
+                 SELECT tasks.id
+                 FROM tasks
+                 INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+             )
+             SELECT id, task_id, remind_at, snoozed_until, created_at
+             FROM reminders
+             WHERE task_id IN (SELECT id FROM subtree)
+             ORDER BY COALESCE(snoozed_until, remind_at) ASC, created_at ASC, id ASC",
+        )?;
+        let reminders = statement
+            .query_map([task_id.to_string()], row_to_reminder)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(reminders)
+    }
+
+    fn list_list_reminders(&self, list_id: Uuid) -> Result<Vec<Reminder>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT reminders.id, reminders.task_id, reminders.remind_at,
+                    reminders.snoozed_until, reminders.created_at
+             FROM reminders
+             INNER JOIN tasks ON tasks.id = reminders.task_id
+             WHERE tasks.list_id = ?1
+             ORDER BY COALESCE(reminders.snoozed_until, reminders.remind_at) ASC,
+                      reminders.created_at ASC,
+                      reminders.id ASC",
+        )?;
+        let reminders = statement
+            .query_map([list_id.to_string()], row_to_reminder)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(reminders)
+    }
+
+    fn list_pending_reminders(&self, now_ms: i64) -> Result<Vec<Reminder>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT reminders.id, reminders.task_id, reminders.remind_at,
+                    reminders.snoozed_until, reminders.created_at
+             FROM reminders
+             INNER JOIN tasks ON tasks.id = reminders.task_id
+             WHERE COALESCE(reminders.snoozed_until, reminders.remind_at) > ?1
+               AND tasks.status IN ('todo', 'in_progress')
+               AND tasks.deleted_at IS NULL
+             ORDER BY COALESCE(reminders.snoozed_until, reminders.remind_at) ASC,
+                      reminders.created_at ASC,
+                      reminders.id ASC",
+        )?;
+        let reminders = statement
+            .query_map([now_ms], row_to_reminder)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(reminders)
+    }
+
+    fn snooze_reminder(
+        &mut self,
+        reminder_id: Uuid,
+        snoozed_until: i64,
+    ) -> Result<Reminder, StorageError> {
+        let changed = self.connection.execute(
+            "UPDATE reminders
+             SET snoozed_until = ?2
+             WHERE id = ?1",
+            params![reminder_id.to_string(), snoozed_until],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(reminder_id));
+        }
+        self.connection
+            .query_row(
+                "SELECT id, task_id, remind_at, snoozed_until, created_at
+                 FROM reminders
+                 WHERE id = ?1",
+                [reminder_id.to_string()],
+                row_to_reminder,
+            )
+            .map_err(StorageError::from)
+    }
+}
+
+fn ensure_task_exists(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM tasks WHERE id = ?1 LIMIT 1",
+            [task_id.to_string()],
+            |_| Ok(()),
+        )
+        .optional()?;
+    exists.ok_or(StorageError::NotFound(task_id))
+}
+
+fn list_task_reminders_on(
+    connection: &Connection,
+    task_id: Uuid,
+) -> Result<Vec<Reminder>, StorageError> {
+    let mut statement = connection.prepare(
+        "SELECT id, task_id, remind_at, snoozed_until, created_at
+         FROM reminders
+         WHERE task_id = ?1
+         ORDER BY COALESCE(snoozed_until, remind_at) ASC, created_at ASC, id ASC",
+    )?;
+    let reminders = statement
+        .query_map([task_id.to_string()], row_to_reminder)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(reminders)
+}
+
+fn insert_reminder_on(connection: &Connection, reminder: &Reminder) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO reminders (id, task_id, remind_at, snoozed_until, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            reminder.id.to_string(),
+            reminder.task_id.to_string(),
+            reminder.remind_at,
+            reminder.snoozed_until,
+            reminder.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn delete_task_reminders_on(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
+    connection.execute(
+        "DELETE FROM reminders WHERE task_id = ?1",
+        [task_id.to_string()],
+    )?;
+    Ok(())
 }
 
 fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
@@ -1194,6 +1441,18 @@ fn row_to_home_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<HomeTask> {
         task: row_to_task(row)?,
         list_name: row.get(17)?,
         is_home_target: row.get(18)?,
+    })
+}
+
+fn row_to_reminder(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reminder> {
+    let id: String = row.get(0)?;
+    let task_id: String = row.get(1)?;
+    Ok(Reminder {
+        id: parse_uuid(id, 0)?,
+        task_id: parse_uuid(task_id, 1)?,
+        remind_at: row.get(2)?,
+        snoozed_until: row.get(3)?,
+        created_at: row.get(4)?,
     })
 }
 
@@ -1384,6 +1643,15 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v5_database(path: &Path, key: &[u8; 32]) {
+        create_v4_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_settings(&transaction).unwrap();
+        set_user_version(&transaction, 5).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -1439,6 +1707,25 @@ mod tests {
 
     fn setting_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
         let mut statement = connection.prepare("PRAGMA table_info(settings)").unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i32>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .into_iter()
+            .find_map(|(name, column_type, not_null)| {
+                (name == target).then_some((column_type, not_null))
+            })
+    }
+
+    fn reminder_column(connection: &Connection, target: &str) -> Option<(String, i32)> {
+        let mut statement = connection.prepare("PRAGMA table_info(reminders)").unwrap();
         statement
             .query_map([], |row| {
                 Ok((
@@ -1792,6 +2079,22 @@ mod tests {
             setting_column(&connection, "updated_at"),
             Some(("INTEGER".to_string(), 1))
         );
+        assert_eq!(
+            reminder_column(&connection, "id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "task_id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "remind_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "snoozed_until"),
+            Some(("INTEGER".to_string(), 0))
+        );
     }
 
     #[test]
@@ -1830,6 +2133,10 @@ mod tests {
         assert_eq!(
             setting_column(&connection, "value"),
             Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "created_at"),
+            Some(("INTEGER".to_string(), 1))
         );
         assert_eq!(
             SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
@@ -1874,6 +2181,10 @@ mod tests {
         assert_eq!(
             setting_column(&connection, "updated_at"),
             Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "task_id"),
+            Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
             SqliteListRepository::new(connection).get(list.id).unwrap(),
@@ -1935,6 +2246,207 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_reminder_repository_sets_lists_clears_and_snoozes_reminders() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(task.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteReminderRepository::new(connection);
+
+        let first = repository
+            .set_task_reminder(task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .unwrap();
+        assert_eq!(first.task_id, task.id);
+        assert_eq!(
+            repository.list_task_reminders(task.id).unwrap(),
+            vec![first.clone()]
+        );
+
+        let second = repository
+            .set_task_reminder(task.id, 1_800_000_600_000, 1_799_000_001_000)
+            .unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(
+            repository.list_task_reminders(task.id).unwrap(),
+            vec![second.clone()]
+        );
+
+        let snoozed = repository
+            .snooze_reminder(second.id, 1_800_004_200_000)
+            .unwrap();
+        assert_eq!(snoozed.snoozed_until, Some(1_800_004_200_000));
+        assert_eq!(
+            repository.clear_task_reminders(task.id).unwrap(),
+            vec![snoozed]
+        );
+        assert!(repository.list_task_reminders(task.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sqlite_reminder_repository_lists_pending_open_tasks_only() {
+        let file = NamedTempFile::new().unwrap();
+        let mut pending_task = sample_task();
+        pending_task.status = TaskStatus::Todo;
+        pending_task.sort_order = "a0".to_string();
+        let mut closed_task = sample_task();
+        closed_task.status = TaskStatus::Done;
+        closed_task.completed_at = Some(1_799_000_010_000);
+        closed_task.sort_order = "a1".to_string();
+        let mut expired_task = sample_task();
+        expired_task.status = TaskStatus::Todo;
+        expired_task.sort_order = "a2".to_string();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(pending_task.clone()).unwrap();
+            task_repository.insert(closed_task.clone()).unwrap();
+            task_repository.insert(expired_task.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteReminderRepository::new(connection);
+        let pending = repository
+            .set_task_reminder(pending_task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .unwrap();
+        repository
+            .set_task_reminder(closed_task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .unwrap();
+        repository
+            .set_task_reminder(expired_task.id, 1_799_999_999_999, 1_799_000_000_000)
+            .unwrap();
+
+        assert_eq!(
+            repository
+                .list_pending_reminders(1_799_999_999_999)
+                .unwrap(),
+            vec![pending]
+        );
+    }
+
+    #[test]
+    fn sqlite_reminder_repository_lists_subtree_and_list_reminders_for_cancellation() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut parent = sample_task();
+        parent.list_id = list.id;
+        parent.parent_task_id = None;
+        parent.sort_order = "a0".to_string();
+        let mut child = sample_task();
+        child.list_id = list.id;
+        child.parent_task_id = Some(parent.id);
+        child.sort_order = "a1".to_string();
+        let mut other = sample_task();
+        other.list_id = list.id;
+        other.parent_task_id = None;
+        other.sort_order = "a2".to_string();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(parent.clone()).unwrap();
+            task_repository.insert(child.clone()).unwrap();
+            task_repository.insert(other.clone()).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteReminderRepository::new(connection);
+        let parent_reminder = repository
+            .set_task_reminder(parent.id, 1_800_000_000_000, 1_799_000_000_000)
+            .unwrap();
+        let child_reminder = repository
+            .set_task_reminder(child.id, 1_800_000_600_000, 1_799_000_000_000)
+            .unwrap();
+        let other_reminder = repository
+            .set_task_reminder(other.id, 1_800_001_200_000, 1_799_000_000_000)
+            .unwrap();
+
+        assert_eq!(
+            repository.list_task_subtree_reminders(parent.id).unwrap(),
+            vec![parent_reminder.clone(), child_reminder.clone()]
+        );
+        assert_eq!(
+            repository.list_list_reminders(list.id).unwrap(),
+            vec![parent_reminder, child_reminder, other_reminder]
+        );
+    }
+
+    #[test]
+    fn task_and_list_physical_deletes_remove_reminders() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut subtree_task = sample_task();
+        subtree_task.list_id = list.id;
+        subtree_task.parent_task_id = None;
+        subtree_task.sort_order = "a0".to_string();
+        let mut list_task = sample_task();
+        list_task.list_id = list.id;
+        list_task.parent_task_id = None;
+        list_task.sort_order = "a1".to_string();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(subtree_task.clone()).unwrap();
+            task_repository.insert(list_task.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut reminder_repository = SqliteReminderRepository::new(connection);
+            reminder_repository
+                .set_task_reminder(subtree_task.id, 1_800_000_000_000, 1_799_000_000_000)
+                .unwrap();
+            reminder_repository
+                .set_task_reminder(list_task.id, 1_800_000_600_000, 1_799_000_000_000)
+                .unwrap();
+        }
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.delete_subtree(subtree_task.id).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let reminder_repository = SqliteReminderRepository::new(connection);
+            assert!(reminder_repository
+                .list_task_reminders(subtree_task.id)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                reminder_repository
+                    .list_task_reminders(list_task.id)
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut list_repository = SqliteListRepository::new(connection);
+        list_repository.delete_with_tasks(list.id).unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let reminder_repository = SqliteReminderRepository::new(connection);
+        assert!(reminder_repository
+            .list_list_reminders(list.id)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn v4_database_migrates_to_v5_and_adds_settings_table() {
         let file = NamedTempFile::new().unwrap();
         create_v4_database(file.path(), &KEY);
@@ -1955,6 +2467,39 @@ mod tests {
         );
         assert_eq!(
             setting_column(&connection, "updated_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
+    }
+
+    #[test]
+    fn v5_database_migrates_to_v6_and_adds_reminders_table() {
+        let file = NamedTempFile::new().unwrap();
+        create_v5_database(file.path(), &KEY);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            reminder_column(&connection, "id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "task_id"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "remind_at"),
+            Some(("INTEGER".to_string(), 1))
+        );
+        assert_eq!(
+            reminder_column(&connection, "snoozed_until"),
+            Some(("INTEGER".to_string(), 0))
+        );
+        assert_eq!(
+            reminder_column(&connection, "created_at"),
             Some(("INTEGER".to_string(), 1))
         );
     }

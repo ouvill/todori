@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
+import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/rust/api.dart'
-    show HomeTaskDto, ListDto, TaskDto, TaskUndoDto;
+    show HomeTaskDto, ListDto, ReminderDto, TaskDto, TaskUndoDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -58,6 +59,19 @@ class SettingsRepository {
 final settingsRepositoryProvider = Provider<SettingsRepository>(
   (ref) => SettingsRepository(ref.watch(bridgeServiceProvider)),
 );
+
+final reminderNotificationGatewayProvider =
+    Provider<ReminderNotificationGateway>(
+      (ref) => FlutterLocalReminderNotificationGateway(),
+    );
+
+final reminderNotificationServiceProvider =
+    Provider<ReminderNotificationService>(
+      (ref) => ReminderNotificationService(
+        bridge: ref.watch(bridgeServiceProvider),
+        gateway: ref.watch(reminderNotificationGatewayProvider),
+      ),
+    );
 
 /// Provides the reserved F-01 UI mode setting.
 ///
@@ -130,7 +144,11 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
   /// Permanently deletes `listId` and refreshes list collections.
   Future<void> deleteList(String listId) async {
     final bridge = ref.read(bridgeServiceProvider);
+    final reminders = await bridge.getListReminders(listId: listId);
     await bridge.deleteList(listId: listId);
+    await ref
+        .read(reminderNotificationServiceProvider)
+        .cancelReminders(reminders);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
   }
@@ -288,13 +306,20 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     String? closedReason,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
+    final reminders = status == 'done' || status == 'wont_do'
+        ? await bridge.getTaskReminders(taskId: taskId)
+        : const <ReminderDto>[];
     await bridge.setTaskStatus(
       taskId: taskId,
       status: status,
       closedReason: closedReason,
     );
     if (status == 'done' || status == 'wont_do') {
+      await ref
+          .read(reminderNotificationServiceProvider)
+          .cancelReminders(reminders);
       ref.invalidate(latestTaskUndoProvider);
+      ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidateSelf();
   }
@@ -306,7 +331,12 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   /// Permanently deletes `taskId` and its descendants, then refreshes the list.
   Future<void> deleteTask(String taskId) async {
     final bridge = ref.read(bridgeServiceProvider);
+    final reminders = await bridge.getTaskSubtreeReminders(taskId: taskId);
     await bridge.deleteTask(taskId: taskId);
+    await ref
+        .read(reminderNotificationServiceProvider)
+        .cancelReminders(reminders);
+    ref.invalidate(taskRemindersProvider(taskId));
     ref.invalidateSelf();
   }
 
@@ -367,13 +397,20 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     String? closedReason,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
+    final reminders = status == 'done' || status == 'wont_do'
+        ? await bridge.getTaskReminders(taskId: taskId)
+        : const <ReminderDto>[];
     final updated = await bridge.setTaskStatus(
       taskId: taskId,
       status: status,
       closedReason: closedReason,
     );
     if (status == 'done' || status == 'wont_do') {
+      await ref
+          .read(reminderNotificationServiceProvider)
+          .cancelReminders(reminders);
       ref.invalidate(latestTaskUndoProvider);
+      ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidateSelf();
@@ -447,3 +484,41 @@ final latestTaskUndoProvider =
     AsyncNotifierProvider<LatestTaskUndoNotifier, TaskUndoDto?>(
       LatestTaskUndoNotifier.new,
     );
+
+/// Manages reminders attached to a single task.
+class TaskRemindersNotifier extends AsyncNotifier<List<ReminderDto>> {
+  TaskRemindersNotifier(this.taskId);
+
+  final String taskId;
+
+  @override
+  FutureOr<List<ReminderDto>> build() {
+    return ref.watch(bridgeServiceProvider).getTaskReminders(taskId: taskId);
+  }
+
+  Future<ReminderDto> setReminder(int remindAt) async {
+    final reminder = await ref
+        .read(bridgeServiceProvider)
+        .setTaskReminder(taskId: taskId, remindAt: remindAt);
+    ref.invalidateSelf();
+    return reminder;
+  }
+
+  Future<List<ReminderDto>> clearReminders() async {
+    final reminders = await ref
+        .read(bridgeServiceProvider)
+        .clearTaskReminders(taskId: taskId);
+    await ref
+        .read(reminderNotificationServiceProvider)
+        .cancelReminders(reminders);
+    ref.invalidateSelf();
+    return reminders;
+  }
+}
+
+final taskRemindersProvider =
+    AsyncNotifierProvider.family<
+      TaskRemindersNotifier,
+      List<ReminderDto>,
+      String
+    >(TaskRemindersNotifier.new);

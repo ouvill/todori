@@ -13,9 +13,9 @@ use todori_domain::{
     update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, HomeTask, ListRepository, SettingsRepository, SqliteListRepository,
-    SqliteSettingsRepository, SqliteTaskRepository, StorageError, TaskRepository, TaskUndoEntry,
-    TaskUndoOperation,
+    open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SettingsRepository,
+    SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
+    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 
 use crate::dev_key_store::load_or_create_device_key;
@@ -73,6 +73,14 @@ pub struct HomeTaskDto {
     pub task: TaskDto,
     pub list_name: String,
     pub is_home_target: bool,
+}
+
+pub struct ReminderDto {
+    pub id: String,
+    pub task_id: String,
+    pub remind_at: i64,
+    pub snoozed_until: Option<i64>,
+    pub created_at: i64,
 }
 
 pub fn greet(name: String) -> String {
@@ -474,6 +482,76 @@ pub fn set_setting(key: String, value: String) -> Result<(), String> {
     })
 }
 
+pub fn set_task_reminder(task_id: String, remind_at: i64) -> Result<ReminderDto, String> {
+    let task_id = parse_uuid(&task_id)?;
+    let now_ms = now_ms()?;
+    with_reminder_repository(|repository| {
+        repository
+            .set_task_reminder(task_id, remind_at, now_ms)
+            .map_err(|error| error.to_string())
+            .map(reminder_to_dto)
+    })
+}
+
+pub fn clear_task_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
+    let task_id = parse_uuid(&task_id)?;
+    with_reminder_repository(|repository| {
+        repository
+            .clear_task_reminders(task_id)
+            .map_err(|error| error.to_string())
+            .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
+    })
+}
+
+pub fn get_task_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
+    let task_id = parse_uuid(&task_id)?;
+    with_reminder_repository(|repository| {
+        repository
+            .list_task_reminders(task_id)
+            .map_err(|error| error.to_string())
+            .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
+    })
+}
+
+pub fn get_task_subtree_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
+    let task_id = parse_uuid(&task_id)?;
+    with_reminder_repository(|repository| {
+        repository
+            .list_task_subtree_reminders(task_id)
+            .map_err(|error| error.to_string())
+            .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
+    })
+}
+
+pub fn get_list_reminders(list_id: String) -> Result<Vec<ReminderDto>, String> {
+    let list_id = parse_uuid(&list_id)?;
+    with_reminder_repository(|repository| {
+        repository
+            .list_list_reminders(list_id)
+            .map_err(|error| error.to_string())
+            .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
+    })
+}
+
+pub fn list_pending_reminders(now_ms: i64) -> Result<Vec<ReminderDto>, String> {
+    with_reminder_repository(|repository| {
+        repository
+            .list_pending_reminders(now_ms)
+            .map_err(|error| error.to_string())
+            .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
+    })
+}
+
+pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<ReminderDto, String> {
+    let reminder_id = parse_uuid(&reminder_id)?;
+    with_reminder_repository(|repository| {
+        repository
+            .snooze_reminder(reminder_id, snoozed_until)
+            .map_err(|error| error.to_string())
+            .map(reminder_to_dto)
+    })
+}
+
 /// Opens a fresh SQLCipher connection per API call.
 ///
 /// `rusqlite::Connection` is not `Sync`, so the bridge does not keep a shared
@@ -509,6 +587,18 @@ fn with_settings_repository<T>(
     let state = core_state()?;
     let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
     let mut repository = SqliteSettingsRepository::new(connection);
+    f(&mut repository)
+}
+
+/// Opens a fresh SQLCipher connection per reminder API call.
+///
+/// See `with_task_repository` for the connection management tradeoff.
+fn with_reminder_repository<T>(
+    f: impl FnOnce(&mut SqliteReminderRepository) -> Result<T, String>,
+) -> Result<T, String> {
+    let state = core_state()?;
+    let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
+    let mut repository = SqliteReminderRepository::new(connection);
     f(&mut repository)
 }
 
@@ -624,6 +714,16 @@ fn task_undo_to_dto(entry: TaskUndoEntry) -> TaskUndoDto {
         list_id: entry.list_id.to_string(),
         task_title: entry.before_snapshot.title,
         created_at: entry.created_at,
+    }
+}
+
+fn reminder_to_dto(reminder: Reminder) -> ReminderDto {
+    ReminderDto {
+        id: reminder.id.to_string(),
+        task_id: reminder.task_id.to_string(),
+        remind_at: reminder.remind_at,
+        snoozed_until: reminder.snoozed_until,
+        created_at: reminder.created_at,
     }
 }
 

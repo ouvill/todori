@@ -11,6 +11,7 @@ import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
+import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
@@ -266,6 +267,35 @@ void main() {
       find.text('作成日時: ${formatAbsoluteDate('ja', task.createdAt)}'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('task detail shows a localized reminder chip', (tester) async {
+    _useLocale(tester, const Locale('en'));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final task = await fake.createTask(
+      listId: inbox.id,
+      title: 'Review reminder chip',
+      dueAt: _todayStartMs(),
+    );
+    final remindAt = DateTime(2026, 7, 8, 15, 30).millisecondsSinceEpoch;
+    await fake.setTaskReminder(taskId: task.id, remindAt: remindAt);
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Review reminder chip'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(ValueKey('task-reminder-chip-${task.id}')),
+      findsOneWidget,
+    );
+    expect(find.text(formatReminderDateTime('en', remindAt)), findsOneWidget);
+    expect(find.byTooltip('Change reminder'), findsOneWidget);
+    expect(find.byTooltip('Clear reminder'), findsOneWidget);
   });
 
   testWidgets('lists screen shows lists from the bridge service', (

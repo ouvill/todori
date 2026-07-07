@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
 import 'package:todori/src/ui/states.dart';
@@ -87,6 +89,8 @@ class TaskDetailScreen extends ConsumerWidget {
           final theme = Theme.of(context);
           final colorScheme = theme.colorScheme;
           final locale = Localizations.localeOf(context).toLanguageTag();
+          final remindersAsync = ref.watch(taskRemindersProvider(task.id));
+          final reminder = remindersAsync.asData?.value.firstOrNull;
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
@@ -158,6 +162,7 @@ class TaskDetailScreen extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.md),
                   _EditableTaskMetadata(
                     task: task,
+                    reminder: reminder,
                     stats: stats,
                     locale: locale,
                     onSelectDueDate: () => _selectDueDate(context, ref, task),
@@ -175,6 +180,11 @@ class TaskDetailScreen extends ConsumerWidget {
                       task,
                       priority: priority,
                     ),
+                    onSelectReminder: () =>
+                        _selectReminder(context, ref, task, reminder),
+                    onClearReminder: reminder == null
+                        ? null
+                        : () => _clearReminder(context, ref, task),
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
@@ -364,6 +374,99 @@ class TaskDetailScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _selectReminder(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+    ReminderDto? currentReminder,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final now = DateTime.now();
+    final initial = currentReminder == null
+        ? now.add(const Duration(hours: 1))
+        : DateTime.fromMillisecondsSinceEpoch(
+            effectiveReminderAt(currentReminder),
+          ).toLocal();
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(2100),
+    );
+    if (pickedDate == null || !context.mounted) {
+      return;
+    }
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (pickedTime == null || !context.mounted) {
+      return;
+    }
+    final remindAt = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    final notificationService = ref.read(reminderNotificationServiceProvider);
+    final permissionsGranted = await notificationService.requestPermissions();
+    try {
+      final reminder = await ref
+          .read(taskRemindersProvider(task.id).notifier)
+          .setReminder(remindAt.millisecondsSinceEpoch);
+      if (permissionsGranted) {
+        await notificationService.scheduleReminder(
+          reminder: reminder,
+          listId: task.listId,
+          content: ReminderNotificationContent(
+            title: l10n.reminderNotificationTitle,
+            body: l10n.reminderNotificationBody,
+            snoozeActionTitle: l10n.reminderSnoozeOneHourAction,
+          ),
+        );
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.reminderPermissionDenied),
+            margin: const EdgeInsets.all(AppSpacing.md),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.failedToSaveReminder(error.toString())),
+            margin: const EdgeInsets.all(AppSpacing.md),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _clearReminder(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      await ref.read(taskRemindersProvider(task.id).notifier).clearReminders();
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.failedToSaveReminder(error.toString())),
+            margin: const EdgeInsets.all(AppSpacing.md),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteTask(
     BuildContext context,
     WidgetRef ref,
@@ -535,6 +638,12 @@ String _undoMessage(AppLocalizations l10n, String operationType) {
     'edit' => l10n.undoEditMessage,
     _ => l10n.undoEditMessage,
   };
+}
+
+String formatReminderDateTime(String locale, int epochMs) {
+  final dateTime = DateTime.fromMillisecondsSinceEpoch(epochMs).toLocal();
+  return '${DateFormat.MMMd(locale).format(dateTime)} '
+      '${DateFormat.jm(locale).format(dateTime)}';
 }
 
 TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
@@ -958,25 +1067,34 @@ class _ParentTaskLink extends StatelessWidget {
 class _EditableTaskMetadata extends StatelessWidget {
   const _EditableTaskMetadata({
     required this.task,
+    required this.reminder,
     required this.stats,
     required this.locale,
     required this.onSelectDueDate,
     required this.onClearDueDate,
     required this.onPrioritySelected,
+    required this.onSelectReminder,
+    required this.onClearReminder,
   });
 
   final TaskDto task;
+  final ReminderDto? reminder;
   final SubtaskStats stats;
   final String locale;
   final VoidCallback onSelectDueDate;
   final VoidCallback? onClearDueDate;
   final ValueChanged<int> onPrioritySelected;
+  final VoidCallback onSelectReminder;
+  final VoidCallback? onClearReminder;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final overdue = isTaskOverdue(task);
     final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
+    final reminderLabel = reminder == null
+        ? l10n.reminderChipEmpty
+        : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
     return Wrap(
       spacing: AppSpacing.xs,
       runSpacing: AppSpacing.xs,
@@ -1039,6 +1157,31 @@ class _EditableTaskMetadata extends StatelessWidget {
               taskPriorityLabel(l10n, task.priority),
             ),
           ),
+        ),
+        _DetailPill(
+          key: ValueKey('task-reminder-chip-${task.id}'),
+          icon: LucideIcons.bell300,
+          label: reminderLabel,
+          tooltip: reminder == null
+              ? l10n.reminderChipTooltipSet
+              : l10n.reminderChipTooltipChange,
+          onTap: onSelectReminder,
+          trailing: onClearReminder == null
+              ? null
+              : SizedBox.square(
+                  dimension: 32,
+                  child: IconButton(
+                    key: ValueKey('task-clear-reminder-${task.id}'),
+                    tooltip: l10n.clearReminderButton,
+                    icon: const Icon(LucideIcons.x300, size: 16),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    onPressed: onClearReminder,
+                  ),
+                ),
         ),
         if (stats.hasDescendants)
           _DetailPill(

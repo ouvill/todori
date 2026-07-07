@@ -277,6 +277,36 @@ class AppLocalizationsJa extends AppLocalizations {
   String get changeDueDateTooltip => '期限日を変更';
 
   @override
+  String get reminderChipEmpty => 'リマインダー';
+
+  @override
+  String get reminderChipTooltipSet => 'リマインダーを設定';
+
+  @override
+  String get reminderChipTooltipChange => 'リマインダーを変更';
+
+  @override
+  String get clearReminderButton => 'リマインダーを解除';
+
+  @override
+  String get reminderPermissionDenied =>
+      '通知がオフです。リマインダーは保存しましたが、Todoriはローカル通知を登録できませんでした。';
+
+  @override
+  String failedToSaveReminder(String error) {
+    return 'リマインダーの保存に失敗しました: $error';
+  }
+
+  @override
+  String get reminderNotificationTitle => 'Todori リマインダー';
+
+  @override
+  String get reminderNotificationBody => 'タスクのリマインダー時刻です。';
+
+  @override
+  String get reminderSnoozeOneHourAction => '1時間後';
+
+  @override
   String get changePriorityTooltip => '優先度を変更';
 
   @override

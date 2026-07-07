@@ -9,11 +9,13 @@ import 'package:todori/src/rust/api.dart';
 class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
+  final List<ReminderDto> _reminders = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
   final Map<String, String> _settings = {};
   final List<FakeReorderCall> reorderCalls = [];
   int _listSeq = 0;
   int _taskSeq = 0;
+  int _reminderSeq = 0;
   int _undoSeq = 0;
 
   @override
@@ -345,6 +347,7 @@ class FakeBridgeService implements BridgeService {
   Future<void> deleteTask({required String taskId}) async {
     final ids = {taskId, ..._descendantIds(taskId)};
     _tasks.removeWhere((task) => ids.contains(task.id));
+    _reminders.removeWhere((reminder) => ids.contains(reminder.taskId));
     _undoEntries.removeWhere((entry) => ids.contains(entry.taskId));
   }
 
@@ -359,6 +362,7 @@ class FakeBridgeService implements BridgeService {
         .map((task) => task.id)
         .toSet();
     _tasks.removeWhere((task) => task.listId == listId);
+    _reminders.removeWhere((reminder) => taskIds.contains(reminder.taskId));
     _undoEntries.removeWhere((entry) => taskIds.contains(entry.taskId));
     _lists.removeWhere((candidate) => candidate.id == listId);
   }
@@ -441,6 +445,109 @@ class FakeBridgeService implements BridgeService {
   @override
   Future<void> setSetting({required String key, required String value}) async {
     _settings[key] = value;
+  }
+
+  @override
+  Future<ReminderDto> setTaskReminder({
+    required String taskId,
+    required int remindAt,
+  }) async {
+    if (!_tasks.any((task) => task.id == taskId)) {
+      throw Exception('record not found');
+    }
+    _reminders.removeWhere((reminder) => reminder.taskId == taskId);
+    final reminderSeq = _reminderSeq++;
+    final reminder = ReminderDto(
+      id: 'reminder-$reminderSeq',
+      taskId: taskId,
+      remindAt: remindAt,
+      createdAt: _fakeTimestamp(2000 + reminderSeq),
+    );
+    _reminders.add(reminder);
+    return reminder;
+  }
+
+  @override
+  Future<List<ReminderDto>> clearTaskReminders({required String taskId}) async {
+    final removed = _reminders
+        .where((reminder) => reminder.taskId == taskId)
+        .toList(growable: false);
+    _reminders.removeWhere((reminder) => reminder.taskId == taskId);
+    return List.unmodifiable(removed);
+  }
+
+  @override
+  Future<List<ReminderDto>> getTaskReminders({required String taskId}) async {
+    final reminders = _reminders
+        .where((reminder) => reminder.taskId == taskId)
+        .toList(growable: false);
+    reminders.sort(_compareReminders);
+    return List.unmodifiable(reminders);
+  }
+
+  @override
+  Future<List<ReminderDto>> getTaskSubtreeReminders({
+    required String taskId,
+  }) async {
+    final ids = {taskId, ..._descendantIds(taskId)};
+    final reminders = _reminders
+        .where((reminder) => ids.contains(reminder.taskId))
+        .toList(growable: false);
+    reminders.sort(_compareReminders);
+    return List.unmodifiable(reminders);
+  }
+
+  @override
+  Future<List<ReminderDto>> getListReminders({required String listId}) async {
+    final taskIds = _tasks
+        .where((task) => task.listId == listId)
+        .map((task) => task.id)
+        .toSet();
+    final reminders = _reminders
+        .where((reminder) => taskIds.contains(reminder.taskId))
+        .toList(growable: false);
+    reminders.sort(_compareReminders);
+    return List.unmodifiable(reminders);
+  }
+
+  @override
+  Future<List<ReminderDto>> listPendingReminders({required int nowMs}) async {
+    final openTaskIds = _tasks
+        .where((task) => task.status == 'todo' || task.status == 'in_progress')
+        .map((task) => task.id)
+        .toSet();
+    final reminders = _reminders
+        .where(
+          (reminder) =>
+              openTaskIds.contains(reminder.taskId) &&
+              _effectiveReminderAt(reminder) > nowMs,
+        )
+        .toList(growable: false);
+    reminders.sort(_compareReminders);
+    return List.unmodifiable(reminders);
+  }
+
+  @override
+  Future<ReminderDto> snoozeReminder({
+    required String reminderId,
+    required int snoozedUntil,
+  }) async {
+    final index = _reminders.indexWhere(
+      (reminder) => reminder.id == reminderId,
+    );
+    if (index < 0) {
+      throw Exception('record not found');
+    }
+    final current = _reminders[index];
+    final updated = ReminderDto(
+      id: current.id,
+      taskId: current.taskId,
+      remindAt: current.remindAt,
+      snoozedUntil: snoozedUntil,
+      createdAt: current.createdAt,
+    );
+    _reminders[index] = updated;
+    return updated;
   }
 
   TaskDto _reorderBoundary(String boundaryId, TaskDto task) {
@@ -630,6 +737,23 @@ int _compareHomeTaskEntries(HomeTaskDto a, HomeTaskDto b) {
   }
   return _compareTasks(a.task, b.task);
 }
+
+int _compareReminders(ReminderDto a, ReminderDto b) {
+  final effectiveAt = _effectiveReminderAt(
+    a,
+  ).compareTo(_effectiveReminderAt(b));
+  if (effectiveAt != 0) {
+    return effectiveAt;
+  }
+  final createdAt = a.createdAt.compareTo(b.createdAt);
+  if (createdAt != 0) {
+    return createdAt;
+  }
+  return a.id.compareTo(b.id);
+}
+
+int _effectiveReminderAt(ReminderDto reminder) =>
+    reminder.snoozedUntil ?? reminder.remindAt;
 
 int _compareLists(ListDto a, ListDto b) {
   final sortOrder = a.sortOrder.compareTo(b.sortOrder);

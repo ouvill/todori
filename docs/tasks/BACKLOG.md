@@ -89,13 +89,13 @@
 - **FTS5検索の配線完了**: task-62で、v4マイグレーションによる `tasks_fts` 再構築・同期トリガー・storage/bridge検索API・英日検索テストを実装した。検索UIはPhase 3送りのまま。
 - **設定値の永続化機構とF-01 UIモード保存口完了**: task-63で、v5マイグレーションによる `settings` テーブル、storage/bridge/Dart providerの設定読み書きAPI、`ui_mode` 既定値 `simple` helperを実装した。UIモード選択/切替UIはPhase 3送りのまま。
 - **iOS/macOS Keychain DeviceKeyStore完了**: task-64で、Rust側からApple Security frameworkを呼ぶ方式、`AfterFirstUnlockThisDeviceOnly` 相当、既存 `device.key` からのデータロス回避移行、iOS Simulator/macOS dogfooding確認手順を実装・記録した。2026-07-08親レビュー合格。親ホストで実Keychain roundtrip ignoredテスト、macOS debugアプリの起動→再起動、鍵保持、DBオープン、login.keychain上の `dev.todori.todori.device-key` アイテム確認まで合格。iOS Simulator/実機の `flutter run` 通し確認は人間帰還後確認に残す。
-- **ローカル通知task-65指示書化済み（未着手）**: M4-01 / F-24・F-25対応として、`flutter_local_notifications` 採用、v6 `reminders`、bridge API、詳細画面リマインダーチップ、通知権限、スヌーズ最小版、起動時再スケジュール、完了/削除時キャンセル、Rust/Flutterテストと手動確認手順を指示書化した。
+- **ローカル通知task-65完了（2026-07-08）**: M4-01 / F-24・F-25対応として、`flutter_local_notifications` 採用、v6 `reminders`、bridge API、詳細画面リマインダーチップ、通知権限、スヌーズ最小版、起動時再スケジュール、完了/削除時キャンセル、Rust/Flutterテストと手動確認手順を実装した。
 
 ## 優先度付きバックログ
 
 | # | タスク | 内容 | 対応マイルストーン | 備考 |
 |---|---|---|---|---|
-| 1 | task-65 ローカル通知 | F-24〜F-25。iOS先行でローカル通知、通知取消、スヌーズ最小版を実装する | M4-01 | 未着手。E2EE設計上、通知はサーバーpushではなくローカル通知が正。`flutter_local_notifications` は人間の包括承認済み |
+| 1 | task-65 ローカル通知 | F-24〜F-25。iOS先行でローカル通知、通知取消、スヌーズ最小版を実装する | M4-01 | 完了（2026-07-08）。E2EE設計上、通知はサーバーpushではなくローカル通知が正。`flutter_local_notifications` は人間の包括承認済み |
 | 2 | アクセシビリティ検証パス | Dynamic Type / スクリーンリーダーラベル / コントラストの確認項目を通す | M4-03 | |
 | 3 | 性能検証 | 1万件データで起動2秒以内・主要操作60fps・オフライン動作を計測し、結果を記録する | M4-04 / F-50〜F-52 | Phase 2同期前のローカル性能基準としても使う |
 | 4 | Closedセクション見出しの冗長表記整理 | Closedセクション見出しが `"Closed 2 closed"` のように冗長表示される文言を整理する | Phase 1軽量レーン | 出典: 親レビュー2026-07-07 |
