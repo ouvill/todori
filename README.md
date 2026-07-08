@@ -15,6 +15,7 @@ UI面では、丸みや淡い配色を取り入れた親しみやすいデザイ
 - [技術仕様書](./docs/03_技術仕様書.md)
 - [課金概要](./docs/billing_overview.md)
 - [法務・OSS概要](./docs/legal_overview.md)
+- [運用ガイド](./docs/09_運用ガイド.md)
 - [Security Policy](./SECURITY.md)
 
 ## リポジトリ構成

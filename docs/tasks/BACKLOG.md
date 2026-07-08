@@ -105,6 +105,7 @@
 - **P2-M5前半 task-73完了（2026-07-08）**: ADR-010ドラフトをDraft/人間承認待ちとして追加し、削除tombstoneは暗号blobを空化してrecord-id/deleted/HLC/seq等の最小メタデータだけ180日保持する方針を記録した。実装は削除push blob空化、tombstone GC関数、List DEK bundle upsert、登録時/リスト作成時のList DEK保存、lists本体のList DEK暗号化へ絞った。410 Gone/フル再同期はPhase 2後半へ継続。
 - **P2-M5後半 task-74完了（2026-07-08）**: Android Rust FFI `arm64-v8a` ビルドは成功し、`libtodori_app_bridge.so` は13MBだった。`flutter build apk --debug` はNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可でビルド前停止。`flutter build macos --release` と `flutter build ios --simulator --debug` はXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約でビルド前停止。reqwest(rustls)、SQLCipher vendored OpenSSL、Apple `security-framework` のAndroidクロスコンパイル漏れは見つからなかった。非Apple platformは暫定 `FileDeviceKeyStore` fallbackであることを確認済み。
 - **task-75 core extraction refactor完了（2026-07-08）**: `app/rust/src/api.rs` から同期run/pull適用/outbox enqueue/HLC tick/plaintext変換/List DEK補完を `core/sync` へ移し、Device Key / Keychain / account secret storeを `core/crypto` へ移した。FRB公開API、SQLite schema、sync wire format、UI文字列は変更していない。
+- **task-76 運用ドキュメント整備完了（2026-07-08）**: `docs/09_運用ガイド.md` と `docs/ops/` 配下のサーバーデプロイ、DB migration、障害対応、クライアントリリースrunbookを追加した。public repo安全のため、公開不可の運用・事業詳細や実クレデンシャルは書かず、必要箇所はプレースホルダとprivate側/人間管理へ分離した。
 - **Phase 2計画書改訂（2026-07-08）**: `docs/01_企画書.md` §8と整合させるため、`docs/08_Phase2計画書.md` にP2-M6カレンダー表示、P2-M7タイマー/Pomodoro、P2-M8テンプレート・繰り返しタスクを追加した。課金はApp Store IAPとprivate repo側事業設計を含むため、人間協働必須として自律スコープ外に残す。
 
 ## 帰還後の人間確認リスト
@@ -141,12 +142,13 @@
 | 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010はDraft/人間承認待ち |
 | 18 | task-74 P2-M5 後半 マルチプラットフォーム検証 | Android Rust/Flutter、macOS release、iOS Simulator debugのビルド検証を行う | P2-M5後半 | 完了（2026-07-08）。指示書: [`task-74-multiplatform-verification.md`](./task-74-multiplatform-verification.md)。出典: `docs/08_Phase2計画書.md` P2-M5 |
 | 19 | task-75 同期オーケストレーションとKeychainのcore移設 | `api.rs` 肥大化を解消し、同期実体を `core/sync`、Keychain実装を `core/crypto` へ移す | Phase 2 リファクタ | 完了（2026-07-08）。指示書: [`task-75-core-extraction-refactor.md`](./task-75-core-extraction-refactor.md)。挙動変更なし |
-| 20 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
-| 21 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
-| 22 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
-| 23 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
-| 24 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
-| 25 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
+| 20 | task-76 運用ドキュメント整備 | 公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | 運用整備 | 完了（2026-07-08）。指示書: [`task-76-ops-documentation.md`](./task-76-ops-documentation.md)。実AWS/Neonデプロイは未実施 |
+| 21 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
+| 22 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
+| 23 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
+| 24 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
+| 25 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
+| 26 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 

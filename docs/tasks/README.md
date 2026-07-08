@@ -93,6 +93,7 @@
 | task-73 | 完了 | [task-73-adr010-and-dek-alignment.md](./task-73-adr010-and-dek-alignment.md) | P2-M5前半。ADR-010ドラフト、削除tombstone blob空化/GC関数、lists本体のList DEK整合、List DEK bundle保存を実装する | task-72の成果物、`docs/08_Phase2計画書.md` P2-M5、`docs/03_技術仕様書.md` §4.8・§6、ADR-009に依存。ADR-010はDraft/人間承認待ち |
 | task-74 | 完了 | [task-74-multiplatform-verification.md](./task-74-multiplatform-verification.md) | P2-M5後半。Android Rust/Flutter、macOS release、iOS Simulator debugのマルチプラットフォームビルド検証を行う | task-73の完了状態、`docs/08_Phase2計画書.md` P2-M5、`docs/03_技術仕様書.md` §2・§4.3・§5.3・§11.2に依存。2026-07-08検証ではAndroid Rust成功、Flutter APK/macOS/iOSは環境制約でビルド前停止 |
 | task-75 | 完了 | [task-75-core-extraction-refactor.md](./task-75-core-extraction-refactor.md) | 同期オーケストレーションとKeychainのcore移設。`api.rs` 肥大化を解消し、ブリッジを薄い公開関数層へ戻す | task-64・task-72・task-73の成果物に依存。挙動変更・API変更・スキーマ変更なしの純リファクタ |
+| task-76 | 完了 | [task-76-ops-documentation.md](./task-76-ops-documentation.md) | 運用ドキュメント整備。公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | task-70〜75の成果物、`docs/03_技術仕様書.md` §1.5・§6.6、ADR-008/009/010、`tool/dev_server.sh`、2台同期手順に依存。git commitなし |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 
