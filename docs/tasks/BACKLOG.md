@@ -97,6 +97,7 @@
 - **P2-M1 クライアント同期基盤task-69指示書化（2026-07-08）**: Phase 2最初の実装タスクとして、HLC、フィールドHLCマップ、LWWマージ、blob暗号エンベロープ、storage v8 outbox、proptest収束性検証を `docs/tasks/task-69-sync-foundation.md` に指示書化した。ステータスは未着手。サーバー・ネットワーク・Flutter UIはP2-M2以降へ分離する。
 - **P2-M1 クライアント同期基盤task-69完了（2026-07-08）**: `core/sync` にHLC固定幅エンコード、field_hlcs、フィールドLWW、blob暗号エンベロープ、収束性proptest（64ケース）を追加し、`core/storage` v8でsync outboxとpull cursorを追加した。サーバー/ネットワーク/UI接続はP2-M2以降。
 - **P2-M2 同期サーバーtask-70完了（2026-07-08）**: Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、tenant_seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装した。task-69で見つかった再push時のHLC同値問題は、docs/03 §6.4の「再pushは新HLCで送る」規約に従い、同一HLCかつ異なるblobをプロトコル違反として拒否する。
+- **P2-M3 鍵階層とアカウント接続task-71指示書化（2026-07-08）**: クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain保存、FRB API、Flutter最小アカウント画面を `docs/tasks/task-71-key-hierarchy-account.md` に指示書化した。ステータスは未着手。同期ループ、Recovery UX完全版、複数デバイス管理UIはスコープ外。
 
 ## 優先度付きバックログ
 
@@ -116,7 +117,7 @@
 | 12 | クラッシュレポート方針の確定 | F-53オプトイン文言・PII除去対象・実送信するかの判断を記録する | M5-03 | 人間帰還後。法務/プライバシー判断が必要 |
 | 13 | task-69 P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 完了（2026-07-08）。指示書: [`task-69-sync-foundation.md`](./task-69-sync-foundation.md)。出典: `docs/08_Phase2計画書.md`、`docs/03` §4.8、§6.3、§6.4、§11.1 |
 | 14 | task-70 P2-M2 同期サーバー | Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装する | P2-M2 | 完了（2026-07-08）。指示書: [`task-70-sync-server.md`](./task-70-sync-server.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§2、§3、§6、§7、ADR-003/005/008 |
-| 15 | P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §4、§7 |
+| 15 | task-71 P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 未着手。指示書: [`task-71-key-hierarchy-account.md`](./task-71-key-hierarchy-account.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§3、§4、§7 |
 | 16 | P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5 |
 | 17 | P2-M5 削除同期とマルチプラットフォーム検証 | ADR-010ドラフト、保守的な削除同期実装、Android/macOSビルド・動作検証を行う | P2-M5 | 出典: `docs/08_Phase2計画書.md`。ADR-010は人間レビュー待ちを明記 |
 
