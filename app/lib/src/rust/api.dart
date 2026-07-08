@@ -6,10 +6,8 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth`, `account_runtime_state`, `account_session_to_dto`, `active_sync_context`, `apply_pull_list`, `apply_pull_record`, `apply_pull_task`, `clear_account_settings`, `core_state`, `count_to_i32`, `dek_for_task_list`, `enqueue_list_sync`, `enqueue_merged_plaintext`, `enqueue_plaintext`, `enqueue_task_sync`, `has_active_sync_context`, `home_task_to_dto`, `list_from_plaintext`, `list_plaintext`, `list_to_dto`, `load_reorder_boundary`, `logged_out_account_state`, `now_ms`, `option_i32_value`, `option_i64_value`, `option_string_value`, `option_uuid_value`, `parse_status`, `parse_uuid`, `persist_account_state`, `record_hlc_or_initial`, `reminder_to_dto`, `replace_account_runtime_state`, `run_async`, `run_sync_now`, `status_to_string`, `store_sync_plaintext`, `stored_sync_plaintext`, `sync_runtime_state`, `sync_status_dto`, `task_from_plaintext`, `task_plaintext`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `tick_local_hlc`, `usize_to_i32`, `value_bool`, `value_i64`, `value_string`, `value_uuid`, `with_list_repository`, `with_reminder_repository`, `with_settings_repository`, `with_sync_repository`, `with_task_repository`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `AccountAuthMode`, `AccountRuntimeState`, `ActiveSyncContext`, `CoreState`, `LocalSyncKeys`, `SyncRuntimeState`
+// These functions are ignored because they are not marked as `pub`: `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
-// These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiGreet(name: name);

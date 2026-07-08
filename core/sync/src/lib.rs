@@ -5,15 +5,23 @@
 //! `outbox` によるpush/pullフローの永続化は `todori-storage` が担う。
 
 pub mod account;
+pub mod apply;
 pub mod engine;
+pub mod enqueue;
 pub mod envelope;
 pub mod field_map;
 pub mod hlc;
+pub mod keys;
 pub mod merge;
 
+pub use apply::{run_sync_now, ActiveSyncContext};
 pub use engine::{
     PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus, SyncEngine,
     SyncEngineError, SyncRunSummary,
+};
+pub use enqueue::{
+    enqueue_list_sync, enqueue_task_sync, LocalSyncOutboxEntry, LocalSyncStore,
+    NewLocalSyncOutboxEntry,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
@@ -22,6 +30,10 @@ pub use field_map::{
     FieldMapError, SyncPlaintext, LIST_LWW_FIELDS, SORT_ORDER_FIELD, TASK_LWW_FIELDS,
 };
 pub use hlc::{Hlc, HlcError};
+pub use keys::{
+    dek_for_list, ensure_list_dek_for_list, LocalSyncKeys, LISTS_COLLECTION, SYNC_CURSOR_NAME,
+    SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
+};
 pub use merge::{merge_lww, MergeResult};
 
 #[cfg(test)]

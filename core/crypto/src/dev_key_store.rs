@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use todori_crypto::{ensure_device_key, DeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN};
+use crate::{ensure_device_key, DeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN};
 
 const DEVICE_KEY_FILE_NAME: &str = "device.key";
 const SESSION_TOKEN_FILE_NAME: &str = "session.token";
@@ -21,7 +21,7 @@ const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 #[cfg(target_os = "macos")]
 const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
 
-pub(crate) fn load_or_create_device_key(
+pub fn load_or_create_device_key(
     db_dir: impl AsRef<Path>,
 ) -> Result<[u8; DEVICE_KEY_LEN], KeyStoreError> {
     let mut file_store = FileDeviceKeyStore::new(db_dir);
@@ -42,12 +42,12 @@ pub(crate) fn load_or_create_device_key(
     }
 }
 
-pub(crate) enum AccountSecretKind {
+pub enum AccountSecretKind {
     SessionToken,
     MasterKeyWrap,
 }
 
-pub(crate) fn load_account_secret(
+pub fn load_account_secret(
     db_dir: impl AsRef<Path>,
     kind: AccountSecretKind,
 ) -> Result<Option<Vec<u8>>, KeyStoreError> {
@@ -67,7 +67,7 @@ pub(crate) fn load_account_secret(
     }
 }
 
-pub(crate) fn store_account_secret(
+pub fn store_account_secret(
     db_dir: impl AsRef<Path>,
     kind: AccountSecretKind,
     value: &[u8],
@@ -88,7 +88,7 @@ pub(crate) fn store_account_secret(
     }
 }
 
-pub(crate) fn delete_account_secret(
+pub fn delete_account_secret(
     db_dir: impl AsRef<Path>,
     kind: AccountSecretKind,
 ) -> Result<(), KeyStoreError> {
@@ -126,7 +126,7 @@ impl AccountSecretKind {
 }
 
 #[cfg(any(test, target_os = "ios", target_os = "macos"))]
-pub(crate) fn ensure_device_key_with_migration(
+pub fn ensure_device_key_with_migration(
     primary_store: &mut impl DeviceKeyStore,
     file_store: &mut impl DeviceKeyStore,
 ) -> Result<[u8; DEVICE_KEY_LEN], KeyStoreError> {

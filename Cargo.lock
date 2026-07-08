@@ -3277,6 +3277,7 @@ dependencies = [
  "hkdf 0.12.4",
  "opaque-ke",
  "rand 0.8.6",
+ "security-framework",
  "sha2 0.10.9",
  "thiserror",
  "x25519-dalek",
@@ -3368,7 +3369,6 @@ name = "todori_app_bridge"
 version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
- "security-framework",
  "serde_json",
  "todori-crypto",
  "todori-domain",

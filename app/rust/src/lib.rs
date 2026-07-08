@@ -2,5 +2,6 @@
 #![allow(unexpected_cfgs)]
 
 pub mod api;
-mod dev_key_store;
 pub mod frb_generated;
+mod support;
+mod sync_store;

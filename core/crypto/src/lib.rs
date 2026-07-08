@@ -7,12 +7,17 @@
 //! HKDF鍵導出のみを提供する。
 
 pub mod aead;
+pub mod dev_key_store;
 pub mod device_key;
 pub mod kdf;
 pub mod key_hierarchy;
 pub mod opaque;
 
 pub use aead::{decrypt, encrypt, CryptoError};
+pub use dev_key_store::{
+    delete_account_secret, load_account_secret, load_or_create_device_key, store_account_secret,
+    AccountSecretKind, FileDeviceKeyStore,
+};
 pub use device_key::{
     derive_local_db_key, ensure_device_key, generate_device_key, DeviceKeyStore,
     InMemoryDeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN, LOCAL_DB_KEY_INFO,
