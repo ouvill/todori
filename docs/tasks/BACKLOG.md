@@ -139,7 +139,9 @@
 | 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010はDraft/人間承認待ち |
 | 18 | task-74 P2-M5 後半 マルチプラットフォーム検証 | Android Rust/Flutter、macOS release、iOS Simulator debugのビルド検証を行う | P2-M5後半 | 完了（2026-07-08）。指示書: [`task-74-multiplatform-verification.md`](./task-74-multiplatform-verification.md)。出典: `docs/08_Phase2計画書.md` P2-M5 |
 | 19 | task-75 同期オーケストレーションとKeychainのcore移設 | `api.rs` 肥大化を解消し、同期実体を `core/sync`、Keychain実装を `core/crypto` へ移す | Phase 2 リファクタ | 完了（2026-07-08）。指示書: [`task-75-core-extraction-refactor.md`](./task-75-core-extraction-refactor.md)。挙動変更なし |
-| 20 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
+| 20 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
+| 21 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
+| 22 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
