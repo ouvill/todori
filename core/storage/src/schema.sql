@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sync_record_states (
+    record_id TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    plaintext_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (collection, record_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order ON tasks(list_id, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);

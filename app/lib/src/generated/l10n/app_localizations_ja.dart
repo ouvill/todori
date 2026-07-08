@@ -540,6 +540,35 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountRequestFailed => 'アカウント処理に失敗しました。';
 
   @override
+  String get accountSyncTitle => '同期';
+
+  @override
+  String get accountSyncNotSignedIn => '同期はオフです。';
+
+  @override
+  String get accountSyncIdle => '待機中';
+
+  @override
+  String get accountSyncRunning => '同期中';
+
+  @override
+  String get accountSyncFailed => '同期に失敗しました';
+
+  @override
+  String accountSyncLastSuccess(String time) {
+    return '最終同期: $time';
+  }
+
+  @override
+  String get accountSyncNever => '未同期';
+
+  @override
+  String get accountSyncNowButton => '今すぐ同期';
+
+  @override
+  String get accountSyncNowTooltip => '今すぐ同期';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }

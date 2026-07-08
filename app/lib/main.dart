@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:todori/src/core/bridge_service.dart';
+import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/router.dart';
@@ -115,14 +116,51 @@ class TodoriApp extends StatelessWidget {
 
     return ProviderScope(
       overrides: overrides,
-      child: MaterialApp.router(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        theme: buildTodoriTheme(Brightness.light),
-        darkTheme: buildTodoriTheme(Brightness.dark),
-        routerConfig: router,
-      ),
+      child: _TodoriAppShell(router: router),
+    );
+  }
+}
+
+class _TodoriAppShell extends ConsumerStatefulWidget {
+  const _TodoriAppShell({required this.router});
+
+  final GoRouter router;
+
+  @override
+  ConsumerState<_TodoriAppShell> createState() => _TodoriAppShellState();
+}
+
+class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ref.read(syncStatusProvider.notifier).syncOnResume());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(syncStatusProvider);
+    return MaterialApp.router(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+      theme: buildTodoriTheme(Brightness.light),
+      darkTheme: buildTodoriTheme(Brightness.dark),
+      routerConfig: widget.router,
     );
   }
 }

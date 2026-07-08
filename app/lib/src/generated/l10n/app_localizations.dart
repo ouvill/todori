@@ -1052,6 +1052,60 @@ abstract class AppLocalizations {
   /// **'Account request failed.'**
   String get accountRequestFailed;
 
+  /// No description provided for @accountSyncTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get accountSyncTitle;
+
+  /// No description provided for @accountSyncNotSignedIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync is off.'**
+  String get accountSyncNotSignedIn;
+
+  /// No description provided for @accountSyncIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready'**
+  String get accountSyncIdle;
+
+  /// No description provided for @accountSyncRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing'**
+  String get accountSyncRunning;
+
+  /// No description provided for @accountSyncFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync failed'**
+  String get accountSyncFailed;
+
+  /// No description provided for @accountSyncLastSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Last synced: {time}'**
+  String accountSyncLastSuccess(String time);
+
+  /// No description provided for @accountSyncNever.
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get accountSyncNever;
+
+  /// No description provided for @accountSyncNowButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get accountSyncNowButton;
+
+  /// No description provided for @accountSyncNowTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get accountSyncNowTooltip;
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

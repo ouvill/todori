@@ -14,7 +14,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::{PgPool, Postgres};
-use std::sync::OnceLock;
+use std::{collections::BTreeMap, path::PathBuf, sync::OnceLock};
+use tempfile::TempDir;
 use testcontainers_modules::{
     postgres,
     testcontainers::{runners::AsyncRunner, ContainerAsync},
@@ -28,15 +29,23 @@ use todori_server::{
     sync::MAX_PUSH_OPS,
     AppState,
 };
+use todori_storage::{
+    open_encrypted, NewSyncOutboxEntry, SqliteSyncStateRepository, SyncStateRepository,
+};
 use todori_sync::account::{
     unwrap_login_key_bundle, AccountClient, AccountKeyBundleDto, ListDekBundleDto,
 };
-use todori_sync::{Hlc, MAX_ENCRYPTED_BLOB_LEN};
+use todori_sync::{
+    decrypt_plaintext, encrypt_plaintext, merge_lww, Hlc, PushOp, PushStatus, SyncEngine,
+    SyncPlaintext, SyncRunSummary, MAX_ENCRYPTED_BLOB_LEN,
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
 const PASSWORD: &[u8] = b"correct horse battery staple";
 const WRONG_PASSWORD: &[u8] = b"correct horse battery stapler";
+const TEST_CURSOR: &str = "two-client-test";
+const TEST_COLLECTION: &str = "tasks";
 
 struct TestApp {
     app: Router,
@@ -255,6 +264,289 @@ fn push_body(record_id: Uuid, hlc: &str, blob: &[u8]) -> Value {
             "blob": STANDARD.encode(blob),
         }]
     })
+}
+
+struct LocalSyncClient {
+    db_path: PathBuf,
+    db_key: [u8; 32],
+    dek: [u8; 32],
+    device_id: String,
+    engine: SyncEngine,
+    _temp_dir: Option<TempDir>,
+}
+
+impl LocalSyncClient {
+    fn new(
+        server_url: &str,
+        tenant_id: Uuid,
+        device_id: &str,
+        session_token: &str,
+        db_key: [u8; 32],
+        dek: [u8; 32],
+    ) -> Self {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("client.sqlite3");
+        let client = Self {
+            db_path,
+            db_key,
+            dek,
+            device_id: device_id.to_string(),
+            engine: SyncEngine::new(server_url, tenant_id, session_token).unwrap(),
+            _temp_dir: Some(temp_dir),
+        };
+        client.with_repo(|_| {});
+        client
+    }
+
+    fn reopen(
+        &self,
+        server_url: &str,
+        tenant_id: Uuid,
+        device_id: &str,
+        session_token: &str,
+    ) -> Self {
+        Self {
+            db_path: self.db_path.clone(),
+            db_key: self.db_key,
+            dek: self.dek,
+            device_id: device_id.to_string(),
+            engine: SyncEngine::new(server_url, tenant_id, session_token).unwrap(),
+            _temp_dir: None,
+        }
+    }
+
+    fn with_repo<T>(&self, f: impl FnOnce(&mut SqliteSyncStateRepository) -> T) -> T {
+        let connection = open_encrypted(&self.db_path, &self.db_key).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+        f(&mut repository)
+    }
+
+    fn local_edit(&self, record_id: Uuid, wall_ms: i64, updates: &[(&str, Value)]) {
+        let mut plaintext = self
+            .plaintext(record_id)
+            .unwrap_or_else(|| SyncPlaintext::new(BTreeMap::new(), BTreeMap::new()).unwrap());
+        let hlc = Hlc {
+            wall_ms,
+            counter: 0,
+            device_id: self.device_id.clone(),
+        };
+        for (field, value) in updates {
+            plaintext.fields.insert((*field).to_string(), value.clone());
+            plaintext
+                .field_hlcs
+                .insert((*field).to_string(), hlc.clone());
+        }
+        plaintext.validate().unwrap();
+        self.store_plaintext(record_id, &plaintext);
+        self.enqueue(record_id, false, &plaintext, &hlc);
+    }
+
+    fn delete(&self, record_id: Uuid, wall_ms: i64) {
+        let hlc = Hlc {
+            wall_ms,
+            counter: 0,
+            device_id: self.device_id.clone(),
+        };
+        let plaintext = self
+            .plaintext(record_id)
+            .unwrap_or_else(|| SyncPlaintext::new(BTreeMap::new(), BTreeMap::new()).unwrap());
+        self.enqueue(record_id, true, &plaintext, &hlc);
+        self.with_repo(|repository| {
+            repository
+                .delete_record_state(TEST_COLLECTION, record_id)
+                .unwrap();
+        });
+    }
+
+    async fn sync_once(&self) -> SyncRunSummary {
+        let mut summary = SyncRunSummary::default();
+        let outbox = self.with_repo(|repository| repository.list_outbox(100).unwrap());
+        summary.pushed_count = outbox.len();
+        let push_ops = outbox
+            .into_iter()
+            .map(|entry| PushOp {
+                outbox_id: entry.id,
+                record_id: entry.record_id,
+                collection: entry.collection,
+                hlc: entry.hlc,
+                deleted: entry.deleted,
+                blob: entry.blob,
+            })
+            .collect::<Vec<_>>();
+        let pushed = self.engine.push_batch(push_ops).await.unwrap();
+        self.with_repo(|repository| {
+            for outcome in pushed.outcomes {
+                match outcome.status {
+                    PushStatus::Accepted | PushStatus::NoOp => {
+                        repository.ack_outbox(outcome.outbox_id).unwrap();
+                        summary.push_acked_count += 1;
+                    }
+                    PushStatus::Superseded => {
+                        repository.ack_outbox(outcome.outbox_id).unwrap();
+                        summary.push_superseded_count += 1;
+                    }
+                }
+            }
+        });
+
+        loop {
+            let since = self.with_repo(|repository| {
+                repository
+                    .get_cursor(TEST_CURSOR)
+                    .unwrap()
+                    .map(|cursor| cursor.seq)
+                    .unwrap_or(0)
+            });
+            let page = self.engine.pull_page(since, 100).await.unwrap();
+            if page.records.is_empty() {
+                break;
+            }
+            summary.pulled_count += page.records.len();
+            for record in &page.records {
+                if record.collection != TEST_COLLECTION {
+                    summary.decrypt_failed_count += 1;
+                    continue;
+                }
+                if record.deleted {
+                    self.with_repo(|repository| {
+                        repository
+                            .delete_record_state(TEST_COLLECTION, record.record_id)
+                            .unwrap();
+                    });
+                    summary.deleted_count += 1;
+                    continue;
+                }
+                let incoming = match decrypt_plaintext(
+                    &self.dek,
+                    TEST_COLLECTION,
+                    &record.record_id.to_string(),
+                    &record.blob,
+                ) {
+                    Ok(incoming) => incoming,
+                    Err(_) => {
+                        summary.decrypt_failed_count += 1;
+                        continue;
+                    }
+                };
+                let (merged, needs_repush) = match self.plaintext(record.record_id) {
+                    Some(local) => {
+                        let merged = merge_lww(&local, &incoming).unwrap();
+                        let needs_repush = merged.needs_repush();
+                        (merged.plaintext, needs_repush)
+                    }
+                    None => (incoming, false),
+                };
+                self.store_plaintext(record.record_id, &merged);
+                summary.applied_count += 1;
+                if needs_repush {
+                    let repush_hlc = Hlc {
+                        wall_ms: merged.record_hlc().unwrap().wall_ms + 1,
+                        counter: 0,
+                        device_id: self.device_id.clone(),
+                    };
+                    let mut repush_plaintext = merged.clone();
+                    for field_hlc in repush_plaintext.field_hlcs.values_mut() {
+                        if *field_hlc < repush_hlc {
+                            *field_hlc = repush_hlc.clone();
+                        }
+                    }
+                    self.store_plaintext(record.record_id, &repush_plaintext);
+                    self.enqueue(record.record_id, false, &repush_plaintext, &repush_hlc);
+                    summary.repush_count += 1;
+                }
+            }
+            self.with_repo(|repository| {
+                repository
+                    .set_cursor(TEST_CURSOR, page.next_since, Utc::now().timestamp_millis())
+                    .unwrap();
+            });
+            if !page.has_more {
+                break;
+            }
+        }
+
+        summary
+    }
+
+    async fn push_corrupt_record(&self, record_id: Uuid, wall_ms: i64) {
+        let hlc = Hlc {
+            wall_ms,
+            counter: 0,
+            device_id: self.device_id.clone(),
+        }
+        .encode()
+        .unwrap();
+        let outcome = self
+            .engine
+            .push_batch(vec![PushOp {
+                outbox_id: 1,
+                record_id,
+                collection: TEST_COLLECTION.to_string(),
+                hlc,
+                deleted: false,
+                blob: vec![0xff, 0x00],
+            }])
+            .await
+            .unwrap();
+        assert_eq!(outcome.outcomes[0].status, PushStatus::Accepted);
+    }
+
+    fn outbox_len(&self) -> usize {
+        self.with_repo(|repository| repository.list_outbox(100).unwrap().len())
+    }
+
+    fn field(&self, record_id: Uuid, field: &str) -> Option<Value> {
+        self.plaintext(record_id)?.fields.get(field).cloned()
+    }
+
+    fn plaintext(&self, record_id: Uuid) -> Option<SyncPlaintext> {
+        self.with_repo(|repository| {
+            repository
+                .get_record_state(TEST_COLLECTION, record_id)
+                .unwrap()
+                .map(|json| serde_json::from_str(&json).unwrap())
+        })
+    }
+
+    fn store_plaintext(&self, record_id: Uuid, plaintext: &SyncPlaintext) {
+        let json = serde_json::to_string(plaintext).unwrap();
+        self.with_repo(|repository| {
+            repository
+                .upsert_record_state(
+                    TEST_COLLECTION,
+                    record_id,
+                    &json,
+                    Utc::now().timestamp_millis(),
+                )
+                .unwrap();
+        });
+    }
+
+    fn enqueue(&self, record_id: Uuid, deleted: bool, plaintext: &SyncPlaintext, hlc: &Hlc) {
+        let blob = if deleted {
+            Vec::new()
+        } else {
+            encrypt_plaintext(
+                &self.dek,
+                TEST_COLLECTION,
+                &record_id.to_string(),
+                plaintext,
+            )
+            .unwrap()
+        };
+        self.with_repo(|repository| {
+            repository
+                .enqueue_outbox(NewSyncOutboxEntry {
+                    record_id,
+                    collection: TEST_COLLECTION.to_string(),
+                    hlc: hlc.encode().unwrap(),
+                    deleted,
+                    blob,
+                    created_at: Utc::now().timestamp_millis(),
+                })
+                .unwrap();
+        });
+    }
 }
 
 #[tokio::test]
@@ -671,6 +963,131 @@ async fn account_client_register_logout_login_restores_keys_and_rejects_invalid_
     .try_get("count")
     .unwrap();
     assert_eq!(device_count, 2);
+}
+
+#[tokio::test]
+async fn sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox() {
+    let test = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server_url = format!("http://{}", listener.local_addr().unwrap());
+    let app = test.app.clone();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let account = AccountClient::new(&server_url).unwrap();
+    let registered = account
+        .register(
+            "sync-engine-two-client@example.com",
+            "correct horse battery staple",
+            Some("client a"),
+            &[0x41; 32],
+        )
+        .await
+        .unwrap();
+    let logged_in = account
+        .login(
+            "sync-engine-two-client@example.com",
+            "correct horse battery staple",
+            Some("client b"),
+            &[0x42; 32],
+        )
+        .await
+        .unwrap();
+    let client_a = LocalSyncClient::new(
+        &server_url,
+        Uuid::parse_str(&registered.session.tenant_id).unwrap(),
+        &registered.session.device_id,
+        &registered.session.session_token,
+        [0x11; 32],
+        *registered.keys.tenant_root_dek,
+    );
+    let client_b = LocalSyncClient::new(
+        &server_url,
+        Uuid::parse_str(&logged_in.session.tenant_id).unwrap(),
+        &logged_in.session.device_id,
+        &logged_in.session.session_token,
+        [0x22; 32],
+        *logged_in.keys.tenant_root_dek,
+    );
+    let base_ms = Utc::now().timestamp_millis() - 120_000;
+
+    let record_id = Uuid::now_v7();
+    client_a.local_edit(record_id, base_ms, &[("title", json!("from a"))]);
+    let pushed_a = client_a.sync_once().await;
+    assert_eq!(pushed_a.push_acked_count, 1);
+    let pulled_b = client_b.sync_once().await;
+    assert_eq!(pulled_b.applied_count, 1);
+    assert_eq!(client_b.field(record_id, "title"), Some(json!("from a")));
+
+    client_b.local_edit(record_id, base_ms + 1_000, &[("note", json!("offline b"))]);
+    client_a.local_edit(record_id, base_ms + 2_000, &[("priority", json!(2))]);
+    client_a.sync_once().await;
+    let merge_b = client_b.sync_once().await;
+    assert!(merge_b.repush_count >= 1);
+    client_b.sync_once().await;
+    client_a.sync_once().await;
+    assert_eq!(client_a.field(record_id, "note"), Some(json!("offline b")));
+    assert_eq!(client_b.field(record_id, "priority"), Some(json!(2)));
+
+    client_a.local_edit(
+        record_id,
+        base_ms + 3_000,
+        &[("title", json!("older title"))],
+    );
+    client_b.local_edit(
+        record_id,
+        base_ms + 4_000,
+        &[("title", json!("newer title"))],
+    );
+    client_a.sync_once().await;
+    client_b.sync_once().await;
+    client_b.sync_once().await;
+    client_a.sync_once().await;
+    assert_eq!(
+        client_a.field(record_id, "title"),
+        Some(json!("newer title"))
+    );
+    assert_eq!(
+        client_b.field(record_id, "title"),
+        Some(json!("newer title"))
+    );
+
+    client_a.delete(record_id, base_ms + 5_000);
+    let delete_push = client_a.sync_once().await;
+    assert_eq!(delete_push.push_acked_count, 1);
+    let delete_pull = client_b.sync_once().await;
+    assert_eq!(delete_pull.deleted_count, 1);
+    assert_eq!(client_b.field(record_id, "title"), None);
+
+    let corrupt_id = Uuid::now_v7();
+    client_a
+        .push_corrupt_record(corrupt_id, base_ms + 6_000)
+        .await;
+    let corrupt_pull = client_b.sync_once().await;
+    assert_eq!(corrupt_pull.decrypt_failed_count, 1);
+    assert_eq!(client_b.field(corrupt_id, "title"), None);
+
+    let persisted_id = Uuid::now_v7();
+    client_b.local_edit(
+        persisted_id,
+        base_ms + 7_000,
+        &[("title", json!("persisted outbox"))],
+    );
+    assert_eq!(client_b.outbox_len(), 1);
+    let reopened_b = client_b.reopen(
+        &server_url,
+        Uuid::parse_str(&logged_in.session.tenant_id).unwrap(),
+        &logged_in.session.device_id,
+        &logged_in.session.session_token,
+    );
+    assert_eq!(reopened_b.outbox_len(), 1);
+    reopened_b.sync_once().await;
+    client_a.sync_once().await;
+    assert_eq!(
+        client_a.field(persisted_id, "title"),
+        Some(json!("persisted outbox"))
+    );
 }
 
 async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> AccountKeyBundleDto {

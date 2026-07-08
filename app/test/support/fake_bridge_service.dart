@@ -15,8 +15,21 @@ class FakeBridgeService implements BridgeService {
   final List<FakeTaskUndoEntry> _undoEntries = [];
   final Map<String, String> _settings = {};
   final List<FakeReorderCall> reorderCalls = [];
+  int syncNowCalls = 0;
   AccountSessionStateDto _accountSession = const AccountSessionStateDto(
     loggedIn: false,
+  );
+  SyncStatusDto _syncStatus = const SyncStatusDto(
+    loggedIn: false,
+    running: false,
+    pushedCount: 0,
+    pushAckedCount: 0,
+    pushSupersededCount: 0,
+    pulledCount: 0,
+    appliedCount: 0,
+    deletedCount: 0,
+    decryptFailedCount: 0,
+    repushCount: 0,
   );
   int _listSeq = 0;
   int _taskSeq = 0;
@@ -34,8 +47,21 @@ class FakeBridgeService implements BridgeService {
     _reminders.clear();
     _undoEntries.clear();
     reorderCalls.clear();
+    syncNowCalls = 0;
     _settings.clear();
     _accountSession = const AccountSessionStateDto(loggedIn: false);
+    _syncStatus = const SyncStatusDto(
+      loggedIn: false,
+      running: false,
+      pushedCount: 0,
+      pushAckedCount: 0,
+      pushSupersededCount: 0,
+      pulledCount: 0,
+      appliedCount: 0,
+      deletedCount: 0,
+      decryptFailedCount: 0,
+      repushCount: 0,
+    );
     _listSeq = listCount;
     _taskSeq = listCount * tasksPerList;
     _reminderSeq = 0;
@@ -166,6 +192,7 @@ class FakeBridgeService implements BridgeService {
     }
     final session = _newAccountSession(email.trim());
     _accountSession = session;
+    _syncStatus = _copySyncStatus(_syncStatus, loggedIn: true);
     return AccountAuthResultDto(
       session: session,
       recoveryKey:
@@ -188,12 +215,36 @@ class FakeBridgeService implements BridgeService {
     }
     final session = _newAccountSession(email.trim());
     _accountSession = session;
+    _syncStatus = _copySyncStatus(_syncStatus, loggedIn: true);
     return AccountAuthResultDto(session: session);
   }
 
   @override
   Future<void> accountLogout() async {
     _accountSession = const AccountSessionStateDto(loggedIn: false);
+    _syncStatus = _copySyncStatus(_syncStatus, loggedIn: false);
+  }
+
+  @override
+  Future<SyncStatusDto> getSyncStatus() async {
+    return _syncStatus;
+  }
+
+  @override
+  Future<SyncStatusDto> syncNow() async {
+    syncNowCalls += 1;
+    if (!_accountSession.loggedIn) {
+      _syncStatus = _copySyncStatus(_syncStatus, loggedIn: false);
+      return _syncStatus;
+    }
+    _syncStatus = _copySyncStatus(
+      _syncStatus,
+      loggedIn: true,
+      running: false,
+      lastSuccessAt: _fakeTimestamp(_accountSeq + _taskSeq + _listSeq + 1),
+      lastError: null,
+    );
+    return _syncStatus;
   }
 
   @override
@@ -1008,6 +1059,31 @@ ListDto _copyList(
     archivedAt: clearArchivedAt ? null : archivedAt ?? list.archivedAt,
     createdAt: list.createdAt,
     updatedAt: updatedAt ?? list.updatedAt,
+  );
+}
+
+SyncStatusDto _copySyncStatus(
+  SyncStatusDto status, {
+  bool? loggedIn,
+  bool? running,
+  int? lastSuccessAt,
+  int? lastFailureAt,
+  String? lastError,
+}) {
+  return SyncStatusDto(
+    loggedIn: loggedIn ?? status.loggedIn,
+    running: running ?? status.running,
+    lastSuccessAt: lastSuccessAt ?? status.lastSuccessAt,
+    lastFailureAt: lastFailureAt ?? status.lastFailureAt,
+    lastError: lastError,
+    pushedCount: status.pushedCount,
+    pushAckedCount: status.pushAckedCount,
+    pushSupersededCount: status.pushSupersededCount,
+    pulledCount: status.pulledCount,
+    appliedCount: status.appliedCount,
+    deletedCount: status.deletedCount,
+    decryptFailedCount: status.decryptFailedCount,
+    repushCount: status.repushCount,
   );
 }
 

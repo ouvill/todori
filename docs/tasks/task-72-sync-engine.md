@@ -1,7 +1,8 @@
 # task-72: P2-M4 同期エンジン統合
 
-> ステータス: 未着手
+> ステータス: 完了
 > 作成日: 2026-07-08
+> 作業日: 2026-07-08
 
 ## 1. 背景とコンテキスト
 
@@ -177,3 +178,197 @@ UXは「静かな同期」を優先する。手動同期APIと、アプリ起動
 - 品質ゲート実行結果
 - 変更ファイル一覧
 - 未解決事項（正式削除同期ADR-010、SSE/long-poll、競合UI、複数デバイス管理UI、Recovery UX完全版など。無い場合も「なし」と明記）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/task-72-sync-engine.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/08_Phase2計画書.md` P2-M4
+- `docs/03_技術仕様書.md` §4.8、§6.3、§6.4、§6.5、§6.6、§11.1
+- `docs/05_設計判断記録.md` ADR-004、ADR-005、ADR-009
+- `docs/tasks/task-69-sync-foundation.md` / `task-70-sync-server.md` / `task-71-key-hierarchy-account.md` の完了報告
+- `core/sync/src/hlc.rs`、`field_map.rs`、`merge.rs`、`envelope.rs`、`account.rs`
+- `core/storage/src/lib.rs`、`core/storage/src/schema.sql`
+- `server/src/routes/sync.rs`、`server/src/sync.rs`、`server/tests/sync_server.rs`
+- `app/rust/src/api.rs`、`app/rust/src/dev_key_store.rs`
+- `app/lib/src/core/bridge_service.dart`、`app/lib/src/core/providers.dart`
+- `app/lib/src/screens/account_screen.dart`
+
+同期エンジン構成:
+
+- `core/sync/src/engine.rs` を追加し、`SyncEngine` が `POST /v1/tenants/{tenant_id}/push` と `GET /v1/tenants/{tenant_id}/pull` を呼ぶHTTP clientを担う。
+- pushは `PushOp { outbox_id, record_id, collection, hlc, deleted, blob }` をJSON + base64で送信する。
+- push結果は `accepted` / `no_op` / `superseded` を `PushStatus` として受け、呼び出し側がACK処理できるよう `outbox_id` と紐付けて返す。
+- pullは `since` / `limit`、`records`、`next_since`、`has_more` を扱い、blobはbase64 decodeする。
+- `app/rust/src/api.rs` の `run_sync_now()` がローカルDBのoutbox取得、push ACK、pullページング、復号、LWWマージ、ローカル反映、cursor前進、必要時の再push enqueue、件数集計を実行する。
+- `SyncRunSummary` / `SyncStatusDto` で pushed、ACK、superseded、pulled、applied、deleted、decrypt_failed、repush を集計する。
+- ネットワーク失敗・server rejectは `sync failed` として同期状態へ保存する。秘密値や詳細payloadはDart境界へ返していない。
+- 指数バックオフの永続キューは未実装。Phase 2本タスクでは失敗時にoutboxを保持し、Flutter側の起動/復帰/30秒ポーリングで再試行する暫定実装とした。
+
+追加/変更したRust依存crate:
+
+- `server/Cargo.toml` dev-dependenciesに `tempfile.workspace = true` と `todori-storage.workspace = true` を追加した。用途は `server/tests/sync_server.rs` の2ローカルSQLCipher DB統合テスト。
+- ルート `Cargo.toml` への新規crate追加はない。`Cargo.lock` は上記dev-dependencies参照分の解決で更新された。
+
+storage変更:
+
+- `core/storage` の `LATEST_SCHEMA_VERSION` を9へ上げた。
+- v9 migration `add_sync_record_states` を追加した。
+- `sync_record_states(collection, record_id, plaintext_json, updated_at)` を追加した。pullマージ時に暗号blob内 `{fields, field_hlcs}` の直近平文状態をSQLCipher内へ保持し、次回のLWWマージに使う。
+- `SqliteSyncStateRepository` に `get_record_state`、`upsert_record_state`、`delete_record_state` を追加した。
+- `SqliteTaskRepository::upsert_for_sync` / `delete_subtree_for_sync` と `SqliteListRepository::upsert_for_sync` / `delete_with_tasks_for_sync` を追加し、pull反映時に通常CRUDのoutbox enqueueを通らない同期適用write pathを分離した。
+- 既存の `sync_outbox` はACKまで保持、`sync_cursors` はpull cursor保持に使う。
+
+ローカルCRUDごとのoutbox enqueue:
+
+- list: `create_list`、`rename_list`、`archive_list`、`unarchive_list`、`delete_list`
+- task: `create_task`、`reorder_task`、`update_task`、`set_task_status`、`delete_task`
+- enqueueは `active_sync_context()` が存在する場合のみ実行する。未ログイン時は `active_sync_context()` が `None` となり、outbox enqueue、HTTP送受信、Flutter poll開始を行わない。
+- pull反映は `upsert_for_sync` / `delete_*_for_sync` を使うため、通常CRUD hookによる二重outboxを生成しない。
+
+暗号/DEK解決:
+
+- listsは `tenant_root_dek` で暗号化/復号する暫定実装。
+- tasksは既存taskの `list_id` またはincoming plaintext内 `list_id` からList DEKを選択し、取得できない場合はTenant Root DEKへfallbackする暫定実装。
+- `decrypt_plaintext` のAADはcollection + record_idで検証される。復号失敗、AAD不一致、version不一致、JSON不正相当の失敗は同期全体を止めず、`decrypt_failed_count` を増やして当該recordをスキップする。
+- taskのList DEK解決でlist_idが取れない場合の厳格な失敗扱いは未実装。後続でList DEK配布/リスト削除同期の正式仕様に合わせて詰める。
+
+pull LWWマージと再push:
+
+- pull recordはcollectionごとに `apply_pull_list` / `apply_pull_task` へ分岐する。
+- 受信blobを復号し、`sync_record_states` または既存ローカル行から作った `SyncPlaintext` と `merge_lww` する。
+- incoming勝ちのフィールドを含むマージ結果は `upsert_for_sync` でローカルDBへ反映し、`sync_record_states` へ保存する。
+- local勝ちフィールドがある場合は `tick_local_hlc()` でローカルHLCを進め、マージ済みplaintextのfield_hlcsを新HLCへ更新して、新しい `op.hlc` でoutboxへ再push enqueueする。
+- 同一HLCで内容だけ異なる再pushは生成しない。
+- cursorは各pull pageの全record処理、ローカル反映、必要な再push enqueue完了後に `set_cursor` で前進する。
+
+push結果処理:
+
+- `accepted` / `no_op` はACKとして `ack_outbox` で削除する。
+- `superseded` もpullで解決する前提でACK削除し、`push_superseded_count` を増やす。
+- HTTP失敗・server rejectは `run_sync_now()` が失敗し、outboxは削除されない。
+
+暫定削除op:
+
+- ローカル削除時は削除前に対象list/taskを取得し、`deleted=true`、blob空でoutboxへ積む。
+- pullで `deleted=true` を受信したtaskは `delete_subtree_for_sync`、listは `delete_with_tasks_for_sync` でローカル恒久削除し、`sync_record_states` からも削除する。
+- 削除と同時編集の最終意味論、復活禁止条件、tombstone保持、GC、server history保持との整合はP2-M5/ADR-010へ残した。
+
+FRB公開API:
+
+- `get_sync_status() -> SyncStatusDto`
+- `sync_now() -> SyncStatusDto`
+- `SyncStatusDto`: `logged_in`、`running`、`last_success_at`、`last_failure_at`、`last_error`、`pushed_count`、`push_acked_count`、`push_superseded_count`、`pulled_count`、`applied_count`、`deleted_count`、`decrypt_failed_count`、`repush_count`
+- Dart境界へ返さない値: session token平文、password、Device Key、MK、Tenant Root DEK、List DEK、exportKey、Recovery Key、復号済みSyncPlaintext/record plaintext。
+- `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行し、`app/rust/src/frb_generated.rs`、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated*.dart` を生成更新した。
+
+Flutter変更:
+
+- `SyncStatusNotifier` / `syncStatusProvider` を追加した。
+- app起動時は `_TodoriAppShell` が `syncStatusProvider` をwatchし、ログイン済みなら初回syncを起動する。
+- `WidgetsBindingObserver` で `AppLifecycleState.resumed` を検知し、ログイン済みかつ実行中でなければsyncを起動する。
+- ログイン時のみ30秒periodic pollを開始する。未ログイン時はpollしない。
+- account register/login/logout後の同期状態は `syncStatusProvider` が `accountProvider.future` をwatchすることで追従する。明示invalidateはRiverpod実行中例外を起こしたため外した。
+- account画面に最終同期時刻、同期状態、手動 `Sync now` ボタンを追加した。
+- 常時スピナー、競合通知、手動マージUI、詳細同期ログ画面は追加していない。
+- 追加ARB key: `accountSyncTitle`、`accountSyncIdle`、`accountSyncRunning`、`accountSyncFailed`、`accountSyncNotSignedIn`、`accountSyncLastSuccess`、`accountSyncNever`、`accountSyncNowButton`
+
+Rust統合テスト:
+
+- `server/tests/sync_server.rs` に `sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox` を追加した。
+- 構成: testcontainers Postgres + migration + 実axum server + `AccountClient` 登録/ログイン + `SyncEngine` + 2つの一時SQLCipherローカルDB。
+- シナリオ内訳:
+  - client Aの作成/編集をpushし、client Bがpullして反映する双方向基礎収束。
+  - client Bのオフライン編集をoutboxに保持し、client Aの別フィールド編集後に復帰同期して両フィールドを収束。
+  - 同一フィールド `title` の競合で後HLCの値が勝つこと。
+  - `deleted=true` の削除opを伝播し、受信側のローカル状態が削除されること。
+  - 復号不能blobをpullしても同期全体を止めず `decrypt_failed_count = 1` でスキップすること。
+  - 未ACK outboxがDB reopen後も残り、再openしたclient Bがpushできること。
+- 実行結果: `cargo test --workspace` 内の `server/tests/sync_server.rs` 5件が成功。
+
+Flutter widget test:
+
+- `app/test/account_screen_test.dart`: 最終同期表示、手動同期ボタン、登録直後Recovery Key表示、ログイン/ログアウトを確認。
+- `app/test/sync_provider_test.dart`: 未ログイン時は同期しないこと、ログイン後とforeground resumeでsyncが起動することを確認。
+- `FakeBridgeService` に `getSyncStatus` / `syncNow` を追加した。
+
+スクリーンショット/visual QA:
+
+- 既存PNG退避先: `app/build/visual_qa_backup_task72_20260708103736`
+- `sh tool/visual_qa.sh` 成功。42 tests passed、PNG 44枚生成。
+- 生成先: `app/build/visual_qa/*.png`
+- 本タスクに関係する確認対象: `app/build/visual_qa/account_signed_out.png`。同期状態はwidget testで確認した。
+
+秘密情報ログ禁止の確認:
+
+- grep対象: `app/rust/src`、`core/sync/src`、`core/storage/src`、`server/src`、`app/lib`、`app/test`、`server/tests`
+- 検索語: `dbg!`、`println!`、`eprintln!`、`debugPrint`、`tracing::`、`password`、`session_token`、`master_key`、`DEK`、`device_key`、`export_key`、`recovery_key`、`SyncPlaintext`、`plaintext` 等。
+- 本タスク実装で、password、session token、MK、Tenant Root DEK、List DEK、Device Key、exportKey、Recovery Key、復号済みSyncPlaintext/record plaintextをログ、Debug出力、Flutter error表示へ出す箇所は見つからなかった。
+- 既存の出力箇所: Keychain fallback文言、server起動/shutdown/sqlx error、Flutter native core init error、性能test計測ログ。秘密値は含まない。
+- `SyncStatusDto.last_error` は固定文言 `sync failed` のみを保持する。
+
+品質ゲート実行結果:
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo clippy --workspace -- -D warnings`: 成功
+- `cargo test --workspace`: 成功
+  - `server/tests/sync_server.rs`: 5 passed
+  - `todori_storage`: 48 passed, 1 ignored
+  - `todori_sync`: 29 passed
+  - `todori_app_bridge`: 4 passed, 1 ignored
+- `cargo test -p todori-server sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox --test sync_server -- --nocapture`: 成功
+- `cd app && flutter analyze`: 成功
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
+- `cd app && flutter test`: 成功（123 passed、visual QA harness 1 skipped）
+- `sh app/tool/check_hardcoded_strings.sh`: 成功
+- `sh app/tool/visual_qa.sh`: 成功（42 tests passed、PNG 44枚生成）
+- `git diff --check`: 成功
+
+変更ファイル一覧:
+
+- `Cargo.lock`
+- `app/lib/l10n/app_en.arb`
+- `app/lib/l10n/app_ja.arb`
+- `app/lib/main.dart`
+- `app/lib/src/core/bridge_service.dart`
+- `app/lib/src/core/providers.dart`
+- `app/lib/src/generated/l10n/app_localizations.dart`
+- `app/lib/src/generated/l10n/app_localizations_en.dart`
+- `app/lib/src/generated/l10n/app_localizations_ja.dart`
+- `app/lib/src/rust/api.dart`
+- `app/lib/src/rust/frb_generated.dart`
+- `app/lib/src/rust/frb_generated.io.dart`
+- `app/lib/src/screens/account_screen.dart`
+- `app/rust/src/api.rs`
+- `app/rust/src/frb_generated.rs`
+- `app/rust/src/lib.rs`
+- `app/test/account_screen_test.dart`
+- `app/test/support/fake_bridge_service.dart`
+- `app/test/sync_provider_test.dart`
+- `core/storage/src/lib.rs`
+- `core/storage/src/schema.sql`
+- `core/sync/src/engine.rs`
+- `core/sync/src/lib.rs`
+- `server/Cargo.toml`
+- `server/tests/sync_server.rs`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/tasks/task-72-sync-engine.md`
+
+未解決事項:
+
+- 削除同期の正式仕様（ADR-010）、tombstone保持、GC、削除と同時編集の意味論、復活禁止条件は未確定。
+- `SyncEngine` はHTTP push/pull clientであり、永続的な指数バックオフ状態やバックオフスケジューラは未実装。失敗時outbox保持 + 起動/復帰/30秒pollによる再試行に留めた。
+- tasksのDEK解決でList DEKが見つからない場合の厳格な失敗/保留仕様は未確定。本実装はTenant Root DEK fallbackを持つ暫定実装。
+- lists本体のDEKはdocs/03 §4.8では当該List DEKとされているが、本実装はTenant Root DEKを使う暫定実装。task-71の鍵配布状態では既存listごとの確実なDEK対応が不足するため、後続で修正対象。
+- `sort_order` は既存制約どおりLWW対象外であり、同期plaintextには含めていない。並び順の本同期意味論はfractional index同期タスクで詰める。
+- SSE、long-poll、WebSocket、push通知、バックグラウンド常時同期は未実装。
+- 競合通知、手動マージUI、変更履歴からの復元UIは未実装。
+- Recovery Key UX完全版、複数デバイス管理UI、デバイス失効UIは未実装。
+- AWS/ECR/Lambda/Neon本番デプロイ、クレデンシャル投入、WAF/API Gateway/CloudFront設定は未実施。

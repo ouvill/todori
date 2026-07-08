@@ -99,6 +99,7 @@
 - **P2-M2 同期サーバーtask-70完了（2026-07-08）**: Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、tenant_seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装した。task-69で見つかった再push時のHLC同値問題は、docs/03 §6.4の「再pushは新HLCで送る」規約に従い、同一HLCかつ異なるblobをプロトコル違反として拒否する。
 - **P2-M3 鍵階層とアカウント接続task-71完了（2026-07-08）**: クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain/session/local wrapped MK保存、FRB API、Flutter最小アカウント画面を接続した。testcontainers Postgres + 実axum server + Rust account clientで登録→logout→login→同一MK復元、誤パスワード、失効session、誤鍵unwrap失敗を確認済み。同期ループ、Recovery UX完全版、複数デバイス管理UIはスコープ外。
 - **P2-M4 同期エンジン統合task-72指示書化（2026-07-08）**: ローカル書込outbox、push/pull/ACK/cursor、復号LWWマージ、HLC tick付き再push、FRB `sync_now`、Flutter最小同期状態表示、2ローカルDB統合テストを `docs/tasks/task-72-sync-engine.md` に指示書化した。ステータスは未着手。削除同期は `deleted=true` の暫定橋渡しに留め、正式なGC/tombstone設計はP2-M5/ADR-010へ分離する。
+- **P2-M4 同期エンジン統合task-72完了（2026-07-08）**: `core/sync::SyncEngine`、FRB `sync_now` / `get_sync_status`、ローカルCRUD outbox enqueue、pull復号LWWマージ、HLC tick付き再push、Flutter起動/復帰/30秒ポーリング、アカウント画面同期状態を接続した。testcontainers Postgres + 実axum server + 2 SQLCipherローカルDB統合テストで、双方向編集収束、オフライン復帰、同一フィールドLWW、削除伝播、outbox永続性、復号失敗スキップを確認済み。削除同期正式設計、SSE/long-poll、競合UI、複数デバイス管理UI、Recovery UX完全版は後続。
 
 ## 優先度付きバックログ
 
@@ -119,7 +120,7 @@
 | 13 | task-69 P2-M1 クライアント同期基盤 | HLC実装、フィールドHLCマップ、LWWマージ、outboxテーブル、blob暗号エンベロープ、proptestによる収束性テストを実装する | P2-M1 | 完了（2026-07-08）。指示書: [`task-69-sync-foundation.md`](./task-69-sync-foundation.md)。出典: `docs/08_Phase2計画書.md`、`docs/03` §4.8、§6.3、§6.4、§11.1 |
 | 14 | task-70 P2-M2 同期サーバー | Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装する | P2-M2 | 完了（2026-07-08）。指示書: [`task-70-sync-server.md`](./task-70-sync-server.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§2、§3、§6、§7、ADR-003/005/008 |
 | 15 | task-71 P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 完了（2026-07-08）。指示書: [`task-71-key-hierarchy-account.md`](./task-71-key-hierarchy-account.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§3、§4、§7 |
-| 16 | task-72 P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 未着手。指示書: [`task-72-sync-engine.md`](./task-72-sync-engine.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5。削除同期正式設計はP2-M5/ADR-010へ分離 |
+| 16 | task-72 P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 完了（2026-07-08）。指示書: [`task-72-sync-engine.md`](./task-72-sync-engine.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5。削除同期正式設計はP2-M5/ADR-010へ分離 |
 | 17 | P2-M5 削除同期とマルチプラットフォーム検証 | ADR-010ドラフト、保守的な削除同期実装、Android/macOSビルド・動作検証を行う | P2-M5 | 出典: `docs/08_Phase2計画書.md`。ADR-010は人間レビュー待ちを明記 |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）

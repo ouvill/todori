@@ -159,5 +159,21 @@
   "accountServerUrlLabel": "サーバーURL",
   "accountSaveServerUrlTooltip": "サーバーURLを保存",
   "accountRequestFailed": "アカウント処理に失敗しました。",
+  "accountSyncTitle": "同期",
+  "accountSyncNotSignedIn": "同期はオフです。",
+  "accountSyncIdle": "待機中",
+  "accountSyncRunning": "同期中",
+  "accountSyncFailed": "同期に失敗しました",
+  "accountSyncLastSuccess": "最終同期: {time}",
+  "@accountSyncLastSuccess": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "accountSyncNever": "未同期",
+  "accountSyncNowButton": "今すぐ同期",
+  "accountSyncNowTooltip": "今すぐ同期",
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

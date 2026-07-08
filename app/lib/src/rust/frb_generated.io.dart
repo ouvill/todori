@@ -82,6 +82,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ReminderDto dco_decode_reminder_dto(dynamic raw);
 
   @protected
+  SyncStatusDto dco_decode_sync_status_dto(dynamic raw);
+
+  @protected
   TaskDto dco_decode_task_dto(dynamic raw);
 
   @protected
@@ -163,6 +166,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer);
+
+  @protected
+  SyncStatusDto sse_decode_sync_status_dto(SseDeserializer deserializer);
 
   @protected
   TaskDto sse_decode_task_dto(SseDeserializer deserializer);
@@ -265,6 +271,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sync_status_dto(SyncStatusDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_task_dto(TaskDto self, SseSerializer serializer);

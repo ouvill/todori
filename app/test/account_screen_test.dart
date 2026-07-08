@@ -61,7 +61,7 @@ void main() {
     await tester.tap(find.text('Register'));
     await tester.pumpAndSettle();
     await _enterCredentials(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Register'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Register').last);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('account-recovery-key')), findsOneWidget);
@@ -80,7 +80,7 @@ void main() {
     await _pumpAccountScreen(tester, fake);
 
     await _enterCredentials(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Log in').last);
     await tester.pumpAndSettle();
 
     expect(find.text('alice@example.com'), findsOneWidget);
@@ -90,5 +90,24 @@ void main() {
 
     expect(find.text('Log in'), findsWidgets);
     expect(find.widgetWithText(OutlinedButton, 'Log out'), findsNothing);
+  });
+
+  testWidgets('signed-in account shows sync status and manual sync', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await _pumpAccountScreen(tester, fake);
+
+    await _enterCredentials(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Log in').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sync'), findsOneWidget);
+    expect(find.textContaining('Last synced:'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Sync now'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Last synced:'), findsOneWidget);
   });
 }

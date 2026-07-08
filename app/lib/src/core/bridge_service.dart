@@ -28,6 +28,10 @@ abstract class BridgeService {
 
   Future<void> accountLogout();
 
+  Future<rust_api.SyncStatusDto> getSyncStatus();
+
+  Future<rust_api.SyncStatusDto> syncNow();
+
   Future<String> getSyncServerUrl();
 
   Future<void> setSyncServerUrl({required String serverUrl});
@@ -190,6 +194,12 @@ class FrbBridgeService implements BridgeService {
 
   @override
   Future<void> accountLogout() => rust_api.accountLogout();
+
+  @override
+  Future<rust_api.SyncStatusDto> getSyncStatus() => rust_api.getSyncStatus();
+
+  @override
+  Future<rust_api.SyncStatusDto> syncNow() => rust_api.syncNow();
 
   @override
   Future<String> getSyncServerUrl() => rust_api.getSyncServerUrl();

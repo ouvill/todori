@@ -5,11 +5,16 @@
 //! `outbox` によるpush/pullフローの永続化は `todori-storage` が担う。
 
 pub mod account;
+pub mod engine;
 pub mod envelope;
 pub mod field_map;
 pub mod hlc;
 pub mod merge;
 
+pub use engine::{
+    PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus, SyncEngine,
+    SyncEngineError, SyncRunSummary,
+};
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
 };

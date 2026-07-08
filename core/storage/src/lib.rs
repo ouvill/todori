@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 8;
+pub const LATEST_SCHEMA_VERSION: i32 = 9;
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -48,6 +48,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 8,
         name: "add_sync_outbox_and_cursors",
         apply: add_sync_outbox_and_cursors,
+    },
+    Migration {
+        target_version: 9,
+        name: "add_sync_record_states",
+        apply: add_sync_record_states,
     },
 ];
 
@@ -530,6 +535,18 @@ fn validate_baseline_v1_schema(connection: &Connection) -> Result<(), StorageErr
     Ok(())
 }
 
+fn add_sync_record_states(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_record_states (
+             record_id TEXT NOT NULL,
+             collection TEXT NOT NULL,
+             plaintext_json TEXT NOT NULL,
+             updated_at INTEGER NOT NULL,
+             PRIMARY KEY (collection, record_id)
+         );",
+    )
+}
+
 const BASELINE_V1_COLUMNS: &[(&str, &[&str])] = &[
     (
         "tasks",
@@ -604,6 +621,54 @@ impl SqliteTaskRepository {
 
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub fn list_subtree_for_sync(&self, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "WITH RECURSIVE subtree(id) AS (
+                 SELECT id FROM tasks WHERE id = ?1
+                 UNION ALL
+                 SELECT tasks.id
+                 FROM tasks
+                 INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+             )
+             SELECT id, list_id, parent_task_id, title, note, status, priority,
+                    due_at, scheduled_at, estimated_minutes, sort_order,
+                    completed_at, closed_reason, deleted_at, assignee,
+                    created_at, updated_at
+             FROM tasks
+             WHERE id IN (SELECT id FROM subtree)
+             ORDER BY sort_order ASC, id ASC",
+        )?;
+        let tasks = statement
+            .query_map([task_id.to_string()], row_to_task)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(StorageError::from)?;
+        Ok(tasks)
+    }
+
+    pub fn upsert_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
+        let exists = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM tasks WHERE id = ?1",
+                [task.id.to_string()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if exists {
+            update_task_on(&self.connection, &task)
+        } else {
+            self.insert(task)
+        }
+    }
+
+    pub fn delete_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, StorageError> {
+        let transaction = self.connection.transaction()?;
+        let deleted = delete_task_subtree_on(&transaction, task_id)?;
+        transaction.commit()?;
+        Ok(deleted)
     }
 
     /// Updates a task and records the undo snapshot in the same SQLite transaction.
@@ -1051,6 +1116,54 @@ impl SqliteListRepository {
     pub fn connection(&self) -> &Connection {
         &self.connection
     }
+
+    pub fn upsert_for_sync(&mut self, list: List) -> Result<(), StorageError> {
+        let exists = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM lists WHERE id = ?1",
+                [list.id.to_string()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if exists {
+            self.update(list)
+        } else {
+            self.insert(list)
+        }
+    }
+
+    pub fn delete_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+        let transaction = self.connection.transaction()?;
+        let task_count: i64 = transaction
+            .query_row(
+                "SELECT count(*) FROM tasks WHERE list_id = ?1",
+                [list_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        transaction.execute(
+            "DELETE FROM task_undo_entries
+             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+            [list_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM reminders
+             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+            [list_id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM tasks WHERE list_id = ?1",
+            [list_id.to_string()],
+        )?;
+        transaction.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
+        transaction.commit()?;
+        usize::try_from(task_count).map_err(|_| {
+            StorageError::IncompatibleSchema("list task count exceeded usize".to_string())
+        })
+    }
 }
 
 impl ListRepository for SqliteListRepository {
@@ -1429,6 +1542,62 @@ impl SqliteSyncStateRepository {
 
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub fn get_record_state(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT plaintext_json
+                 FROM sync_record_states
+                 WHERE collection = ?1 AND record_id = ?2",
+                params![collection, record_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn upsert_record_state(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+        plaintext_json: &str,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        self.connection.execute(
+            "INSERT INTO sync_record_states (
+                 collection, record_id, plaintext_json, updated_at
+             ) VALUES (
+                 ?1, ?2, ?3, ?4
+             )
+             ON CONFLICT(collection, record_id) DO UPDATE SET
+                 plaintext_json = excluded.plaintext_json,
+                 updated_at = excluded.updated_at",
+            params![
+                collection,
+                record_id.to_string(),
+                plaintext_json,
+                updated_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_record_state(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<(), StorageError> {
+        self.connection.execute(
+            "DELETE FROM sync_record_states
+             WHERE collection = ?1 AND record_id = ?2",
+            params![collection, record_id.to_string()],
+        )?;
+        Ok(())
     }
 }
 

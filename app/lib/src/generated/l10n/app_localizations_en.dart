@@ -542,6 +542,35 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accountRequestFailed => 'Account request failed.';
 
   @override
+  String get accountSyncTitle => 'Sync';
+
+  @override
+  String get accountSyncNotSignedIn => 'Sync is off.';
+
+  @override
+  String get accountSyncIdle => 'Ready';
+
+  @override
+  String get accountSyncRunning => 'Syncing';
+
+  @override
+  String get accountSyncFailed => 'Sync failed';
+
+  @override
+  String accountSyncLastSuccess(String time) {
+    return 'Last synced: $time';
+  }
+
+  @override
+  String get accountSyncNever => 'Never';
+
+  @override
+  String get accountSyncNowButton => 'Sync now';
+
+  @override
+  String get accountSyncNowTooltip => 'Sync now';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }

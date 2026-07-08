@@ -1,10 +1,12 @@
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     str::FromStr,
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use serde_json::{json, Value};
 use todori_crypto::derive_local_db_key;
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
@@ -13,11 +15,16 @@ use todori_domain::{
     update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SettingsRepository,
-    SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
-    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
+    open_encrypted, HomeTask, ListRepository, NewSyncOutboxEntry, Reminder, ReminderRepository,
+    SettingsRepository, SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository,
+    SqliteSyncStateRepository, SqliteTaskRepository, StorageError, SyncStateRepository,
+    TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
-use todori_sync::account::{AccountClient, AccountKeyMaterial};
+use todori_sync::{
+    account::{AccountClient, AccountKeyMaterial},
+    decrypt_plaintext, encrypt_plaintext, merge_lww, Hlc, PullRecord, PushOp, PushStatus,
+    SyncEngine, SyncPlaintext, SyncRunSummary,
+};
 use zeroize::Zeroize;
 
 use crate::dev_key_store::{
@@ -27,6 +34,7 @@ use crate::dev_key_store::{
 
 static CORE_STATE: OnceLock<CoreState> = OnceLock::new();
 static ACCOUNT_STATE: OnceLock<Mutex<AccountRuntimeState>> = OnceLock::new();
+static SYNC_STATE: OnceLock<Mutex<SyncRuntimeState>> = OnceLock::new();
 
 const SYNC_SERVER_URL_SETTING_KEY: &str = "sync_server_url";
 const DEFAULT_SYNC_SERVER_URL: &str = "http://localhost:3000";
@@ -35,6 +43,10 @@ const ACCOUNT_USER_ID_SETTING_KEY: &str = "account_user_id";
 const ACCOUNT_TENANT_ID_SETTING_KEY: &str = "account_tenant_id";
 const ACCOUNT_DEVICE_ID_SETTING_KEY: &str = "account_device_id";
 const ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY: &str = "account_session_expires_at";
+const SYNC_CURSOR_NAME: &str = "main";
+const SYNC_LOCAL_HLC_SETTING_KEY: &str = "sync_local_hlc";
+const TASKS_COLLECTION: &str = "tasks";
+const LISTS_COLLECTION: &str = "lists";
 
 struct CoreState {
     db_dir: PathBuf,
@@ -46,6 +58,17 @@ struct AccountRuntimeState {
     session: Option<AccountSessionStateDto>,
     #[allow(dead_code)]
     keys: Option<AccountKeyMaterial>,
+}
+
+#[derive(Default)]
+#[allow(unexpected_cfgs)]
+#[flutter_rust_bridge::frb(ignore)]
+struct SyncRuntimeState {
+    running: bool,
+    last_success_at: Option<i64>,
+    last_failure_at: Option<i64>,
+    last_error: Option<String>,
+    last_summary: SyncRunSummary,
 }
 
 pub struct ListDto {
@@ -116,6 +139,23 @@ pub struct AccountSessionStateDto {
 pub struct AccountAuthResultDto {
     pub session: AccountSessionStateDto,
     pub recovery_key: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct SyncStatusDto {
+    pub logged_in: bool,
+    pub running: bool,
+    pub last_success_at: Option<i64>,
+    pub last_failure_at: Option<i64>,
+    pub last_error: Option<String>,
+    pub pushed_count: i32,
+    pub push_acked_count: i32,
+    pub push_superseded_count: i32,
+    pub pulled_count: i32,
+    pub applied_count: i32,
+    pub deleted_count: i32,
+    pub decrypt_failed_count: i32,
+    pub repush_count: i32,
 }
 
 pub fn greet(name: String) -> String {
@@ -283,6 +323,41 @@ pub fn account_logout() -> Result<(), String> {
     Ok(())
 }
 
+pub fn get_sync_status() -> Result<SyncStatusDto, String> {
+    Ok(sync_status_dto(has_active_sync_context()))
+}
+
+pub fn sync_now() -> Result<SyncStatusDto, String> {
+    if !has_active_sync_context() {
+        return Ok(sync_status_dto(false));
+    }
+    {
+        let mut state = sync_runtime_state();
+        if state.running {
+            return Ok(sync_status_dto(true));
+        }
+        state.running = true;
+        state.last_error = None;
+    }
+
+    let result = run_sync_now();
+    let now = now_ms()?;
+    let mut state = sync_runtime_state();
+    state.running = false;
+    match result {
+        Ok(summary) => {
+            state.last_success_at = Some(now);
+            state.last_error = None;
+            state.last_summary = summary;
+        }
+        Err(_) => {
+            state.last_failure_at = Some(now);
+            state.last_error = Some("sync failed".to_string());
+        }
+    }
+    Ok(sync_status_dto(true))
+}
+
 /// Creates a list using the caller-provided fractional `sort_order`.
 ///
 /// Automatic fractional index generation is a later M3 concern and is not done
@@ -293,6 +368,7 @@ pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> 
         repository
             .insert(list.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_list_sync(&list, false)?;
         Ok(list_to_dto(list))
     })
 }
@@ -324,6 +400,7 @@ pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
@@ -341,6 +418,7 @@ pub fn archive_list(list_id: String) -> Result<ListDto, String> {
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
@@ -354,6 +432,7 @@ pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
@@ -407,6 +486,7 @@ pub fn create_task(
         repository
             .insert(task.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_task_sync(&task, false)?;
         Ok(task_to_dto(task))
     })
 }
@@ -451,6 +531,7 @@ pub fn reorder_task(
         repository
             .update(task.clone())
             .map_err(|error| error.to_string())?;
+        enqueue_task_sync(&task, false)?;
         Ok(task_to_dto(task))
     })
 }
@@ -532,6 +613,7 @@ pub fn update_task(
         repository
             .update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now_ms)
             .map_err(|error| error.to_string())?;
+        enqueue_task_sync(&updated, false)?;
         Ok(task_to_dto(updated))
     })
 }
@@ -558,6 +640,7 @@ pub fn set_task_status(
                 .update(updated.clone())
                 .map_err(|error| error.to_string())?;
         }
+        enqueue_task_sync(&updated, false)?;
         Ok(task_to_dto(updated))
     })
 }
@@ -565,10 +648,11 @@ pub fn set_task_status(
 pub fn delete_task(task_id: String) -> Result<(), String> {
     let task_id = parse_uuid(&task_id)?;
     with_task_repository(|repository| {
+        let task = repository.get(task_id).map_err(|error| error.to_string())?;
         repository
             .delete_subtree(task_id)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        enqueue_task_sync(&task, true)
     })
 }
 
@@ -581,8 +665,8 @@ pub fn delete_list(list_id: String) -> Result<(), String> {
         }
         repository
             .delete_with_tasks(list_id)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        enqueue_list_sync(&list, true)
     })
 }
 
@@ -696,6 +780,648 @@ pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<Remind
 enum AccountAuthMode {
     Register,
     Login,
+}
+
+struct ActiveSyncContext {
+    server_url: String,
+    tenant_id: Uuid,
+    device_id: String,
+    session_token: String,
+    keys: LocalSyncKeys,
+}
+
+struct LocalSyncKeys {
+    tenant_root_dek: [u8; 32],
+    list_deks: Vec<(String, [u8; 32])>,
+}
+
+fn run_sync_now() -> Result<SyncRunSummary, String> {
+    let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
+    let engine = SyncEngine::new(
+        context.server_url.clone(),
+        context.tenant_id,
+        context.session_token.clone(),
+    )
+    .map_err(|_| "sync failed".to_string())?;
+    let mut summary = SyncRunSummary::default();
+
+    let outbox = with_sync_repository(|repository| {
+        repository
+            .list_outbox(100)
+            .map_err(|error| error.to_string())
+    })?;
+    summary.pushed_count = outbox.len();
+    let push_ops = outbox
+        .into_iter()
+        .map(|entry| PushOp {
+            outbox_id: entry.id,
+            record_id: entry.record_id,
+            collection: entry.collection,
+            hlc: entry.hlc,
+            deleted: entry.deleted,
+            blob: entry.blob,
+        })
+        .collect::<Vec<_>>();
+    let push_outcome = run_async(engine.push_batch(push_ops)).map_err(|_| "sync failed")?;
+    with_sync_repository(|repository| {
+        for outcome in push_outcome.outcomes {
+            match outcome.status {
+                PushStatus::Accepted | PushStatus::NoOp => {
+                    repository
+                        .ack_outbox(outcome.outbox_id)
+                        .map_err(|error| error.to_string())?;
+                    summary.push_acked_count += 1;
+                }
+                PushStatus::Superseded => {
+                    repository
+                        .ack_outbox(outcome.outbox_id)
+                        .map_err(|error| error.to_string())?;
+                    summary.push_superseded_count += 1;
+                }
+            }
+        }
+        Ok(())
+    })?;
+
+    loop {
+        let since = with_sync_repository(|repository| {
+            repository
+                .get_cursor(SYNC_CURSOR_NAME)
+                .map_err(|error| error.to_string())
+                .map(|cursor| cursor.map(|cursor| cursor.seq).unwrap_or(0))
+        })?;
+        let page = run_async(engine.pull_page(since, 100)).map_err(|_| "sync failed")?;
+        if page.records.is_empty() {
+            break;
+        }
+        summary.pulled_count += page.records.len();
+        for record in &page.records {
+            apply_pull_record(record, &context, &mut summary)?;
+        }
+        with_sync_repository(|repository| {
+            repository
+                .set_cursor(SYNC_CURSOR_NAME, page.next_since, now_ms()?)
+                .map_err(|error| error.to_string())
+        })?;
+        if !page.has_more {
+            break;
+        }
+    }
+
+    Ok(summary)
+}
+
+fn apply_pull_record(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String> {
+    match record.collection.as_str() {
+        LISTS_COLLECTION => apply_pull_list(record, context, summary),
+        TASKS_COLLECTION => apply_pull_task(record, context, summary),
+        _ => {
+            summary.decrypt_failed_count += 1;
+            Ok(())
+        }
+    }
+}
+
+fn apply_pull_list(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String> {
+    if record.deleted {
+        with_list_repository(|repository| {
+            repository
+                .delete_with_tasks_for_sync(record.record_id)
+                .map(|deleted| {
+                    summary.deleted_count += 1 + deleted;
+                })
+                .map_err(|error| error.to_string())
+        })?;
+        with_sync_repository(|repository| {
+            repository
+                .delete_record_state(LISTS_COLLECTION, record.record_id)
+                .map_err(|error| error.to_string())
+        })?;
+        return Ok(());
+    }
+
+    let incoming = decrypt_plaintext(
+        &context.keys.tenant_root_dek,
+        LISTS_COLLECTION,
+        &record.record_id.to_string(),
+        &record.blob,
+    );
+    let incoming = match incoming {
+        Ok(incoming) => incoming,
+        Err(_) => {
+            summary.decrypt_failed_count += 1;
+            return Ok(());
+        }
+    };
+    let existing = with_list_repository(|repository| match repository.get(record.record_id) {
+        Ok(list) => Ok(Some(list)),
+        Err(StorageError::NotFound(_)) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    })?;
+    let stored_plaintext = stored_sync_plaintext(LISTS_COLLECTION, record.record_id)?;
+    let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
+        (Some(local_plaintext), _) => {
+            let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, Some(local)) => {
+            let local_plaintext = list_plaintext(local, record_hlc_or_initial(&incoming));
+            let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, None) => (incoming, false),
+    };
+    let list = list_from_plaintext(record.record_id, existing.as_ref(), &merged)?;
+    with_list_repository(|repository| {
+        repository
+            .upsert_for_sync(list.clone())
+            .map_err(|error| error.to_string())
+    })?;
+    store_sync_plaintext(LISTS_COLLECTION, record.record_id, &merged)?;
+    summary.applied_count += 1;
+    if needs_repush {
+        enqueue_merged_plaintext(
+            record.record_id,
+            LISTS_COLLECTION,
+            &merged,
+            &context.keys.tenant_root_dek,
+            &context.device_id,
+            summary,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_pull_task(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String> {
+    if record.deleted {
+        with_task_repository(|repository| {
+            repository
+                .delete_subtree_for_sync(record.record_id)
+                .map(|deleted| {
+                    summary.deleted_count += deleted;
+                })
+                .map_err(|error| error.to_string())
+        })?;
+        with_sync_repository(|repository| {
+            repository
+                .delete_record_state(TASKS_COLLECTION, record.record_id)
+                .map_err(|error| error.to_string())
+        })?;
+        return Ok(());
+    }
+
+    let existing = with_task_repository(|repository| match repository.get(record.record_id) {
+        Ok(task) => Ok(Some(task)),
+        Err(StorageError::NotFound(_)) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    })?;
+    let dek = existing
+        .as_ref()
+        .and_then(|task| dek_for_task_list(&context.keys, &task.list_id.to_string()))
+        .unwrap_or(context.keys.tenant_root_dek);
+    let incoming = match decrypt_plaintext(
+        &dek,
+        TASKS_COLLECTION,
+        &record.record_id.to_string(),
+        &record.blob,
+    ) {
+        Ok(incoming) => incoming,
+        Err(_) => {
+            summary.decrypt_failed_count += 1;
+            return Ok(());
+        }
+    };
+    let dek = incoming
+        .fields
+        .get("list_id")
+        .and_then(Value::as_str)
+        .and_then(|list_id| dek_for_task_list(&context.keys, list_id))
+        .unwrap_or(dek);
+    let stored_plaintext = stored_sync_plaintext(TASKS_COLLECTION, record.record_id)?;
+    let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
+        (Some(local_plaintext), _) => {
+            let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, Some(local)) => {
+            let local_plaintext = task_plaintext(local, record_hlc_or_initial(&incoming));
+            let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, None) => (incoming, false),
+    };
+    let task = task_from_plaintext(record.record_id, existing.as_ref(), &merged)?;
+    with_task_repository(|repository| {
+        repository
+            .upsert_for_sync(task)
+            .map_err(|error| error.to_string())
+    })?;
+    store_sync_plaintext(TASKS_COLLECTION, record.record_id, &merged)?;
+    summary.applied_count += 1;
+    if needs_repush {
+        enqueue_merged_plaintext(
+            record.record_id,
+            TASKS_COLLECTION,
+            &merged,
+            &dek,
+            &context.device_id,
+            summary,
+        )?;
+    }
+    Ok(())
+}
+
+fn enqueue_task_sync(task: &Task, deleted: bool) -> Result<(), String> {
+    let Some(context) = active_sync_context() else {
+        return Ok(());
+    };
+    let hlc = tick_local_hlc(&context.device_id)?;
+    let dek = dek_for_task_list(&context.keys, &task.list_id.to_string())
+        .unwrap_or(context.keys.tenant_root_dek);
+    let plaintext = task_plaintext(task, hlc.clone());
+    enqueue_plaintext(task.id, TASKS_COLLECTION, deleted, &plaintext, &dek, &hlc)
+}
+
+fn enqueue_list_sync(list: &List, deleted: bool) -> Result<(), String> {
+    let Some(context) = active_sync_context() else {
+        return Ok(());
+    };
+    let hlc = tick_local_hlc(&context.device_id)?;
+    let plaintext = list_plaintext(list, hlc.clone());
+    enqueue_plaintext(
+        list.id,
+        LISTS_COLLECTION,
+        deleted,
+        &plaintext,
+        &context.keys.tenant_root_dek,
+        &hlc,
+    )
+}
+
+fn enqueue_merged_plaintext(
+    record_id: Uuid,
+    collection: &str,
+    plaintext: &SyncPlaintext,
+    dek: &[u8; 32],
+    device_id: &str,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String> {
+    let mut merged = plaintext.clone();
+    let hlc = tick_local_hlc(device_id)?;
+    for field_hlc in merged.field_hlcs.values_mut() {
+        if *field_hlc < hlc {
+            *field_hlc = hlc.clone();
+        }
+    }
+    enqueue_plaintext(record_id, collection, false, &merged, dek, &hlc)?;
+    summary.repush_count += 1;
+    Ok(())
+}
+
+fn enqueue_plaintext(
+    record_id: Uuid,
+    collection: &str,
+    deleted: bool,
+    plaintext: &SyncPlaintext,
+    dek: &[u8; 32],
+    hlc: &Hlc,
+) -> Result<(), String> {
+    let blob = if deleted {
+        Vec::new()
+    } else {
+        encrypt_plaintext(dek, collection, &record_id.to_string(), plaintext)
+            .map_err(|_| "sync failed".to_string())?
+    };
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    with_sync_repository(|repository| {
+        let result = repository
+            .enqueue_outbox(NewSyncOutboxEntry {
+                record_id,
+                collection: collection.to_string(),
+                hlc: encoded_hlc,
+                deleted,
+                blob,
+                created_at: now_ms()?,
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        if result.is_ok() {
+            if deleted {
+                repository
+                    .delete_record_state(collection, record_id)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                let plaintext_json =
+                    serde_json::to_string(plaintext).map_err(|_| "sync failed".to_string())?;
+                repository
+                    .upsert_record_state(collection, record_id, &plaintext_json, now_ms()?)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        result
+    })
+}
+
+fn stored_sync_plaintext(
+    collection: &str,
+    record_id: Uuid,
+) -> Result<Option<SyncPlaintext>, String> {
+    with_sync_repository(|repository| {
+        repository
+            .get_record_state(collection, record_id)
+            .map_err(|error| error.to_string())
+    })?
+    .map(|json| serde_json::from_str(&json).map_err(|_| "sync failed".to_string()))
+    .transpose()
+}
+
+fn store_sync_plaintext(
+    collection: &str,
+    record_id: Uuid,
+    plaintext: &SyncPlaintext,
+) -> Result<(), String> {
+    let plaintext_json = serde_json::to_string(plaintext).map_err(|_| "sync failed".to_string())?;
+    with_sync_repository(|repository| {
+        repository
+            .upsert_record_state(collection, record_id, &plaintext_json, now_ms()?)
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn tick_local_hlc(device_id: &str) -> Result<Hlc, String> {
+    let mut clock = match get_setting(SYNC_LOCAL_HLC_SETTING_KEY.to_string())? {
+        Some(encoded) if !encoded.is_empty() => {
+            Hlc::decode(&encoded).unwrap_or_else(|_| Hlc::new(device_id.to_string()))
+        }
+        _ => Hlc::new(device_id.to_string()),
+    };
+    let hlc = clock.now(now_ms()?);
+    set_setting(
+        SYNC_LOCAL_HLC_SETTING_KEY.to_string(),
+        hlc.encode().map_err(|_| "sync failed".to_string())?,
+    )?;
+    Ok(hlc)
+}
+
+fn active_sync_context() -> Option<ActiveSyncContext> {
+    let state = core_state().ok()?;
+    let account = account_runtime_state();
+    let session = account.session.clone()?;
+    if !session.logged_in {
+        return None;
+    }
+    let keys = account.keys.as_ref()?;
+    let tenant_id = parse_uuid(session.tenant_id.as_deref()?).ok()?;
+    let device_id = session.device_id.clone()?;
+    let sync_keys = LocalSyncKeys {
+        tenant_root_dek: *keys.tenant_root_dek,
+        list_deks: keys
+            .list_deks
+            .iter()
+            .map(|entry| (entry.list_id.clone(), *entry.dek))
+            .collect(),
+    };
+    drop(account);
+    let session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .ok()
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok())?;
+    Some(ActiveSyncContext {
+        server_url: get_sync_server_url().ok()?,
+        tenant_id,
+        device_id,
+        session_token,
+        keys: sync_keys,
+    })
+}
+
+fn has_active_sync_context() -> bool {
+    active_sync_context().is_some()
+}
+
+fn dek_for_task_list(keys: &LocalSyncKeys, list_id: &str) -> Option<[u8; 32]> {
+    keys.list_deks
+        .iter()
+        .find(|(id, _)| id == list_id)
+        .map(|(_, dek)| *dek)
+        .or_else(|| keys.list_deks.first().map(|(_, dek)| *dek))
+}
+
+fn record_hlc_or_initial(plaintext: &SyncPlaintext) -> Hlc {
+    plaintext
+        .record_hlc()
+        .cloned()
+        .unwrap_or_else(|| Hlc::new("sync"))
+}
+
+fn task_plaintext(task: &Task, hlc: Hlc) -> SyncPlaintext {
+    SyncPlaintext::from_single_hlc(
+        BTreeMap::from([
+            ("list_id".to_string(), json!(task.list_id.to_string())),
+            (
+                "parent_task_id".to_string(),
+                option_uuid_value(task.parent_task_id),
+            ),
+            ("title".to_string(), json!(task.title)),
+            ("note".to_string(), json!(task.note)),
+            ("status".to_string(), json!(status_to_string(task.status))),
+            ("priority".to_string(), json!(task.priority)),
+            ("due_at".to_string(), option_i64_value(task.due_at)),
+            (
+                "scheduled_at".to_string(),
+                option_i64_value(task.scheduled_at),
+            ),
+            (
+                "estimated_minutes".to_string(),
+                option_i32_value(task.estimated_minutes),
+            ),
+            (
+                "completed_at".to_string(),
+                option_i64_value(task.completed_at),
+            ),
+            (
+                "closed_reason".to_string(),
+                option_string_value(task.closed_reason.clone()),
+            ),
+            ("deleted_at".to_string(), option_i64_value(task.deleted_at)),
+            ("assignee".to_string(), option_uuid_value(task.assignee)),
+            ("created_at".to_string(), json!(task.created_at)),
+            ("updated_at".to_string(), json!(task.updated_at)),
+        ]),
+        hlc,
+    )
+    .expect("task sync plaintext excludes sort_order and has matching HLC keys")
+}
+
+fn list_plaintext(list: &List, hlc: Hlc) -> SyncPlaintext {
+    SyncPlaintext::from_single_hlc(
+        BTreeMap::from([
+            ("name".to_string(), json!(list.name)),
+            ("color".to_string(), json!(list.color)),
+            ("icon".to_string(), json!(list.icon)),
+            ("org_id".to_string(), option_uuid_value(list.org_id)),
+            ("is_default".to_string(), json!(list.is_default)),
+            (
+                "archived_at".to_string(),
+                option_i64_value(list.archived_at),
+            ),
+            ("created_at".to_string(), json!(list.created_at)),
+            ("updated_at".to_string(), json!(list.updated_at)),
+        ]),
+        hlc,
+    )
+    .expect("list sync plaintext excludes sort_order and has matching HLC keys")
+}
+
+fn task_from_plaintext(
+    id: Uuid,
+    existing: Option<&Task>,
+    plaintext: &SyncPlaintext,
+) -> Result<Task, String> {
+    let fields = &plaintext.fields;
+    let existing = existing.cloned();
+    Ok(Task {
+        id,
+        list_id: value_uuid(fields, "list_id")?
+            .or_else(|| existing.as_ref().map(|task| task.list_id))
+            .ok_or_else(|| "sync failed".to_string())?,
+        parent_task_id: value_uuid(fields, "parent_task_id")?
+            .or_else(|| existing.as_ref().and_then(|task| task.parent_task_id)),
+        title: value_string(fields, "title")
+            .or_else(|| existing.as_ref().map(|task| task.title.clone()))
+            .unwrap_or_default(),
+        note: value_string(fields, "note")
+            .or_else(|| existing.as_ref().map(|task| task.note.clone()))
+            .unwrap_or_default(),
+        status: value_string(fields, "status")
+            .as_deref()
+            .map(parse_status)
+            .transpose()?
+            .or_else(|| existing.as_ref().map(|task| task.status))
+            .unwrap_or(TaskStatus::Todo),
+        priority: value_i64(fields, "priority")
+            .map(|value| value as i32)
+            .or_else(|| existing.as_ref().map(|task| task.priority))
+            .unwrap_or(0),
+        due_at: value_i64(fields, "due_at")
+            .or_else(|| existing.as_ref().and_then(|task| task.due_at)),
+        scheduled_at: value_i64(fields, "scheduled_at")
+            .or_else(|| existing.as_ref().and_then(|task| task.scheduled_at)),
+        estimated_minutes: value_i64(fields, "estimated_minutes")
+            .map(|value| value as i32)
+            .or_else(|| existing.as_ref().and_then(|task| task.estimated_minutes)),
+        sort_order: existing
+            .as_ref()
+            .map(|task| task.sort_order.clone())
+            .unwrap_or_else(|| "a0".to_string()),
+        completed_at: value_i64(fields, "completed_at")
+            .or_else(|| existing.as_ref().and_then(|task| task.completed_at)),
+        closed_reason: value_string(fields, "closed_reason").or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|task| task.closed_reason.clone())
+        }),
+        deleted_at: value_i64(fields, "deleted_at")
+            .or_else(|| existing.as_ref().and_then(|task| task.deleted_at)),
+        assignee: value_uuid(fields, "assignee")?
+            .or_else(|| existing.as_ref().and_then(|task| task.assignee)),
+        created_at: value_i64(fields, "created_at")
+            .or_else(|| existing.as_ref().map(|task| task.created_at))
+            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+        updated_at: value_i64(fields, "updated_at")
+            .or_else(|| existing.as_ref().map(|task| task.updated_at))
+            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+    })
+}
+
+fn list_from_plaintext(
+    id: Uuid,
+    existing: Option<&List>,
+    plaintext: &SyncPlaintext,
+) -> Result<List, String> {
+    let fields = &plaintext.fields;
+    let existing = existing.cloned();
+    Ok(List {
+        id,
+        name: value_string(fields, "name")
+            .or_else(|| existing.as_ref().map(|list| list.name.clone()))
+            .unwrap_or_default(),
+        color: value_string(fields, "color")
+            .or_else(|| existing.as_ref().map(|list| list.color.clone()))
+            .unwrap_or_default(),
+        icon: value_string(fields, "icon")
+            .or_else(|| existing.as_ref().map(|list| list.icon.clone()))
+            .unwrap_or_default(),
+        org_id: value_uuid(fields, "org_id")?
+            .or_else(|| existing.as_ref().and_then(|list| list.org_id)),
+        sort_order: existing
+            .as_ref()
+            .map(|list| list.sort_order.clone())
+            .unwrap_or_else(|| "a0".to_string()),
+        is_default: value_bool(fields, "is_default")
+            .or_else(|| existing.as_ref().map(|list| list.is_default))
+            .unwrap_or(false),
+        archived_at: value_i64(fields, "archived_at")
+            .or_else(|| existing.as_ref().and_then(|list| list.archived_at)),
+        created_at: value_i64(fields, "created_at")
+            .or_else(|| existing.as_ref().map(|list| list.created_at))
+            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+        updated_at: value_i64(fields, "updated_at")
+            .or_else(|| existing.as_ref().map(|list| list.updated_at))
+            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+    })
+}
+
+fn option_uuid_value(value: Option<Uuid>) -> Value {
+    value.map(|id| json!(id.to_string())).unwrap_or(Value::Null)
+}
+
+fn option_i64_value(value: Option<i64>) -> Value {
+    value.map(Value::from).unwrap_or(Value::Null)
+}
+
+fn option_i32_value(value: Option<i32>) -> Value {
+    value.map(Value::from).unwrap_or(Value::Null)
+}
+
+fn option_string_value(value: Option<String>) -> Value {
+    value.map(Value::from).unwrap_or(Value::Null)
+}
+
+fn value_string(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+    fields.get(key)?.as_str().map(ToOwned::to_owned)
+}
+
+fn value_i64(fields: &BTreeMap<String, Value>, key: &str) -> Option<i64> {
+    fields.get(key)?.as_i64()
+}
+
+fn value_bool(fields: &BTreeMap<String, Value>, key: &str) -> Option<bool> {
+    fields.get(key)?.as_bool()
+}
+
+fn value_uuid(fields: &BTreeMap<String, Value>, key: &str) -> Result<Option<Uuid>, String> {
+    fields
+        .get(key)
+        .and_then(Value::as_str)
+        .map(parse_uuid)
+        .transpose()
 }
 
 fn account_auth(
@@ -871,13 +1597,41 @@ fn replace_account_runtime_state(
     state.keys = keys;
 }
 
-fn run_async<T>(
-    future: impl std::future::Future<Output = Result<T, todori_sync::account::AccountClientError>>,
-) -> Result<T, todori_sync::account::AccountClientError> {
+fn sync_runtime_state() -> std::sync::MutexGuard<'static, SyncRuntimeState> {
+    SYNC_STATE
+        .get_or_init(|| Mutex::new(SyncRuntimeState::default()))
+        .lock()
+        .expect("sync runtime state mutex poisoned")
+}
+
+fn sync_status_dto(logged_in: bool) -> SyncStatusDto {
+    let state = sync_runtime_state();
+    SyncStatusDto {
+        logged_in,
+        running: state.running,
+        last_success_at: state.last_success_at,
+        last_failure_at: state.last_failure_at,
+        last_error: state.last_error.clone(),
+        pushed_count: usize_to_i32(state.last_summary.pushed_count),
+        push_acked_count: usize_to_i32(state.last_summary.push_acked_count),
+        push_superseded_count: usize_to_i32(state.last_summary.push_superseded_count),
+        pulled_count: usize_to_i32(state.last_summary.pulled_count),
+        applied_count: usize_to_i32(state.last_summary.applied_count),
+        deleted_count: usize_to_i32(state.last_summary.deleted_count),
+        decrypt_failed_count: usize_to_i32(state.last_summary.decrypt_failed_count),
+        repush_count: usize_to_i32(state.last_summary.repush_count),
+    }
+}
+
+fn usize_to_i32(value: usize) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+fn run_async<T, E>(future: impl std::future::Future<Output = Result<T, E>>) -> Result<T, E> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("tokio runtime can be created for account requests")
+        .expect("tokio runtime can be created for bridge requests")
         .block_on(future)
 }
 
@@ -904,6 +1658,18 @@ fn with_list_repository<T>(
     let state = core_state()?;
     let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
     let mut repository = SqliteListRepository::new(connection);
+    f(&mut repository)
+}
+
+/// Opens a fresh SQLCipher connection per sync-state API call.
+///
+/// See `with_task_repository` for the connection management tradeoff.
+fn with_sync_repository<T>(
+    f: impl FnOnce(&mut SqliteSyncStateRepository) -> Result<T, String>,
+) -> Result<T, String> {
+    let state = core_state()?;
+    let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
+    let mut repository = SqliteSyncStateRepository::new(connection);
     f(&mut repository)
 }
 

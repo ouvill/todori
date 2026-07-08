@@ -11,6 +11,7 @@ import 'package:todori/src/rust/api.dart'
         HomeTaskDto,
         ListDto,
         ReminderDto,
+        SyncStatusDto,
         TaskDto,
         TaskUndoDto;
 
@@ -138,6 +139,78 @@ final accountProvider =
     AsyncNotifierProvider<AccountNotifier, AccountSessionStateDto>(
       AccountNotifier.new,
     );
+
+class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
+  Timer? _pollTimer;
+
+  @override
+  FutureOr<SyncStatusDto> build() async {
+    ref.onDispose(() => _pollTimer?.cancel());
+    final account = await ref.watch(accountProvider.future);
+    final bridge = ref.watch(bridgeServiceProvider);
+    final status = await bridge.getSyncStatus();
+    if (account.loggedIn && status.loggedIn) {
+      _startPolling();
+      unawaited(syncNow());
+    }
+    return status;
+  }
+
+  Future<void> syncNow() async {
+    final current = state.value;
+    if (current != null) {
+      state = AsyncData(_copySyncStatus(current, running: true));
+    }
+    final status = await ref.read(bridgeServiceProvider).syncNow();
+    state = AsyncData(status);
+    ref.invalidate(listsProvider);
+    ref.invalidate(archivedListsProvider);
+    ref.invalidate(homeTasksProvider);
+  }
+
+  Future<void> syncOnResume() async {
+    final status = state.value;
+    if (status == null || !status.loggedIn || status.running) {
+      return;
+    }
+    await syncNow();
+  }
+
+  void _startPolling() {
+    if (_pollTimer != null) {
+      return;
+    }
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final status = state.value;
+      if (status != null && status.loggedIn && !status.running) {
+        unawaited(syncNow());
+      }
+    });
+  }
+}
+
+final syncStatusProvider =
+    AsyncNotifierProvider<SyncStatusNotifier, SyncStatusDto>(
+      SyncStatusNotifier.new,
+    );
+
+SyncStatusDto _copySyncStatus(SyncStatusDto status, {bool? running}) {
+  return SyncStatusDto(
+    loggedIn: status.loggedIn,
+    running: running ?? status.running,
+    lastSuccessAt: status.lastSuccessAt,
+    lastFailureAt: status.lastFailureAt,
+    lastError: status.lastError,
+    pushedCount: status.pushedCount,
+    pushAckedCount: status.pushAckedCount,
+    pushSupersededCount: status.pushSupersededCount,
+    pulledCount: status.pulledCount,
+    appliedCount: status.appliedCount,
+    deletedCount: status.deletedCount,
+    decryptFailedCount: status.decryptFailedCount,
+    repushCount: status.repushCount,
+  );
+}
 
 final settingsRepositoryProvider = Provider<SettingsRepository>(
   (ref) => SettingsRepository(ref.watch(bridgeServiceProvider)),

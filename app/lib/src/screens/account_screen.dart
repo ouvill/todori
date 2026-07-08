@@ -37,6 +37,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final l10n = AppLocalizations.of(context)!;
     final accountAsync = ref.watch(accountProvider);
     final serverUrlAsync = ref.watch(syncServerUrlProvider);
+    final syncStatusAsync = ref.watch(syncStatusProvider);
 
     serverUrlAsync.whenData((serverUrl) {
       if (_serverUrlController.text.isEmpty) {
@@ -98,8 +99,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               if (account.loggedIn)
                 _SignedInSection(
                   account: account,
+                  syncStatusAsync: syncStatusAsync,
                   busy: _busy,
                   onLogout: _logout,
+                  onSyncNow: _syncNow,
                 )
               else
                 _SignedOutSection(
@@ -196,6 +199,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         setState(() => _busy = false);
       }
     }
+  }
+
+  Future<void> _syncNow() async {
+    await ref.read(syncStatusProvider.notifier).syncNow();
   }
 }
 
@@ -336,13 +343,17 @@ class _SignedOutSection extends StatelessWidget {
 class _SignedInSection extends StatelessWidget {
   const _SignedInSection({
     required this.account,
+    required this.syncStatusAsync,
     required this.busy,
     required this.onLogout,
+    required this.onSyncNow,
   });
 
   final AccountSessionStateDto account;
+  final AsyncValue<SyncStatusDto> syncStatusAsync;
   final bool busy;
   final VoidCallback onLogout;
+  final VoidCallback onSyncNow;
 
   @override
   Widget build(BuildContext context) {
@@ -355,6 +366,12 @@ class _SignedInSection extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: AppSpacing.lg),
+        _SyncStatusSection(
+          syncStatusAsync: syncStatusAsync,
+          busy: busy,
+          onSyncNow: onSyncNow,
+        ),
+        const SizedBox(height: AppSpacing.lg),
         OutlinedButton.icon(
           onPressed: busy ? null : onLogout,
           icon: const Icon(LucideIcons.logOut300),
@@ -362,5 +379,80 @@ class _SignedInSection extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _SyncStatusSection extends StatelessWidget {
+  const _SyncStatusSection({
+    required this.syncStatusAsync,
+    required this.busy,
+    required this.onSyncNow,
+  });
+
+  final AsyncValue<SyncStatusDto> syncStatusAsync;
+  final bool busy;
+  final VoidCallback onSyncNow;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final status = syncStatusAsync.value;
+    final running = status?.running ?? false;
+    final statusText = switch (status) {
+      null => l10n.accountSyncIdle,
+      SyncStatusDto(loggedIn: false) => l10n.accountSyncNotSignedIn,
+      SyncStatusDto(running: true) => l10n.accountSyncRunning,
+      SyncStatusDto(lastError: final error?) when error.isNotEmpty =>
+        l10n.accountSyncFailed,
+      _ => l10n.accountSyncIdle,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          l10n.accountSyncTitle,
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(statusText),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    l10n.accountSyncLastSuccess(
+                      _formatSyncTime(context, status?.lastSuccessAt),
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: busy || running ? null : onSyncNow,
+              icon: const Icon(LucideIcons.refreshCw300),
+              label: Text(l10n.accountSyncNowButton),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _formatSyncTime(BuildContext context, int? milliseconds) {
+    final l10n = AppLocalizations.of(context)!;
+    if (milliseconds == null) {
+      return l10n.accountSyncNever;
+    }
+    final dateTime = DateTime.fromMillisecondsSinceEpoch(
+      milliseconds,
+    ).toLocal();
+    final material = MaterialLocalizations.of(context);
+    return '${material.formatShortDate(dateTime)} '
+        '${material.formatTimeOfDay(TimeOfDay.fromDateTime(dateTime))}';
   }
 }

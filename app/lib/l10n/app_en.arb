@@ -337,6 +337,22 @@
   "accountServerUrlLabel": "Server URL",
   "accountSaveServerUrlTooltip": "Save server URL",
   "accountRequestFailed": "Account request failed.",
+  "accountSyncTitle": "Sync",
+  "accountSyncNotSignedIn": "Sync is off.",
+  "accountSyncIdle": "Ready",
+  "accountSyncRunning": "Syncing",
+  "accountSyncFailed": "Sync failed",
+  "accountSyncLastSuccess": "Last synced: {time}",
+  "@accountSyncLastSuccess": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "accountSyncNever": "Never",
+  "accountSyncNowButton": "Sync now",
+  "accountSyncNowTooltip": "Sync now",
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {
