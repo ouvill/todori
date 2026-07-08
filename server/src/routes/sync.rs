@@ -9,14 +9,16 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    sync::{self, PullResponse, PushRequest, PushResponse},
+    sync::{self, PullResponse, PushRequest, PushResponse, UpsertListKeyResponse},
     AppError, SharedState,
 };
+use todori_sync::account::ListDekBundleDto;
 
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
+        .route("/{tenant_id}/list-keys", post(upsert_list_key_bundle))
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +57,19 @@ async fn pull(
     )
     .await
     .map(Json)
+}
+
+async fn upsert_list_key_bundle(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<ListDekBundleDto>,
+) -> Result<Json<UpsertListKeyResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    sync::upsert_list_key_bundle(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, AppError> {

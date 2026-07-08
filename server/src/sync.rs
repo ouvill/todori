@@ -1,9 +1,9 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_sync::{Hlc, MAX_ENCRYPTED_BLOB_LEN};
+use todori_sync::{account::ListDekBundleDto, Hlc, MAX_ENCRYPTED_BLOB_LEN};
 use uuid::Uuid;
 
 use crate::{auth::AuthContext, AppError};
@@ -11,6 +11,7 @@ use crate::{auth::AuthContext, AppError};
 pub const MAX_PUSH_OPS: usize = 100;
 pub const MAX_PULL_LIMIT: i64 = 100;
 pub const DEFAULT_PULL_LIMIT: i64 = 100;
+pub const TOMBSTONE_RETENTION_DAYS: i64 = 180;
 const ALLOWED_FUTURE_SKEW_MS: i64 = 5 * 60 * 1000;
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +64,9 @@ pub struct PullRecord {
     pub deleted: bool,
     pub blob: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpsertListKeyResponse {}
 
 struct PushOp {
     record_id: Uuid,
@@ -165,6 +169,44 @@ pub async fn pull(
     })
 }
 
+pub async fn upsert_list_key_bundle(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    _auth: AuthContext,
+    bundle: ListDekBundleDto,
+) -> Result<UpsertListKeyResponse, AppError> {
+    let wrapped_list_dek = STANDARD
+        .decode(&bundle.wrapped_list_dek)
+        .map_err(|_| AppError::bad_request("invalid list key bundle"))?;
+    if wrapped_list_dek.is_empty() {
+        return Err(AppError::bad_request("invalid list key bundle"));
+    }
+    query::<Postgres>(
+        "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, list_id) DO UPDATE
+         SET wrapped_list_dek = EXCLUDED.wrapped_list_dek,
+             updated_at = now()",
+    )
+    .bind(tenant_id)
+    .bind(bundle.list_id)
+    .bind(wrapped_list_dek)
+    .execute(pool)
+    .await?;
+    Ok(UpsertListKeyResponse {})
+}
+
+pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, AppError> {
+    let result = query::<Postgres>(
+        "DELETE FROM sync_records
+         WHERE deleted = true AND updated_at < $1",
+    )
+    .bind(cutoff)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 fn validate_push_op(op: PushOpRequest) -> Result<PushOp, AppError> {
     if op.collection.trim().is_empty() || op.collection.len() > 64 {
         return Err(AppError::bad_request("invalid collection"));
@@ -184,7 +226,7 @@ fn validate_push_op(op: PushOpRequest) -> Result<PushOp, AppError> {
         collection: op.collection,
         hlc: op.hlc,
         deleted: op.deleted,
-        blob,
+        blob: if op.deleted { Vec::new() } else { blob },
     })
 }
 

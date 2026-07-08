@@ -100,6 +100,7 @@
 - **P2-M3 鍵階層とアカウント接続task-71完了（2026-07-08）**: クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain/session/local wrapped MK保存、FRB API、Flutter最小アカウント画面を接続した。testcontainers Postgres + 実axum server + Rust account clientで登録→logout→login→同一MK復元、誤パスワード、失効session、誤鍵unwrap失敗を確認済み。同期ループ、Recovery UX完全版、複数デバイス管理UIはスコープ外。
 - **P2-M4 同期エンジン統合task-72指示書化（2026-07-08）**: ローカル書込outbox、push/pull/ACK/cursor、復号LWWマージ、HLC tick付き再push、FRB `sync_now`、Flutter最小同期状態表示、2ローカルDB統合テストを `docs/tasks/task-72-sync-engine.md` に指示書化した。ステータスは未着手。削除同期は `deleted=true` の暫定橋渡しに留め、正式なGC/tombstone設計はP2-M5/ADR-010へ分離する。
 - **P2-M4 同期エンジン統合task-72完了（2026-07-08）**: `core/sync::SyncEngine`、FRB `sync_now` / `get_sync_status`、ローカルCRUD outbox enqueue、pull復号LWWマージ、HLC tick付き再push、Flutter起動/復帰/30秒ポーリング、アカウント画面同期状態を接続した。testcontainers Postgres + 実axum server + 2 SQLCipherローカルDB統合テストで、双方向編集収束、オフライン復帰、同一フィールドLWW、削除伝播、outbox永続性、復号失敗スキップを確認済み。削除同期正式設計、SSE/long-poll、競合UI、複数デバイス管理UI、Recovery UX完全版は後続。
+- **P2-M5前半 task-73完了（2026-07-08）**: ADR-010ドラフトをDraft/人間承認待ちとして追加し、削除tombstoneは暗号blobを空化してrecord-id/deleted/HLC/seq等の最小メタデータだけ180日保持する方針を記録した。実装は削除push blob空化、tombstone GC関数、List DEK bundle upsert、登録時/リスト作成時のList DEK保存、lists本体のList DEK暗号化へ絞った。410 Gone/フル再同期はPhase 2後半へ継続。
 
 ## 優先度付きバックログ
 
@@ -121,7 +122,8 @@
 | 14 | task-70 P2-M2 同期サーバー | Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装する | P2-M2 | 完了（2026-07-08）。指示書: [`task-70-sync-server.md`](./task-70-sync-server.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§2、§3、§6、§7、ADR-003/005/008 |
 | 15 | task-71 P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 完了（2026-07-08）。指示書: [`task-71-key-hierarchy-account.md`](./task-71-key-hierarchy-account.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§3、§4、§7 |
 | 16 | task-72 P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 完了（2026-07-08）。指示書: [`task-72-sync-engine.md`](./task-72-sync-engine.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5。削除同期正式設計はP2-M5/ADR-010へ分離 |
-| 17 | P2-M5 削除同期とマルチプラットフォーム検証 | ADR-010ドラフト、保守的な削除同期実装、Android/macOSビルド・動作検証を行う | P2-M5 | 出典: `docs/08_Phase2計画書.md`。ADR-010は人間レビュー待ちを明記 |
+| 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010はDraft/人間承認待ち |
+| 18 | P2-M5 後半 マルチプラットフォーム検証と410/フル再同期 | ADR-010承認後に410 Gone、フル再同期、Android/macOSビルド・動作検証を行う | P2-M5後半 | 出典: `docs/08_Phase2計画書.md`。ADR-010承認待ち |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -142,7 +144,7 @@
 ## 要人間判断
 
 - iOS Simulator/実機でのKeychain動作通し確認。task-64は親ホストの実Keychain roundtripとmacOS debugアプリ再起動確認まで合格済みだが、iOS Simulator/実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンは人間帰還後に確認する。出典: task-64完了報告。
-- ADR-010（削除同期表現）の承認。ADR-009後のローカル恒久削除と、Phase 2同期上のtombstone/GC/復帰端末の扱いを最終決定する。出典: `docs/08_Phase2計画書.md` P2-M5。
+- ADR-010（削除同期表現）の承認。Draftでは、削除tombstoneは暗号blobを空化し、record-id/deleted/HLC/seq等の最小メタデータだけ180日保持、GC窓超過端末は410 Gone + フル再同期、削除/編集競合はHLC比較とする。出典: `docs/05_設計判断記録.md` ADR-010 Draft、`docs/08_Phase2計画書.md` P2-M5。
 - AWS/ECR/Lambda/Neon本番デプロイ実行。クレデンシャル投入、WAF/API GatewayまたはCloudFront前段、実環境の更新は人間帰還後に行う。出典: `docs/08_Phase2計画書.md` §2、§6。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
 - リストの型の区別（プロジェクト型=完了・アーカイブしうる大タスク / エリア型=継続する生活領域）の要否とUI上の使い分け。アーカイブ機能自体は2026-07-07人間裁定（削除モデル）によりPhase 1導入が確定済み（task-37）。型の区別づけはPhase 3検討。出典: 2026-07-07人間コメント（task-35削除セマンティクス検討時）。

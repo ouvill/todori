@@ -108,6 +108,7 @@ impl AccountClient {
         password: &str,
         device_name: Option<&str>,
         device_key: &[u8; KEY_LEN],
+        initial_list_ids: Vec<Uuid>,
     ) -> Result<AccountRegisterOutcome, AccountClientError> {
         let mut rng = OsRng;
         let password = Zeroizing::new(password.as_bytes().to_vec());
@@ -132,7 +133,7 @@ impl AccountClient {
             .finish(&mut rng, &password, server_message, Default::default())
             .map_err(|_| AccountClientError::Opaque)?;
         let mut export_key = Zeroizing::new(client_finish.export_key.to_vec());
-        let key_setup = build_registration_key_bundle(&export_key, device_key)?;
+        let key_setup = build_registration_key_bundle(&export_key, device_key, &initial_list_ids)?;
         export_key.zeroize();
 
         let device_public_key = generate_device_public_key();
@@ -221,6 +222,21 @@ impl AccountClient {
         Ok(())
     }
 
+    pub async fn upsert_list_key_bundle(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+        list_key: ListDekBundleDto,
+    ) -> Result<(), AccountClientError> {
+        self.post_json::<UpsertListKeyResponse>(
+            &format!("/v1/tenants/{tenant_id}/list-keys"),
+            &list_key,
+            Some(session_token),
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn post_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -280,9 +296,22 @@ pub fn unwrap_login_key_bundle(
     })
 }
 
+pub fn wrap_list_dek_bundle(
+    list_id: Uuid,
+    list_dek: &[u8; KEY_LEN],
+    master_key: &[u8; KEY_LEN],
+) -> Result<ListDekBundleDto, AccountClientError> {
+    let wrapped_list_dek = wrap_list_dek_with_master_key(list_dek, master_key)?;
+    Ok(ListDekBundleDto {
+        list_id,
+        wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+    })
+}
+
 fn build_registration_key_bundle(
     export_key: &[u8],
     device_key: &[u8; KEY_LEN],
+    initial_list_ids: &[Uuid],
 ) -> Result<RegistrationKeySetup, AccountClientError> {
     let mut kek_pw = Zeroizing::new(derive_kek_pw(export_key));
     let master_key = Zeroizing::new(generate_master_key());
@@ -291,8 +320,6 @@ fn build_registration_key_bundle(
     let user_key_pair = generate_user_x25519_key_pair();
     let user_secret_key = Zeroizing::new(user_key_pair.secret_key);
     let tenant_root_dek = Zeroizing::new(generate_tenant_root_dek());
-    let list_dek = Zeroizing::new(generate_list_dek());
-    let list_id = Uuid::now_v7();
 
     let wrapped_master_key_by_password = wrap_master_key_with_kek_pw(&master_key, &kek_pw)?;
     let wrapped_master_key_by_recovery =
@@ -301,8 +328,17 @@ fn build_registration_key_bundle(
         wrap_user_secret_key_with_master_key(&user_secret_key, &master_key)?;
     let wrapped_tenant_root_dek =
         wrap_tenant_root_dek_with_master_key(&tenant_root_dek, &master_key)?;
-    let wrapped_list_dek = wrap_list_dek_with_master_key(&list_dek, &master_key)?;
     let local_wrapped_master_key = wrap_master_key_with_device_key(&master_key, device_key)?;
+    let mut list_dek_bundles = Vec::with_capacity(initial_list_ids.len());
+    let mut list_deks = Vec::with_capacity(initial_list_ids.len());
+    for list_id in initial_list_ids {
+        let list_dek = Zeroizing::new(generate_list_dek());
+        list_dek_bundles.push(wrap_list_dek_bundle(*list_id, &list_dek, &master_key)?);
+        list_deks.push(AccountListDekMaterial {
+            list_id: list_id.to_string(),
+            dek: list_dek,
+        });
+    }
 
     kek_pw.zeroize();
     recovery_wrap_key.zeroize();
@@ -314,10 +350,7 @@ fn build_registration_key_bundle(
             user_public_key: STANDARD.encode(user_key_pair.public_key),
             wrapped_user_secret_key: STANDARD.encode(wrapped_user_secret_key),
             wrapped_tenant_root_dek: STANDARD.encode(wrapped_tenant_root_dek),
-            list_deks: vec![ListDekBundleDto {
-                list_id,
-                wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
-            }],
+            list_deks: list_dek_bundles,
         },
         recovery_key,
         local_wrapped_master_key,
@@ -325,10 +358,7 @@ fn build_registration_key_bundle(
             master_key,
             user_secret_key,
             tenant_root_dek,
-            list_deks: vec![AccountListDekMaterial {
-                list_id: list_id.to_string(),
-                dek: list_dek,
-            }],
+            list_deks,
         },
     })
 }
@@ -403,6 +433,9 @@ struct SessionResponse {
 #[derive(Debug, Deserialize)]
 struct LogoutResponse {}
 
+#[derive(Debug, Deserialize)]
+struct UpsertListKeyResponse {}
+
 impl SessionResponse {
     fn into_account_session(self, email: &str) -> AccountSession {
         AccountSession {
@@ -426,20 +459,27 @@ mod tests {
         let wrong_export_key = b"wrong opaque export key";
         let device_key = [0x44; KEY_LEN];
 
-        let setup = build_registration_key_bundle(export_key, &device_key).unwrap();
+        let list_id = Uuid::now_v7();
+        let setup = build_registration_key_bundle(export_key, &device_key, &[list_id]).unwrap();
         let unwrapped = unwrap_login_key_bundle(&setup.bundle, export_key).unwrap();
 
         assert_eq!(*unwrapped.master_key, *setup.keys.master_key);
         assert_eq!(*unwrapped.user_secret_key, *setup.keys.user_secret_key);
         assert_eq!(*unwrapped.tenant_root_dek, *setup.keys.tenant_root_dek);
         assert_eq!(unwrapped.list_deks.len(), 1);
+        assert_eq!(unwrapped.list_deks[0].list_id, list_id.to_string());
         assert_eq!(*unwrapped.list_deks[0].dek, *setup.keys.list_deks[0].dek);
         assert!(unwrap_login_key_bundle(&setup.bundle, wrong_export_key).is_err());
     }
 
     #[test]
     fn local_wrapped_master_key_uses_device_key_only_locally() {
-        let setup = build_registration_key_bundle(b"opaque export key", &[0x44; KEY_LEN]).unwrap();
+        let setup = build_registration_key_bundle(
+            b"opaque export key",
+            &[0x44; KEY_LEN],
+            &[Uuid::now_v7()],
+        )
+        .unwrap();
 
         assert!(!setup.local_wrapped_master_key.is_empty());
         assert!(!setup

@@ -4,7 +4,7 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use opaque_ke::{
     ClientLogin, ClientLoginFinishParameters, ClientRegistration,
     ClientRegistrationFinishParameters, CredentialResponse, RegistrationResponse,
@@ -26,14 +26,15 @@ use todori_server::{
         cleanup_expired_opaque_states, LoginSessionResponse, OpaqueStartResponse, SessionResponse,
     },
     build_router, db,
-    sync::MAX_PUSH_OPS,
+    sync::{gc_tombstones, MAX_PUSH_OPS, TOMBSTONE_RETENTION_DAYS},
     AppState,
 };
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteSyncStateRepository, SyncStateRepository,
 };
 use todori_sync::account::{
-    unwrap_login_key_bundle, AccountClient, AccountKeyBundleDto, ListDekBundleDto,
+    unwrap_login_key_bundle, wrap_list_dek_bundle, AccountClient, AccountKeyBundleDto,
+    ListDekBundleDto,
 };
 use todori_sync::{
     decrypt_plaintext, encrypt_plaintext, merge_lww, Hlc, PushOp, PushStatus, SyncEngine,
@@ -850,6 +851,66 @@ async fn push_pull_seq_invariants_tenant_isolation_and_revoked_devices_are_enfor
     .await;
     assert_eq!(delete_status, StatusCode::METHOD_NOT_ALLOWED);
 
+    let deleted_record_id = Uuid::now_v7();
+    let deleted_hlc = encoded_hlc(0, 2, "device-a");
+    let (status, deleted): (StatusCode, Value) = request_json(
+        &test.app,
+        Method::POST,
+        format!("/v1/tenants/{}/push", alice.tenant_id),
+        Some(&alice.session_token),
+        Some(json!({
+            "ops": [{
+                "record_id": deleted_record_id,
+                "collection": "tasks",
+                "hlc": deleted_hlc,
+                "deleted": true,
+                "blob": STANDARD.encode(b"client-must-not-store-this"),
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(deleted["results"][0]["status"], "accepted");
+    let stored_deleted_blob_len: i32 = query::<Postgres>(
+        "SELECT octet_length(encrypted_blob)
+         FROM sync_records
+         WHERE tenant_id = $1 AND record_id = $2 AND deleted = true",
+    )
+    .bind(alice.tenant_id)
+    .bind(deleted_record_id)
+    .fetch_one(&test.pool)
+    .await
+    .unwrap()
+    .try_get("octet_length")
+    .unwrap();
+    assert_eq!(stored_deleted_blob_len, 0);
+
+    query::<Postgres>(
+        "UPDATE sync_records
+         SET updated_at = now() - interval '181 days'
+         WHERE tenant_id = $1 AND record_id = $2",
+    )
+    .bind(alice.tenant_id)
+    .bind(deleted_record_id)
+    .execute(&test.pool)
+    .await
+    .unwrap();
+    let cutoff = Utc::now() - Duration::days(TOMBSTONE_RETENTION_DAYS);
+    assert_eq!(gc_tombstones(&test.pool, cutoff).await.unwrap(), 1);
+    let deleted_remaining: i64 = query::<Postgres>(
+        "SELECT count(*)
+         FROM sync_records
+         WHERE tenant_id = $1 AND record_id = $2",
+    )
+    .bind(alice.tenant_id)
+    .bind(deleted_record_id)
+    .fetch_one(&test.pool)
+    .await
+    .unwrap()
+    .try_get("count")
+    .unwrap();
+    assert_eq!(deleted_remaining, 0);
+
     query::<Postgres>("UPDATE devices SET revoked_at = now() WHERE id = $1")
         .bind(alice.device_id)
         .execute(&test.pool)
@@ -884,6 +945,7 @@ async fn account_client_register_logout_login_restores_keys_and_rejects_invalid_
             "correct horse battery staple",
             Some("first test device"),
             &device_key_a,
+            vec![Uuid::now_v7()],
         )
         .await
         .unwrap();
@@ -942,6 +1004,28 @@ async fn account_client_register_logout_login_restores_keys_and_rejects_invalid_
         registered.local_wrapped_master_key,
         logged_in.local_wrapped_master_key
     );
+    let added_list_id = Uuid::now_v7();
+    let added_list_dek = [0x7a; 32];
+    let added_bundle =
+        wrap_list_dek_bundle(added_list_id, &added_list_dek, &logged_in.keys.master_key).unwrap();
+    client
+        .upsert_list_key_bundle(
+            Uuid::parse_str(&logged_in.session.tenant_id).unwrap(),
+            &logged_in.session.session_token,
+            added_bundle,
+        )
+        .await
+        .unwrap();
+    let stored_after_upsert = stored_key_bundle(
+        &test.pool,
+        Uuid::parse_str(&logged_in.session.user_id).unwrap(),
+        Uuid::parse_str(&logged_in.session.tenant_id).unwrap(),
+    )
+    .await;
+    assert!(stored_after_upsert
+        .list_deks
+        .iter()
+        .any(|bundle| bundle.list_id == added_list_id));
 
     assert!(client
         .login(
@@ -982,6 +1066,7 @@ async fn sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox
             "correct horse battery staple",
             Some("client a"),
             &[0x41; 32],
+            vec![Uuid::now_v7()],
         )
         .await
         .unwrap();
@@ -1000,7 +1085,7 @@ async fn sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox
         &registered.session.device_id,
         &registered.session.session_token,
         [0x11; 32],
-        *registered.keys.tenant_root_dek,
+        *registered.keys.list_deks[0].dek,
     );
     let client_b = LocalSyncClient::new(
         &server_url,
@@ -1008,7 +1093,7 @@ async fn sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox
         &logged_in.session.device_id,
         &logged_in.session.session_token,
         [0x22; 32],
-        *logged_in.keys.tenant_root_dek,
+        *logged_in.keys.list_deks[0].dek,
     );
     let base_ms = Utc::now().timestamp_millis() - 120_000;
 

@@ -7,7 +7,7 @@ use std::{
 };
 
 use serde_json::{json, Value};
-use todori_crypto::derive_local_db_key;
+use todori_crypto::{derive_local_db_key, key_hierarchy::generate_list_dek};
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rename_list as domain_rename_list, transition_task,
@@ -21,11 +21,11 @@ use todori_storage::{
     TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 use todori_sync::{
-    account::{AccountClient, AccountKeyMaterial},
+    account::{wrap_list_dek_bundle, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
     decrypt_plaintext, encrypt_plaintext, merge_lww, Hlc, PullRecord, PushOp, PushStatus,
     SyncEngine, SyncPlaintext, SyncRunSummary,
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::dev_key_store::{
     delete_account_secret, load_account_secret, load_or_create_device_key, store_account_secret,
@@ -364,6 +364,7 @@ pub fn sync_now() -> Result<SyncStatusDto, String> {
 /// in this bridge layer.
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
     let list = new_list(name, sort_order, now_ms()?).map_err(|error| error.to_string())?;
+    ensure_list_dek_for_list(list.id)?;
     with_list_repository(|repository| {
         repository
             .insert(list.clone())
@@ -791,8 +792,7 @@ struct ActiveSyncContext {
 }
 
 struct LocalSyncKeys {
-    tenant_root_dek: [u8; 32],
-    list_deks: Vec<(String, [u8; 32])>,
+    list_deks: Vec<(Uuid, [u8; 32])>,
 }
 
 fn run_sync_now() -> Result<SyncRunSummary, String> {
@@ -908,8 +908,15 @@ fn apply_pull_list(
         return Ok(());
     }
 
+    let dek = match dek_for_list(&context.keys, record.record_id) {
+        Some(dek) => dek,
+        None => {
+            summary.decrypt_failed_count += 1;
+            return Ok(());
+        }
+    };
     let incoming = decrypt_plaintext(
-        &context.keys.tenant_root_dek,
+        &dek,
         LISTS_COLLECTION,
         &record.record_id.to_string(),
         &record.blob,
@@ -954,7 +961,7 @@ fn apply_pull_list(
             record.record_id,
             LISTS_COLLECTION,
             &merged,
-            &context.keys.tenant_root_dek,
+            &dek,
             &context.device_id,
             summary,
         )?;
@@ -989,28 +996,25 @@ fn apply_pull_task(
         Err(StorageError::NotFound(_)) => Ok(None),
         Err(error) => Err(error.to_string()),
     })?;
-    let dek = existing
-        .as_ref()
-        .and_then(|task| dek_for_task_list(&context.keys, &task.list_id.to_string()))
-        .unwrap_or(context.keys.tenant_root_dek);
-    let incoming = match decrypt_plaintext(
-        &dek,
-        TASKS_COLLECTION,
-        &record.record_id.to_string(),
-        &record.blob,
-    ) {
-        Ok(incoming) => incoming,
-        Err(_) => {
+    let incoming = match decrypt_task_plaintext(record, existing.as_ref(), &context.keys) {
+        Some(incoming) => incoming,
+        None => {
             summary.decrypt_failed_count += 1;
             return Ok(());
         }
     };
-    let dek = incoming
+    let dek = if let Some(incoming_dek) = incoming
         .fields
         .get("list_id")
         .and_then(Value::as_str)
-        .and_then(|list_id| dek_for_task_list(&context.keys, list_id))
-        .unwrap_or(dek);
+        .and_then(|list_id| parse_uuid(list_id).ok())
+        .and_then(|list_id| dek_for_list(&context.keys, list_id))
+    {
+        incoming_dek
+    } else {
+        summary.decrypt_failed_count += 1;
+        return Ok(());
+    };
     let stored_plaintext = stored_sync_plaintext(TASKS_COLLECTION, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
         (Some(local_plaintext), _) => {
@@ -1052,8 +1056,8 @@ fn enqueue_task_sync(task: &Task, deleted: bool) -> Result<(), String> {
         return Ok(());
     };
     let hlc = tick_local_hlc(&context.device_id)?;
-    let dek = dek_for_task_list(&context.keys, &task.list_id.to_string())
-        .unwrap_or(context.keys.tenant_root_dek);
+    let dek = dek_for_list(&context.keys, task.list_id)
+        .ok_or_else(|| "missing list key for task sync".to_string())?;
     let plaintext = task_plaintext(task, hlc.clone());
     enqueue_plaintext(task.id, TASKS_COLLECTION, deleted, &plaintext, &dek, &hlc)
 }
@@ -1063,15 +1067,10 @@ fn enqueue_list_sync(list: &List, deleted: bool) -> Result<(), String> {
         return Ok(());
     };
     let hlc = tick_local_hlc(&context.device_id)?;
+    let dek = dek_for_list(&context.keys, list.id)
+        .ok_or_else(|| "missing list key for list sync".to_string())?;
     let plaintext = list_plaintext(list, hlc.clone());
-    enqueue_plaintext(
-        list.id,
-        LISTS_COLLECTION,
-        deleted,
-        &plaintext,
-        &context.keys.tenant_root_dek,
-        &hlc,
-    )
+    enqueue_plaintext(list.id, LISTS_COLLECTION, deleted, &plaintext, &dek, &hlc)
 }
 
 fn enqueue_merged_plaintext(
@@ -1190,11 +1189,10 @@ fn active_sync_context() -> Option<ActiveSyncContext> {
     let tenant_id = parse_uuid(session.tenant_id.as_deref()?).ok()?;
     let device_id = session.device_id.clone()?;
     let sync_keys = LocalSyncKeys {
-        tenant_root_dek: *keys.tenant_root_dek,
         list_deks: keys
             .list_deks
             .iter()
-            .map(|entry| (entry.list_id.clone(), *entry.dek))
+            .filter_map(|entry| parse_uuid(&entry.list_id).ok().map(|id| (id, *entry.dek)))
             .collect(),
     };
     drop(account);
@@ -1215,12 +1213,94 @@ fn has_active_sync_context() -> bool {
     active_sync_context().is_some()
 }
 
-fn dek_for_task_list(keys: &LocalSyncKeys, list_id: &str) -> Option<[u8; 32]> {
+fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
+    let state = core_state()?;
+    let account = account_runtime_state();
+    let Some(session) = account.session.clone() else {
+        return Ok(());
+    };
+    if !session.logged_in {
+        return Ok(());
+    }
+    let Some(keys) = account.keys.as_ref() else {
+        return Ok(());
+    };
+    if keys
+        .list_deks
+        .iter()
+        .any(|entry| entry.list_id == list_id.to_string())
+    {
+        return Ok(());
+    }
+
+    let list_dek = Zeroizing::new(generate_list_dek());
+    let bundle = wrap_list_dek_bundle(list_id, &list_dek, &keys.master_key)
+        .map_err(|_| "list key registration failed".to_string())?;
+    let tenant_id = parse_uuid(
+        session
+            .tenant_id
+            .as_deref()
+            .ok_or_else(|| "list key registration failed".to_string())?,
+    )?;
+    drop(account);
+
+    let session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| "list key registration failed".to_string())?;
+    let client = AccountClient::new(get_sync_server_url()?)
+        .map_err(|_| "list key registration failed".to_string())?;
+    run_async(client.upsert_list_key_bundle(tenant_id, &session_token, bundle))
+        .map_err(|_| "list key registration failed".to_string())?;
+
+    let mut account = account_runtime_state();
+    if let Some(keys) = account.keys.as_mut() {
+        if !keys
+            .list_deks
+            .iter()
+            .any(|entry| entry.list_id == list_id.to_string())
+        {
+            keys.list_deks.push(AccountListDekMaterial {
+                list_id: list_id.to_string(),
+                dek: Zeroizing::new(*list_dek),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn dek_for_list(keys: &LocalSyncKeys, list_id: Uuid) -> Option<[u8; 32]> {
     keys.list_deks
         .iter()
-        .find(|(id, _)| id == list_id)
+        .find(|(id, _)| *id == list_id)
         .map(|(_, dek)| *dek)
-        .or_else(|| keys.list_deks.first().map(|(_, dek)| *dek))
+}
+
+fn decrypt_task_plaintext(
+    record: &PullRecord,
+    existing: Option<&Task>,
+    keys: &LocalSyncKeys,
+) -> Option<SyncPlaintext> {
+    let mut candidates = Vec::new();
+    if let Some(task) = existing {
+        if let Some(dek) = dek_for_list(keys, task.list_id) {
+            candidates.push(dek);
+        }
+    }
+    for (_, dek) in &keys.list_deks {
+        if !candidates.iter().any(|candidate| candidate == dek) {
+            candidates.push(*dek);
+        }
+    }
+    candidates.into_iter().find_map(|dek| {
+        decrypt_plaintext(
+            &dek,
+            TASKS_COLLECTION,
+            &record.record_id.to_string(),
+            &record.blob,
+        )
+        .ok()
+    })
 }
 
 fn record_hlc_or_initial(plaintext: &SyncPlaintext) -> Hlc {
@@ -1444,9 +1524,15 @@ fn account_auth(
 
     let outcome = match mode {
         AccountAuthMode::Register => {
-            let outcome =
-                run_async(client.register(&email, &password, device_name.as_deref(), &device_key))
-                    .map_err(|_| "account request failed".to_string())?;
+            let initial_list_ids = local_list_ids_for_registration()?;
+            let outcome = run_async(client.register(
+                &email,
+                &password,
+                device_name.as_deref(),
+                &device_key,
+                initial_list_ids,
+            ))
+            .map_err(|_| "account request failed".to_string())?;
             password.zeroize();
             let session = account_session_to_dto(
                 true,
@@ -1496,6 +1582,18 @@ fn account_auth(
     Ok(AccountAuthResultDto {
         session,
         recovery_key: None,
+    })
+}
+
+fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
+    with_list_repository(|repository| {
+        let mut lists = repository.list_all().map_err(|error| error.to_string())?;
+        lists.extend(
+            repository
+                .list_archived()
+                .map_err(|error| error.to_string())?,
+        );
+        Ok(lists.into_iter().map(|list| list.id).collect())
     })
 }
 
