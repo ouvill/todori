@@ -1,4 +1,6 @@
 import 'package:todori/src/core/bridge_service.dart';
+import 'package:todori/src/core/providers.dart'
+    show defaultSyncServerUrl, syncServerUrlSettingKey;
 import 'package:todori/src/rust/api.dart';
 
 /// In-memory fake [BridgeService].
@@ -13,10 +15,14 @@ class FakeBridgeService implements BridgeService {
   final List<FakeTaskUndoEntry> _undoEntries = [];
   final Map<String, String> _settings = {};
   final List<FakeReorderCall> reorderCalls = [];
+  AccountSessionStateDto _accountSession = const AccountSessionStateDto(
+    loggedIn: false,
+  );
   int _listSeq = 0;
   int _taskSeq = 0;
   int _reminderSeq = 0;
   int _undoSeq = 0;
+  int _accountSeq = 0;
 
   FakeLargeSeedSummary seedLargeDataset({
     int listCount = 10,
@@ -29,10 +35,12 @@ class FakeBridgeService implements BridgeService {
     _undoEntries.clear();
     reorderCalls.clear();
     _settings.clear();
+    _accountSession = const AccountSessionStateDto(loggedIn: false);
     _listSeq = listCount;
     _taskSeq = listCount * tasksPerList;
     _reminderSeq = 0;
     _undoSeq = 0;
+    _accountSeq = 0;
 
     const rootTasksPerList = 700;
     const childTasksPerList = 220;
@@ -136,6 +144,66 @@ class FakeBridgeService implements BridgeService {
       closedTaskCount: closedTaskCount,
       defaultListId: _lists.first.id,
     );
+  }
+
+  @override
+  Future<AccountSessionStateDto> getAccountSessionState() async {
+    return _accountSession;
+  }
+
+  @override
+  Future<AccountAuthResultDto> accountRegister({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) async {
+    if (email.trim().isEmpty || password.isEmpty) {
+      throw Exception('account request failed');
+    }
+    if (serverUrl != null && serverUrl.trim().isNotEmpty) {
+      await setSyncServerUrl(serverUrl: serverUrl.trim());
+    }
+    final session = _newAccountSession(email.trim());
+    _accountSession = session;
+    return AccountAuthResultDto(
+      session: session,
+      recoveryKey:
+          'amber anchor apricot atlas bamboo beacon birch breeze cabin cedar cinder cobalt coral cotton dawn delta ember fern flint garden harbor hazel indigo juniper',
+    );
+  }
+
+  @override
+  Future<AccountAuthResultDto> accountLogin({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) async {
+    if (email.trim().isEmpty || password.isEmpty) {
+      throw Exception('account request failed');
+    }
+    if (serverUrl != null && serverUrl.trim().isNotEmpty) {
+      await setSyncServerUrl(serverUrl: serverUrl.trim());
+    }
+    final session = _newAccountSession(email.trim());
+    _accountSession = session;
+    return AccountAuthResultDto(session: session);
+  }
+
+  @override
+  Future<void> accountLogout() async {
+    _accountSession = const AccountSessionStateDto(loggedIn: false);
+  }
+
+  @override
+  Future<String> getSyncServerUrl() async {
+    return _settings[syncServerUrlSettingKey] ?? defaultSyncServerUrl;
+  }
+
+  @override
+  Future<void> setSyncServerUrl({required String serverUrl}) async {
+    _settings[syncServerUrlSettingKey] = serverUrl;
   }
 
   @override
@@ -729,6 +797,17 @@ class FakeBridgeService implements BridgeService {
       frontier = next;
     }
     return descendants;
+  }
+
+  AccountSessionStateDto _newAccountSession(String email) {
+    final accountSeq = _accountSeq++;
+    return AccountSessionStateDto(
+      loggedIn: true,
+      email: email,
+      userId: 'user-$accountSeq',
+      tenantId: 'tenant-$accountSeq',
+      deviceId: 'device-$accountSeq',
+    );
   }
 }
 

@@ -6,8 +6,14 @@ use std::{
 use todori_crypto::{ensure_device_key, DeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN};
 
 const DEVICE_KEY_FILE_NAME: &str = "device.key";
+const SESSION_TOKEN_FILE_NAME: &str = "session.token";
+const MASTER_KEY_WRAP_FILE_NAME: &str = "master_key.wrap";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-key";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "dev.todori.todori.session-token";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const MASTER_KEY_WRAP_KEYCHAIN_SERVICE: &str = "dev.todori.todori.master-key-wrap";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_ACCOUNT: &str = "default";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -36,6 +42,89 @@ pub(crate) fn load_or_create_device_key(
     }
 }
 
+pub(crate) enum AccountSecretKind {
+    SessionToken,
+    MasterKeyWrap,
+}
+
+pub(crate) fn load_account_secret(
+    db_dir: impl AsRef<Path>,
+    kind: AccountSecretKind,
+) -> Result<Option<Vec<u8>>, KeyStoreError> {
+    let file_store = FileSecretStore::new(db_dir, kind.file_name());
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        if is_flutter_test_process() {
+            return file_store.load();
+        }
+        AppleKeychainSecretStore::new(kind.keychain_service()).load()
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        file_store.load()
+    }
+}
+
+pub(crate) fn store_account_secret(
+    db_dir: impl AsRef<Path>,
+    kind: AccountSecretKind,
+    value: &[u8],
+) -> Result<(), KeyStoreError> {
+    let file_store = FileSecretStore::new(db_dir, kind.file_name());
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        if is_flutter_test_process() {
+            return file_store.store(value);
+        }
+        AppleKeychainSecretStore::new(kind.keychain_service()).store(value)
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        file_store.store(value)
+    }
+}
+
+pub(crate) fn delete_account_secret(
+    db_dir: impl AsRef<Path>,
+    kind: AccountSecretKind,
+) -> Result<(), KeyStoreError> {
+    let file_store = FileSecretStore::new(db_dir, kind.file_name());
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        if is_flutter_test_process() {
+            return file_store.delete();
+        }
+        AppleKeychainSecretStore::new(kind.keychain_service()).delete()
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        file_store.delete()
+    }
+}
+
+impl AccountSecretKind {
+    fn file_name(&self) -> &'static str {
+        match self {
+            AccountSecretKind::SessionToken => SESSION_TOKEN_FILE_NAME,
+            AccountSecretKind::MasterKeyWrap => MASTER_KEY_WRAP_FILE_NAME,
+        }
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    fn keychain_service(&self) -> &'static str {
+        match self {
+            AccountSecretKind::SessionToken => SESSION_TOKEN_KEYCHAIN_SERVICE,
+            AccountSecretKind::MasterKeyWrap => MASTER_KEY_WRAP_KEYCHAIN_SERVICE,
+        }
+    }
+}
+
 pub(crate) fn ensure_device_key_with_migration(
     primary_store: &mut impl DeviceKeyStore,
     file_store: &mut impl DeviceKeyStore,
@@ -58,6 +147,150 @@ pub(crate) fn ensure_device_key_with_migration(
     }
 
     ensure_device_key(primary_store)
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+struct AppleKeychainSecretStore {
+    service: String,
+    account: String,
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+impl AppleKeychainSecretStore {
+    fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+            account: KEYCHAIN_ACCOUNT.to_string(),
+        }
+    }
+
+    fn options(
+        &self,
+        backend: KeychainBackend,
+    ) -> security_framework::base::Result<security_framework::passwords::PasswordOptions> {
+        use security_framework::{
+            access_control::{ProtectionMode, SecAccessControl},
+            passwords::{AccessControlOptions, PasswordOptions},
+        };
+
+        let mut options = PasswordOptions::new_generic_password(&self.service, &self.account);
+        options.set_access_synchronized(Some(false));
+        match backend {
+            KeychainBackend::DataProtection => {
+                let access_control = SecAccessControl::create_with_protection(
+                    Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
+                    AccessControlOptions::empty().bits(),
+                )?;
+                options.set_access_control(access_control);
+                options.use_protected_keychain();
+            }
+            #[cfg(target_os = "macos")]
+            KeychainBackend::Legacy => {}
+        }
+        Ok(options)
+    }
+
+    fn load(&self) -> Result<Option<Vec<u8>>, KeyStoreError> {
+        #[cfg(target_os = "macos")]
+        {
+            match self.load_from_backend(KeychainBackend::DataProtection) {
+                Ok(bytes) => Ok(bytes),
+                Err(error) if is_keychain_missing_entitlement(&error) => {
+                    log_legacy_keychain_fallback();
+                    self.load_from_backend(KeychainBackend::Legacy)
+                        .map_err(keychain_error)
+                }
+                Err(error) => Err(keychain_error(error)),
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            self.load_from_backend(KeychainBackend::DataProtection)
+                .map_err(keychain_error)
+        }
+    }
+
+    fn store(&self, value: &[u8]) -> Result<(), KeyStoreError> {
+        #[cfg(target_os = "macos")]
+        {
+            match self.store_in_backend(KeychainBackend::DataProtection, value) {
+                Ok(()) => Ok(()),
+                Err(error) if is_keychain_missing_entitlement(&error) => {
+                    log_legacy_keychain_fallback();
+                    self.store_in_backend(KeychainBackend::Legacy, value)
+                        .map_err(keychain_error)
+                }
+                Err(error) => Err(keychain_error(error)),
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            self.store_in_backend(KeychainBackend::DataProtection, value)
+                .map_err(keychain_error)
+        }
+    }
+
+    fn delete(&self) -> Result<(), KeyStoreError> {
+        #[cfg(target_os = "macos")]
+        {
+            let data_protection_error =
+                match self.delete_from_backend(KeychainBackend::DataProtection) {
+                    Ok(()) => None,
+                    Err(error) if is_keychain_missing_entitlement(&error) => {
+                        log_legacy_keychain_fallback();
+                        None
+                    }
+                    Err(error) => Some(error),
+                };
+            let legacy_error = self.delete_from_backend(KeychainBackend::Legacy).err();
+            if let Some(error) = data_protection_error {
+                return Err(keychain_error(error));
+            }
+            if let Some(error) = legacy_error {
+                return Err(keychain_error(error));
+            }
+            Ok(())
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            self.delete_from_backend(KeychainBackend::DataProtection)
+                .map_err(keychain_error)
+        }
+    }
+
+    fn load_from_backend(
+        &self,
+        backend: KeychainBackend,
+    ) -> security_framework::base::Result<Option<Vec<u8>>> {
+        match security_framework::passwords::generic_password(self.options(backend)?) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if is_keychain_item_not_found(&error) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn store_in_backend(
+        &self,
+        backend: KeychainBackend,
+        value: &[u8],
+    ) -> security_framework::base::Result<()> {
+        security_framework::passwords::set_generic_password_options(value, self.options(backend)?)
+    }
+
+    fn delete_from_backend(
+        &self,
+        backend: KeychainBackend,
+    ) -> security_framework::base::Result<()> {
+        match security_framework::passwords::delete_generic_password_options(self.options(backend)?)
+        {
+            Ok(()) => Ok(()),
+            Err(error) if is_keychain_item_not_found(&error) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -307,6 +540,43 @@ impl FileDeviceKeyStore {
     pub fn new(dir: impl AsRef<Path>) -> Self {
         Self {
             path: dir.as_ref().join(DEVICE_KEY_FILE_NAME),
+        }
+    }
+}
+
+struct FileSecretStore {
+    path: PathBuf,
+}
+
+impl FileSecretStore {
+    fn new(dir: impl AsRef<Path>, file_name: &str) -> Self {
+        Self {
+            path: dir.as_ref().join(file_name),
+        }
+    }
+
+    fn load(&self) -> Result<Option<Vec<u8>>, KeyStoreError> {
+        match fs::read(&self.path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(KeyStoreError::Backend(error.to_string())),
+        }
+    }
+
+    fn store(&self, value: &[u8]) -> Result<(), KeyStoreError> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| KeyStoreError::Backend(error.to_string()))?;
+        }
+
+        fs::write(&self.path, value).map_err(|error| KeyStoreError::Backend(error.to_string()))
+    }
+
+    fn delete(&self) -> Result<(), KeyStoreError> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(KeyStoreError::Backend(error.to_string())),
         }
     }
 }

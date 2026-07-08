@@ -10,6 +10,28 @@ import 'package:todori/src/rust/api.dart' as rust_api;
 /// whole screen/provider/router stack can be exercised without loading the
 /// native Rust library or calling `initCore`.
 abstract class BridgeService {
+  Future<rust_api.AccountSessionStateDto> getAccountSessionState();
+
+  Future<rust_api.AccountAuthResultDto> accountRegister({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  });
+
+  Future<rust_api.AccountAuthResultDto> accountLogin({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  });
+
+  Future<void> accountLogout();
+
+  Future<String> getSyncServerUrl();
+
+  Future<void> setSyncServerUrl({required String serverUrl});
+
   /// Creates a list using the caller-provided `sortOrder`.
   Future<rust_api.ListDto> createList({
     required String name,
@@ -135,6 +157,46 @@ abstract class BridgeService {
 /// bindings in `src/rust/api.dart`.
 class FrbBridgeService implements BridgeService {
   const FrbBridgeService();
+
+  @override
+  Future<rust_api.AccountSessionStateDto> getAccountSessionState() =>
+      rust_api.getAccountSessionState();
+
+  @override
+  Future<rust_api.AccountAuthResultDto> accountRegister({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) => rust_api.accountRegister(
+    email: email,
+    password: password,
+    serverUrl: serverUrl,
+    deviceName: deviceName,
+  );
+
+  @override
+  Future<rust_api.AccountAuthResultDto> accountLogin({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) => rust_api.accountLogin(
+    email: email,
+    password: password,
+    serverUrl: serverUrl,
+    deviceName: deviceName,
+  );
+
+  @override
+  Future<void> accountLogout() => rust_api.accountLogout();
+
+  @override
+  Future<String> getSyncServerUrl() => rust_api.getSyncServerUrl();
+
+  @override
+  Future<void> setSyncServerUrl({required String serverUrl}) =>
+      rust_api.setSyncServerUrl(serverUrl: serverUrl);
 
   @override
   Future<rust_api.ListDto> createList({

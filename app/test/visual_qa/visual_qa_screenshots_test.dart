@@ -325,6 +325,20 @@ void main() {
     await _screenshot(tester, 'lists_archived');
   });
 
+  testWidgets('account_signed_out: account screen with server URL form', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedArchivedListData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Account'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'account_signed_out');
+  });
+
   testWidgets('list_actions_menu: opened list overflow menu', (tester) async {
     _setMobileViewport(tester);
     final fake = FakeBridgeService();

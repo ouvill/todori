@@ -31,6 +31,8 @@ hkdf = "0.12"
 opaque-ke = { version = "3.0.0", features = ["argon2"] }
 rand = "0.8"
 sha2 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 # core/storage
 hex = "0.4"
@@ -49,6 +51,7 @@ axum = "0.8"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 http = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sqlx-core = { version = "0.9.0", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
 sqlx-postgres = { version = "0.9.0", default-features = false, features = ["uuid", "chrono"] }
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }

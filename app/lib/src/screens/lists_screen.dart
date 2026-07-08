@@ -102,6 +102,27 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                   context.canPop() ? context.pop() : context.go('/'),
             ),
             const Spacer(),
+            PopupMenuButton<String>(
+              tooltip: l10n.listsMoreMenuTooltip,
+              icon: const Icon(LucideIcons.ellipsisVertical300),
+              onSelected: (value) {
+                if (value == 'account') {
+                  context.push('/account');
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'account',
+                  child: Row(
+                    children: [
+                      const Icon(LucideIcons.userCircle300),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(l10n.accountTitle),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.md),

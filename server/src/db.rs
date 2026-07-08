@@ -12,5 +12,10 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     raw_sql(include_str!("../migrations/202607080001_sync_server.sql"))
         .execute(pool)
         .await?;
+    raw_sql(include_str!(
+        "../migrations/202607080002_account_key_bundles.sql"
+    ))
+    .execute(pool)
+    .await?;
     Ok(())
 }

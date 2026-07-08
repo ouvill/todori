@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:todori/src/screens/account_screen.dart';
 import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
@@ -14,6 +15,7 @@ import 'package:todori/src/screens/tasks_screen.dart';
 ///
 /// Route tree (Phase 1 "simple UI", F-02):
 ///   /                                   -> [HomeScreen] (initial route)
+///   /account                            -> [AccountScreen]
 ///   /lists                              -> [ListsScreen]
 ///   /lists/:listId/tasks                -> [TasksScreen]
 ///   /lists/:listId/tasks/:taskId        -> [TaskDetailScreen]
@@ -25,6 +27,11 @@ GoRouter buildAppRouter() {
         path: '/',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/account',
+        name: 'account',
+        builder: (context, state) => const AccountScreen(),
       ),
       GoRoute(
         path: '/lists',

@@ -48,6 +48,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get listActionsTooltip => 'リスト操作';
 
   @override
+  String get listsMoreMenuTooltip => 'その他';
+
+  @override
   String get renameListMenuItem => '名称変更';
 
   @override
@@ -499,6 +502,42 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get moveTaskDownTooltip => 'タスクを下へ移動';
+
+  @override
+  String get accountTitle => 'アカウント';
+
+  @override
+  String get accountLoadFailed => 'アカウント状態を読み込めませんでした。';
+
+  @override
+  String get accountLoginTab => 'ログイン';
+
+  @override
+  String get accountRegisterTab => '登録';
+
+  @override
+  String get accountEmailLabel => 'メール';
+
+  @override
+  String get accountPasswordLabel => 'パスワード';
+
+  @override
+  String get accountLoginButton => 'ログイン';
+
+  @override
+  String get accountRegisterButton => '登録';
+
+  @override
+  String get accountLogoutButton => 'ログアウト';
+
+  @override
+  String get accountServerUrlLabel => 'サーバーURL';
+
+  @override
+  String get accountSaveServerUrlTooltip => 'サーバーURLを保存';
+
+  @override
+  String get accountRequestFailed => 'アカウント処理に失敗しました。';
 
   @override
   String failedToStartTodori(String error) {

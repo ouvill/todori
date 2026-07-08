@@ -21,10 +21,15 @@ use testcontainers_modules::{
 };
 use todori_crypto::TodoriCipherSuite;
 use todori_server::{
-    auth::{cleanup_expired_opaque_states, OpaqueStartResponse, SessionResponse},
+    auth::{
+        cleanup_expired_opaque_states, LoginSessionResponse, OpaqueStartResponse, SessionResponse,
+    },
     build_router, db,
     sync::MAX_PUSH_OPS,
     AppState,
+};
+use todori_sync::account::{
+    unwrap_login_key_bundle, AccountClient, AccountKeyBundleDto, ListDekBundleDto,
 };
 use todori_sync::{Hlc, MAX_ENCRYPTED_BLOB_LEN};
 use tower::ServiceExt;
@@ -74,6 +79,24 @@ fn login_parameters<'a>() -> ClientLoginFinishParameters<'a, 'a, 'a, TodoriCiphe
         ksf: Some(test_argon2()),
         ..Default::default()
     }
+}
+
+fn test_key_bundle() -> AccountKeyBundleDto {
+    AccountKeyBundleDto {
+        wrapped_master_key_by_password: STANDARD.encode(b"wrapped-mk-password"),
+        wrapped_master_key_by_recovery: STANDARD.encode(b"wrapped-mk-recovery"),
+        user_public_key: STANDARD.encode([0x11; 32]),
+        wrapped_user_secret_key: STANDARD.encode(b"wrapped-user-secret-key"),
+        wrapped_tenant_root_dek: STANDARD.encode(b"wrapped-tenant-root-dek"),
+        list_deks: vec![ListDekBundleDto {
+            list_id: Uuid::now_v7(),
+            wrapped_list_dek: STANDARD.encode(b"wrapped-list-dek"),
+        }],
+    }
+}
+
+fn test_device_public_key() -> String {
+    STANDARD.encode([0x22; 32])
 }
 
 async fn request_json<T: DeserializeOwned>(
@@ -163,6 +186,8 @@ async fn register(app: &Router, email: &str, password: &[u8]) -> SessionResponse
         Some(json!({
             "state_id": start.state_id,
             "message": STANDARD.encode(client_finish.message.serialize()),
+            "key_bundle": test_key_bundle(),
+            "device_public_key": test_device_public_key(),
         })),
     )
     .await;
@@ -194,7 +219,7 @@ async fn login(app: &Router, email: &str, password: &[u8]) -> SessionResponse {
         .state
         .finish(password, server_message, login_parameters())
         .unwrap();
-    let (status, session): (StatusCode, SessionResponse) = request_json(
+    let (status, login_response): (StatusCode, LoginSessionResponse) = request_json(
         app,
         Method::POST,
         "/v1/auth/login/finish".to_string(),
@@ -202,11 +227,12 @@ async fn login(app: &Router, email: &str, password: &[u8]) -> SessionResponse {
         Some(json!({
             "state_id": start.state_id,
             "message": STANDARD.encode(client_finish.message.serialize()),
+            "device_public_key": test_device_public_key(),
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    session
+    login_response.session
 }
 
 fn encoded_hlc(wall_delta_ms: i64, counter: u32, device: &str) -> String {
@@ -246,6 +272,9 @@ async fn migration_creates_sync_server_schema_and_health_works() {
         "sessions",
         "opaque_registration_states",
         "opaque_login_states",
+        "user_key_bundles",
+        "tenant_key_bundles",
+        "list_key_bundles",
         "sync_records",
         "tenant_seq",
         "sync_records_history",
@@ -280,6 +309,8 @@ async fn opaque_registration_login_reuse_expiry_and_cleanup_are_enforced() {
         Some(json!({
             "state_id": Uuid::now_v7(),
             "message": STANDARD.encode([0u8; 64]),
+            "key_bundle": test_key_bundle(),
+            "device_public_key": test_device_public_key(),
         })),
     )
     .await;
@@ -336,6 +367,7 @@ async fn opaque_registration_login_reuse_expiry_and_cleanup_are_enforced() {
         Some(json!({
             "state_id": expired.state_id,
             "message": STANDARD.encode([0u8; 64]),
+            "device_public_key": test_device_public_key(),
         })),
     )
     .await;
@@ -540,4 +572,167 @@ async fn push_pull_seq_invariants_tenant_isolation_and_revoked_devices_are_enfor
     )
     .await;
     assert_eq!(revoked_status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn account_client_register_logout_login_restores_keys_and_rejects_invalid_states() {
+    let test = setup().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server_url = format!("http://{}", listener.local_addr().unwrap());
+    let app = test.app.clone();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let client = AccountClient::new(&server_url).unwrap();
+    let device_key_a = [0x51; 32];
+    let registered = client
+        .register(
+            "account-client@example.com",
+            "correct horse battery staple",
+            Some("first test device"),
+            &device_key_a,
+        )
+        .await
+        .unwrap();
+    assert_eq!(registered.recovery_key.split_whitespace().count(), 24);
+    assert_eq!(registered.keys.list_deks.len(), 1);
+
+    let stored_bundle = stored_key_bundle(
+        &test.pool,
+        Uuid::parse_str(&registered.session.user_id).unwrap(),
+        Uuid::parse_str(&registered.session.tenant_id).unwrap(),
+    )
+    .await;
+    assert!(unwrap_login_key_bundle(&stored_bundle, b"wrong export key").is_err());
+
+    client
+        .logout(&registered.session.session_token)
+        .await
+        .unwrap();
+    let revoked_status = request_status(
+        &test.app,
+        Method::GET,
+        format!(
+            "/v1/tenants/{}/pull?since=0&limit=1",
+            registered.session.tenant_id
+        ),
+        Some(&registered.session.session_token),
+        None,
+    )
+    .await;
+    assert_eq!(revoked_status, StatusCode::UNAUTHORIZED);
+
+    let device_key_b = [0x52; 32];
+    let logged_in = client
+        .login(
+            "account-client@example.com",
+            "correct horse battery staple",
+            Some("second test device"),
+            &device_key_b,
+        )
+        .await
+        .unwrap();
+    assert_eq!(*registered.keys.master_key, *logged_in.keys.master_key);
+    assert_eq!(
+        *registered.keys.user_secret_key,
+        *logged_in.keys.user_secret_key
+    );
+    assert_eq!(
+        *registered.keys.tenant_root_dek,
+        *logged_in.keys.tenant_root_dek
+    );
+    assert_eq!(
+        *registered.keys.list_deks[0].dek,
+        *logged_in.keys.list_deks[0].dek
+    );
+    assert_ne!(
+        registered.local_wrapped_master_key,
+        logged_in.local_wrapped_master_key
+    );
+
+    assert!(client
+        .login(
+            "account-client@example.com",
+            "wrong password",
+            Some("wrong test device"),
+            &device_key_b,
+        )
+        .await
+        .is_err());
+
+    let device_count: i64 = query::<Postgres>(
+        "SELECT count(*) FROM devices WHERE user_id = $1 AND public_key IS NOT NULL",
+    )
+    .bind(Uuid::parse_str(&registered.session.user_id).unwrap())
+    .fetch_one(&test.pool)
+    .await
+    .unwrap()
+    .try_get("count")
+    .unwrap();
+    assert_eq!(device_count, 2);
+}
+
+async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> AccountKeyBundleDto {
+    let user = query::<Postgres>(
+        "SELECT
+            wrapped_master_key_by_password,
+            wrapped_master_key_by_recovery,
+            user_public_key,
+            wrapped_user_secret_key
+         FROM user_key_bundles
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let tenant = query::<Postgres>(
+        "SELECT wrapped_tenant_root_dek
+         FROM tenant_key_bundles
+         WHERE tenant_id = $1",
+    )
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let list_rows = query::<Postgres>(
+        "SELECT list_id, wrapped_list_dek
+         FROM list_key_bundles
+         WHERE tenant_id = $1
+         ORDER BY created_at ASC, list_id ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+
+    AccountKeyBundleDto {
+        wrapped_master_key_by_password: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
+                .unwrap(),
+        ),
+        wrapped_master_key_by_recovery: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_recovery")
+                .unwrap(),
+        ),
+        user_public_key: STANDARD.encode(user.try_get::<Vec<u8>, _>("user_public_key").unwrap()),
+        wrapped_user_secret_key: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_user_secret_key")
+                .unwrap(),
+        ),
+        wrapped_tenant_root_dek: STANDARD.encode(
+            tenant
+                .try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")
+                .unwrap(),
+        ),
+        list_deks: list_rows
+            .into_iter()
+            .map(|row| ListDekBundleDto {
+                list_id: row.try_get("list_id").unwrap(),
+                wrapped_list_dek: STANDARD
+                    .encode(row.try_get::<Vec<u8>, _>("wrapped_list_dek").unwrap()),
+            })
+            .collect(),
+    }
 }

@@ -170,6 +170,12 @@ abstract class AppLocalizations {
   /// **'List actions'**
   String get listActionsTooltip;
 
+  /// No description provided for @listsMoreMenuTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get listsMoreMenuTooltip;
+
   /// No description provided for @renameListMenuItem.
   ///
   /// In en, this message translates to:
@@ -973,6 +979,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Move task down'**
   String get moveTaskDownTooltip;
+
+  /// No description provided for @accountTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get accountTitle;
+
+  /// No description provided for @accountLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load account state.'**
+  String get accountLoadFailed;
+
+  /// No description provided for @accountLoginTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Log in'**
+  String get accountLoginTab;
+
+  /// No description provided for @accountRegisterTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Register'**
+  String get accountRegisterTab;
+
+  /// No description provided for @accountEmailLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get accountEmailLabel;
+
+  /// No description provided for @accountPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get accountPasswordLabel;
+
+  /// No description provided for @accountLoginButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Log in'**
+  String get accountLoginButton;
+
+  /// No description provided for @accountRegisterButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Register'**
+  String get accountRegisterButton;
+
+  /// No description provided for @accountLogoutButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Log out'**
+  String get accountLogoutButton;
+
+  /// No description provided for @accountServerUrlLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Server URL'**
+  String get accountServerUrlLabel;
+
+  /// No description provided for @accountSaveServerUrlTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Save server URL'**
+  String get accountSaveServerUrlTooltip;
+
+  /// No description provided for @accountRequestFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Account request failed.'**
+  String get accountRequestFailed;
 
   /// No description provided for @failedToStartTodori.
   ///

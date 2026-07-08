@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
 use todori_crypto::TodoriCipherSuite;
+use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto};
 use uuid::Uuid;
 
 use crate::AppError;
@@ -41,6 +42,21 @@ pub struct OpaqueFinishRequest {
     pub message: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RegisterFinishRequest {
+    pub state_id: Uuid,
+    pub message: String,
+    pub key_bundle: AccountKeyBundleDto,
+    pub device_public_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginFinishRequest {
+    pub state_id: Uuid,
+    pub message: String,
+    pub device_public_key: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionResponse {
     pub user_id: Uuid,
@@ -49,6 +65,16 @@ pub struct SessionResponse {
     pub session_token: String,
     pub expires_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginSessionResponse {
+    #[serde(flatten)]
+    pub session: SessionResponse,
+    pub key_bundle: AccountKeyBundleDto,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LogoutResponse {}
 
 #[derive(Debug, Clone)]
 pub struct AuthContext {
@@ -93,13 +119,15 @@ pub async fn register_start(
 
 pub async fn register_finish(
     pool: &PgPool,
-    request: OpaqueFinishRequest,
+    request: RegisterFinishRequest,
 ) -> Result<SessionResponse, AppError> {
     let upload = decode_opaque_message(&request.message)?;
     let registration_upload = RegistrationUpload::<TodoriCipherSuite>::deserialize(&upload)
         .map_err(|_| AppError::bad_request("invalid opaque message"))?;
     let server_record = ServerRegistration::finish(registration_upload);
     let server_record_bytes = server_record.serialize().to_vec();
+    let key_bundle = decode_account_key_bundle(&request.key_bundle)?;
+    let device_public_key = decode_fixed_key(&request.device_public_key, "invalid device key")?;
 
     let mut tx = pool.begin().await?;
     let state = consume_registration_state(&mut tx, request.state_id).await?;
@@ -131,7 +159,15 @@ pub async fn register_finish(
         .bind(tenant_id)
         .execute(&mut *tx)
         .await?;
-    insert_device(&mut tx, device_id, user_id, &state.device_name).await?;
+    insert_account_key_bundle(&mut tx, user_id, tenant_id, key_bundle).await?;
+    insert_device(
+        &mut tx,
+        device_id,
+        user_id,
+        &state.device_name,
+        Some(&device_public_key),
+    )
+    .await?;
     let session = create_session(&mut tx, user_id, device_id).await?;
     tx.commit().await?;
 
@@ -201,12 +237,13 @@ pub async fn login_start(
 
 pub async fn login_finish(
     pool: &PgPool,
-    request: OpaqueFinishRequest,
-) -> Result<SessionResponse, AppError> {
+    request: LoginFinishRequest,
+) -> Result<LoginSessionResponse, AppError> {
     let finalization = decode_opaque_message(&request.message)?;
     let credential_finalization =
         CredentialFinalization::<TodoriCipherSuite>::deserialize(&finalization)
             .map_err(|_| AppError::bad_request("invalid opaque message"))?;
+    let device_public_key = decode_fixed_key(&request.device_public_key, "invalid device key")?;
 
     let mut tx = pool.begin().await?;
     let state = consume_login_state(&mut tx, request.state_id).await?;
@@ -224,18 +261,46 @@ pub async fn login_finish(
     .await?
     .try_get("tenant_id")
     .map_err(|_| AppError::internal())?;
+    let key_bundle = load_account_key_bundle(&mut tx, state.user_id, tenant_id).await?;
     let device_id = Uuid::now_v7();
-    insert_device(&mut tx, device_id, state.user_id, &state.device_name).await?;
+    insert_device(
+        &mut tx,
+        device_id,
+        state.user_id,
+        &state.device_name,
+        Some(&device_public_key),
+    )
+    .await?;
     let session = create_session(&mut tx, state.user_id, device_id).await?;
     tx.commit().await?;
 
-    Ok(SessionResponse {
-        user_id: state.user_id,
-        tenant_id,
-        device_id,
-        session_token: session.token,
-        expires_at: session.expires_at,
+    Ok(LoginSessionResponse {
+        session: SessionResponse {
+            user_id: state.user_id,
+            tenant_id,
+            device_id,
+            session_token: session.token,
+            expires_at: session.expires_at,
+        },
+        key_bundle,
     })
+}
+
+pub async fn logout(pool: &PgPool, bearer_token: &str) -> Result<LogoutResponse, AppError> {
+    let token_hash = hash_token(bearer_token);
+    let rows = query::<Postgres>(
+        "UPDATE sessions
+         SET revoked_at = now()
+         WHERE token_hash = $1 AND revoked_at IS NULL",
+    )
+    .bind(token_hash.as_slice())
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if rows == 0 {
+        return Err(AppError::unauthorized());
+    }
+    Ok(LogoutResponse {})
 }
 
 pub async fn authenticate(
@@ -308,6 +373,20 @@ fn decode_opaque_message(message: &str) -> Result<Vec<u8>, AppError> {
     STANDARD
         .decode(message)
         .map_err(|_| AppError::bad_request("invalid base64 message"))
+}
+
+fn decode_bytes_field(message: &str, error: &'static str) -> Result<Vec<u8>, AppError> {
+    STANDARD
+        .decode(message)
+        .map_err(|_| AppError::bad_request(error))
+}
+
+fn decode_fixed_key(message: &str, error: &'static str) -> Result<Vec<u8>, AppError> {
+    let bytes = decode_bytes_field(message, error)?;
+    if bytes.len() != 32 {
+        return Err(AppError::bad_request(error));
+    }
+    Ok(bytes)
 }
 
 async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, AppError> {
@@ -387,18 +466,197 @@ async fn consume_login_state(
     })
 }
 
+struct DecodedAccountKeyBundle {
+    wrapped_master_key_by_password: Vec<u8>,
+    wrapped_master_key_by_recovery: Vec<u8>,
+    user_public_key: Vec<u8>,
+    wrapped_user_secret_key: Vec<u8>,
+    wrapped_tenant_root_dek: Vec<u8>,
+    list_deks: Vec<DecodedListDekBundle>,
+}
+
+struct DecodedListDekBundle {
+    list_id: Uuid,
+    wrapped_list_dek: Vec<u8>,
+}
+
+fn decode_account_key_bundle(
+    bundle: &AccountKeyBundleDto,
+) -> Result<DecodedAccountKeyBundle, AppError> {
+    if bundle.list_deks.is_empty() {
+        return Err(AppError::bad_request("missing list key bundle"));
+    }
+    Ok(DecodedAccountKeyBundle {
+        wrapped_master_key_by_password: decode_bytes_field(
+            &bundle.wrapped_master_key_by_password,
+            "invalid key bundle",
+        )?,
+        wrapped_master_key_by_recovery: decode_bytes_field(
+            &bundle.wrapped_master_key_by_recovery,
+            "invalid key bundle",
+        )?,
+        user_public_key: decode_fixed_key(&bundle.user_public_key, "invalid key bundle")?,
+        wrapped_user_secret_key: decode_bytes_field(
+            &bundle.wrapped_user_secret_key,
+            "invalid key bundle",
+        )?,
+        wrapped_tenant_root_dek: decode_bytes_field(
+            &bundle.wrapped_tenant_root_dek,
+            "invalid key bundle",
+        )?,
+        list_deks: bundle
+            .list_deks
+            .iter()
+            .map(|list_dek| {
+                Ok(DecodedListDekBundle {
+                    list_id: list_dek.list_id,
+                    wrapped_list_dek: decode_bytes_field(
+                        &list_dek.wrapped_list_dek,
+                        "invalid key bundle",
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?,
+    })
+}
+
+async fn insert_account_key_bundle(
+    tx: &mut PgTransaction<'_>,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    bundle: DecodedAccountKeyBundle,
+) -> Result<(), AppError> {
+    query::<Postgres>(
+        "INSERT INTO user_key_bundles (
+            user_id,
+            wrapped_master_key_by_password,
+            wrapped_master_key_by_recovery,
+            user_public_key,
+            wrapped_user_secret_key
+         ) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&bundle.wrapped_master_key_by_password)
+    .bind(&bundle.wrapped_master_key_by_recovery)
+    .bind(&bundle.user_public_key)
+    .bind(&bundle.wrapped_user_secret_key)
+    .execute(&mut **tx)
+    .await?;
+
+    query::<Postgres>(
+        "INSERT INTO tenant_key_bundles (tenant_id, wrapped_tenant_root_dek)
+         VALUES ($1, $2)",
+    )
+    .bind(tenant_id)
+    .bind(&bundle.wrapped_tenant_root_dek)
+    .execute(&mut **tx)
+    .await?;
+
+    for list_dek in bundle.list_deks {
+        query::<Postgres>(
+            "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(tenant_id)
+        .bind(list_dek.list_id)
+        .bind(&list_dek.wrapped_list_dek)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn load_account_key_bundle(
+    tx: &mut PgTransaction<'_>,
+    user_id: Uuid,
+    tenant_id: Uuid,
+) -> Result<AccountKeyBundleDto, AppError> {
+    let user = query::<Postgres>(
+        "SELECT
+            wrapped_master_key_by_password,
+            wrapped_master_key_by_recovery,
+            user_public_key,
+            wrapped_user_secret_key
+         FROM user_key_bundles
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let tenant = query::<Postgres>(
+        "SELECT wrapped_tenant_root_dek
+         FROM tenant_key_bundles
+         WHERE tenant_id = $1",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let list_rows = query::<Postgres>(
+        "SELECT list_id, wrapped_list_dek
+         FROM list_key_bundles
+         WHERE tenant_id = $1
+         ORDER BY created_at ASC, list_id ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut list_deks = Vec::with_capacity(list_rows.len());
+    for row in list_rows {
+        let list_id: Uuid = row.try_get("list_id").map_err(|_| AppError::internal())?;
+        let wrapped_list_dek: Vec<u8> = row
+            .try_get("wrapped_list_dek")
+            .map_err(|_| AppError::internal())?;
+        list_deks.push(ListDekBundleDto {
+            list_id,
+            wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+        });
+    }
+
+    Ok(AccountKeyBundleDto {
+        wrapped_master_key_by_password: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
+                .map_err(|_| AppError::internal())?,
+        ),
+        wrapped_master_key_by_recovery: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_recovery")
+                .map_err(|_| AppError::internal())?,
+        ),
+        user_public_key: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("user_public_key")
+                .map_err(|_| AppError::internal())?,
+        ),
+        wrapped_user_secret_key: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_user_secret_key")
+                .map_err(|_| AppError::internal())?,
+        ),
+        wrapped_tenant_root_dek: STANDARD.encode(
+            tenant
+                .try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")
+                .map_err(|_| AppError::internal())?,
+        ),
+        list_deks,
+    })
+}
+
 async fn insert_device(
     tx: &mut PgTransaction<'_>,
     device_id: Uuid,
     user_id: Uuid,
     device_name: &str,
+    public_key: Option<&[u8]>,
 ) -> Result<(), AppError> {
-    query::<Postgres>("INSERT INTO devices (id, user_id, device_name) VALUES ($1, $2, $3)")
-        .bind(device_id)
-        .bind(user_id)
-        .bind(device_name)
-        .execute(&mut **tx)
-        .await?;
+    query::<Postgres>(
+        "INSERT INTO devices (id, user_id, device_name, public_key)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(device_id)
+    .bind(user_id)
+    .bind(device_name)
+    .bind(public_key)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

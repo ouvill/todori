@@ -9,6 +9,7 @@
 pub mod aead;
 pub mod device_key;
 pub mod kdf;
+pub mod key_hierarchy;
 pub mod opaque;
 
 pub use aead::{decrypt, encrypt, CryptoError};

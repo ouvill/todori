@@ -88,7 +88,7 @@
 | task-68 | 完了 | [task-68-home-virtualization.md](./task-68-home-virtualization.md) | Home/Tasksリスト描画の仮想化。task-67で判明したHome 7140件相当の全行Widget構築をSliver遅延構築へ移行する | task-67の完了状態に依存。task-67未解決事項の引き継ぎ |
 | task-69 | 完了 | [task-69-sync-foundation.md](./task-69-sync-foundation.md) | P2-M1 クライアント同期基盤。HLC、フィールドHLCマップ、LWWマージ、blob暗号エンベロープ、storage v8 outbox、proptest収束性検証を実装する | `docs/08_Phase2計画書.md` P2-M1、`docs/03_技術仕様書.md` §4・§5・§6・§11.1、ADR-005に依存。サーバー/ネットワーク/UIはスコープ外 |
 | task-70 | 完了 | [task-70-sync-server.md](./task-70-sync-server.md) | P2-M2 同期サーバー。Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、tenant_seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装する | task-01・task-69の成果物、`docs/08_Phase2計画書.md` P2-M2、`docs/03_技術仕様書.md` §1.5・§2・§3・§6、ADR-003/005/008に依存 |
-| task-71 | 未着手 | [task-71-key-hierarchy-account.md](./task-71-key-hierarchy-account.md) | P2-M3 鍵階層とアカウント接続。クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain保存、FRB API、Flutter最小アカウント画面を接続する | task-69・task-70の成果物、`docs/08_Phase2計画書.md` P2-M3、`docs/03_技術仕様書.md` §1.5・§3・§4・§7に依存 |
+| task-71 | 完了 | [task-71-key-hierarchy-account.md](./task-71-key-hierarchy-account.md) | P2-M3 鍵階層とアカウント接続。クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain保存、FRB API、Flutter最小アカウント画面を接続する | task-69・task-70の成果物、`docs/08_Phase2計画書.md` P2-M3、`docs/03_技術仕様書.md` §1.5・§3・§4・§7に依存 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

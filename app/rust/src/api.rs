@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     str::FromStr,
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -17,14 +17,35 @@ use todori_storage::{
     SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
     StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
+use todori_sync::account::{AccountClient, AccountKeyMaterial};
+use zeroize::Zeroize;
 
-use crate::dev_key_store::load_or_create_device_key;
+use crate::dev_key_store::{
+    delete_account_secret, load_account_secret, load_or_create_device_key, store_account_secret,
+    AccountSecretKind,
+};
 
 static CORE_STATE: OnceLock<CoreState> = OnceLock::new();
+static ACCOUNT_STATE: OnceLock<Mutex<AccountRuntimeState>> = OnceLock::new();
+
+const SYNC_SERVER_URL_SETTING_KEY: &str = "sync_server_url";
+const DEFAULT_SYNC_SERVER_URL: &str = "http://localhost:3000";
+const ACCOUNT_EMAIL_SETTING_KEY: &str = "account_email";
+const ACCOUNT_USER_ID_SETTING_KEY: &str = "account_user_id";
+const ACCOUNT_TENANT_ID_SETTING_KEY: &str = "account_tenant_id";
+const ACCOUNT_DEVICE_ID_SETTING_KEY: &str = "account_device_id";
+const ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY: &str = "account_session_expires_at";
 
 struct CoreState {
+    db_dir: PathBuf,
     db_path: PathBuf,
     db_key: [u8; 32],
+}
+
+struct AccountRuntimeState {
+    session: Option<AccountSessionStateDto>,
+    #[allow(dead_code)]
+    keys: Option<AccountKeyMaterial>,
 }
 
 pub struct ListDto {
@@ -83,6 +104,20 @@ pub struct ReminderDto {
     pub created_at: i64,
 }
 
+#[derive(Clone)]
+pub struct AccountSessionStateDto {
+    pub logged_in: bool,
+    pub email: Option<String>,
+    pub user_id: Option<String>,
+    pub tenant_id: Option<String>,
+    pub device_id: Option<String>,
+}
+
+pub struct AccountAuthResultDto {
+    pub session: AccountSessionStateDto,
+    pub recovery_key: Option<String>,
+}
+
 pub fn greet(name: String) -> String {
     format!("Hello {name} from todori-core")
 }
@@ -132,7 +167,11 @@ pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), Strin
         .ensure_default_list(default_inbox_name, now_ms()?)
         .map_err(|error| error.to_string())?;
 
-    let new_state = CoreState { db_path, db_key };
+    let new_state = CoreState {
+        db_dir,
+        db_path,
+        db_key,
+    };
     match CORE_STATE.get() {
         Some(existing) if existing.db_path == new_state.db_path => Ok(()),
         Some(_) => Err("core already initialized with a different database path".to_string()),
@@ -140,6 +179,108 @@ pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), Strin
             .set(new_state)
             .map_err(|_| "core already initialized".to_string()),
     }
+}
+
+pub fn get_sync_server_url() -> Result<String, String> {
+    let stored = get_setting(SYNC_SERVER_URL_SETTING_KEY.to_string())?;
+    Ok(stored
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_SYNC_SERVER_URL.to_string()))
+}
+
+pub fn set_sync_server_url(server_url: String) -> Result<(), String> {
+    let server_url = server_url.trim().trim_end_matches('/').to_string();
+    if server_url.is_empty() {
+        return Err("sync server URL must not be empty".to_string());
+    }
+    set_setting(SYNC_SERVER_URL_SETTING_KEY.to_string(), server_url)
+}
+
+pub fn get_account_session_state() -> Result<AccountSessionStateDto, String> {
+    if let Some(session) = account_runtime_state().session.clone() {
+        return Ok(session);
+    }
+
+    let state = core_state()?;
+    let has_session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?
+        .is_some();
+    let has_local_wrapped_mk = load_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if !has_session_token || !has_local_wrapped_mk {
+        return Ok(logged_out_account_state());
+    }
+
+    let email = get_setting(ACCOUNT_EMAIL_SETTING_KEY.to_string())?;
+    let user_id = get_setting(ACCOUNT_USER_ID_SETTING_KEY.to_string())?;
+    let tenant_id = get_setting(ACCOUNT_TENANT_ID_SETTING_KEY.to_string())?;
+    let device_id = get_setting(ACCOUNT_DEVICE_ID_SETTING_KEY.to_string())?;
+    if email.as_deref().unwrap_or("").is_empty()
+        || user_id.as_deref().unwrap_or("").is_empty()
+        || tenant_id.as_deref().unwrap_or("").is_empty()
+        || device_id.as_deref().unwrap_or("").is_empty()
+    {
+        return Ok(logged_out_account_state());
+    }
+
+    Ok(AccountSessionStateDto {
+        logged_in: true,
+        email,
+        user_id,
+        tenant_id,
+        device_id,
+    })
+}
+
+pub fn account_register(
+    email: String,
+    password: String,
+    server_url: Option<String>,
+    device_name: Option<String>,
+) -> Result<AccountAuthResultDto, String> {
+    account_auth(
+        email,
+        password,
+        server_url,
+        device_name,
+        AccountAuthMode::Register,
+    )
+}
+
+pub fn account_login(
+    email: String,
+    password: String,
+    server_url: Option<String>,
+    device_name: Option<String>,
+) -> Result<AccountAuthResultDto, String> {
+    account_auth(
+        email,
+        password,
+        server_url,
+        device_name,
+        AccountAuthMode::Login,
+    )
+}
+
+pub fn account_logout() -> Result<(), String> {
+    let state = core_state()?;
+    let server_url = get_sync_server_url()?;
+    let token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?;
+    if let Some(token) = token {
+        if let Ok(token) = String::from_utf8(token) {
+            let client = AccountClient::new(server_url).map_err(|_| "account logout failed")?;
+            run_async(client.logout(&token)).map_err(|_| "account logout failed")?;
+        }
+    }
+    delete_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?;
+    delete_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
+        .map_err(|error| error.to_string())?;
+    clear_account_settings()?;
+    replace_account_runtime_state(None, None);
+    Ok(())
 }
 
 /// Creates a list using the caller-provided fractional `sort_order`.
@@ -550,6 +691,194 @@ pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<Remind
             .map_err(|error| error.to_string())
             .map(reminder_to_dto)
     })
+}
+
+enum AccountAuthMode {
+    Register,
+    Login,
+}
+
+fn account_auth(
+    email: String,
+    mut password: String,
+    server_url: Option<String>,
+    device_name: Option<String>,
+    mode: AccountAuthMode,
+) -> Result<AccountAuthResultDto, String> {
+    let state = core_state()?;
+    let server_url = match server_url {
+        Some(server_url) => {
+            set_sync_server_url(server_url)?;
+            get_sync_server_url()?
+        }
+        None => get_sync_server_url()?,
+    };
+    let device_key = load_or_create_device_key(&state.db_dir).map_err(|error| error.to_string())?;
+    let client = AccountClient::new(server_url).map_err(|_| "account request failed")?;
+
+    let outcome = match mode {
+        AccountAuthMode::Register => {
+            let outcome =
+                run_async(client.register(&email, &password, device_name.as_deref(), &device_key))
+                    .map_err(|_| "account request failed".to_string())?;
+            password.zeroize();
+            let session = account_session_to_dto(
+                true,
+                outcome.session.email.clone(),
+                outcome.session.user_id.clone(),
+                outcome.session.tenant_id.clone(),
+                outcome.session.device_id.clone(),
+            );
+            persist_account_state(
+                &state.db_dir,
+                &session,
+                outcome.session.expires_at_ms,
+                outcome.session.session_token.as_bytes(),
+                &outcome.local_wrapped_master_key,
+            )?;
+            let recovery_key = outcome.recovery_key.to_string();
+            replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+            return Ok(AccountAuthResultDto {
+                session,
+                recovery_key: Some(recovery_key),
+            });
+        }
+        AccountAuthMode::Login => {
+            let outcome =
+                run_async(client.login(&email, &password, device_name.as_deref(), &device_key))
+                    .map_err(|_| "account request failed".to_string())?;
+            password.zeroize();
+            outcome
+        }
+    };
+
+    let session = account_session_to_dto(
+        true,
+        outcome.session.email.clone(),
+        outcome.session.user_id.clone(),
+        outcome.session.tenant_id.clone(),
+        outcome.session.device_id.clone(),
+    );
+    persist_account_state(
+        &state.db_dir,
+        &session,
+        outcome.session.expires_at_ms,
+        outcome.session.session_token.as_bytes(),
+        &outcome.local_wrapped_master_key,
+    )?;
+    replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+    Ok(AccountAuthResultDto {
+        session,
+        recovery_key: None,
+    })
+}
+
+fn persist_account_state(
+    db_dir: &PathBuf,
+    session: &AccountSessionStateDto,
+    expires_at_ms: i64,
+    session_token: &[u8],
+    local_wrapped_master_key: &[u8],
+) -> Result<(), String> {
+    store_account_secret(db_dir, AccountSecretKind::SessionToken, session_token)
+        .map_err(|error| error.to_string())?;
+    store_account_secret(
+        db_dir,
+        AccountSecretKind::MasterKeyWrap,
+        local_wrapped_master_key,
+    )
+    .map_err(|error| error.to_string())?;
+    set_setting(
+        ACCOUNT_EMAIL_SETTING_KEY.to_string(),
+        session.email.clone().unwrap_or_default(),
+    )?;
+    set_setting(
+        ACCOUNT_USER_ID_SETTING_KEY.to_string(),
+        session.user_id.clone().unwrap_or_default(),
+    )?;
+    set_setting(
+        ACCOUNT_TENANT_ID_SETTING_KEY.to_string(),
+        session.tenant_id.clone().unwrap_or_default(),
+    )?;
+    set_setting(
+        ACCOUNT_DEVICE_ID_SETTING_KEY.to_string(),
+        session.device_id.clone().unwrap_or_default(),
+    )?;
+    set_setting(
+        ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY.to_string(),
+        expires_at_ms.to_string(),
+    )?;
+    Ok(())
+}
+
+fn clear_account_settings() -> Result<(), String> {
+    for key in [
+        ACCOUNT_EMAIL_SETTING_KEY,
+        ACCOUNT_USER_ID_SETTING_KEY,
+        ACCOUNT_TENANT_ID_SETTING_KEY,
+        ACCOUNT_DEVICE_ID_SETTING_KEY,
+        ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
+    ] {
+        set_setting(key.to_string(), String::new())?;
+    }
+    Ok(())
+}
+
+fn account_session_to_dto(
+    logged_in: bool,
+    email: String,
+    user_id: String,
+    tenant_id: String,
+    device_id: String,
+) -> AccountSessionStateDto {
+    AccountSessionStateDto {
+        logged_in,
+        email: Some(email),
+        user_id: Some(user_id),
+        tenant_id: Some(tenant_id),
+        device_id: Some(device_id),
+    }
+}
+
+fn logged_out_account_state() -> AccountSessionStateDto {
+    AccountSessionStateDto {
+        logged_in: false,
+        email: None,
+        user_id: None,
+        tenant_id: None,
+        device_id: None,
+    }
+}
+
+fn account_runtime_state() -> std::sync::MutexGuard<'static, AccountRuntimeState> {
+    ACCOUNT_STATE
+        .get_or_init(|| {
+            Mutex::new(AccountRuntimeState {
+                session: None,
+                keys: None,
+            })
+        })
+        .lock()
+        .expect("account runtime state mutex poisoned")
+}
+
+fn replace_account_runtime_state(
+    session: Option<AccountSessionStateDto>,
+    keys: Option<AccountKeyMaterial>,
+) {
+    let mut state = account_runtime_state();
+    state.session = session;
+    state.keys = keys;
+}
+
+fn run_async<T>(
+    future: impl std::future::Future<Output = Result<T, todori_sync::account::AccountClientError>>,
+) -> Result<T, todori_sync::account::AccountClientError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime can be created for account requests")
+        .block_on(future)
 }
 
 /// Opens a fresh SQLCipher connection per API call.

@@ -6,8 +6,9 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `now_ms`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_reminder_repository`, `with_settings_repository`, `with_task_repository`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CoreState`
+// These functions are ignored because they are not marked as `pub`: `account_auth`, `account_runtime_state`, `account_session_to_dto`, `clear_account_settings`, `core_state`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `logged_out_account_state`, `now_ms`, `parse_status`, `parse_uuid`, `persist_account_state`, `reminder_to_dto`, `replace_account_runtime_state`, `run_async`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`, `with_list_repository`, `with_reminder_repository`, `with_settings_repository`, `with_task_repository`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `AccountAuthMode`, `AccountRuntimeState`, `CoreState`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiGreet(name: name);
@@ -29,6 +30,41 @@ Future<void> initCore({
   dbDir: dbDir,
   defaultInboxName: defaultInboxName,
 );
+
+Future<String> getSyncServerUrl() =>
+    RustLib.instance.api.crateApiGetSyncServerUrl();
+
+Future<void> setSyncServerUrl({required String serverUrl}) =>
+    RustLib.instance.api.crateApiSetSyncServerUrl(serverUrl: serverUrl);
+
+Future<AccountSessionStateDto> getAccountSessionState() =>
+    RustLib.instance.api.crateApiGetAccountSessionState();
+
+Future<AccountAuthResultDto> accountRegister({
+  required String email,
+  required String password,
+  String? serverUrl,
+  String? deviceName,
+}) => RustLib.instance.api.crateApiAccountRegister(
+  email: email,
+  password: password,
+  serverUrl: serverUrl,
+  deviceName: deviceName,
+);
+
+Future<AccountAuthResultDto> accountLogin({
+  required String email,
+  required String password,
+  String? serverUrl,
+  String? deviceName,
+}) => RustLib.instance.api.crateApiAccountLogin(
+  email: email,
+  password: password,
+  serverUrl: serverUrl,
+  deviceName: deviceName,
+);
+
+Future<void> accountLogout() => RustLib.instance.api.crateApiAccountLogout();
 
 /// Creates a list using the caller-provided fractional `sort_order`.
 ///
@@ -170,6 +206,59 @@ Future<ReminderDto> snoozeReminder({
   reminderId: reminderId,
   snoozedUntil: snoozedUntil,
 );
+
+class AccountAuthResultDto {
+  final AccountSessionStateDto session;
+  final String? recoveryKey;
+
+  const AccountAuthResultDto({required this.session, this.recoveryKey});
+
+  @override
+  int get hashCode => session.hashCode ^ recoveryKey.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AccountAuthResultDto &&
+          runtimeType == other.runtimeType &&
+          session == other.session &&
+          recoveryKey == other.recoveryKey;
+}
+
+class AccountSessionStateDto {
+  final bool loggedIn;
+  final String? email;
+  final String? userId;
+  final String? tenantId;
+  final String? deviceId;
+
+  const AccountSessionStateDto({
+    required this.loggedIn,
+    this.email,
+    this.userId,
+    this.tenantId,
+    this.deviceId,
+  });
+
+  @override
+  int get hashCode =>
+      loggedIn.hashCode ^
+      email.hashCode ^
+      userId.hashCode ^
+      tenantId.hashCode ^
+      deviceId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AccountSessionStateDto &&
+          runtimeType == other.runtimeType &&
+          loggedIn == other.loggedIn &&
+          email == other.email &&
+          userId == other.userId &&
+          tenantId == other.tenantId &&
+          deviceId == other.deviceId;
+}
 
 class HomeTaskDto {
   final TaskDto task;

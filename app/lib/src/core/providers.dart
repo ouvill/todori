@@ -5,7 +5,14 @@ import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/rust/api.dart'
-    show HomeTaskDto, ListDto, ReminderDto, TaskDto, TaskUndoDto;
+    show
+        AccountAuthResultDto,
+        AccountSessionStateDto,
+        HomeTaskDto,
+        ListDto,
+        ReminderDto,
+        TaskDto,
+        TaskUndoDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -18,6 +25,8 @@ final bridgeServiceProvider = Provider<BridgeService>(
 );
 
 const uiModeSettingKey = 'ui_mode';
+const syncServerUrlSettingKey = 'sync_server_url';
+const defaultSyncServerUrl = 'http://localhost:3000';
 const defaultUiMode = 'simple';
 const simpleUiMode = 'simple';
 const advancedUiMode = 'advanced';
@@ -55,6 +64,80 @@ class SettingsRepository {
     return setSetting(uiModeSettingKey, uiMode);
   }
 }
+
+class SyncServerUrlNotifier extends AsyncNotifier<String> {
+  @override
+  FutureOr<String> build() {
+    return ref.watch(bridgeServiceProvider).getSyncServerUrl();
+  }
+
+  Future<void> setServerUrl(String serverUrl) async {
+    await ref
+        .read(bridgeServiceProvider)
+        .setSyncServerUrl(serverUrl: serverUrl);
+    ref.invalidateSelf();
+  }
+}
+
+final syncServerUrlProvider =
+    AsyncNotifierProvider<SyncServerUrlNotifier, String>(
+      SyncServerUrlNotifier.new,
+    );
+
+class AccountNotifier extends AsyncNotifier<AccountSessionStateDto> {
+  @override
+  FutureOr<AccountSessionStateDto> build() {
+    return ref.watch(bridgeServiceProvider).getAccountSessionState();
+  }
+
+  Future<AccountAuthResultDto> register({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) async {
+    final result = await ref
+        .read(bridgeServiceProvider)
+        .accountRegister(
+          email: email,
+          password: password,
+          serverUrl: serverUrl,
+          deviceName: deviceName,
+        );
+    state = AsyncData(result.session);
+    ref.invalidate(syncServerUrlProvider);
+    return result;
+  }
+
+  Future<AccountAuthResultDto> login({
+    required String email,
+    required String password,
+    String? serverUrl,
+    String? deviceName,
+  }) async {
+    final result = await ref
+        .read(bridgeServiceProvider)
+        .accountLogin(
+          email: email,
+          password: password,
+          serverUrl: serverUrl,
+          deviceName: deviceName,
+        );
+    state = AsyncData(result.session);
+    ref.invalidate(syncServerUrlProvider);
+    return result;
+  }
+
+  Future<void> logout() async {
+    await ref.read(bridgeServiceProvider).accountLogout();
+    ref.invalidateSelf();
+  }
+}
+
+final accountProvider =
+    AsyncNotifierProvider<AccountNotifier, AccountSessionStateDto>(
+      AccountNotifier.new,
+    );
 
 final settingsRepositoryProvider = Provider<SettingsRepository>(
   (ref) => SettingsRepository(ref.watch(bridgeServiceProvider)),

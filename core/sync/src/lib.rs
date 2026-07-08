@@ -4,6 +4,7 @@
 //!
 //! `outbox` によるpush/pullフローの永続化は `todori-storage` が担う。
 
+pub mod account;
 pub mod envelope;
 pub mod field_map;
 pub mod hlc;

@@ -48,6 +48,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get listActionsTooltip => 'List actions';
 
   @override
+  String get listsMoreMenuTooltip => 'More';
+
+  @override
   String get renameListMenuItem => 'Rename';
 
   @override
@@ -501,6 +504,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get moveTaskDownTooltip => 'Move task down';
+
+  @override
+  String get accountTitle => 'Account';
+
+  @override
+  String get accountLoadFailed => 'Could not load account state.';
+
+  @override
+  String get accountLoginTab => 'Log in';
+
+  @override
+  String get accountRegisterTab => 'Register';
+
+  @override
+  String get accountEmailLabel => 'Email';
+
+  @override
+  String get accountPasswordLabel => 'Password';
+
+  @override
+  String get accountLoginButton => 'Log in';
+
+  @override
+  String get accountRegisterButton => 'Register';
+
+  @override
+  String get accountLogoutButton => 'Log out';
+
+  @override
+  String get accountServerUrlLabel => 'Server URL';
+
+  @override
+  String get accountSaveServerUrlTooltip => 'Save server URL';
+
+  @override
+  String get accountRequestFailed => 'Account request failed.';
 
   @override
   String failedToStartTodori(String error) {
