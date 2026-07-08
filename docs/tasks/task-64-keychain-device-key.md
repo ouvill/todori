@@ -288,3 +288,41 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 
 - iOS Simulatorまたは実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンの通し確認は人間帰還後に実施する。
 - 新規crateは `security-framework` 3.7.0 のみ追加した。それ以外の新規crate追加は行っていない。
+
+### 2026-07-08 追加修正: macOS legacy Keychain ACL
+
+#### 背景
+
+- macOS実機でアプリ起動のたびにKeychainアクセス確認プロンプトが2回表示された。
+- 原因はData Protection Keychainが `errSecMissingEntitlement (-34018)` でlegacy login keychainへフォールバックし、legacy itemをACLなしで保存していたこと。
+- ui-spec上の「起動時の無音原則」に従い、通常起動でKeychainアクセス確認プロンプトが出ないよう修正した。
+
+#### 実装結果
+
+- `core/crypto/src/dev_key_store.rs` のmacOS legacy保存経路だけを変更した。iOSおよびmacOS Data Protection Keychain経路の `SecAccessControl` / `AccessibleAfterFirstUnlockThisDeviceOnly` は変更していない。
+- `security-framework` 3.7.0 は `SecAccessCreate` / `SecTrustedApplicationCreateFromPath` / `kSecAttrAccess` を十分に公開していないため、macOS限定で `core-foundation` / `core-foundation-sys` / `security-framework-sys` を直接依存に追加し、不足シンボルだけSecurity.framework直呼びした。
+- legacy generic password保存時は `SecTrustedApplicationCreateFromPath(NULL)` で現在のアプリを信頼済みアプリケーションにし、`SecAccessCreate` で作成した `SecAccessRef` を `kSecAttrAccess` として `SecItemAdd` に渡す。
+- `PasswordOptions` の既存 `set_generic_password_options` は重複時に `SecItemUpdate` へ進み、ACLなし既存itemのACLを付与できないため、legacy保存だけ `SecItemAdd` / `SecItemDelete` を直接使う専用ヘルパにした。
+- 既存legacy itemを読めた場合は、device key / account secretの両方で削除後にACL付きで再保存する移行を試みる。再保存失敗時は同じ値をACLなし保存経路で戻すフォールバックを入れ、移行失敗でKeychain itemが消えるリスクを抑えた。
+- account secret値、device key、導出鍵、Keychain dataバイト列はログ、エラー、完了報告へ出力していない。
+
+#### 変更ファイル
+
+- `Cargo.toml`
+- `core/crypto/Cargo.toml`
+- `core/crypto/src/dev_key_store.rs`
+- `docs/tasks/task-64-keychain-device-key.md`
+
+#### 検証結果
+
+- `cargo fmt --all -- --check`: 成功
+- `cargo check -p todori-crypto`: 成功
+- `cargo check -p todori-crypto --target aarch64-apple-ios-sim`: 成功
+- `cargo clippy -p todori-crypto -- -D warnings`: 成功
+- `cargo test -p todori-crypto`: 成功（28 passed / 1 ignored）
+- `cargo test -p todori-crypto apple_keychain_device_key_store_round_trips_real_keychain_item -- --ignored --nocapture`: 失敗。Codexサンドボックス内ではKeychain利用不可の `Apple Keychain error code -25291` で停止した。今回の実機プロンプト修正対象である `-34018` fallbackおよびACL付きlegacy itemの実機無音確認は親ホストで行う。
+
+#### 未解決事項
+
+- macOS実機での起動→終了→再起動時のKeychainプロンプト無音確認は親が実施する。
+- `SecAccess` / `SecTrustedApplication` はmacOS上でdeprecated APIだが、legacy login keychain itemのACL付与に必要なためmacOS legacy fallback限定で使用している。

@@ -40,8 +40,11 @@ rusqlite = { version = "0.40.1", features = ["bundled-sqlcipher-vendored-openssl
 tempfile = "3"
 
 # app/rust
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
 flutter_rust_bridge = "2.12.0"
 security-framework = { version = "3.7.0", features = ["OSX_10_15"] }
+security-framework-sys = "2.17"
 
 # cli
 clap = { version = "4", features = ["derive"] }

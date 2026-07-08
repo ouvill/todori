@@ -168,6 +168,7 @@ impl AppleKeychainSecretStore {
     fn options(
         &self,
         backend: KeychainBackend,
+        _operation: KeychainOperation,
     ) -> security_framework::base::Result<security_framework::passwords::PasswordOptions> {
         use security_framework::{
             access_control::{ProtectionMode, SecAccessControl},
@@ -186,7 +187,11 @@ impl AppleKeychainSecretStore {
                 options.use_protected_keychain();
             }
             #[cfg(target_os = "macos")]
-            KeychainBackend::Legacy => {}
+            KeychainBackend::Legacy => {
+                if _operation == KeychainOperation::Store {
+                    add_macos_legacy_trusted_access(&mut options, &self.service)?;
+                }
+            }
         }
         Ok(options)
     }
@@ -198,7 +203,7 @@ impl AppleKeychainSecretStore {
                 Ok(bytes) => Ok(bytes),
                 Err(error) if is_keychain_missing_entitlement(&error) => {
                     log_legacy_keychain_fallback();
-                    self.load_from_backend(KeychainBackend::Legacy)
+                    self.load_from_legacy_backend_and_migrate()
                         .map_err(keychain_error)
                 }
                 Err(error) => Err(keychain_error(error)),
@@ -219,7 +224,7 @@ impl AppleKeychainSecretStore {
                 Ok(()) => Ok(()),
                 Err(error) if is_keychain_missing_entitlement(&error) => {
                     log_legacy_keychain_fallback();
-                    self.store_in_backend(KeychainBackend::Legacy, value)
+                    self.store_in_legacy_backend_with_acl(value, None)
                         .map_err(keychain_error)
                 }
                 Err(error) => Err(keychain_error(error)),
@@ -266,11 +271,24 @@ impl AppleKeychainSecretStore {
         &self,
         backend: KeychainBackend,
     ) -> security_framework::base::Result<Option<Vec<u8>>> {
-        match security_framework::passwords::generic_password(self.options(backend)?) {
+        match security_framework::passwords::generic_password(
+            self.options(backend, KeychainOperation::Query)?,
+        ) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) if is_keychain_item_not_found(&error) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn load_from_legacy_backend_and_migrate(
+        &self,
+    ) -> security_framework::base::Result<Option<Vec<u8>>> {
+        let bytes = self.load_from_backend(KeychainBackend::Legacy)?;
+        if let Some(value) = bytes.as_deref() {
+            let _ = self.store_in_legacy_backend_with_acl(value, Some(value));
+        }
+        Ok(bytes)
     }
 
     fn store_in_backend(
@@ -278,15 +296,33 @@ impl AppleKeychainSecretStore {
         backend: KeychainBackend,
         value: &[u8],
     ) -> security_framework::base::Result<()> {
-        security_framework::passwords::set_generic_password_options(value, self.options(backend)?)
+        security_framework::passwords::set_generic_password_options(
+            value,
+            self.options(backend, KeychainOperation::Store)?,
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    fn store_in_legacy_backend_with_acl(
+        &self,
+        value: &[u8],
+        existing_value: Option<&[u8]>,
+    ) -> security_framework::base::Result<()> {
+        store_macos_legacy_generic_password_with_acl(
+            self.options(KeychainBackend::Legacy, KeychainOperation::Query)?,
+            self.options(KeychainBackend::Legacy, KeychainOperation::Store)?,
+            value,
+            existing_value,
+        )
     }
 
     fn delete_from_backend(
         &self,
         backend: KeychainBackend,
     ) -> security_framework::base::Result<()> {
-        match security_framework::passwords::delete_generic_password_options(self.options(backend)?)
-        {
+        match security_framework::passwords::delete_generic_password_options(
+            self.options(backend, KeychainOperation::Query)?,
+        ) {
             Ok(()) => Ok(()),
             Err(error) if is_keychain_item_not_found(&error) => Ok(()),
             Err(error) => Err(error),
@@ -316,6 +352,7 @@ impl AppleKeychainDeviceKeyStore {
     fn options(
         &self,
         backend: KeychainBackend,
+        _operation: KeychainOperation,
     ) -> security_framework::base::Result<security_framework::passwords::PasswordOptions> {
         use security_framework::{
             access_control::{ProtectionMode, SecAccessControl},
@@ -334,7 +371,11 @@ impl AppleKeychainDeviceKeyStore {
                 options.use_protected_keychain();
             }
             #[cfg(target_os = "macos")]
-            KeychainBackend::Legacy => {}
+            KeychainBackend::Legacy => {
+                if _operation == KeychainOperation::Store {
+                    add_macos_legacy_trusted_access(&mut options, &self.service)?;
+                }
+            }
         }
 
         Ok(options)
@@ -347,6 +388,13 @@ enum KeychainBackend {
     DataProtection,
     #[cfg(target_os = "macos")]
     Legacy,
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeychainOperation {
+    Query,
+    Store,
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -378,12 +426,12 @@ impl AppleKeychainDeviceKeyStore {
         match self.load_from_backend(KeychainBackend::DataProtection) {
             Ok(Some(bytes)) => key_from_keychain_bytes(bytes).map(Some),
             Ok(None) => self
-                .load_from_backend(KeychainBackend::Legacy)
+                .load_from_legacy_backend_and_migrate()
                 .map_err(keychain_error)
                 .and_then(|bytes| bytes.map(key_from_keychain_bytes).transpose()),
             Err(error) if is_keychain_missing_entitlement(&error) => {
                 log_legacy_keychain_fallback();
-                self.load_from_backend(KeychainBackend::Legacy)
+                self.load_from_legacy_backend_and_migrate()
                     .map_err(keychain_error)
                     .and_then(|bytes| bytes.map(key_from_keychain_bytes).transpose())
             }
@@ -404,7 +452,7 @@ impl AppleKeychainDeviceKeyStore {
             Ok(()) => Ok(()),
             Err(error) if is_keychain_missing_entitlement(&error) => {
                 log_legacy_keychain_fallback();
-                self.store_in_backend(KeychainBackend::Legacy, key)
+                self.store_in_legacy_backend_with_acl(key, None)
                     .map_err(keychain_error)
             }
             Err(error) => Err(keychain_error(error)),
@@ -452,11 +500,24 @@ impl AppleKeychainDeviceKeyStore {
         &self,
         backend: KeychainBackend,
     ) -> security_framework::base::Result<Option<Vec<u8>>> {
-        match security_framework::passwords::generic_password(self.options(backend)?) {
+        match security_framework::passwords::generic_password(
+            self.options(backend, KeychainOperation::Query)?,
+        ) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) if is_keychain_item_not_found(&error) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn load_from_legacy_backend_and_migrate(
+        &self,
+    ) -> security_framework::base::Result<Option<Vec<u8>>> {
+        let bytes = self.load_from_backend(KeychainBackend::Legacy)?;
+        if let Some(value) = bytes.as_deref() {
+            let _ = self.store_in_legacy_backend_with_acl(value, Some(value));
+        }
+        Ok(bytes)
     }
 
     fn store_in_backend(
@@ -464,15 +525,33 @@ impl AppleKeychainDeviceKeyStore {
         backend: KeychainBackend,
         key: &[u8; DEVICE_KEY_LEN],
     ) -> security_framework::base::Result<()> {
-        security_framework::passwords::set_generic_password_options(key, self.options(backend)?)
+        security_framework::passwords::set_generic_password_options(
+            key,
+            self.options(backend, KeychainOperation::Store)?,
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    fn store_in_legacy_backend_with_acl(
+        &self,
+        key: &[u8],
+        existing_value: Option<&[u8]>,
+    ) -> security_framework::base::Result<()> {
+        store_macos_legacy_generic_password_with_acl(
+            self.options(KeychainBackend::Legacy, KeychainOperation::Query)?,
+            self.options(KeychainBackend::Legacy, KeychainOperation::Store)?,
+            key,
+            existing_value,
+        )
     }
 
     fn delete_from_backend(
         &self,
         backend: KeychainBackend,
     ) -> security_framework::base::Result<()> {
-        match security_framework::passwords::delete_generic_password_options(self.options(backend)?)
-        {
+        match security_framework::passwords::delete_generic_password_options(
+            self.options(backend, KeychainOperation::Query)?,
+        ) {
             Ok(()) => Ok(()),
             Err(error) if is_keychain_item_not_found(&error) => Ok(()),
             Err(error) => Err(error),
@@ -488,6 +567,156 @@ fn is_keychain_item_not_found(error: &security_framework::base::Error) -> bool {
 #[cfg(target_os = "macos")]
 fn is_keychain_missing_entitlement(error: &security_framework::base::Error) -> bool {
     error.code() == ERR_SEC_MISSING_ENTITLEMENT
+}
+
+#[cfg(target_os = "macos")]
+fn is_keychain_duplicate_item(error: &security_framework::base::Error) -> bool {
+    error.code() == security_framework_sys::base::errSecDuplicateItem
+}
+
+#[cfg(target_os = "macos")]
+fn add_macos_legacy_trusted_access(
+    options: &mut security_framework::passwords::PasswordOptions,
+    descriptor: &str,
+) -> security_framework::base::Result<()> {
+    use core_foundation::{
+        array::CFArray,
+        base::{CFType, TCFType},
+        string::CFString,
+    };
+    use core_foundation_sys::{base::OSStatus, string::CFStringRef};
+    use security_framework_sys::base::SecAccessRef;
+    use std::{ffi::c_char, ptr};
+
+    type SecTrustedApplicationRef = *mut std::ffi::c_void;
+
+    extern "C" {
+        static kSecAttrAccess: CFStringRef;
+
+        fn SecTrustedApplicationCreateFromPath(
+            path: *const c_char,
+            app: *mut SecTrustedApplicationRef,
+        ) -> OSStatus;
+
+        fn SecAccessCreate(
+            descriptor: CFStringRef,
+            trustedlist: core_foundation_sys::array::CFArrayRef,
+            access_ref: *mut SecAccessRef,
+        ) -> OSStatus;
+    }
+
+    let descriptor = CFString::from(descriptor);
+    let mut trusted_app: SecTrustedApplicationRef = ptr::null_mut();
+    let status = unsafe { SecTrustedApplicationCreateFromPath(ptr::null(), &mut trusted_app) };
+    if status != security_framework_sys::base::errSecSuccess {
+        return Err(security_framework::base::Error::from_code(status));
+    }
+
+    let trusted_app = unsafe { CFType::wrap_under_create_rule(trusted_app.cast()) };
+    let trusted_list = CFArray::from_CFTypes(&[trusted_app]);
+    let mut access_ref: SecAccessRef = ptr::null_mut();
+    let status = unsafe {
+        SecAccessCreate(
+            descriptor.as_concrete_TypeRef(),
+            trusted_list.as_concrete_TypeRef(),
+            &mut access_ref,
+        )
+    };
+    if status != security_framework_sys::base::errSecSuccess {
+        return Err(security_framework::base::Error::from_code(status));
+    }
+
+    let access = unsafe { CFType::wrap_under_create_rule(access_ref.cast()) };
+    #[allow(deprecated)]
+    unsafe {
+        options
+            .query
+            .push((CFString::wrap_under_get_rule(kSecAttrAccess), access));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn store_macos_legacy_generic_password_with_acl(
+    query_options: security_framework::passwords::PasswordOptions,
+    add_options: security_framework::passwords::PasswordOptions,
+    value: &[u8],
+    existing_value: Option<&[u8]>,
+) -> security_framework::base::Result<()> {
+    match add_macos_legacy_generic_password(&add_options, value) {
+        Ok(()) => Ok(()),
+        Err(error) if is_keychain_duplicate_item(&error) => {
+            let value_to_restore = existing_value.unwrap_or(value);
+            delete_macos_legacy_generic_password(&query_options)?;
+
+            match add_macos_legacy_generic_password(&add_options, value) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    match security_framework::passwords::set_generic_password_options(
+                        value_to_restore,
+                        query_options,
+                    ) {
+                        Ok(()) => Ok(()),
+                        Err(_) => Err(error),
+                    }
+                }
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn add_macos_legacy_generic_password(
+    options: &security_framework::passwords::PasswordOptions,
+    value: &[u8],
+) -> security_framework::base::Result<()> {
+    use core_foundation::{
+        base::{CFType, TCFType},
+        data::CFData,
+        dictionary::CFDictionary,
+        string::CFString,
+    };
+    use security_framework_sys::{item::kSecValueData, keychain_item::SecItemAdd};
+
+    #[allow(deprecated)]
+    let mut query = options.query.clone();
+    unsafe {
+        query.push((
+            CFString::wrap_under_get_rule(kSecValueData),
+            CFData::from_buffer(value).into_CFType(),
+        ));
+    }
+    let params: CFDictionary<CFString, CFType> = CFDictionary::from_CFType_pairs(&query);
+    let status = unsafe { SecItemAdd(params.as_concrete_TypeRef(), std::ptr::null_mut()) };
+    if status == security_framework_sys::base::errSecSuccess {
+        Ok(())
+    } else {
+        Err(security_framework::base::Error::from_code(status))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn delete_macos_legacy_generic_password(
+    options: &security_framework::passwords::PasswordOptions,
+) -> security_framework::base::Result<()> {
+    use core_foundation::{
+        base::{CFType, TCFType},
+        dictionary::CFDictionary,
+        string::CFString,
+    };
+    use security_framework_sys::keychain_item::SecItemDelete;
+
+    #[allow(deprecated)]
+    let params: CFDictionary<CFString, CFType> = CFDictionary::from_CFType_pairs(&options.query);
+    let status = unsafe { SecItemDelete(params.as_concrete_TypeRef()) };
+    if status == security_framework_sys::base::errSecSuccess
+        || status == security_framework_sys::base::errSecItemNotFound
+    {
+        Ok(())
+    } else {
+        Err(security_framework::base::Error::from_code(status))
+    }
 }
 
 #[cfg(target_os = "macos")]
