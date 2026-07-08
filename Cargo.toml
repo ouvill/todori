@@ -46,7 +46,14 @@ clap = { version = "4", features = ["derive"] }
 
 # server
 axum = "0.8"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+http = "1"
+sqlx-core = { version = "0.9.0", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
+sqlx-postgres = { version = "0.9.0", default-features = false, features = ["uuid", "chrono"] }
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros"] }
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

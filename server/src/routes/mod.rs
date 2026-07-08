@@ -1,11 +1,18 @@
-//! ルーティングのモジュール構成。
-//!
-//! ディレクトリ構成は `docs/03_技術仕様書.md` §2 の `server/` 配下
-//! (`auth/` `tenant/` `sync-token/` `billing/`) に対応する
-//! （Rustのモジュール命名規則上 `sync-token` は `sync_token` とする）。
-//! 各モジュールの実装は後続タスクで行う。
+use axum::{routing::get, Json, Router};
+use serde_json::{json, Value};
+
+use crate::SharedState;
 
 pub mod auth;
-pub mod billing;
-pub mod sync_token;
-pub mod tenant;
+pub mod sync;
+
+pub fn router() -> Router<SharedState> {
+    Router::new()
+        .route("/health", get(health))
+        .nest("/v1/auth", auth::router())
+        .nest("/v1/tenants", sync::router())
+}
+
+async fn health() -> Json<Value> {
+    Json(json!({ "status": "ok" }))
+}

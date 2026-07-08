@@ -1,6 +1,7 @@
 # task-70: P2-M2 同期サーバー
 
-> ステータス: 未着手
+> ステータス: 完了（2026-07-08）
+> 作業日: 2026-07-08
 > 作成日: 2026-07-08
 
 ## 1. 背景とコンテキスト
@@ -150,3 +151,149 @@ TodoriのサーバーはE2EEデータの中身を解釈せず、暗号blobと最
 - 品質ゲート実行結果
 - 変更ファイル一覧
 - 未解決事項（削除同期、課金、Org共有、Lambda/Neon実デプロイなど。無い場合も「なし」と明記）
+
+## 9. 完了報告
+
+作業日: 2026-07-08
+
+読んだファイル:
+
+- `AGENTS.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+- `docs/08_Phase2計画書.md` P2-M2
+- `docs/03_技術仕様書.md` §1.5、§2、§3、§6、§7
+- `docs/05_設計判断記録.md` ADR-003、ADR-005、ADR-008
+- `docs/tasks/task-01-opaque-poc.md` `## 9. 完了報告`
+- `docs/tasks/task-69-sync-foundation.md` `## 9. 完了報告`
+- `server/Cargo.toml`
+- `server/src/main.rs`
+- `server/src/routes/*.rs`
+- `core/crypto/src/opaque.rs`
+- `core/sync/src/hlc.rs`
+- `core/sync/src/envelope.rs`
+- ルート `Cargo.toml`
+
+実装したHTTP endpoint:
+
+- `GET /health`: `{ "status": "ok" }` を返す。
+- `POST /v1/auth/register/start`: request `{email, device_name?, message(base64)}`、response `{state_id, message(base64), expires_at}`。
+- `POST /v1/auth/register/finish`: request `{state_id, message(base64)}`、response `{user_id, tenant_id, device_id, session_token, expires_at}`。
+- `POST /v1/auth/login/start`: request `{email, device_name?, message(base64)}`、response `{state_id, message(base64), expires_at}`。
+- `POST /v1/auth/login/finish`: request `{state_id, message(base64)}`、response `{user_id, tenant_id, device_id, session_token, expires_at}`。
+- `POST /v1/tenants/{tenant_id}/push`: Bearer token必須。request `{ops:[{record_id, collection, hlc, deleted, blob(base64)}]}`、response `{results:[{record_id, status, seq}]}`。
+- `GET /v1/tenants/{tenant_id}/pull?since=&limit=`: Bearer token必須。response `{records:[{record_id, collection, seq, hlc, deleted, blob(base64)}], next_since, has_more}`。
+
+追加したPostgres migration:
+
+- `server/migrations/202607080001_sync_server.sql`
+- テーブル: `opaque_server_setup`、`users`、`devices`、`tenants`、`tenant_members`、`sessions`、`opaque_registration_states`、`opaque_login_states`、`tenant_seq`、`sync_records`、`sync_records_history`。
+- 主要index/制約: `users_email_lower_unique`、`devices_user_id_idx`、`tenant_members_user_id_idx`、`sessions.token_hash UNIQUE`、`opaque_*_expires_at_idx`、`sync_records` のPRIMARY KEY `(tenant_id, record_id)` とUNIQUE `(tenant_id, seq)`、`sync_records_history_tenant_record_idx`。
+- `sync_records` / `sync_records_history` はRLS有効化済み。
+
+OPAQUE実装:
+
+- CipherSuiteは `todori_crypto::TodoriCipherSuite`（opaque-ke 3.0.0、Ristretto255、TripleDh、Argon2）を使用した。
+- OPAQUE messageはHTTP JSON上でbase64文字列として扱う。
+- 登録startは `opaque_registration_states` に `state_id/email/device_name/expires_at` を保存し、finishで `DELETE ... RETURNING` によりconsume削除する。
+- ログインstartは `opaque_login_states` に `state_id/user_id/device_name/server_login_state/expires_at` を保存し、finishで `DELETE ... RETURNING` によりconsume削除する。
+- `cleanup_expired_opaque_states(pool)` を実装し、期限切れregistration/login stateを削除する。
+- `exportKey` はサーバーへ保存していない。
+
+セッショントークン:
+
+- 32byte乱数を `base64url(no padding)` 化して平文tokenを生成する。
+- 平文tokenは登録/ログインfinishレスポンスで一度だけ返す。
+- DBにはSHA-256 hash、`expires_at`、`user_id`、`device_id` を保存する。
+- push/pullでは `Authorization: Bearer ...` を必須にし、session有効期限、session失効、device失効、tenant membershipをリクエストごとに検証する。
+
+push実装:
+
+- 上限: push batch 100 ops、blob 64KB、HLC未来許容5分。
+- `core/sync::Hlc::decode` と `exceeds_future_skew` を使用する。
+- 採用条件: 既存行なし、または `incoming.hlc > stored.hlc`。
+- 採用時は同一トランザクション内で `UPDATE tenant_seq SET last_seq = last_seq + 1 ... RETURNING last_seq` を実行してseq採番する。
+- 上書き採用時は旧 `sync_records` 行を `sync_records_history` へ退避し、`author_user_id` を記録する。
+- 同一HLCかつ同一collection/deleted/blobは `no_op`。
+- 同一HLCかつ異なる内容は `409 CONFLICT`。
+- 低いHLCは `superseded`。
+
+pull実装:
+
+- `since >= 0`、`1 <= limit <= 100` を検証する。
+- `seq > since ORDER BY seq ASC LIMIT limit + 1` で取得し、`has_more` を算出する。
+- `next_since` は返却recordsの最後のseq、recordsなしの場合は入力since。
+- エコー除外なし。
+- pull成功時に `devices.last_pull_at` を更新する。
+
+tenant分離・revoked device拒否・他tenantアクセス拒否のテスト名:
+
+- `push_pull_seq_invariants_tenant_isolation_and_revoked_devices_are_enforced`
+
+testcontainers Postgres統合テスト:
+
+- `migration_creates_sync_server_schema_and_health_works`: migration適用、主要テーブル存在、`/health`。
+- `opaque_registration_login_reuse_expiry_and_cleanup_are_enforced`: OPAQUE登録、ログイン、誤パスワード失敗、state再利用不可、期限切れ、cleanup。
+- `push_pull_seq_invariants_tenant_isolation_and_revoked_devices_are_enforced`: Bearer認証、accepted/no_op/superseded/same-HLC-different-blob reject、seq順序、history退避、pull paging、blob/batch/pull limit/HLC未来拒否、物理DELETE APIなし、tenant分離、revoked device拒否。
+- 個別実行結果: `cargo test -p todori-server --test sync_server` 成功（3 passed）。
+- workspace実行結果: `cargo test --workspace` 成功（server統合テスト3 passedを含む）。
+
+新規依存crate:
+
+- `base64`: OPAQUE message、session token、sync blobのHTTP JSON表現。
+- `chrono`: `expires_at` とUTC時刻処理。
+- `sqlx-core` / `sqlx-postgres`: Postgres pool、query、transaction、型変換。
+- `testcontainers-modules`: Postgres統合テスト。
+- `tower`: routerのHTTP統合テスト。
+- `http`: dev dependencyとしてHTTP型をworkspace集約。
+- `argon2`: server統合テストでOPAQUEクライアント側の軽量KSFパラメータを指定するためのdev dependency。
+
+docs/03 §6.4の再push HLC tick規約:
+
+- 作業開始時点で、§6.4に「再push時、クライアントは必ずローカルHLCをtickし、push bodyの `hlc` を新しいHLCとして送信する（同一HLCで内容だけ異なる再pushは禁止）」という文が存在することを確認した。
+- 本作業では `docs/03_技術仕様書.md` に追加差分を作っていない。
+
+秘密情報ログ禁止の確認結果:
+
+- `server/src` / `server/tests` に `println!` / `dbg!` が存在しないことを確認した。
+- パスワード、exportKey、セッショントークン平文、OPAQUE state bytes、token hashをログ出力していない。
+
+品質ゲート実行結果:
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test -p todori-server --test sync_server`: 成功（3 passed）。
+- `cargo test --workspace`: 成功（`todori-storage` task-67性能test ignored 1件、`todori_app_bridge` real Keychain test ignored 1件）。
+- `cd app && flutter analyze`: 成功。
+- `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
+- `cd app && flutter test`: 成功（116 passed、visual QA harness 1 skipped）。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+- `git diff --check`: 成功。
+
+変更ファイル一覧:
+
+- `Cargo.lock`
+- `Cargo.toml`
+- `server/Cargo.toml`
+- `server/migrations/202607080001_sync_server.sql`
+- `server/src/lib.rs`
+- `server/src/main.rs`
+- `server/src/auth.rs`
+- `server/src/db.rs`
+- `server/src/sync.rs`
+- `server/src/routes/mod.rs`
+- `server/src/routes/auth.rs`
+- `server/src/routes/sync.rs`
+- `server/src/routes/sync_token.rs`（削除）
+- `server/src/routes/tenant.rs`（削除）
+- `server/tests/sync_server.rs`
+- `docs/tasks/task-70-sync-server.md`
+- `docs/tasks/README.md`
+- `docs/tasks/BACKLOG.md`
+
+未解決事項:
+
+- Lambda Web Adapter、ECR push、Lambda更新、Neon本番接続、CloudFront/WAF/API Gateway設定は未実装。
+- 課金Webhook、課金有効性判定、Org共有API、Orgメンバー管理APIは未実装。同期APIの認可境界はtenant membership検証まで実装した。
+- 削除同期の最終意味論、tombstone GC、`sync_records_history` の30日削除ジョブは未実装。
+- `sqlx` meta crate 0.9.0 は workspace内の `rusqlite` と `sqlx-sqlite` の `libsqlite3-sys` links競合を起こしたため、`sqlx-core` / `sqlx-postgres` の直接依存でPostgres専用に実装した。
