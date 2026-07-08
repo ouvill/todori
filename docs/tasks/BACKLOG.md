@@ -8,7 +8,7 @@
 - **Phase 1 / M2（ブリッジとUI骨格）: 完了。** task-08（ブリッジAPI公開） / task-09（Riverpod + go_router 画面骨格） / task-10（i18n en/ja） / task-11（CI整備）。macOSデスクトップ実行はcargokitで確立済みで、Phase 1品質ゲートはGitHub Actionsへ追加済み。
 - **Phase 1 / M3（機能完成）: 完了（2026-07-07）。** M3-01〜M3-05の完了条件を充足済み（M3-01はtask-35改名+task-38削除、M3-04はtask-39で完了。削除の意味論は2026-07-07仕様改訂ADR-009に基づく）。
 - **Phase 1 / M4（通知・暗号化・磨き込み）: 完了（2026-07-08）。** M4-01通知(task-65)/M4-02 Keychain(task-64)/M4-03 a11y(task-66)/M4-04 性能(task-67/68)。M5（リリース準備）のみ人間帰還後。
-- **Phase 2 / P2-M1〜M5: 自律スコープ完了（2026-07-08）。** 同期基盤(69)/サーバー(70)/鍵階層・アカウント(71)/同期エンジン(72)/ADR-010ドラフト+DEK整合(73)/マルチプラットフォーム検証(74)。task-75で同期オーケストレーションとKeychain実装をcoreへ移し、ブリッジ肥大化を解消済み。E2EEマルチデバイス同期がローカル環境でend-to-end動作。実デプロイ・ADR-010承認・iOS実機確認は人間待ち。
+- **Phase 2 / P2-M1〜M5: 自律スコープ完了（2026-07-08）。** 同期基盤(69)/サーバー(70)/鍵階層・アカウント(71)/同期エンジン(72)/ADR-010ドラフト+DEK整合(73)/マルチプラットフォーム検証(74)。task-75で同期オーケストレーションとKeychain実装をcoreへ移し、ブリッジ肥大化を解消済み。E2EEマルチデバイス同期がローカル環境でend-to-end動作。ADR-010承認済み(2026-07-08)。実デプロイ・iOS実機確認は人間待ち。
 - **PoC完了済み**: task-01（OPAQUE） / task-02（SQLCipher） / task-03（FRB垂直貫通） / task-04（Phase1計画書の作成）。
 - **OSS公開前監査完了済み**: task-12（秘密情報、公開不適切情報、OSS基本文書、ライセンス、public repo向けCI/Actions安全性の棚卸し）。現在のGitHub repositoryはpublicであり、quiet public / pre-releaseとして扱う。
 - **public/private分割方針完了済み**: task-13（public repoを主、private repoを非公開資料側とする分類と移行計画）。実分割はtask-14で完了済み。
@@ -102,7 +102,8 @@
 - **P2-M3 鍵階層とアカウント接続task-71完了（2026-07-08）**: クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain/session/local wrapped MK保存、FRB API、Flutter最小アカウント画面を接続した。testcontainers Postgres + 実axum server + Rust account clientで登録→logout→login→同一MK復元、誤パスワード、失効session、誤鍵unwrap失敗を確認済み。同期ループ、Recovery UX完全版、複数デバイス管理UIはスコープ外。
 - **P2-M4 同期エンジン統合task-72指示書化（2026-07-08）**: ローカル書込outbox、push/pull/ACK/cursor、復号LWWマージ、HLC tick付き再push、FRB `sync_now`、Flutter最小同期状態表示、2ローカルDB統合テストを `docs/tasks/task-72-sync-engine.md` に指示書化した。ステータスは未着手。削除同期は `deleted=true` の暫定橋渡しに留め、正式なGC/tombstone設計はP2-M5/ADR-010へ分離する。
 - **P2-M4 同期エンジン統合task-72完了（2026-07-08）**: `core/sync::SyncEngine`、FRB `sync_now` / `get_sync_status`、ローカルCRUD outbox enqueue、pull復号LWWマージ、HLC tick付き再push、Flutter起動/復帰/30秒ポーリング、アカウント画面同期状態を接続した。testcontainers Postgres + 実axum server + 2 SQLCipherローカルDB統合テストで、双方向編集収束、オフライン復帰、同一フィールドLWW、削除伝播、outbox永続性、復号失敗スキップを確認済み。削除同期正式設計、SSE/long-poll、競合UI、複数デバイス管理UI、Recovery UX完全版は後続。
-- **P2-M5前半 task-73完了（2026-07-08）**: ADR-010ドラフトをDraft/人間承認待ちとして追加し、削除tombstoneは暗号blobを空化してrecord-id/deleted/HLC/seq等の最小メタデータだけ180日保持する方針を記録した。実装は削除push blob空化、tombstone GC関数、List DEK bundle upsert、登録時/リスト作成時のList DEK保存、lists本体のList DEK暗号化へ絞った。410 Gone/フル再同期はPhase 2後半へ継続。
+- **P2-M5前半 task-73完了（2026-07-08）**: ADR-010ドラフトを追加し、削除tombstoneは暗号blobを空化してrecord-id/deleted/HLC/seq等の最小メタデータだけ180日保持する方針を記録した。ADR-010は2026-07-08に承認済み。実装は削除push blob空化、tombstone GC関数、List DEK bundle upsert、登録時/リスト作成時のList DEK保存、lists本体のList DEK暗号化へ絞った。410 Gone/フル再同期はPhase 2後半へ継続。
+- **ADR-010承認済み（2026-07-08）**: 削除同期は空blob tombstone、180日保持後GC、`gc_horizon_seq` とpullカーソルによる `410 Gone` 判定、`devices.last_pull_at` のテレメトリ降格、フル再同期時の未ACK outbox保有レコード除外で確定した。
 - **P2-M5後半 task-74完了（2026-07-08）**: Android Rust FFI `arm64-v8a` ビルドは成功し、`libtodori_app_bridge.so` は13MBだった。`flutter build apk --debug` はNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可でビルド前停止。`flutter build macos --release` と `flutter build ios --simulator --debug` はXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約でビルド前停止。reqwest(rustls)、SQLCipher vendored OpenSSL、Apple `security-framework` のAndroidクロスコンパイル漏れは見つからなかった。非Apple platformは暫定 `FileDeviceKeyStore` fallbackであることを確認済み。
 - **task-75 core extraction refactor完了（2026-07-08）**: `app/rust/src/api.rs` から同期run/pull適用/outbox enqueue/HLC tick/plaintext変換/List DEK補完を `core/sync` へ移し、Device Key / Keychain / account secret storeを `core/crypto` へ移した。FRB公開API、SQLite schema、sync wire format、UI文字列は変更していない。
 - **task-76 運用ドキュメント整備完了（2026-07-08）**: `docs/09_運用ガイド.md` と `docs/ops/` 配下のサーバーデプロイ、DB migration、障害対応、クライアントリリースrunbookを追加した。public repo安全のため、公開不可の運用・事業詳細や実クレデンシャルは書かず、必要箇所はプレースホルダとprivate側/人間管理へ分離した。
@@ -111,7 +112,6 @@
 ## 帰還後の人間確認リスト
 
 - push（30コミット超）
-- ADR-010承認
 - iOS Simulator/実機でのKeychain・通知・同期の通し確認
 - AWS/Neonデプロイ
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断（App Store IAP、private repo側事業設計を含むため人間協働必須）
@@ -139,16 +139,17 @@
 | 14 | task-70 P2-M2 同期サーバー | Postgres/sqlx schema、OPAQUE登録/ログイン、セッション、push/pull、seq採番、§6.6不変条件、testcontainers Postgres統合テストを実装する | P2-M2 | 完了（2026-07-08）。指示書: [`task-70-sync-server.md`](./task-70-sync-server.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§2、§3、§6、§7、ADR-003/005/008 |
 | 15 | task-71 P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 完了（2026-07-08）。指示書: [`task-71-key-hierarchy-account.md`](./task-71-key-hierarchy-account.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§3、§4、§7 |
 | 16 | task-72 P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 完了（2026-07-08）。指示書: [`task-72-sync-engine.md`](./task-72-sync-engine.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5。削除同期正式設計はP2-M5/ADR-010へ分離 |
-| 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010はDraft/人間承認待ち |
+| 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010は2026-07-08承認済み |
 | 18 | task-74 P2-M5 後半 マルチプラットフォーム検証 | Android Rust/Flutter、macOS release、iOS Simulator debugのビルド検証を行う | P2-M5後半 | 完了（2026-07-08）。指示書: [`task-74-multiplatform-verification.md`](./task-74-multiplatform-verification.md)。出典: `docs/08_Phase2計画書.md` P2-M5 |
-| 19 | task-75 同期オーケストレーションとKeychainのcore移設 | `api.rs` 肥大化を解消し、同期実体を `core/sync`、Keychain実装を `core/crypto` へ移す | Phase 2 リファクタ | 完了（2026-07-08）。指示書: [`task-75-core-extraction-refactor.md`](./task-75-core-extraction-refactor.md)。挙動変更なし |
-| 20 | task-76 運用ドキュメント整備 | 公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | 運用整備 | 完了（2026-07-08）。指示書: [`task-76-ops-documentation.md`](./task-76-ops-documentation.md)。実AWS/Neonデプロイは未実施 |
-| 21 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
-| 22 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
-| 23 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
-| 24 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
-| 25 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
-| 26 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
+| 19 | フル再同期とGCホライズンの実装 | 410 Gone、gc_horizon_seq記録、outbox除外スイープ、ADR-010の必須テスト5種を実装する | Phase 2後半 | 出典: ADR-010承認 |
+| 20 | task-75 同期オーケストレーションとKeychainのcore移設 | `api.rs` 肥大化を解消し、同期実体を `core/sync`、Keychain実装を `core/crypto` へ移す | Phase 2 リファクタ | 完了（2026-07-08）。指示書: [`task-75-core-extraction-refactor.md`](./task-75-core-extraction-refactor.md)。挙動変更なし |
+| 21 | task-76 運用ドキュメント整備 | 公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | 運用整備 | 完了（2026-07-08）。指示書: [`task-76-ops-documentation.md`](./task-76-ops-documentation.md)。実AWS/Neonデプロイは未実施 |
+| 22 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
+| 23 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
+| 24 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
+| 25 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
+| 26 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
+| 27 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -170,7 +171,6 @@
 
 - iOS Simulator/実機でのKeychain動作通し確認。task-64は親ホストの実Keychain roundtripとmacOS debugアプリ再起動確認まで合格済みだが、iOS Simulator/実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンは人間帰還後に確認する。出典: task-64完了報告。
 - Android/macOS/iOSの実ビルド再検証。task-74では、Android Rust FFIは成功したが、Flutter APKはNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可で停止し、macOS/iOSはXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約で停止した。人間環境で `sudo xcodebuild -runFirstLaunch`、Android SDK ManagerでNDK `28.2.13676358` 導入、通常権限の `~/.android` / `~/Library/Caches/org.swift.swiftpm` / CoreSimulator利用可能化を行ってから再実行する。出典: task-74完了報告。
-- ADR-010（削除同期表現）の承認。Draftでは、削除tombstoneは暗号blobを空化し、record-id/deleted/HLC/seq等の最小メタデータだけ180日保持、GC窓超過端末は410 Gone + フル再同期、削除/編集競合はHLC比較とする。出典: `docs/05_設計判断記録.md` ADR-010 Draft、`docs/08_Phase2計画書.md` P2-M5。
 - AWS/ECR/Lambda/Neon本番デプロイ実行。クレデンシャル投入、WAF/API GatewayまたはCloudFront前段、実環境の更新は人間帰還後に行う。出典: `docs/08_Phase2計画書.md` §2、§6。
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断。App Store IAPとprivate repo側の事業設計を含むため、人間協働必須。出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/billing_overview.md`。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
