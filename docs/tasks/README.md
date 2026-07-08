@@ -91,6 +91,7 @@
 | task-71 | 完了 | [task-71-key-hierarchy-account.md](./task-71-key-hierarchy-account.md) | P2-M3 鍵階層とアカウント接続。クライアントOPAQUE、MK/KEK/DEK/Recovery Key、デバイス登録、Keychain保存、FRB API、Flutter最小アカウント画面を接続する | task-69・task-70の成果物、`docs/08_Phase2計画書.md` P2-M3、`docs/03_技術仕様書.md` §1.5・§3・§4・§7に依存 |
 | task-72 | 完了 | [task-72-sync-engine.md](./task-72-sync-engine.md) | P2-M4 同期エンジン統合。ローカル書込outbox、push/pull/ACK/cursor、復号LWWマージ、HLC tick付き再push、FRB手動同期、Flutter最小同期状態表示を接続する | task-69〜71の成果物、`docs/08_Phase2計画書.md` P2-M4、`docs/03_技術仕様書.md` §6.4・§6.5に依存。削除同期の正式設計はP2-M5/ADR-010へ分離 |
 | task-73 | 完了 | [task-73-adr010-and-dek-alignment.md](./task-73-adr010-and-dek-alignment.md) | P2-M5前半。ADR-010ドラフト、削除tombstone blob空化/GC関数、lists本体のList DEK整合、List DEK bundle保存を実装する | task-72の成果物、`docs/08_Phase2計画書.md` P2-M5、`docs/03_技術仕様書.md` §4.8・§6、ADR-009に依存。ADR-010はDraft/人間承認待ち |
+| task-74 | 完了 | [task-74-multiplatform-verification.md](./task-74-multiplatform-verification.md) | P2-M5後半。Android Rust/Flutter、macOS release、iOS Simulator debugのマルチプラットフォームビルド検証を行う | task-73の完了状態、`docs/08_Phase2計画書.md` P2-M5、`docs/03_技術仕様書.md` §2・§4.3・§5.3・§11.2に依存。2026-07-08検証ではAndroid Rust成功、Flutter APK/macOS/iOSは環境制約でビルド前停止 |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

@@ -125,6 +125,7 @@ impl AccountSecretKind {
     }
 }
 
+#[cfg(any(test, target_os = "ios", target_os = "macos"))]
 pub(crate) fn ensure_device_key_with_migration(
     primary_store: &mut impl DeviceKeyStore,
     file_store: &mut impl DeviceKeyStore,

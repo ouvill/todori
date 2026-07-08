@@ -101,6 +101,7 @@
 - **P2-M4 同期エンジン統合task-72指示書化（2026-07-08）**: ローカル書込outbox、push/pull/ACK/cursor、復号LWWマージ、HLC tick付き再push、FRB `sync_now`、Flutter最小同期状態表示、2ローカルDB統合テストを `docs/tasks/task-72-sync-engine.md` に指示書化した。ステータスは未着手。削除同期は `deleted=true` の暫定橋渡しに留め、正式なGC/tombstone設計はP2-M5/ADR-010へ分離する。
 - **P2-M4 同期エンジン統合task-72完了（2026-07-08）**: `core/sync::SyncEngine`、FRB `sync_now` / `get_sync_status`、ローカルCRUD outbox enqueue、pull復号LWWマージ、HLC tick付き再push、Flutter起動/復帰/30秒ポーリング、アカウント画面同期状態を接続した。testcontainers Postgres + 実axum server + 2 SQLCipherローカルDB統合テストで、双方向編集収束、オフライン復帰、同一フィールドLWW、削除伝播、outbox永続性、復号失敗スキップを確認済み。削除同期正式設計、SSE/long-poll、競合UI、複数デバイス管理UI、Recovery UX完全版は後続。
 - **P2-M5前半 task-73完了（2026-07-08）**: ADR-010ドラフトをDraft/人間承認待ちとして追加し、削除tombstoneは暗号blobを空化してrecord-id/deleted/HLC/seq等の最小メタデータだけ180日保持する方針を記録した。実装は削除push blob空化、tombstone GC関数、List DEK bundle upsert、登録時/リスト作成時のList DEK保存、lists本体のList DEK暗号化へ絞った。410 Gone/フル再同期はPhase 2後半へ継続。
+- **P2-M5後半 task-74完了（2026-07-08）**: Android Rust FFI `arm64-v8a` ビルドは成功し、`libtodori_app_bridge.so` は13MBだった。`flutter build apk --debug` はNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可でビルド前停止。`flutter build macos --release` と `flutter build ios --simulator --debug` はXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約でビルド前停止。reqwest(rustls)、SQLCipher vendored OpenSSL、Apple `security-framework` のAndroidクロスコンパイル漏れは見つからなかった。非Apple platformは暫定 `FileDeviceKeyStore` fallbackであることを確認済み。
 
 ## 優先度付きバックログ
 
@@ -123,7 +124,8 @@
 | 15 | task-71 P2-M3 鍵階層とアカウント接続 | MK生成、exportKeyラップ、DEK、デバイス登録、Flutter最小アカウント画面、セッション管理を接続する | P2-M3 | 完了（2026-07-08）。指示書: [`task-71-key-hierarchy-account.md`](./task-71-key-hierarchy-account.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §1.5、§3、§4、§7 |
 | 16 | task-72 P2-M4 同期エンジン統合 | クライアント同期ループ、push/pull/再push規約、競合マージのFlutter反映、オフライン耐性を実装する | P2-M4 | 完了（2026-07-08）。指示書: [`task-72-sync-engine.md`](./task-72-sync-engine.md)。出典: `docs/08_Phase2計画書.md`。`docs/03` §6.4、§6.5。削除同期正式設計はP2-M5/ADR-010へ分離 |
 | 17 | task-73 ADR-010ドラフトとList DEK整合 | ADR-010ドラフト、削除tombstone blob空化/GC関数、List DEK bundle保存、lists本体のList DEK暗号化を実装する | P2-M5前半 | 完了（2026-07-08）。指示書: [`task-73-adr010-and-dek-alignment.md`](./task-73-adr010-and-dek-alignment.md)。ADR-010はDraft/人間承認待ち |
-| 18 | P2-M5 後半 マルチプラットフォーム検証と410/フル再同期 | ADR-010承認後に410 Gone、フル再同期、Android/macOSビルド・動作検証を行う | P2-M5後半 | 出典: `docs/08_Phase2計画書.md`。ADR-010承認待ち |
+| 18 | task-74 P2-M5 後半 マルチプラットフォーム検証 | Android Rust/Flutter、macOS release、iOS Simulator debugのビルド検証を行う | P2-M5後半 | 完了（2026-07-08）。指示書: [`task-74-multiplatform-verification.md`](./task-74-multiplatform-verification.md)。出典: `docs/08_Phase2計画書.md` P2-M5 |
+| 19 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -144,6 +146,7 @@
 ## 要人間判断
 
 - iOS Simulator/実機でのKeychain動作通し確認。task-64は親ホストの実Keychain roundtripとmacOS debugアプリ再起動確認まで合格済みだが、iOS Simulator/実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンは人間帰還後に確認する。出典: task-64完了報告。
+- Android/macOS/iOSの実ビルド再検証。task-74では、Android Rust FFIは成功したが、Flutter APKはNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可で停止し、macOS/iOSはXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約で停止した。人間環境で `sudo xcodebuild -runFirstLaunch`、Android SDK ManagerでNDK `28.2.13676358` 導入、通常権限の `~/.android` / `~/Library/Caches/org.swift.swiftpm` / CoreSimulator利用可能化を行ってから再実行する。出典: task-74完了報告。
 - ADR-010（削除同期表現）の承認。Draftでは、削除tombstoneは暗号blobを空化し、record-id/deleted/HLC/seq等の最小メタデータだけ180日保持、GC窓超過端末は410 Gone + フル再同期、削除/編集競合はHLC比較とする。出典: `docs/05_設計判断記録.md` ADR-010 Draft、`docs/08_Phase2計画書.md` P2-M5。
 - AWS/ECR/Lambda/Neon本番デプロイ実行。クレデンシャル投入、WAF/API GatewayまたはCloudFront前段、実環境の更新は人間帰還後に行う。出典: `docs/08_Phase2計画書.md` §2、§6。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。

@@ -49,6 +49,10 @@ cd app && flutter run
 
 Phase 1の性能検証は `docs/tasks/task-67-performance-verification.md` に記録している。task-67で判明したHome 7140件相当の全行Widget構築ボトルネックは、task-68でHome/TasksのSliver遅延構築へ引き継ぎ、解消済み。
 
+### マルチプラットフォーム検証メモ
+
+Phase 2自律スコープ末尾のマルチプラットフォーム検証は `docs/tasks/task-74-multiplatform-verification.md` に記録している。2026-07-08時点でAndroid Rust FFIの `arm64-v8a` ビルドは成功した。Flutter APK、macOS release、iOS Simulator debugは、ローカル環境のNDK不足、Xcode first launch未完了、SwiftPM/CoreSimulatorのサンドボックス制約によりビルド前に停止した。
+
 ## License
 
 Todoriは [`LICENSE`](./LICENSE)（AGPL-3.0-only）のもとで公開されています。コントリビューションには [`CONTRIBUTING.md`](./CONTRIBUTING.md) および [`CLA.md`](./CLA.md)（Contributor License Agreement）への同意が必要です。
