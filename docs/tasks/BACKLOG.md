@@ -107,12 +107,13 @@
 - **P2-M5後半 task-74完了（2026-07-08）**: Android Rust FFI `arm64-v8a` ビルドは成功し、`libtodori_app_bridge.so` は13MBだった。`flutter build apk --debug` はNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可でビルド前停止。`flutter build macos --release` と `flutter build ios --simulator --debug` はXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約でビルド前停止。reqwest(rustls)、SQLCipher vendored OpenSSL、Apple `security-framework` のAndroidクロスコンパイル漏れは見つからなかった。非Apple platformは暫定 `FileDeviceKeyStore` fallbackであることを確認済み。
 - **task-75 core extraction refactor完了（2026-07-08）**: `app/rust/src/api.rs` から同期run/pull適用/outbox enqueue/HLC tick/plaintext変換/List DEK補完を `core/sync` へ移し、Device Key / Keychain / account secret storeを `core/crypto` へ移した。FRB公開API、SQLite schema、sync wire format、UI文字列は変更していない。
 - **task-76 運用ドキュメント整備完了（2026-07-08）**: `docs/09_運用ガイド.md` と `docs/ops/` 配下のサーバーデプロイ、DB migration、障害対応、クライアントリリースrunbookを追加した。public repo安全のため、公開不可の運用・事業詳細や実クレデンシャルは書かず、必要箇所はプレースホルダとprivate側/人間管理へ分離した。
+- **task-77 Keychain entitlementゼロプロンプト化完了（2026-07-08）**: iOS/macOS Runnerに `keychain-access-groups = $(AppIdentifierPrefix)dev.todori.todori` を追加し、`core/crypto` のData Protection Keychain queryで署名済みアプリのaccess group entitlementを指定するようにした。legacy login keychain + ACLは未署名/entitlementなしmacOS開発ビルド救済として残した。署名手順は `docs/dev/code-signing-setup.md` に記録した。2026-07-09にTeam ID `4DQWW3VH88` 設定・開発証明書発行・WWDR G3導入・pbxprojのCODE_SIGN_IDENTITY上書きを経て、署名付きmacOSビルドと起動2回のゼロプロンプトをプロダクトオーナーが実機確認済み。iOSでの確認のみ残る。
 - **Phase 2計画書改訂（2026-07-08）**: `docs/01_企画書.md` §8と整合させるため、`docs/08_Phase2計画書.md` にP2-M6カレンダー表示、P2-M7タイマー/Pomodoro、P2-M8テンプレート・繰り返しタスクを追加した。課金はApp Store IAPとprivate repo側事業設計を含むため、人間協働必須として自律スコープ外に残す。
 
 ## 帰還後の人間確認リスト
 
 - push（30コミット超）
-- iOS Simulator/実機でのKeychain・通知・同期の通し確認
+- iOS Simulator/実機でのKeychain・通知・同期の通し確認。署名付きKeychainゼロプロンプト検証はmacOS確認済み（2026-07-09）、iOSのみ残る
 - AWS/Neonデプロイ
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断（App Store IAP、private repo側事業設計を含むため人間協働必須）
 - coral/amberピルのコントラスト裁定
@@ -144,12 +145,13 @@
 | 19 | フル再同期とGCホライズンの実装 | 410 Gone、gc_horizon_seq記録、outbox除外スイープ、ADR-010の必須テスト5種を実装する | Phase 2後半 | 出典: ADR-010承認 |
 | 20 | task-75 同期オーケストレーションとKeychainのcore移設 | `api.rs` 肥大化を解消し、同期実体を `core/sync`、Keychain実装を `core/crypto` へ移す | Phase 2 リファクタ | 完了（2026-07-08）。指示書: [`task-75-core-extraction-refactor.md`](./task-75-core-extraction-refactor.md)。挙動変更なし |
 | 21 | task-76 運用ドキュメント整備 | 公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | 運用整備 | 完了（2026-07-08）。指示書: [`task-76-ops-documentation.md`](./task-76-ops-documentation.md)。実AWS/Neonデプロイは未実施 |
-| 22 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
-| 23 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
-| 24 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
-| 25 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
-| 26 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
-| 27 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
+| 22 | task-77 Keychain entitlementゼロプロンプト化 | Data Protection Keychainとkeychain-access-groups entitlementでmacOS/iOS署名済みビルドの起動時Keychainプロンプトをゼロ化する | M5 / セキュリティ後続 | 完了（2026-07-08）。指示書: [`task-77-keychain-entitlement.md`](./task-77-keychain-entitlement.md)。macOS署名付きゼロプロンプト検証完了（2026-07-09）。iOS確認のみ残 |
+| 23 | P2-M6 カレンダー表示 | 月表示/週表示、due/scheduledのプロット、日付変更操作、同期済み2端末での反映を実装する | P2-M6 / F-13 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-13 |
+| 24 | P2-M7 タイマー/Pomodoro | Pomodoro、通常作業タイマー、見積vs実績の記録面、Focus Timer UIを実装する | P2-M7 / F-16〜F-18 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-16〜F-18、`docs/design/visual-direction.md` Focus Timer節 |
+| 25 | P2-M8 テンプレート・繰り返しタスク | テンプレート保存、RRULE準拠の繰り返し生成、streak最小記録、重複生成防止を実装する | P2-M8 / F-19〜F-21 | 出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/02_機能仕様書.md` F-19〜F-21 |
+| 26 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
+| 27 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
+| 28 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -170,6 +172,7 @@
 ## 要人間判断
 
 - iOS Simulator/実機でのKeychain動作通し確認。task-64は親ホストの実Keychain roundtripとmacOS debugアプリ再起動確認まで合格済みだが、iOS Simulator/実機での `flutter run`、アプリ終了/再起動、Keychain鍵保持、SQLCipher DB再オープンは人間帰還後に確認する。出典: task-64完了報告。
+- macOS/iOS署名付きビルドのKeychainゼロプロンプト検証。macOSは2026-07-09に署名付きビルド・起動2回ゼロプロンプトを確認済み。iOS（Simulator/実機）の同確認のみ残る。出典: task-77完了報告 最終追補。
 - Android/macOS/iOSの実ビルド再検証。task-74では、Android Rust FFIは成功したが、Flutter APKはNDK `28.2.13676358` 未導入と `~/.android/cache` 書き込み不可で停止し、macOS/iOSはXcode first launch未完了、SwiftPM cache書き込み不可、CoreSimulator接続不可、`sandbox-exec`制約で停止した。人間環境で `sudo xcodebuild -runFirstLaunch`、Android SDK ManagerでNDK `28.2.13676358` 導入、通常権限の `~/.android` / `~/Library/Caches/org.swift.swiftpm` / CoreSimulator利用可能化を行ってから再実行する。出典: task-74完了報告。
 - AWS/ECR/Lambda/Neon本番デプロイ実行。クレデンシャル投入、WAF/API GatewayまたはCloudFront前段、実環境の更新は人間帰還後に行う。出典: `docs/08_Phase2計画書.md` §2、§6。
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断。App Store IAPとprivate repo側の事業設計を含むため、人間協働必須。出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/billing_overview.md`。

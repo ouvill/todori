@@ -16,6 +16,7 @@ UI面では、丸みや淡い配色を取り入れた親しみやすいデザイ
 - [課金概要](./docs/billing_overview.md)
 - [法務・OSS概要](./docs/legal_overview.md)
 - [運用ガイド](./docs/09_運用ガイド.md)
+- [Apple署名設定メモ](./docs/dev/code-signing-setup.md)
 - [Security Policy](./SECURITY.md)
 
 ## リポジトリ構成
@@ -57,6 +58,10 @@ Phase 2自律スコープ末尾のマルチプラットフォーム検証は `do
 ### core抽出メモ
 
 task-75で同期オーケストレーションは `core/sync`、Device Key / Keychain / account secret store は `core/crypto` へ移した。`app/rust/src/api.rs` はFRB公開関数とDTO変換中心の薄いブリッジ層として維持する。
+
+### Apple Keychain署名メモ
+
+task-77でiOS/macOS Runnerに `keychain-access-groups` entitlementを追加し、署名済みAppleビルドではData Protection Keychainを正規経路として使う。ローカルでゼロプロンプト動作を検証する場合は、[Apple署名設定メモ](./docs/dev/code-signing-setup.md) に従ってXcodeへPersonal Teamを設定する。
 
 ## License
 

@@ -17,6 +17,8 @@ const MASTER_KEY_WRAP_KEYCHAIN_SERVICE: &str = "dev.todori.todori.master-key-wra
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_ACCOUNT: &str = "default";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
+const KEYCHAIN_ACCESS_GROUP_ENTITLEMENT: &str = "keychain-access-groups";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 #[cfg(target_os = "macos")]
 const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
@@ -184,10 +186,17 @@ impl AppleKeychainSecretStore {
                     AccessControlOptions::empty().bits(),
                 )?;
                 options.set_access_control(access_control);
+                if let Some(access_group) = current_keychain_access_group() {
+                    options.set_access_group(&access_group);
+                }
                 options.use_protected_keychain();
             }
             #[cfg(target_os = "macos")]
             KeychainBackend::Legacy => {
+                // The signed production/development path is the Data Protection
+                // Keychain with the app's keychain-access-groups entitlement.
+                // This legacy login-keychain ACL path exists only to keep
+                // unsigned or entitlement-less local macOS builds usable.
                 if _operation == KeychainOperation::Store {
                     add_macos_legacy_trusted_access(&mut options, &self.service)?;
                 }
@@ -368,10 +377,17 @@ impl AppleKeychainDeviceKeyStore {
                     AccessControlOptions::empty().bits(),
                 )?;
                 options.set_access_control(access_control);
+                if let Some(access_group) = current_keychain_access_group() {
+                    options.set_access_group(&access_group);
+                }
                 options.use_protected_keychain();
             }
             #[cfg(target_os = "macos")]
             KeychainBackend::Legacy => {
+                // The signed production/development path is the Data Protection
+                // Keychain with the app's keychain-access-groups entitlement.
+                // This legacy login-keychain ACL path exists only to keep
+                // unsigned or entitlement-less local macOS builds usable.
                 if _operation == KeychainOperation::Store {
                     add_macos_legacy_trusted_access(&mut options, &self.service)?;
                 }
@@ -557,6 +573,52 @@ impl AppleKeychainDeviceKeyStore {
             Err(error) => Err(error),
         }
     }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn current_keychain_access_group() -> Option<String> {
+    use core_foundation::{
+        array::CFArray,
+        base::{CFType, TCFType},
+        string::CFString,
+    };
+    use core_foundation_sys::base::{CFRelease, CFTypeRef};
+    use std::ptr;
+
+    extern "C" {
+        fn SecTaskCreateFromSelf(allocator: CFTypeRef) -> CFTypeRef;
+        fn SecTaskCopyValueForEntitlement(
+            task: CFTypeRef,
+            entitlement: core_foundation_sys::string::CFStringRef,
+            error: *mut CFTypeRef,
+        ) -> CFTypeRef;
+    }
+
+    let task = unsafe { SecTaskCreateFromSelf(ptr::null()) };
+    if task.is_null() {
+        return None;
+    }
+
+    let entitlement = CFString::from_static_string(KEYCHAIN_ACCESS_GROUP_ENTITLEMENT);
+    let value = unsafe {
+        SecTaskCopyValueForEntitlement(task, entitlement.as_concrete_TypeRef(), ptr::null_mut())
+    };
+    unsafe {
+        CFRelease(task);
+    }
+
+    if value.is_null() {
+        return None;
+    }
+
+    let value = unsafe { CFType::wrap_under_create_rule(value) };
+    let groups = value.downcast::<CFArray>()?;
+    let first = groups.get(0)?;
+    let first_value = unsafe { CFType::wrap_under_get_rule((*first) as CFTypeRef) };
+    first_value
+        .downcast::<CFString>()
+        .map(|group| group.to_string())
+        .filter(|group| !group.is_empty())
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
