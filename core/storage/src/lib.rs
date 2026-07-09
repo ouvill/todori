@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 10;
+pub const LATEST_SCHEMA_VERSION: i32 = 11;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -60,6 +60,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_local_crypto_cache",
         apply: add_local_crypto_cache,
     },
+    Migration {
+        target_version: 11,
+        name: "replace_sync_metadata_v2",
+        apply: replace_sync_metadata_v2,
+    },
 ];
 
 #[derive(Debug, Error)]
@@ -70,6 +75,18 @@ pub enum StorageError {
     InvalidStatus(String),
     #[error("invalid undo operation in database: {0}")]
     InvalidUndoOperation(String),
+    #[error("invalid sync state in database: {0}")]
+    InvalidSyncState(String),
+    #[error("invalid sync collection: {0}")]
+    InvalidSyncCollection(String),
+    #[error(
+        "sync record {record_id} belongs to collection {existing}, not requested collection {requested}"
+    )]
+    SyncCollectionMismatch {
+        record_id: Uuid,
+        existing: String,
+        requested: String,
+    },
     #[error("invalid uuid in database: {0}")]
     InvalidUuid(#[from] uuid::Error),
     #[error("invalid task snapshot in database: {0}")]
@@ -167,26 +184,55 @@ pub struct Reminder {
     pub created_at: i64,
 }
 
-/// ACKまでSQLCipher内に保持する送信待ち同期blob。
+/// 未ACKのrecord headに保持する暗号化済みsemantic state。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncOutboxState {
+    Live { mutation_hlc: String, blob: Vec<u8> },
+    Tombstone { delete_hlc: String },
+}
+
+/// recordごとにcoalesceされた未ACKのpush head。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncOutboxEntry {
-    pub id: i64,
+    pub op_id: Uuid,
     pub record_id: Uuid,
     pub collection: String,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: Vec<u8>,
+    pub base_revision_hlc: Option<String>,
+    pub revision_hlc: String,
+    pub state: SyncOutboxState,
     pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSyncOutboxEntry {
+    pub op_id: Uuid,
     pub record_id: Uuid,
     pub collection: String,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: Vec<u8>,
+    pub base_revision_hlc: Option<String>,
+    pub revision_hlc: String,
+    pub state: SyncOutboxState,
     pub created_at: i64,
+}
+
+/// 復号・mergeに使うlocal semantic state。tombstoneは平文を保持しない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncRecordSemanticState {
+    Live {
+        mutation_hlc: String,
+        plaintext_json: String,
+    },
+    Tombstone {
+        delete_hlc: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncRecordState {
+    pub record_id: Uuid,
+    pub collection: String,
+    pub current_revision_hlc: Option<String>,
+    pub state: SyncRecordSemanticState,
+    pub updated_at: i64,
 }
 
 /// テナントDB内のpull cursor。ローカルDBはテナントごとに分離する。
@@ -293,13 +339,19 @@ pub trait ReminderRepository {
 
 /// 同期outboxとpull cursorの永続化を担うリポジトリ。
 pub trait SyncStateRepository {
-    fn enqueue_outbox(
+    fn put_outbox_head(
         &mut self,
         entry: NewSyncOutboxEntry,
     ) -> Result<SyncOutboxEntry, StorageError>;
-    fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError>;
-    fn has_outbox_entry(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError>;
-    fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError>;
+    fn list_outbox_heads(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError>;
+    fn has_outbox_head(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError>;
+    fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError>;
+    fn get_record_state(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<Option<SyncRecordState>, StorageError>;
+    fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError>;
     fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError>;
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError>;
@@ -385,55 +437,35 @@ impl<'connection> SqliteWriteTx<'connection> {
         set_setting_on(&self.transaction, key, value, updated_at)
     }
 
-    pub fn enqueue_outbox(
+    pub fn put_outbox_head(
         &mut self,
         entry: NewSyncOutboxEntry,
     ) -> Result<SyncOutboxEntry, StorageError> {
-        enqueue_outbox_on(&self.transaction, entry)
+        put_outbox_head_on(&self.transaction, entry)
     }
 
-    pub fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
-        list_outbox_on(&self.transaction, limit)
+    pub fn list_outbox_heads(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+        list_outbox_heads_on(&self.transaction, limit)
     }
 
-    pub fn has_outbox_entry(
-        &self,
-        collection: &str,
-        record_id: Uuid,
-    ) -> Result<bool, StorageError> {
-        has_outbox_entry_on(&self.transaction, collection, record_id)
+    pub fn has_outbox_head(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
+        has_outbox_head_on(&self.transaction, collection, record_id)
+    }
+
+    pub fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError> {
+        ack_outbox_op_on(&self.transaction, op_id)
     }
 
     pub fn get_record_state(
         &self,
         collection: &str,
         record_id: Uuid,
-    ) -> Result<Option<String>, StorageError> {
+    ) -> Result<Option<SyncRecordState>, StorageError> {
         get_record_state_on(&self.transaction, collection, record_id)
     }
 
-    pub fn upsert_record_state(
-        &mut self,
-        collection: &str,
-        record_id: Uuid,
-        plaintext_json: &str,
-        updated_at: i64,
-    ) -> Result<(), StorageError> {
-        upsert_record_state_on(
-            &self.transaction,
-            collection,
-            record_id,
-            plaintext_json,
-            updated_at,
-        )
-    }
-
-    pub fn delete_record_state(
-        &mut self,
-        collection: &str,
-        record_id: Uuid,
-    ) -> Result<(), StorageError> {
-        delete_record_state_on(&self.transaction, collection, record_id)
+    pub fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
+        put_record_state_on(&self.transaction, state)
     }
 
     pub fn commit(self) -> Result<(), StorageError> {
@@ -779,6 +811,55 @@ fn add_local_crypto_cache(transaction: &Transaction<'_>) -> rusqlite::Result<()>
            AND trim(account_user.value) <> ''
            AND trim(device.value) <> ''
          LIMIT 1;",
+    )
+}
+
+/// Protocol v2 is intentionally destructive for local sync metadata.
+/// Domain rows and the account-bound crypto cache are left untouched; callers
+/// regenerate v2 seed heads after opening the migrated profile.
+fn replace_sync_metadata_v2(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "DROP TABLE IF EXISTS sync_outbox;
+         DROP TABLE IF EXISTS sync_record_states;
+         DROP TABLE IF EXISTS sync_cursors;
+
+         CREATE TABLE sync_outbox (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             op_id TEXT NOT NULL UNIQUE,
+             base_revision_hlc TEXT,
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             created_at INTEGER NOT NULL,
+             CHECK (
+                 (state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                 OR (state_kind = 'tombstone' AND blob IS NULL)
+             )
+         );
+         CREATE INDEX idx_sync_outbox_stable_order
+             ON sync_outbox(created_at, record_id);
+
+         CREATE TABLE sync_record_states (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             current_revision_hlc TEXT,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             plaintext_json TEXT,
+             updated_at INTEGER NOT NULL,
+             CHECK (
+                 (state_kind = 'live' AND plaintext_json IS NOT NULL)
+                 OR (state_kind = 'tombstone' AND plaintext_json IS NULL)
+             )
+         );
+
+         CREATE TABLE sync_cursors (
+             name TEXT PRIMARY KEY NOT NULL,
+             seq INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );",
     )
 }
 
@@ -2007,55 +2088,45 @@ impl SqliteSyncStateRepository {
         &self,
         collection: &str,
         record_id: Uuid,
-    ) -> Result<Option<String>, StorageError> {
+    ) -> Result<Option<SyncRecordState>, StorageError> {
         get_record_state_on(&self.connection, collection, record_id)
     }
 
-    pub fn upsert_record_state(
-        &mut self,
-        collection: &str,
-        record_id: Uuid,
-        plaintext_json: &str,
-        updated_at: i64,
-    ) -> Result<(), StorageError> {
-        upsert_record_state_on(
-            &self.connection,
-            collection,
-            record_id,
-            plaintext_json,
-            updated_at,
-        )
-    }
-
-    pub fn delete_record_state(
-        &mut self,
-        collection: &str,
-        record_id: Uuid,
-    ) -> Result<(), StorageError> {
-        delete_record_state_on(&self.connection, collection, record_id)
+    pub fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
+        put_record_state_on(&self.connection, state)
     }
 }
 
 impl SyncStateRepository for SqliteSyncStateRepository {
-    fn enqueue_outbox(
+    fn put_outbox_head(
         &mut self,
         entry: NewSyncOutboxEntry,
     ) -> Result<SyncOutboxEntry, StorageError> {
-        enqueue_outbox_on(&self.connection, entry)
+        put_outbox_head_on(&self.connection, entry)
     }
 
-    fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
-        list_outbox_on(&self.connection, limit)
+    fn list_outbox_heads(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+        list_outbox_heads_on(&self.connection, limit)
     }
 
-    fn has_outbox_entry(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
-        has_outbox_entry_on(&self.connection, collection, record_id)
+    fn has_outbox_head(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
+        has_outbox_head_on(&self.connection, collection, record_id)
     }
 
-    fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError> {
-        self.connection
-            .execute("DELETE FROM sync_outbox WHERE id = ?1", [id])?;
-        Ok(())
+    fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError> {
+        ack_outbox_op_on(&self.connection, op_id)
+    }
+
+    fn get_record_state(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<Option<SyncRecordState>, StorageError> {
+        get_record_state_on(&self.connection, collection, record_id)
+    }
+
+    fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
+        put_record_state_on(&self.connection, state)
     }
 
     fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError> {
@@ -2094,123 +2165,207 @@ fn get_record_state_on(
     connection: &Connection,
     collection: &str,
     record_id: Uuid,
-) -> Result<Option<String>, StorageError> {
-    connection
+) -> Result<Option<SyncRecordState>, StorageError> {
+    validate_sync_collection(collection)?;
+    let state = connection
         .query_row(
-            "SELECT plaintext_json
+            "SELECT record_id, collection, current_revision_hlc, state_kind,
+                    semantic_hlc, plaintext_json, updated_at
              FROM sync_record_states
-             WHERE collection = ?1 AND record_id = ?2",
-            params![collection, record_id.to_string()],
-            |row| row.get(0),
+             WHERE record_id = ?1",
+            [record_id.to_string()],
+            row_to_sync_record_state,
         )
-        .optional()
-        .map_err(StorageError::from)
+        .optional()?
+        .transpose()?;
+    if let Some(state) = &state {
+        ensure_requested_collection(record_id, &state.collection, collection)?;
+    }
+    Ok(state)
 }
 
-fn upsert_record_state_on(
+fn put_record_state_on(
     connection: &Connection,
-    collection: &str,
-    record_id: Uuid,
-    plaintext_json: &str,
-    updated_at: i64,
+    state: SyncRecordState,
 ) -> Result<(), StorageError> {
+    validate_sync_collection(&state.collection)?;
+    ensure_sync_collection_matches(connection, state.record_id, &state.collection)?;
+    let (state_kind, semantic_hlc, plaintext_json) = match state.state {
+        SyncRecordSemanticState::Live {
+            mutation_hlc,
+            plaintext_json,
+        } => ("live", mutation_hlc, Some(plaintext_json)),
+        SyncRecordSemanticState::Tombstone { delete_hlc } => ("tombstone", delete_hlc, None),
+    };
     connection.execute(
         "INSERT INTO sync_record_states (
-             collection, record_id, plaintext_json, updated_at
+             record_id, collection, current_revision_hlc, state_kind,
+             semantic_hlc, plaintext_json, updated_at
          ) VALUES (
-             ?1, ?2, ?3, ?4
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7
          )
-         ON CONFLICT(collection, record_id) DO UPDATE SET
+         ON CONFLICT(record_id) DO UPDATE SET
+             collection = excluded.collection,
+             current_revision_hlc = excluded.current_revision_hlc,
+             state_kind = excluded.state_kind,
+             semantic_hlc = excluded.semantic_hlc,
              plaintext_json = excluded.plaintext_json,
              updated_at = excluded.updated_at",
         params![
-            collection,
-            record_id.to_string(),
+            state.record_id.to_string(),
+            state.collection,
+            state.current_revision_hlc,
+            state_kind,
+            semantic_hlc,
             plaintext_json,
-            updated_at
+            state.updated_at,
         ],
     )?;
     Ok(())
 }
 
-fn delete_record_state_on(
-    connection: &Connection,
-    collection: &str,
-    record_id: Uuid,
-) -> Result<(), StorageError> {
-    connection.execute(
-        "DELETE FROM sync_record_states
-         WHERE collection = ?1 AND record_id = ?2",
-        params![collection, record_id.to_string()],
-    )?;
-    Ok(())
-}
-
-fn enqueue_outbox_on(
+fn put_outbox_head_on(
     connection: &Connection,
     entry: NewSyncOutboxEntry,
 ) -> Result<SyncOutboxEntry, StorageError> {
+    validate_sync_collection(&entry.collection)?;
+    ensure_sync_collection_matches(connection, entry.record_id, &entry.collection)?;
+    let (state_kind, semantic_hlc, blob) = match entry.state {
+        SyncOutboxState::Live { mutation_hlc, blob } => ("live", mutation_hlc, Some(blob)),
+        SyncOutboxState::Tombstone { delete_hlc } => ("tombstone", delete_hlc, None),
+    };
     connection.execute(
         "INSERT INTO sync_outbox (
-             record_id, collection, hlc, deleted, blob, created_at
+             record_id, collection, op_id, base_revision_hlc, revision_hlc,
+             state_kind, semantic_hlc, blob, created_at
          ) VALUES (
-             ?1, ?2, ?3, ?4, ?5, ?6
-         )",
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+         )
+         ON CONFLICT(record_id) DO UPDATE SET
+             collection = excluded.collection,
+             op_id = excluded.op_id,
+             base_revision_hlc = excluded.base_revision_hlc,
+             revision_hlc = excluded.revision_hlc,
+             state_kind = excluded.state_kind,
+             semantic_hlc = excluded.semantic_hlc,
+             blob = excluded.blob,
+             created_at = excluded.created_at",
         params![
             entry.record_id.to_string(),
             entry.collection,
-            entry.hlc,
-            entry.deleted,
-            entry.blob,
+            entry.op_id.to_string(),
+            entry.base_revision_hlc,
+            entry.revision_hlc,
+            state_kind,
+            semantic_hlc,
+            blob,
             entry.created_at,
         ],
     )?;
-    let id = connection.last_insert_rowid();
     connection
         .query_row(
-            "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+            "SELECT op_id, record_id, collection, base_revision_hlc,
+                    revision_hlc, state_kind, semantic_hlc, blob, created_at
              FROM sync_outbox
-             WHERE id = ?1",
-            [id],
+             WHERE record_id = ?1",
+            [entry.record_id.to_string()],
             row_to_sync_outbox_entry,
         )
-        .map_err(StorageError::from)
+        .map_err(StorageError::from)?
 }
 
-fn list_outbox_on(
+fn list_outbox_heads_on(
     connection: &Connection,
     limit: usize,
 ) -> Result<Vec<SyncOutboxEntry>, StorageError> {
     let limit = i64::try_from(limit)
         .map_err(|_| StorageError::IncompatibleSchema("outbox limit exceeded i64".to_string()))?;
     let mut statement = connection.prepare(
-        "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+        "SELECT op_id, record_id, collection, base_revision_hlc,
+                revision_hlc, state_kind, semantic_hlc, blob, created_at
          FROM sync_outbox
-         ORDER BY created_at ASC, id ASC
+         ORDER BY created_at ASC, record_id ASC
          LIMIT ?1",
     )?;
     let entries = statement
         .query_map([limit], row_to_sync_outbox_entry)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(entries)
+    entries.into_iter().collect()
 }
 
-fn has_outbox_entry_on(
+fn has_outbox_head_on(
     connection: &Connection,
     collection: &str,
     record_id: Uuid,
 ) -> Result<bool, StorageError> {
-    let exists = connection
+    validate_sync_collection(collection)?;
+    let existing = connection
         .query_row(
-            "SELECT 1
+            "SELECT collection
              FROM sync_outbox
-             WHERE collection = ?1 AND record_id = ?2
-             LIMIT 1",
-            params![collection, record_id.to_string()],
-            |_| Ok(()),
+             WHERE record_id = ?1",
+            [record_id.to_string()],
+            |row| row.get::<_, String>(0),
         )
         .optional()?;
-    Ok(exists.is_some())
+    if let Some(existing) = existing {
+        ensure_requested_collection(record_id, &existing, collection)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+fn ack_outbox_op_on(connection: &Connection, op_id: Uuid) -> Result<bool, StorageError> {
+    let changed = connection.execute(
+        "DELETE FROM sync_outbox WHERE op_id = ?1",
+        [op_id.to_string()],
+    )?;
+    Ok(changed == 1)
+}
+
+fn validate_sync_collection(collection: &str) -> Result<(), StorageError> {
+    match collection {
+        "lists" | "tasks" => Ok(()),
+        other => Err(StorageError::InvalidSyncCollection(other.to_string())),
+    }
+}
+
+fn ensure_sync_collection_matches(
+    connection: &Connection,
+    record_id: Uuid,
+    requested: &str,
+) -> Result<(), StorageError> {
+    let existing = connection
+        .query_row(
+            "SELECT collection FROM sync_record_states WHERE record_id = ?1
+             UNION ALL
+             SELECT collection FROM sync_outbox WHERE record_id = ?1
+             LIMIT 1",
+            [record_id.to_string()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        ensure_requested_collection(record_id, &existing, requested)?;
+    }
+    Ok(())
+}
+
+fn ensure_requested_collection(
+    record_id: Uuid,
+    existing: &str,
+    requested: &str,
+) -> Result<(), StorageError> {
+    if existing == requested {
+        Ok(())
+    } else {
+        Err(StorageError::SyncCollectionMismatch {
+            record_id,
+            existing: existing.to_string(),
+            requested: requested.to_string(),
+        })
+    }
 }
 
 fn ensure_task_exists(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
@@ -2335,17 +2490,63 @@ fn row_to_reminder(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reminder> {
     })
 }
 
-fn row_to_sync_outbox_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncOutboxEntry> {
+fn row_to_sync_outbox_entry(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<SyncOutboxEntry, StorageError>> {
+    let op_id: String = row.get(0)?;
     let record_id: String = row.get(1)?;
-    Ok(SyncOutboxEntry {
-        id: row.get(0)?,
-        record_id: parse_uuid(record_id, 1)?,
-        collection: row.get(2)?,
-        hlc: row.get(3)?,
-        deleted: row.get(4)?,
-        blob: row.get(5)?,
-        created_at: row.get(6)?,
-    })
+    let state_kind: String = row.get(5)?;
+    let semantic_hlc: String = row.get(6)?;
+    let blob: Option<Vec<u8>> = row.get(7)?;
+    Ok((|| {
+        let state = match (state_kind.as_str(), blob) {
+            ("live", Some(blob)) => SyncOutboxState::Live {
+                mutation_hlc: semantic_hlc,
+                blob,
+            },
+            ("tombstone", None) => SyncOutboxState::Tombstone {
+                delete_hlc: semantic_hlc,
+            },
+            (kind, _) => return Err(StorageError::InvalidSyncState(kind.to_string())),
+        };
+        Ok(SyncOutboxEntry {
+            op_id: Uuid::from_str(&op_id)?,
+            record_id: Uuid::from_str(&record_id)?,
+            collection: row.get(2)?,
+            base_revision_hlc: row.get(3)?,
+            revision_hlc: row.get(4)?,
+            state,
+            created_at: row.get(8)?,
+        })
+    })())
+}
+
+fn row_to_sync_record_state(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<SyncRecordState, StorageError>> {
+    let record_id: String = row.get(0)?;
+    let state_kind: String = row.get(3)?;
+    let semantic_hlc: String = row.get(4)?;
+    let plaintext_json: Option<String> = row.get(5)?;
+    Ok((|| {
+        let state = match (state_kind.as_str(), plaintext_json) {
+            ("live", Some(plaintext_json)) => SyncRecordSemanticState::Live {
+                mutation_hlc: semantic_hlc,
+                plaintext_json,
+            },
+            ("tombstone", None) => SyncRecordSemanticState::Tombstone {
+                delete_hlc: semantic_hlc,
+            },
+            (kind, _) => return Err(StorageError::InvalidSyncState(kind.to_string())),
+        };
+        Ok(SyncRecordState {
+            record_id: Uuid::from_str(&record_id)?,
+            collection: row.get(1)?,
+            current_revision_hlc: row.get(2)?,
+            state,
+            updated_at: row.get(6)?,
+        })
+    })())
 }
 
 fn row_to_sync_cursor(row: &rusqlite::Row<'_>) -> rusqlite::Result<SyncCursor> {
@@ -2478,6 +2679,49 @@ mod tests {
         }
     }
 
+    fn new_live_outbox(
+        record_id: Uuid,
+        collection: &str,
+        op_id: Uuid,
+        base_revision_hlc: Option<&str>,
+        revision_hlc: &str,
+        mutation_hlc: &str,
+        blob: Vec<u8>,
+    ) -> NewSyncOutboxEntry {
+        NewSyncOutboxEntry {
+            op_id,
+            record_id,
+            collection: collection.to_string(),
+            base_revision_hlc: base_revision_hlc.map(str::to_string),
+            revision_hlc: revision_hlc.to_string(),
+            state: SyncOutboxState::Live {
+                mutation_hlc: mutation_hlc.to_string(),
+                blob,
+            },
+            created_at: 1_799_000_000_000,
+        }
+    }
+
+    fn live_record_state(
+        record_id: Uuid,
+        collection: &str,
+        current_revision_hlc: Option<&str>,
+        mutation_hlc: &str,
+        plaintext_json: &str,
+        updated_at: i64,
+    ) -> SyncRecordState {
+        SyncRecordState {
+            record_id,
+            collection: collection.to_string(),
+            current_revision_hlc: current_revision_hlc.map(str::to_string),
+            state: SyncRecordSemanticState::Live {
+                mutation_hlc: mutation_hlc.to_string(),
+                plaintext_json: plaintext_json.to_string(),
+            },
+            updated_at,
+        }
+    }
+
     fn open_raw_encrypted(path: &Path, key: &[u8; 32]) -> Connection {
         let connection = Connection::open(path).unwrap();
         apply_sqlcipher_key(&connection, key).unwrap();
@@ -2578,6 +2822,15 @@ mod tests {
         set_user_version(&transaction, 8).unwrap();
         add_sync_record_states(&transaction).unwrap();
         set_user_version(&transaction, 9).unwrap();
+        transaction.commit().unwrap();
+    }
+
+    fn create_v10_database(path: &Path, key: &[u8; 32]) {
+        create_v9_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_local_crypto_cache(&transaction).unwrap();
+        set_user_version(&transaction, 10).unwrap();
         transaction.commit().unwrap();
     }
 
@@ -3218,7 +3471,7 @@ mod tests {
     }
 
     #[test]
-    fn v7_database_migrates_to_v8_and_adds_sync_state_tables() {
+    fn v7_database_migrates_to_latest_sync_state_tables() {
         let file = NamedTempFile::new().unwrap();
         create_v7_database(file.path(), &KEY);
 
@@ -3237,16 +3490,24 @@ mod tests {
             Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
-            sync_outbox_column(&connection, "hlc"),
+            sync_outbox_column(&connection, "op_id"),
             Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
-            sync_outbox_column(&connection, "deleted"),
-            Some(("INTEGER".to_string(), 1))
+            sync_outbox_column(&connection, "base_revision_hlc"),
+            Some(("TEXT".to_string(), 0))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "revision_hlc"),
+            Some(("TEXT".to_string(), 1))
+        );
+        assert_eq!(
+            sync_outbox_column(&connection, "state_kind"),
+            Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
             sync_outbox_column(&connection, "blob"),
-            Some(("BLOB".to_string(), 1))
+            Some(("BLOB".to_string(), 0))
         );
         assert_eq!(
             sync_cursor_column(&connection, "seq"),
@@ -3256,7 +3517,7 @@ mod tests {
     }
 
     #[test]
-    fn v9_database_migrates_to_v10_and_adds_local_crypto_cache() {
+    fn v9_database_migrates_to_latest_and_adds_local_crypto_cache() {
         let file = NamedTempFile::new().unwrap();
         create_v9_database(file.path(), &KEY);
         let tenant_id = Uuid::now_v7();
@@ -3279,7 +3540,10 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
 
-        assert_eq!(read_user_version(&connection).unwrap(), 10);
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
         assert_eq!(
             table_columns(&connection, "local_profile_binding").unwrap(),
             vec![
@@ -3311,6 +3575,64 @@ mod tests {
                 updated_at: 300,
             })
         );
+    }
+
+    #[test]
+    fn v10_migration_discards_v1_sync_metadata_but_preserves_domain_rows() {
+        let file = NamedTempFile::new().unwrap();
+        create_v10_database(file.path(), &KEY);
+        let list = sample_list("a0");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteListRepository::new(connection);
+            repository.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+        {
+            let connection = open_raw_encrypted(file.path(), &KEY);
+            connection
+                .execute(
+                    "INSERT INTO sync_outbox (
+                         record_id, collection, hlc, deleted, blob, created_at
+                     ) VALUES (?1, 'tasks', 'v1-hlc', 0, X'01', 1)",
+                    [task.id.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO sync_record_states (
+                         record_id, collection, plaintext_json, updated_at
+                     ) VALUES (?1, 'tasks', '{}', 1)",
+                    [task.id.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO sync_cursors (name, seq, updated_at)
+                     VALUES ('default', 99, 1)",
+                    [],
+                )
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(get_list_on(&connection, list.id).unwrap(), list);
+        assert_eq!(get_task_on(&connection, task.id).unwrap(), task);
+        let repository = SqliteSyncStateRepository::new(connection);
+        assert!(repository.list_outbox_heads(10).unwrap().is_empty());
+        assert_eq!(repository.get_record_state("tasks", task.id).unwrap(), None);
+        assert_eq!(repository.get_cursor("default").unwrap(), None);
     }
 
     #[test]
@@ -3811,7 +4133,7 @@ mod tests {
         );
         assert_eq!(
             sync_outbox_column(&connection, "blob"),
-            Some(("BLOB".to_string(), 1))
+            Some(("BLOB".to_string(), 0))
         );
         assert_eq!(
             sync_cursor_column(&connection, "name"),
@@ -3866,7 +4188,7 @@ mod tests {
             Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
-            sync_outbox_column(&connection, "hlc"),
+            sync_outbox_column(&connection, "revision_hlc"),
             Some(("TEXT".to_string(), 1))
         );
         assert_eq!(
@@ -3929,71 +4251,177 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_sync_state_repository_keeps_outbox_until_ack_in_stable_order() {
+    fn sqlite_sync_state_repository_coalesces_record_head_and_old_ack_is_safe() {
         let file = NamedTempFile::new().unwrap();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteSyncStateRepository::new(connection);
-        let first_record_id = Uuid::now_v7();
-        let second_record_id = Uuid::now_v7();
+        let record_id = Uuid::now_v7();
+        let first_op_id = Uuid::now_v7();
+        let second_op_id = Uuid::now_v7();
 
-        let first = repository
-            .enqueue_outbox(NewSyncOutboxEntry {
-                record_id: first_record_id,
-                collection: "tasks".to_string(),
-                hlc: "01-first".to_string(),
-                deleted: false,
-                blob: vec![1, 2, 3],
-                created_at: 1_799_000_000_000,
-            })
+        repository
+            .put_outbox_head(new_live_outbox(
+                record_id,
+                "tasks",
+                first_op_id,
+                Some("base-0"),
+                "revision-1",
+                "mutation-1",
+                vec![1, 2, 3],
+            ))
             .unwrap();
         let second = repository
-            .enqueue_outbox(NewSyncOutboxEntry {
-                record_id: second_record_id,
-                collection: "lists".to_string(),
-                hlc: "01-second".to_string(),
-                deleted: true,
-                blob: vec![4, 5, 6],
-                created_at: 1_799_000_000_000,
+            .put_outbox_head(NewSyncOutboxEntry {
+                op_id: second_op_id,
+                record_id,
+                collection: "tasks".to_string(),
+                base_revision_hlc: Some("base-0".to_string()),
+                revision_hlc: "revision-2".to_string(),
+                state: SyncOutboxState::Tombstone {
+                    delete_hlc: "delete-2".to_string(),
+                },
+                created_at: 1_799_000_000_001,
             })
             .unwrap();
 
-        assert_eq!(first.record_id, first_record_id);
-        assert_eq!(second.record_id, second_record_id);
-        assert!(first.id < second.id);
-        assert_eq!(
-            repository.list_outbox(10).unwrap(),
-            vec![first.clone(), second.clone()]
-        );
-        assert_eq!(repository.list_outbox(1).unwrap(), vec![first.clone()]);
-
-        repository.ack_outbox(first.id).unwrap();
-
-        assert_eq!(repository.list_outbox(10).unwrap(), vec![second]);
+        assert_eq!(repository.list_outbox_heads(10).unwrap(), vec![second]);
+        assert!(!repository.ack_outbox_op(first_op_id).unwrap());
+        assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
+        assert!(repository.ack_outbox_op(second_op_id).unwrap());
+        assert!(repository.list_outbox_heads(10).unwrap().is_empty());
+        assert!(!repository.ack_outbox_op(second_op_id).unwrap());
     }
 
     #[test]
-    fn sqlite_sync_state_repository_preserves_outbox_after_reopen() {
+    fn sqlite_sync_state_repository_preserves_tagged_heads_and_states_after_reopen() {
         let file = NamedTempFile::new().unwrap();
         let record_id = Uuid::now_v7();
+        let op_id = Uuid::now_v7();
         let stored = {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut repository = SqliteSyncStateRepository::new(connection);
-            repository
-                .enqueue_outbox(NewSyncOutboxEntry {
+            let stored = repository
+                .put_outbox_head(NewSyncOutboxEntry {
+                    op_id,
                     record_id,
                     collection: "tasks".to_string(),
-                    hlc: "01-reopen".to_string(),
-                    deleted: false,
-                    blob: vec![7, 8, 9],
+                    base_revision_hlc: Some("base-reopen".to_string()),
+                    revision_hlc: "revision-reopen".to_string(),
+                    state: SyncOutboxState::Live {
+                        mutation_hlc: "mutation-reopen".to_string(),
+                        blob: vec![7, 8, 9],
+                    },
                     created_at: 1_799_000_000_000,
                 })
-                .unwrap()
+                .unwrap();
+            repository
+                .put_record_state(SyncRecordState {
+                    record_id,
+                    collection: "tasks".to_string(),
+                    current_revision_hlc: Some("revision-reopen".to_string()),
+                    state: SyncRecordSemanticState::Tombstone {
+                        delete_hlc: "delete-reopen".to_string(),
+                    },
+                    updated_at: 1_799_000_000_001,
+                })
+                .unwrap();
+            stored
         };
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let repository = SqliteSyncStateRepository::new(connection);
 
-        assert_eq!(repository.list_outbox(10).unwrap(), vec![stored]);
+        assert_eq!(repository.list_outbox_heads(10).unwrap(), vec![stored]);
+        assert_eq!(
+            repository.get_record_state("tasks", record_id).unwrap(),
+            Some(SyncRecordState {
+                record_id,
+                collection: "tasks".to_string(),
+                current_revision_hlc: Some("revision-reopen".to_string()),
+                state: SyncRecordSemanticState::Tombstone {
+                    delete_hlc: "delete-reopen".to_string(),
+                },
+                updated_at: 1_799_000_000_001,
+            })
+        );
+    }
+
+    #[test]
+    fn sqlite_sync_state_rejects_unknown_and_changed_collections() {
+        let file = NamedTempFile::new().unwrap();
+        let record_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+
+        assert!(matches!(
+            repository.put_outbox_head(new_live_outbox(
+                record_id,
+                "unknown",
+                Uuid::now_v7(),
+                None,
+                "revision-1",
+                "mutation-1",
+                vec![1],
+            )),
+            Err(StorageError::InvalidSyncCollection(collection)) if collection == "unknown"
+        ));
+
+        repository
+            .put_record_state(live_record_state(
+                record_id,
+                "tasks",
+                None,
+                "mutation-1",
+                "{}",
+                1,
+            ))
+            .unwrap();
+        assert!(matches!(
+            repository.put_outbox_head(new_live_outbox(
+                record_id,
+                "lists",
+                Uuid::now_v7(),
+                None,
+                "revision-2",
+                "mutation-2",
+                vec![2],
+            )),
+            Err(StorageError::SyncCollectionMismatch {
+                record_id: mismatch_id,
+                existing,
+                requested,
+            }) if mismatch_id == record_id && existing == "tasks" && requested == "lists"
+        ));
+        assert!(matches!(
+            repository.get_record_state("lists", record_id),
+            Err(StorageError::SyncCollectionMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn sync_v2_schema_rejects_malformed_live_and_tombstone_rows() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let record_id = Uuid::now_v7();
+        let op_id = Uuid::now_v7();
+
+        let live_without_blob = connection.execute(
+            "INSERT INTO sync_outbox (
+                 record_id, collection, op_id, revision_hlc,
+                 state_kind, semantic_hlc, blob, created_at
+             ) VALUES (?1, 'tasks', ?2, 'revision', 'live', 'mutation', NULL, 1)",
+            params![record_id.to_string(), op_id.to_string()],
+        );
+        assert!(live_without_blob.is_err());
+
+        let tombstone_with_plaintext = connection.execute(
+            "INSERT INTO sync_record_states (
+                 record_id, collection, current_revision_hlc,
+                 state_kind, semantic_hlc, plaintext_json, updated_at
+             ) VALUES (?1, 'tasks', 'revision', 'tombstone', 'delete', '{}', 1)",
+            [record_id.to_string()],
+        );
+        assert!(tombstone_with_plaintext.is_err());
     }
 
     #[test]
@@ -5125,25 +5553,29 @@ mod tests {
         write_tx
             .set_setting("sync_local_hlc", "encoded-hlc", edited.updated_at)
             .unwrap();
+        let op_id = Uuid::now_v7();
         write_tx
-            .enqueue_outbox(NewSyncOutboxEntry {
-                record_id: task.id,
-                collection: "tasks".to_string(),
-                hlc: "encoded-hlc".to_string(),
-                deleted: false,
-                blob: vec![1, 2, 3],
-                created_at: edited.updated_at,
-            })
+            .put_outbox_head(new_live_outbox(
+                task.id,
+                "tasks",
+                op_id,
+                None,
+                "encoded-hlc",
+                "encoded-hlc",
+                vec![1, 2, 3],
+            ))
             .unwrap();
         write_tx
-            .upsert_record_state(
-                "tasks",
+            .put_record_state(live_record_state(
                 task.id,
+                "tasks",
+                Some("encoded-hlc"),
+                "encoded-hlc",
                 r#"{"title":"Transactional edit"}"#,
                 edited.updated_at,
-            )
+            ))
             .unwrap();
-        assert_eq!(write_tx.list_outbox(10).unwrap().len(), 1);
+        assert_eq!(write_tx.list_outbox_heads(10).unwrap().len(), 1);
         write_tx.commit().unwrap();
         drop(connection);
 
@@ -5162,10 +5594,17 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert_eq!(sync.list_outbox(10).unwrap().len(), 1);
+        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         assert_eq!(
-            sync.get_record_state("tasks", task.id).unwrap().as_deref(),
-            Some(r#"{"title":"Transactional edit"}"#)
+            sync.get_record_state("tasks", task.id).unwrap(),
+            Some(live_record_state(
+                task.id,
+                "tasks",
+                Some("encoded-hlc"),
+                "encoded-hlc",
+                r#"{"title":"Transactional edit"}"#,
+                edited.updated_at,
+            ))
         );
     }
 
@@ -5200,22 +5639,25 @@ mod tests {
                 .set_setting("sync_local_hlc", "rolled-back-hlc", edited.updated_at)
                 .unwrap();
             write_tx
-                .enqueue_outbox(NewSyncOutboxEntry {
-                    record_id: task.id,
-                    collection: "tasks".to_string(),
-                    hlc: "rolled-back-hlc".to_string(),
-                    deleted: false,
-                    blob: vec![4, 5, 6],
-                    created_at: edited.updated_at,
-                })
+                .put_outbox_head(new_live_outbox(
+                    task.id,
+                    "tasks",
+                    Uuid::now_v7(),
+                    None,
+                    "rolled-back-hlc",
+                    "rolled-back-hlc",
+                    vec![4, 5, 6],
+                ))
                 .unwrap();
             write_tx
-                .upsert_record_state(
-                    "tasks",
+                .put_record_state(live_record_state(
                     task.id,
+                    "tasks",
+                    Some("rolled-back-hlc"),
+                    "rolled-back-hlc",
                     r#"{"title":"Rolled back edit"}"#,
                     edited.updated_at,
-                )
+                ))
                 .unwrap();
         }
         drop(connection);
@@ -5233,7 +5675,7 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert!(sync.list_outbox(10).unwrap().is_empty());
+        assert!(sync.list_outbox_heads(10).unwrap().is_empty());
         assert_eq!(sync.get_record_state("tasks", task.id).unwrap(), None);
     }
 
