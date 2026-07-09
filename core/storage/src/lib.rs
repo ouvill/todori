@@ -182,6 +182,7 @@ pub trait TaskRepository {
     fn get(&self, id: Uuid) -> Result<Task, StorageError>;
     fn insert(&mut self, task: Task) -> Result<(), StorageError>;
     fn update(&mut self, task: Task) -> Result<(), StorageError>;
+    fn list_all_for_sync(&self) -> Result<Vec<Task>, StorageError>;
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError>;
     fn list_home(
         &self,
@@ -243,9 +244,11 @@ pub trait SyncStateRepository {
         entry: NewSyncOutboxEntry,
     ) -> Result<SyncOutboxEntry, StorageError>;
     fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError>;
+    fn has_outbox_entry(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError>;
     fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError>;
     fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError>;
+    fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError>;
 }
 
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
@@ -834,6 +837,22 @@ impl TaskRepository for SqliteTaskRepository {
 
     fn update(&mut self, task: Task) -> Result<(), StorageError> {
         update_task_on(&self.connection, &task)
+    }
+
+    fn list_all_for_sync(&self) -> Result<Vec<Task>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, list_id, parent_task_id, title, note, status, priority,
+                    due_at, scheduled_at, estimated_minutes, sort_order,
+                    completed_at, closed_reason, deleted_at, assignee,
+                    created_at, updated_at
+             FROM tasks
+             ORDER BY created_at ASC, id ASC",
+        )?;
+        let tasks = statement
+            .query_map([], row_to_task)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        Ok(tasks)
     }
 
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
@@ -1649,6 +1668,21 @@ impl SyncStateRepository for SqliteSyncStateRepository {
         Ok(entries)
     }
 
+    fn has_outbox_entry(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
+        let exists = self
+            .connection
+            .query_row(
+                "SELECT 1
+                 FROM sync_outbox
+                 WHERE collection = ?1 AND record_id = ?2
+                 LIMIT 1",
+                params![collection, record_id.to_string()],
+                |_| Ok(()),
+            )
+            .optional()?;
+        Ok(exists.is_some())
+    }
+
     fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError> {
         self.connection
             .execute("DELETE FROM sync_outbox WHERE id = ?1", [id])?;
@@ -1677,6 +1711,12 @@ impl SyncStateRepository for SqliteSyncStateRepository {
                  updated_at = excluded.updated_at",
             params![name, seq, updated_at],
         )?;
+        Ok(())
+    }
+
+    fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError> {
+        self.connection
+            .execute("DELETE FROM sync_cursors WHERE name = ?1", [name])?;
         Ok(())
     }
 }

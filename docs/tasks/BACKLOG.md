@@ -152,6 +152,8 @@
 | 26 | CLI実接続 | `cli/` から `core/domain` / `core/storage` / `core/sync` 経由でタスクCRUD・同期を操作可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため |
 | 27 | MCPサーバー実接続 | `mcp-server/` をMCPプロトコル実装し、AIエージェントからTodori操作（タスクCRUD・検索・同期）を可能にする | Phase 3 | 出典: 2026-07-08人間承認。task-75でcore移設が完了し再利用可能になったため。FTS5検索API(task-62)と同期エンジン(task-72)が土台 |
 | 28 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
+| 29 | サーバーのデバイス行重複排除 | 現状ログインのたびにpublic_keyの異なる新デバイス行が作成される。同一インストールからの再ログインでデバイス行を再利用する設計を検討する | Phase 2後半 / アカウント運用 | 出典: 2026-07-10実機同期確認で同一ユーザーに4デバイス行を確認 |
+| 30 | デフォルトリスト（Inbox）の2端末マージ後の重複解消 | 各端末が別UUIDのInboxを持つため、バックフィル同期後に両端末でInboxが2つ並ぶ。`is_default` の一意化またはマージ方針の裁定が必要 | Phase 2後半 / 同期UX | 出典: 2026-07-10初回バックフィル設計ギャップ修正時の既知課題。要人間判断にも記録 |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
@@ -178,3 +180,4 @@
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断。App Store IAPとprivate repo側の事業設計を含むため、人間協働必須。出典: `docs/08_Phase2計画書.md` 2026-07-08改訂、`docs/billing_overview.md`。
 - タスク行右側affordanceの将来形（chevron継続か、Focus開始ボタンか）。出典: `docs/design/visual-direction.md` Focus Timer節 / `docs/design/ui-spec.md` セクション6。
 - リストの型の区別（プロジェクト型=完了・アーカイブしうる大タスク / エリア型=継続する生活領域）の要否とUI上の使い分け。アーカイブ機能自体は2026-07-07人間裁定（削除モデル）によりPhase 1導入が確定済み（task-37）。型の区別づけはPhase 3検討。出典: 2026-07-07人間コメント（task-35削除セマンティクス検討時）。
+- デフォルトリスト（Inbox）の2端末マージ後の重複解消方針。各端末が別UUIDのInboxを作成するため、初回バックフィル同期後にInboxが複数並ぶ。`is_default` の一意化、どちらかへのマージ、表示上の統合などプロダクト判断が必要。出典: 2026-07-10初回バックフィル設計ギャップ修正。

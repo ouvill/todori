@@ -13,6 +13,9 @@ use crate::enqueue::{
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
+const PUSH_BATCH_LIMIT: usize = 100;
+const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSyncContext {
     pub server_url: String,
@@ -39,32 +42,37 @@ where
     .map_err(|_| "sync failed".to_string())?;
     let mut summary = SyncRunSummary::default();
 
-    let outbox = store.list_outbox(100)?;
-    summary.pushed_count = outbox.len();
-    let push_ops = outbox
-        .into_iter()
-        .map(|entry| PushOp {
-            outbox_id: entry.id,
-            record_id: entry.record_id,
-            collection: entry.collection,
-            hlc: entry.hlc,
-            deleted: entry.deleted,
-            blob: entry.blob,
-        })
-        .collect::<Vec<_>>();
-    let push_outcome = engine
-        .push_batch(push_ops)
-        .await
-        .map_err(|_| "sync failed".to_string())?;
-    for outcome in push_outcome.outcomes {
-        match outcome.status {
-            PushStatus::Accepted | PushStatus::NoOp => {
-                store.ack_outbox(outcome.outbox_id)?;
-                summary.push_acked_count += 1;
-            }
-            PushStatus::Superseded => {
-                store.ack_outbox(outcome.outbox_id)?;
-                summary.push_superseded_count += 1;
+    for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
+        let outbox = store.list_outbox(PUSH_BATCH_LIMIT)?;
+        if outbox.is_empty() {
+            break;
+        }
+        summary.pushed_count += outbox.len();
+        let push_ops = outbox
+            .into_iter()
+            .map(|entry| PushOp {
+                outbox_id: entry.id,
+                record_id: entry.record_id,
+                collection: entry.collection,
+                hlc: entry.hlc,
+                deleted: entry.deleted,
+                blob: entry.blob,
+            })
+            .collect::<Vec<_>>();
+        let push_outcome = engine
+            .push_batch(push_ops)
+            .await
+            .map_err(|_| "sync failed".to_string())?;
+        for outcome in push_outcome.outcomes {
+            match outcome.status {
+                PushStatus::Accepted | PushStatus::NoOp => {
+                    store.ack_outbox(outcome.outbox_id)?;
+                    summary.push_acked_count += 1;
+                }
+                PushStatus::Superseded => {
+                    store.ack_outbox(outcome.outbox_id)?;
+                    summary.push_superseded_count += 1;
+                }
             }
         }
     }

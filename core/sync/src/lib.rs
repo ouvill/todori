@@ -20,8 +20,8 @@ pub use engine::{
     SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
-    enqueue_list_sync, enqueue_task_sync, LocalSyncOutboxEntry, LocalSyncStore,
-    NewLocalSyncOutboxEntry,
+    enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary, LocalSyncOutboxEntry,
+    LocalSyncStore, NewLocalSyncOutboxEntry,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,

@@ -11,11 +11,11 @@ use todori_crypto::{
 use todori_domain::Uuid;
 use todori_storage::{
     open_encrypted, ListRepository, SettingsRepository, SqliteListRepository,
-    SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
+    SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository, TaskRepository,
 };
 use todori_sync::{
     account::{AccountClient, AccountKeyMaterial},
-    ActiveSyncContext, LocalSyncKeys, SyncRunSummary,
+    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary,
 };
 use zeroize::Zeroize;
 
@@ -35,6 +35,7 @@ const ACCOUNT_USER_ID_SETTING_KEY: &str = "account_user_id";
 const ACCOUNT_TENANT_ID_SETTING_KEY: &str = "account_tenant_id";
 const ACCOUNT_DEVICE_ID_SETTING_KEY: &str = "account_device_id";
 const ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY: &str = "account_session_expires_at";
+const INITIAL_BACKFILL_CURSOR_NAME: &str = "initial_backfill";
 
 pub(crate) struct CoreState {
     pub(crate) db_dir: PathBuf,
@@ -414,6 +415,7 @@ fn account_auth(
             )?;
             let recovery_key = outcome.recovery_key.to_string();
             replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+            reset_initial_backfill_cursor()?;
             return Ok(AccountAuthResultDto {
                 session,
                 recovery_key: Some(recovery_key),
@@ -443,6 +445,7 @@ fn account_auth(
         &outcome.local_wrapped_master_key,
     )?;
     replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+    reset_initial_backfill_cursor()?;
     Ok(AccountAuthResultDto {
         session,
         recovery_key: None,
@@ -450,11 +453,48 @@ fn account_auth(
 }
 
 fn run_sync_now() -> Result<SyncRunSummary, String> {
+    run_initial_backfill_if_needed()?;
     let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
     let mut now = now_ms;
     run_async(todori_sync::run_sync_now(context, &mut store, &mut now))
+}
+
+fn run_initial_backfill_if_needed() -> Result<(), String> {
+    if active_sync_context().is_none() {
+        return Ok(());
+    }
+    let state = core_state()?;
+    let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
+    if store
+        .get_cursor_seq(INITIAL_BACKFILL_CURSOR_NAME)?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    let lists = local_lists_including_archived()?;
+    for list in &lists {
+        ensure_list_dek_for_list(list.id)?;
+    }
+    let tasks = with_task_repository(|repository| {
+        repository
+            .list_all_for_sync()
+            .map_err(|error| error.to_string())
+    })?;
+    let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
+    let mut now = now_ms;
+    todori_sync::enqueue_backfill(
+        &mut store,
+        &context.keys,
+        &context.device_id,
+        &lists,
+        &tasks,
+        &mut now,
+    )?;
+    store.set_cursor(INITIAL_BACKFILL_CURSOR_NAME, 1, now_ms()?)?;
+    Ok(())
 }
 
 fn active_sync_context() -> Option<ActiveSyncContext> {
@@ -487,6 +527,13 @@ fn has_active_sync_context() -> bool {
 }
 
 fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
+    Ok(local_lists_including_archived()?
+        .into_iter()
+        .map(|list| list.id)
+        .collect())
+}
+
+fn local_lists_including_archived() -> Result<Vec<todori_domain::List>, String> {
     with_list_repository(|repository| {
         let mut lists = repository.list_all().map_err(|error| error.to_string())?;
         lists.extend(
@@ -494,8 +541,14 @@ fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
                 .list_archived()
                 .map_err(|error| error.to_string())?,
         );
-        Ok(lists.into_iter().map(|list| list.id).collect())
+        Ok(lists)
     })
+}
+
+fn reset_initial_backfill_cursor() -> Result<(), String> {
+    let state = core_state()?;
+    let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
+    store.delete_cursor(INITIAL_BACKFILL_CURSOR_NAME)
 }
 
 fn persist_account_state(

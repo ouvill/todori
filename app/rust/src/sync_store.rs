@@ -42,6 +42,14 @@ impl LocalSyncStore for BridgeSyncStore {
         })
     }
 
+    fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .has_outbox_entry(collection, record_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository.ack_outbox(id).map_err(|error| error.to_string())
@@ -61,6 +69,14 @@ impl LocalSyncStore for BridgeSyncStore {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
                 .set_cursor(name, seq, updated_at)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn delete_cursor(&mut self, name: &str) -> Result<(), String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_cursor(name)
                 .map_err(|error| error.to_string())
         })
     }
