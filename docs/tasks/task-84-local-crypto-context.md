@@ -84,5 +84,5 @@ task-83のtransactional task editは、再起動後にList DEKがRAMへ復元さ
 - 作業日: 2026-07-10
 - 結果: schema v10へtenant/user/deviceのprofile bindingとList DEK cacheを追加した。cache ciphertextはMKでwrapしlist IDをAADへ含める。register/login/refreshで全件検証後にtransactional replaceし、再起動・session期限切れ・logout後も既存Listのlocal mutationはsession非依存contextからoutboxを生成する。cache欠落/破損、別account、別tenant row、旧account stateの途中書込はAnonymousへ降格せずfail closedする。offline list作成はkey upload queue未実装のためrow作成前に明示失敗する。
 - 証拠: `todori-client` 8 test、`todori-storage` 57 test成功/1件ignored、`todori-sync` 39 test、`todori-crypto` 29 test成功/1件ignored。`cargo test --workspace`（Docker/Testcontainers 5件を含む）、`cargo clippy --workspace -- -D warnings`、Rust release build、`flutter analyze`、`flutter test` 124件、hardcoded strings check、`git diff --check`成功。独立verifierでP1なしを確認した。
-- Commit: 未コミット
+- Commit: `72adaf1`
 - 未解決: v9既存accountはbindingを自動移行するが、旧schemaにList DEK cacheがないため次回loginでcacheを補完するまでfail closedする。残りCRUDの同一transaction移行、offline list作成用key-bundle upload queue、production 2-client fixture、bridge状態分岐の直接test、`LocalSyncKeys` drop時zeroizeは後続。protocol v2 field clock / placementとcascade deleteも未実装。
