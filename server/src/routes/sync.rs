@@ -9,19 +9,25 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    sync::{self, PullResponse, PushRequest, PushResponse, UpsertListKeyResponse},
+    sync::{self, UpsertListKeyResponse},
     AppError, SharedState,
 };
-use todori_sync::account::ListDekBundleDto;
+use todori_sync::{
+    account::ListDekBundleDto,
+    protocol::{PullResponse, PushRequest, PushResponse},
+};
 
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
-        .route(
-            "/{tenant_id}/list-keys",
-            get(list_key_bundles).post(upsert_list_key_bundle),
-        )
+}
+
+pub fn key_router() -> Router<SharedState> {
+    Router::new().route(
+        "/{tenant_id}/list-keys",
+        get(list_key_bundles).post(upsert_list_key_bundle),
+    )
 }
 
 #[derive(Debug, Deserialize)]

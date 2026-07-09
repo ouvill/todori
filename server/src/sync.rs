@@ -1,9 +1,17 @@
+use std::{collections::HashSet, str::FromStr};
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_sync::{account::ListDekBundleDto, Hlc, MAX_ENCRYPTED_BLOB_LEN};
+use todori_sync::{
+    account::ListDekBundleDto,
+    protocol::{
+        PullResponse, PushOp, PushRequest, PushResponse, PushResult, PushStatus, SyncCollection,
+        SyncRecord, SyncRecordState,
+    },
+    Hlc, MAX_ENCRYPTED_BLOB_LEN,
+};
 use uuid::Uuid;
 
 use crate::{auth::AuthContext, AppError};
@@ -14,74 +22,35 @@ pub const DEFAULT_PULL_LIMIT: i64 = 100;
 pub const TOMBSTONE_RETENTION_DAYS: i64 = 180;
 const ALLOWED_FUTURE_SKEW_MS: i64 = 5 * 60 * 1000;
 
-#[derive(Debug, Deserialize)]
-pub struct PushRequest {
-    pub ops: Vec<PushOpRequest>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PushOpRequest {
-    pub record_id: Uuid,
-    pub collection: String,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PushResponse {
-    pub results: Vec<PushOpResult>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PushOpResult {
-    pub record_id: Uuid,
-    pub status: PushStatus,
-    pub seq: Option<i64>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PushStatus {
-    Accepted,
-    Superseded,
-    NoOp,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PullResponse {
-    pub records: Vec<PullRecord>,
-    pub next_since: i64,
-    pub has_more: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PullRecord {
-    pub record_id: Uuid,
-    pub collection: String,
-    pub seq: i64,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct UpsertListKeyResponse {}
 
-struct PushOp {
+struct ValidatedPushOp {
+    op_id: Uuid,
     record_id: Uuid,
-    collection: String,
-    hlc: String,
-    deleted: bool,
-    blob: Vec<u8>,
+    collection: SyncCollection,
+    base_revision_hlc: Option<String>,
+    revision_hlc: String,
+    state: StoredState,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum StoredState {
+    Live {
+        mutation_hlc: String,
+        encrypted_blob: Vec<u8>,
+    },
+    Tombstone {
+        delete_hlc: String,
+    },
 }
 
 struct StoredRecord {
-    collection: String,
+    record_id: Uuid,
+    collection: SyncCollection,
     seq: i64,
-    hlc: String,
-    encrypted_blob: Vec<u8>,
-    deleted: bool,
+    revision_hlc: String,
+    state: StoredState,
 }
 
 pub async fn push(
@@ -93,17 +62,22 @@ pub async fn push(
     if request.ops.len() > MAX_PUSH_OPS {
         return Err(AppError::bad_request("push batch too large"));
     }
+    let mut op_ids = HashSet::with_capacity(request.ops.len());
     let ops = request
         .ops
         .into_iter()
-        .map(validate_push_op)
+        .map(|op| {
+            if !op_ids.insert(op.op_id) {
+                return Err(AppError::bad_request("duplicate op id"));
+            }
+            validate_push_op(op)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut tx = pool.begin().await?;
     let mut results = Vec::with_capacity(ops.len());
     for op in ops {
-        let result = apply_push_op(&mut tx, tenant_id, auth.user_id, op).await?;
-        results.push(result);
+        results.push(apply_push_op(&mut tx, tenant_id, auth.user_id, op).await?);
     }
     tx.commit().await?;
     Ok(PushResponse { results })
@@ -125,7 +99,8 @@ pub async fn pull(
     }
 
     let rows = query::<Postgres>(
-        "SELECT record_id, collection, seq, hlc, deleted, encrypted_blob
+        "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
+                delete_hlc, encrypted_blob
          FROM sync_records
          WHERE tenant_id = $1 AND seq > $2
          ORDER BY seq ASC
@@ -138,22 +113,12 @@ pub async fn pull(
     .await?;
 
     let has_more = rows.len() as i64 > limit;
-    let mut records = Vec::with_capacity(rows.len().min(limit as usize));
-    for row in rows.into_iter().take(limit as usize) {
-        let blob: Vec<u8> = row
-            .try_get("encrypted_blob")
-            .map_err(|_| AppError::internal())?;
-        records.push(PullRecord {
-            record_id: row.try_get("record_id").map_err(|_| AppError::internal())?,
-            collection: row
-                .try_get("collection")
-                .map_err(|_| AppError::internal())?,
-            seq: row.try_get("seq").map_err(|_| AppError::internal())?,
-            hlc: row.try_get("hlc").map_err(|_| AppError::internal())?,
-            deleted: row.try_get("deleted").map_err(|_| AppError::internal())?,
-            blob: STANDARD.encode(blob),
-        });
-    }
+    let records = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(stored_record_from_row)
+        .map(|record| record.map(StoredRecord::into_wire))
+        .collect::<Result<Vec<_>, _>>()?;
     let next_since = records.last().map(|record| record.seq).unwrap_or(since);
 
     query::<Postgres>("UPDATE devices SET last_pull_at = now() WHERE id = $1 AND user_id = $2")
@@ -228,7 +193,7 @@ pub async fn list_key_bundles(
 pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, AppError> {
     let result = query::<Postgres>(
         "DELETE FROM sync_records
-         WHERE deleted = true AND updated_at < $1",
+         WHERE delete_hlc IS NOT NULL AND updated_at < $1",
     )
     .bind(cutoff)
     .execute(pool)
@@ -236,103 +201,207 @@ pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, 
     Ok(result.rows_affected())
 }
 
-fn validate_push_op(op: PushOpRequest) -> Result<PushOp, AppError> {
-    if op.collection.trim().is_empty() || op.collection.len() > 64 {
-        return Err(AppError::bad_request("invalid collection"));
+fn validate_push_op(op: PushOp) -> Result<ValidatedPushOp, AppError> {
+    validate_hlc(&op.revision_hlc)?;
+    if let Some(base) = &op.base_revision_hlc {
+        validate_hlc(base)?;
     }
-    let blob = STANDARD
-        .decode(&op.blob)
-        .map_err(|_| AppError::bad_request("invalid blob"))?;
-    if blob.len() > MAX_ENCRYPTED_BLOB_LEN {
-        return Err(AppError::bad_request("blob too large"));
-    }
-    let hlc = Hlc::decode(&op.hlc).map_err(|_| AppError::bad_request("invalid hlc"))?;
+    let state = match op.state {
+        SyncRecordState::Live { mutation_hlc, blob } => {
+            validate_hlc(&mutation_hlc)?;
+            if op.revision_hlc < mutation_hlc {
+                return Err(AppError::bad_request(
+                    "revision clock precedes semantic clock",
+                ));
+            }
+            let encrypted_blob = STANDARD
+                .decode(blob)
+                .map_err(|_| AppError::bad_request("invalid blob"))?;
+            if encrypted_blob.is_empty() {
+                return Err(AppError::bad_request("invalid live blob"));
+            }
+            if encrypted_blob.len() > MAX_ENCRYPTED_BLOB_LEN {
+                return Err(AppError::bad_request("blob too large"));
+            }
+            StoredState::Live {
+                mutation_hlc,
+                encrypted_blob,
+            }
+        }
+        SyncRecordState::Tombstone { delete_hlc } => {
+            validate_hlc(&delete_hlc)?;
+            if op.revision_hlc < delete_hlc {
+                return Err(AppError::bad_request(
+                    "revision clock precedes semantic clock",
+                ));
+            }
+            StoredState::Tombstone { delete_hlc }
+        }
+    };
+    Ok(ValidatedPushOp {
+        op_id: op.op_id,
+        record_id: op.record_id,
+        collection: op.collection,
+        base_revision_hlc: op.base_revision_hlc,
+        revision_hlc: op.revision_hlc,
+        state,
+    })
+}
+
+fn validate_hlc(value: &str) -> Result<(), AppError> {
+    let hlc = Hlc::decode(value).map_err(|_| AppError::bad_request("invalid hlc"))?;
     if hlc.exceeds_future_skew(Utc::now().timestamp_millis(), ALLOWED_FUTURE_SKEW_MS) {
         return Err(AppError::bad_request("hlc too far in future"));
     }
-    Ok(PushOp {
-        record_id: op.record_id,
-        collection: op.collection,
-        hlc: op.hlc,
-        deleted: op.deleted,
-        blob: if op.deleted { Vec::new() } else { blob },
-    })
+    Ok(())
 }
 
 async fn apply_push_op(
     tx: &mut PgTransaction<'_>,
     tenant_id: Uuid,
     author_user_id: Uuid,
-    op: PushOp,
-) -> Result<PushOpResult, AppError> {
+    op: ValidatedPushOp,
+) -> Result<PushResult, AppError> {
+    lock_tenant_sequence(tx, tenant_id).await?;
     let stored = fetch_stored_record(tx, tenant_id, op.record_id).await?;
-    match stored {
-        None => {
-            let seq = next_tenant_seq(tx, tenant_id).await?;
-            query::<Postgres>(
-                "INSERT INTO sync_records
-                 (tenant_id, record_id, collection, seq, hlc, encrypted_blob, deleted)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            )
-            .bind(tenant_id)
-            .bind(op.record_id)
-            .bind(&op.collection)
-            .bind(seq)
-            .bind(&op.hlc)
-            .bind(&op.blob)
-            .bind(op.deleted)
-            .execute(&mut **tx)
-            .await?;
-            Ok(PushOpResult {
-                record_id: op.record_id,
-                status: PushStatus::Accepted,
-                seq: Some(seq),
-            })
+    let Some(stored) = stored else {
+        if op.base_revision_hlc.is_some() {
+            return Ok(op.result(PushStatus::Conflict, None));
         }
-        Some(stored) if op.hlc > stored.hlc => {
-            insert_history(tx, tenant_id, op.record_id, author_user_id, &stored).await?;
-            let seq = next_tenant_seq(tx, tenant_id).await?;
-            query::<Postgres>(
-                "UPDATE sync_records
-                 SET collection = $3, seq = $4, hlc = $5, encrypted_blob = $6,
-                     deleted = $7, updated_at = now()
-                 WHERE tenant_id = $1 AND record_id = $2",
-            )
-            .bind(tenant_id)
-            .bind(op.record_id)
-            .bind(&op.collection)
-            .bind(seq)
-            .bind(&op.hlc)
-            .bind(&op.blob)
-            .bind(op.deleted)
-            .execute(&mut **tx)
-            .await?;
-            Ok(PushOpResult {
-                record_id: op.record_id,
-                status: PushStatus::Accepted,
-                seq: Some(seq),
-            })
-        }
-        Some(stored) if op.hlc == stored.hlc => {
-            if op.collection == stored.collection
-                && op.deleted == stored.deleted
-                && op.blob == stored.encrypted_blob
-            {
-                Ok(PushOpResult {
-                    record_id: op.record_id,
-                    status: PushStatus::NoOp,
-                    seq: Some(stored.seq),
-                })
-            } else {
-                Err(AppError::conflict("same hlc with different record content"))
-            }
-        }
-        Some(stored) => Ok(PushOpResult {
-            record_id: op.record_id,
-            status: PushStatus::Superseded,
-            seq: Some(stored.seq),
-        }),
+        let seq = next_tenant_seq(tx, tenant_id).await?;
+        insert_record(tx, tenant_id, &op, seq).await?;
+        return Ok(op.result(PushStatus::Accepted, Some((seq, None))));
+    };
+
+    if stored.collection != op.collection {
+        return Err(AppError::bad_request("record collection is immutable"));
     }
+    if stored.revision_hlc == op.revision_hlc && stored.state == op.state {
+        return Ok(op.result(PushStatus::NoOp, Some((stored.seq, None))));
+    }
+    if stored.revision_hlc == op.revision_hlc
+        || op.base_revision_hlc.as_deref() != Some(stored.revision_hlc.as_str())
+        || op.revision_hlc <= stored.revision_hlc
+    {
+        let seq = stored.seq;
+        return Ok(op.result(PushStatus::Conflict, Some((seq, Some(stored)))));
+    }
+    if semantic_state_is_superseded(&op.state, &stored.state) {
+        let seq = stored.seq;
+        return Ok(op.result(PushStatus::Superseded, Some((seq, Some(stored)))));
+    }
+
+    insert_history(tx, tenant_id, author_user_id, &stored).await?;
+    let seq = next_tenant_seq(tx, tenant_id).await?;
+    update_record(tx, tenant_id, &op, seq).await?;
+    Ok(op.result(PushStatus::Accepted, Some((seq, None))))
+}
+
+fn semantic_state_is_superseded(incoming: &StoredState, current: &StoredState) -> bool {
+    match (incoming, current) {
+        (
+            StoredState::Live {
+                mutation_hlc: incoming,
+                ..
+            },
+            StoredState::Live {
+                mutation_hlc: current,
+                ..
+            },
+        ) => incoming < current,
+        (
+            StoredState::Tombstone {
+                delete_hlc: incoming,
+            },
+            StoredState::Tombstone {
+                delete_hlc: current,
+            },
+        ) => incoming <= current,
+        (
+            StoredState::Live {
+                mutation_hlc: incoming,
+                ..
+            },
+            StoredState::Tombstone {
+                delete_hlc: current,
+            },
+        ) => incoming <= current,
+        (
+            StoredState::Tombstone {
+                delete_hlc: incoming,
+            },
+            StoredState::Live {
+                mutation_hlc: current,
+                ..
+            },
+        ) => incoming <= current,
+    }
+}
+
+impl ValidatedPushOp {
+    fn result(
+        &self,
+        status: PushStatus,
+        stored: Option<(i64, Option<StoredRecord>)>,
+    ) -> PushResult {
+        let (seq, current) = stored.map_or((None, None), |(seq, current)| {
+            (Some(seq), current.map(StoredRecord::into_wire))
+        });
+        PushResult {
+            op_id: self.op_id,
+            record_id: self.record_id,
+            collection: self.collection,
+            status,
+            seq,
+            current,
+        }
+    }
+}
+
+impl StoredRecord {
+    fn into_wire(self) -> SyncRecord {
+        SyncRecord {
+            record_id: self.record_id,
+            collection: self.collection,
+            seq: self.seq,
+            revision_hlc: self.revision_hlc,
+            state: self.state.into_wire(),
+        }
+    }
+}
+
+impl StoredState {
+    fn into_wire(self) -> SyncRecordState {
+        match self {
+            Self::Live {
+                mutation_hlc,
+                encrypted_blob,
+            } => SyncRecordState::Live {
+                mutation_hlc,
+                blob: STANDARD.encode(encrypted_blob),
+            },
+            Self::Tombstone { delete_hlc } => SyncRecordState::Tombstone { delete_hlc },
+        }
+    }
+
+    fn columns(&self) -> (Option<&str>, Option<&str>, Option<&[u8]>) {
+        match self {
+            Self::Live {
+                mutation_hlc,
+                encrypted_blob,
+            } => (Some(mutation_hlc), None, Some(encrypted_blob)),
+            Self::Tombstone { delete_hlc } => (None, Some(delete_hlc), None),
+        }
+    }
+}
+
+async fn lock_tenant_sequence(tx: &mut PgTransaction<'_>, tenant_id: Uuid) -> Result<(), AppError> {
+    query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1 FOR UPDATE")
+        .bind(tenant_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(AppError::forbidden)?;
+    Ok(())
 }
 
 async fn fetch_stored_record(
@@ -340,8 +409,9 @@ async fn fetch_stored_record(
     tenant_id: Uuid,
     record_id: Uuid,
 ) -> Result<Option<StoredRecord>, AppError> {
-    let row = query::<Postgres>(
-        "SELECT collection, seq, hlc, encrypted_blob, deleted
+    query::<Postgres>(
+        "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
+                delete_hlc, encrypted_blob
          FROM sync_records
          WHERE tenant_id = $1 AND record_id = $2
          FOR UPDATE",
@@ -349,21 +419,96 @@ async fn fetch_stored_record(
     .bind(tenant_id)
     .bind(record_id)
     .fetch_optional(&mut **tx)
-    .await?;
-    row.map(|row| {
-        Ok(StoredRecord {
-            collection: row
-                .try_get("collection")
-                .map_err(|_| AppError::internal())?,
-            seq: row.try_get("seq").map_err(|_| AppError::internal())?,
-            hlc: row.try_get("hlc").map_err(|_| AppError::internal())?,
-            encrypted_blob: row
-                .try_get("encrypted_blob")
-                .map_err(|_| AppError::internal())?,
-            deleted: row.try_get("deleted").map_err(|_| AppError::internal())?,
-        })
-    })
+    .await?
+    .map(stored_record_from_row)
     .transpose()
+}
+
+fn stored_record_from_row(row: sqlx_postgres::PgRow) -> Result<StoredRecord, AppError> {
+    let record_id = row.try_get("record_id").map_err(|_| AppError::internal())?;
+    let collection: String = row
+        .try_get("collection")
+        .map_err(|_| AppError::internal())?;
+    let collection = SyncCollection::from_str(&collection).map_err(|_| AppError::internal())?;
+    let seq = row.try_get("seq").map_err(|_| AppError::internal())?;
+    let revision_hlc = row
+        .try_get("revision_hlc")
+        .map_err(|_| AppError::internal())?;
+    let mutation_hlc: Option<String> = row
+        .try_get("mutation_hlc")
+        .map_err(|_| AppError::internal())?;
+    let delete_hlc: Option<String> = row
+        .try_get("delete_hlc")
+        .map_err(|_| AppError::internal())?;
+    let encrypted_blob: Option<Vec<u8>> = row
+        .try_get("encrypted_blob")
+        .map_err(|_| AppError::internal())?;
+    let state = match (mutation_hlc, delete_hlc, encrypted_blob) {
+        (Some(mutation_hlc), None, Some(encrypted_blob)) => StoredState::Live {
+            mutation_hlc,
+            encrypted_blob,
+        },
+        (None, Some(delete_hlc), None) => StoredState::Tombstone { delete_hlc },
+        _ => return Err(AppError::internal()),
+    };
+    Ok(StoredRecord {
+        record_id,
+        collection,
+        seq,
+        revision_hlc,
+        state,
+    })
+}
+
+async fn insert_record(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    op: &ValidatedPushOp,
+    seq: i64,
+) -> Result<(), AppError> {
+    let (mutation_hlc, delete_hlc, encrypted_blob) = op.state.columns();
+    query::<Postgres>(
+        "INSERT INTO sync_records
+         (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
+          delete_hlc, encrypted_blob)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(tenant_id)
+    .bind(op.record_id)
+    .bind(op.collection.as_str())
+    .bind(seq)
+    .bind(&op.revision_hlc)
+    .bind(mutation_hlc)
+    .bind(delete_hlc)
+    .bind(encrypted_blob)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn update_record(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    op: &ValidatedPushOp,
+    seq: i64,
+) -> Result<(), AppError> {
+    let (mutation_hlc, delete_hlc, encrypted_blob) = op.state.columns();
+    query::<Postgres>(
+        "UPDATE sync_records
+         SET seq = $3, revision_hlc = $4, mutation_hlc = $5,
+             delete_hlc = $6, encrypted_blob = $7, updated_at = now()
+         WHERE tenant_id = $1 AND record_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(op.record_id)
+    .bind(seq)
+    .bind(&op.revision_hlc)
+    .bind(mutation_hlc)
+    .bind(delete_hlc)
+    .bind(encrypted_blob)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 async fn next_tenant_seq(tx: &mut PgTransaction<'_>, tenant_id: Uuid) -> Result<i64, AppError> {
@@ -383,22 +528,24 @@ async fn next_tenant_seq(tx: &mut PgTransaction<'_>, tenant_id: Uuid) -> Result<
 async fn insert_history(
     tx: &mut PgTransaction<'_>,
     tenant_id: Uuid,
-    record_id: Uuid,
     author_user_id: Uuid,
     stored: &StoredRecord,
 ) -> Result<(), AppError> {
+    let (mutation_hlc, delete_hlc, encrypted_blob) = stored.state.columns();
     query::<Postgres>(
         "INSERT INTO sync_records_history
-         (tenant_id, record_id, collection, seq, hlc, encrypted_blob, deleted, author_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+         (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
+          delete_hlc, encrypted_blob, author_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(tenant_id)
-    .bind(record_id)
-    .bind(&stored.collection)
+    .bind(stored.record_id)
+    .bind(stored.collection.as_str())
     .bind(stored.seq)
-    .bind(&stored.hlc)
-    .bind(&stored.encrypted_blob)
-    .bind(stored.deleted)
+    .bind(&stored.revision_hlc)
+    .bind(mutation_hlc)
+    .bind(delete_hlc)
+    .bind(encrypted_blob)
     .bind(author_user_id)
     .execute(&mut **tx)
     .await?;
