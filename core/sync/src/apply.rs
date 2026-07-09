@@ -471,7 +471,9 @@ mod tests {
     use todori_crypto::key_hierarchy::KEY_LEN;
 
     use super::*;
-    use crate::{encrypt_plaintext, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry};
+    use crate::{
+        encrypt_plaintext, LocalMutationSyncStore, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry,
+    };
 
     #[derive(Default)]
     struct FakeStore {
@@ -480,33 +482,12 @@ mod tests {
         outbox: Vec<LocalSyncOutboxEntry>,
     }
 
-    impl LocalSyncStore for FakeStore {
-        fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
-            Ok(self.outbox.iter().take(limit).cloned().collect())
-        }
-
+    impl LocalMutationSyncStore for FakeStore {
         fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
             Ok(self
                 .outbox
                 .iter()
                 .any(|entry| entry.collection == collection && entry.record_id == record_id))
-        }
-
-        fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
-            self.outbox.retain(|entry| entry.id != id);
-            Ok(())
-        }
-
-        fn get_cursor_seq(&mut self, _name: &str) -> Result<Option<i64>, String> {
-            Ok(None)
-        }
-
-        fn set_cursor(&mut self, _name: &str, _seq: i64, _updated_at: i64) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn delete_cursor(&mut self, _name: &str) -> Result<(), String> {
-            Ok(())
         }
 
         fn get_setting(&mut self, _key: &str) -> Result<Option<String>, String> {
@@ -563,6 +544,29 @@ mod tests {
         fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
             self.record_states
                 .remove(&(collection.to_string(), record_id));
+            Ok(())
+        }
+    }
+
+    impl LocalSyncStore for FakeStore {
+        fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
+            Ok(self.outbox.iter().take(limit).cloned().collect())
+        }
+
+        fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
+            self.outbox.retain(|entry| entry.id != id);
+            Ok(())
+        }
+
+        fn get_cursor_seq(&mut self, _name: &str) -> Result<Option<i64>, String> {
+            Ok(None)
+        }
+
+        fn set_cursor(&mut self, _name: &str, _seq: i64, _updated_at: i64) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn delete_cursor(&mut self, _name: &str) -> Result<(), String> {
             Ok(())
         }
 

@@ -3269,6 +3269,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "todori-client"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "todori-crypto",
+ "todori-domain",
+ "todori-storage",
+ "todori-sync",
+]
+
+[[package]]
 name = "todori-crypto"
 version = "0.1.0"
 dependencies = [
@@ -3373,6 +3385,7 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "serde_json",
+ "todori-client",
  "todori-crypto",
  "todori-domain",
  "todori-storage",

@@ -3,15 +3,16 @@
 //! SQLCipherで暗号化されたSQLite上に `ListRepository` / `TaskRepository` を実装する
 //! （`docs/03_技術仕様書.md` §5）。
 
-use std::{path::Path, str::FromStr};
+use std::{path::Path, str::FromStr, time::Duration};
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
 use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
 pub const LATEST_SCHEMA_VERSION: i32 = 9;
+const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -251,9 +252,108 @@ pub trait SyncStateRepository {
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError>;
 }
 
+/// A short-lived SQLite write transaction shared by domain and sync-state writes.
+///
+/// The transaction starts with [`TransactionBehavior::Immediate`] so concurrent
+/// desktop frontends serialize before reading and incrementing the local HLC.
+/// Dropping this value without calling [`Self::commit`] rolls back every write.
+pub struct SqliteWriteTx<'connection> {
+    transaction: Transaction<'connection>,
+}
+
+impl<'connection> SqliteWriteTx<'connection> {
+    pub fn begin(connection: &'connection mut Connection) -> Result<Self, StorageError> {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        Ok(Self { transaction })
+    }
+
+    pub fn get_task(&self, id: Uuid) -> Result<Task, StorageError> {
+        get_task_on(&self.transaction, id)
+    }
+
+    pub fn update_with_undo(
+        &mut self,
+        before: Task,
+        after: Task,
+        operation_type: TaskUndoOperation,
+        created_at: i64,
+    ) -> Result<TaskUndoEntry, StorageError> {
+        update_task_with_undo_on(&self.transaction, before, after, operation_type, created_at)
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        get_setting_on(&self.transaction, key)
+    }
+
+    pub fn set_setting(
+        &mut self,
+        key: &str,
+        value: &str,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        set_setting_on(&self.transaction, key, value, updated_at)
+    }
+
+    pub fn enqueue_outbox(
+        &mut self,
+        entry: NewSyncOutboxEntry,
+    ) -> Result<SyncOutboxEntry, StorageError> {
+        enqueue_outbox_on(&self.transaction, entry)
+    }
+
+    pub fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+        list_outbox_on(&self.transaction, limit)
+    }
+
+    pub fn has_outbox_entry(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<bool, StorageError> {
+        has_outbox_entry_on(&self.transaction, collection, record_id)
+    }
+
+    pub fn get_record_state(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<Option<String>, StorageError> {
+        get_record_state_on(&self.transaction, collection, record_id)
+    }
+
+    pub fn upsert_record_state(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+        plaintext_json: &str,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        upsert_record_state_on(
+            &self.transaction,
+            collection,
+            record_id,
+            plaintext_json,
+            updated_at,
+        )
+    }
+
+    pub fn delete_record_state(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<(), StorageError> {
+        delete_record_state_on(&self.transaction, collection, record_id)
+    }
+
+    pub fn commit(self) -> Result<(), StorageError> {
+        self.transaction.commit().map_err(StorageError::from)
+    }
+}
+
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
 pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, StorageError> {
     let mut connection = Connection::open(path)?;
+    connection.busy_timeout(LOCAL_DB_BUSY_TIMEOUT)?;
     apply_sqlcipher_key(&connection, key)?;
     ensure_schema(&mut connection, MIGRATIONS)?;
     Ok(connection)
@@ -682,22 +782,9 @@ impl SqliteTaskRepository {
         operation_type: TaskUndoOperation,
         created_at: i64,
     ) -> Result<TaskUndoEntry, StorageError> {
-        let entry = TaskUndoEntry {
-            id: Uuid::now_v7(),
-            operation_type,
-            task_id: before.id,
-            list_id: before.list_id,
-            before_snapshot: before,
-            after_updated_at: after.updated_at,
-            after_deleted_at: after.deleted_at,
-            after_completed_at: after.completed_at,
-            created_at,
-            consumed_at: None,
-        };
-
         let transaction = self.connection.transaction()?;
-        update_task_on(&transaction, &after)?;
-        insert_task_undo_on(&transaction, &entry)?;
+        let entry =
+            update_task_with_undo_on(&transaction, before, after, operation_type, created_at)?;
         transaction.commit()?;
 
         Ok(entry)
@@ -784,21 +871,7 @@ impl SqliteTaskRepository {
 
 impl TaskRepository for SqliteTaskRepository {
     fn get(&self, id: Uuid) -> Result<Task, StorageError> {
-        let task = self
-            .connection
-            .query_row(
-                "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                        due_at, scheduled_at, estimated_minutes, sort_order,
-                        completed_at, closed_reason, deleted_at, assignee,
-                        created_at, updated_at
-                 FROM tasks
-                 WHERE id = ?1",
-                [id.to_string()],
-                row_to_task,
-            )
-            .optional()?;
-
-        task.ok_or(StorageError::NotFound(id))
+        get_task_on(&self.connection, id)
     }
 
     fn insert(&mut self, task: Task) -> Result<(), StorageError> {
@@ -978,6 +1051,23 @@ impl TaskRepository for SqliteTaskRepository {
     }
 }
 
+fn get_task_on(connection: &Connection, id: Uuid) -> Result<Task, StorageError> {
+    let task = connection
+        .query_row(
+            "SELECT id, list_id, parent_task_id, title, note, status, priority,
+                    due_at, scheduled_at, estimated_minutes, sort_order,
+                    completed_at, closed_reason, deleted_at, assignee,
+                    created_at, updated_at
+             FROM tasks
+             WHERE id = ?1",
+            [id.to_string()],
+            row_to_task,
+        )
+        .optional()?;
+
+    task.ok_or(StorageError::NotFound(id))
+}
+
 fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
     let changed = connection.execute(
         "UPDATE tasks
@@ -1024,6 +1114,31 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
     }
 
     Ok(())
+}
+
+fn update_task_with_undo_on(
+    connection: &Connection,
+    before: Task,
+    after: Task,
+    operation_type: TaskUndoOperation,
+    created_at: i64,
+) -> Result<TaskUndoEntry, StorageError> {
+    let entry = TaskUndoEntry {
+        id: Uuid::now_v7(),
+        operation_type,
+        task_id: before.id,
+        list_id: before.list_id,
+        before_snapshot: before,
+        after_updated_at: after.updated_at,
+        after_deleted_at: after.deleted_at,
+        after_completed_at: after.completed_at,
+        created_at,
+        consumed_at: None,
+    };
+
+    update_task_on(connection, &after)?;
+    insert_task_undo_on(connection, &entry)?;
+    Ok(entry)
 }
 
 fn build_fts_prefix_query(query: &str) -> Option<String> {
@@ -1394,29 +1509,42 @@ impl SqliteSettingsRepository {
 
 impl SettingsRepository for SqliteSettingsRepository {
     fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
-        self.connection
-            .query_row(
-                "SELECT value
-                 FROM settings
-                 WHERE key = ?1",
-                [key],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(StorageError::from)
+        get_setting_on(&self.connection, key)
     }
 
     fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO settings (key, value, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(key) DO UPDATE SET
-                 value = excluded.value,
-                 updated_at = excluded.updated_at",
-            params![key, value, updated_at],
-        )?;
-        Ok(())
+        set_setting_on(&self.connection, key, value, updated_at)
     }
+}
+
+fn get_setting_on(connection: &Connection, key: &str) -> Result<Option<String>, StorageError> {
+    connection
+        .query_row(
+            "SELECT value
+             FROM settings
+             WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(StorageError::from)
+}
+
+fn set_setting_on(
+    connection: &Connection,
+    key: &str,
+    value: &str,
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO settings (key, value, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at",
+        params![key, value, updated_at],
+    )?;
+    Ok(())
 }
 
 /// SQLite-backed implementation of [`ReminderRepository`].
@@ -1568,16 +1696,7 @@ impl SqliteSyncStateRepository {
         collection: &str,
         record_id: Uuid,
     ) -> Result<Option<String>, StorageError> {
-        self.connection
-            .query_row(
-                "SELECT plaintext_json
-                 FROM sync_record_states
-                 WHERE collection = ?1 AND record_id = ?2",
-                params![collection, record_id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(StorageError::from)
+        get_record_state_on(&self.connection, collection, record_id)
     }
 
     pub fn upsert_record_state(
@@ -1587,23 +1706,13 @@ impl SqliteSyncStateRepository {
         plaintext_json: &str,
         updated_at: i64,
     ) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO sync_record_states (
-                 collection, record_id, plaintext_json, updated_at
-             ) VALUES (
-                 ?1, ?2, ?3, ?4
-             )
-             ON CONFLICT(collection, record_id) DO UPDATE SET
-                 plaintext_json = excluded.plaintext_json,
-                 updated_at = excluded.updated_at",
-            params![
-                collection,
-                record_id.to_string(),
-                plaintext_json,
-                updated_at
-            ],
-        )?;
-        Ok(())
+        upsert_record_state_on(
+            &self.connection,
+            collection,
+            record_id,
+            plaintext_json,
+            updated_at,
+        )
     }
 
     pub fn delete_record_state(
@@ -1611,12 +1720,7 @@ impl SqliteSyncStateRepository {
         collection: &str,
         record_id: Uuid,
     ) -> Result<(), StorageError> {
-        self.connection.execute(
-            "DELETE FROM sync_record_states
-             WHERE collection = ?1 AND record_id = ?2",
-            params![collection, record_id.to_string()],
-        )?;
-        Ok(())
+        delete_record_state_on(&self.connection, collection, record_id)
     }
 }
 
@@ -1625,62 +1729,15 @@ impl SyncStateRepository for SqliteSyncStateRepository {
         &mut self,
         entry: NewSyncOutboxEntry,
     ) -> Result<SyncOutboxEntry, StorageError> {
-        self.connection.execute(
-            "INSERT INTO sync_outbox (
-                 record_id, collection, hlc, deleted, blob, created_at
-             ) VALUES (
-                 ?1, ?2, ?3, ?4, ?5, ?6
-             )",
-            params![
-                entry.record_id.to_string(),
-                entry.collection,
-                entry.hlc,
-                entry.deleted,
-                entry.blob,
-                entry.created_at,
-            ],
-        )?;
-        let id = self.connection.last_insert_rowid();
-        self.connection
-            .query_row(
-                "SELECT id, record_id, collection, hlc, deleted, blob, created_at
-                 FROM sync_outbox
-                 WHERE id = ?1",
-                [id],
-                row_to_sync_outbox_entry,
-            )
-            .map_err(StorageError::from)
+        enqueue_outbox_on(&self.connection, entry)
     }
 
     fn list_outbox(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
-        let limit = i64::try_from(limit).map_err(|_| {
-            StorageError::IncompatibleSchema("outbox limit exceeded i64".to_string())
-        })?;
-        let mut statement = self.connection.prepare(
-            "SELECT id, record_id, collection, hlc, deleted, blob, created_at
-             FROM sync_outbox
-             ORDER BY created_at ASC, id ASC
-             LIMIT ?1",
-        )?;
-        let entries = statement
-            .query_map([limit], row_to_sync_outbox_entry)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(entries)
+        list_outbox_on(&self.connection, limit)
     }
 
     fn has_outbox_entry(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
-        let exists = self
-            .connection
-            .query_row(
-                "SELECT 1
-                 FROM sync_outbox
-                 WHERE collection = ?1 AND record_id = ?2
-                 LIMIT 1",
-                params![collection, record_id.to_string()],
-                |_| Ok(()),
-            )
-            .optional()?;
-        Ok(exists.is_some())
+        has_outbox_entry_on(&self.connection, collection, record_id)
     }
 
     fn ack_outbox(&mut self, id: i64) -> Result<(), StorageError> {
@@ -1719,6 +1776,129 @@ impl SyncStateRepository for SqliteSyncStateRepository {
             .execute("DELETE FROM sync_cursors WHERE name = ?1", [name])?;
         Ok(())
     }
+}
+
+fn get_record_state_on(
+    connection: &Connection,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<Option<String>, StorageError> {
+    connection
+        .query_row(
+            "SELECT plaintext_json
+             FROM sync_record_states
+             WHERE collection = ?1 AND record_id = ?2",
+            params![collection, record_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(StorageError::from)
+}
+
+fn upsert_record_state_on(
+    connection: &Connection,
+    collection: &str,
+    record_id: Uuid,
+    plaintext_json: &str,
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO sync_record_states (
+             collection, record_id, plaintext_json, updated_at
+         ) VALUES (
+             ?1, ?2, ?3, ?4
+         )
+         ON CONFLICT(collection, record_id) DO UPDATE SET
+             plaintext_json = excluded.plaintext_json,
+             updated_at = excluded.updated_at",
+        params![
+            collection,
+            record_id.to_string(),
+            plaintext_json,
+            updated_at
+        ],
+    )?;
+    Ok(())
+}
+
+fn delete_record_state_on(
+    connection: &Connection,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<(), StorageError> {
+    connection.execute(
+        "DELETE FROM sync_record_states
+         WHERE collection = ?1 AND record_id = ?2",
+        params![collection, record_id.to_string()],
+    )?;
+    Ok(())
+}
+
+fn enqueue_outbox_on(
+    connection: &Connection,
+    entry: NewSyncOutboxEntry,
+) -> Result<SyncOutboxEntry, StorageError> {
+    connection.execute(
+        "INSERT INTO sync_outbox (
+             record_id, collection, hlc, deleted, blob, created_at
+         ) VALUES (
+             ?1, ?2, ?3, ?4, ?5, ?6
+         )",
+        params![
+            entry.record_id.to_string(),
+            entry.collection,
+            entry.hlc,
+            entry.deleted,
+            entry.blob,
+            entry.created_at,
+        ],
+    )?;
+    let id = connection.last_insert_rowid();
+    connection
+        .query_row(
+            "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+             FROM sync_outbox
+             WHERE id = ?1",
+            [id],
+            row_to_sync_outbox_entry,
+        )
+        .map_err(StorageError::from)
+}
+
+fn list_outbox_on(
+    connection: &Connection,
+    limit: usize,
+) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+    let limit = i64::try_from(limit)
+        .map_err(|_| StorageError::IncompatibleSchema("outbox limit exceeded i64".to_string()))?;
+    let mut statement = connection.prepare(
+        "SELECT id, record_id, collection, hlc, deleted, blob, created_at
+         FROM sync_outbox
+         ORDER BY created_at ASC, id ASC
+         LIMIT ?1",
+    )?;
+    let entries = statement
+        .query_map([limit], row_to_sync_outbox_entry)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(entries)
+}
+
+fn has_outbox_entry_on(
+    connection: &Connection,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<bool, StorageError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1
+             FROM sync_outbox
+             WHERE collection = ?1 AND record_id = ?2
+             LIMIT 1",
+            params![collection, record_id.to_string()],
+            |_| Ok(()),
+        )
+        .optional()?;
+    Ok(exists.is_some())
 }
 
 fn ensure_task_exists(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
@@ -4272,6 +4452,171 @@ mod tests {
         assert!(matches!(
             list_repository.update(list.clone()),
             Err(StorageError::NotFound(id)) if id == list.id
+        ));
+    }
+
+    #[test]
+    fn sqlite_write_tx_commits_domain_and_sync_state_together() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        let edited = update_title(
+            task.clone(),
+            "Transactional edit".to_string(),
+            task.updated_at + 1,
+        )
+        .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert_eq!(write_tx.get_task(task.id).unwrap(), task);
+        write_tx
+            .update_with_undo(
+                task.clone(),
+                edited.clone(),
+                TaskUndoOperation::Edit,
+                edited.updated_at,
+            )
+            .unwrap();
+        write_tx
+            .set_setting("sync_local_hlc", "encoded-hlc", edited.updated_at)
+            .unwrap();
+        write_tx
+            .enqueue_outbox(NewSyncOutboxEntry {
+                record_id: task.id,
+                collection: "tasks".to_string(),
+                hlc: "encoded-hlc".to_string(),
+                deleted: false,
+                blob: vec![1, 2, 3],
+                created_at: edited.updated_at,
+            })
+            .unwrap();
+        write_tx
+            .upsert_record_state(
+                "tasks",
+                task.id,
+                r#"{"title":"Transactional edit"}"#,
+                edited.updated_at,
+            )
+            .unwrap();
+        assert_eq!(write_tx.list_outbox(10).unwrap().len(), 1);
+        write_tx.commit().unwrap();
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteTaskRepository::new(connection);
+        assert_eq!(repository.get(task.id).unwrap(), edited);
+        drop(repository);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let settings = SqliteSettingsRepository::new(connection);
+        assert_eq!(
+            settings.get_setting("sync_local_hlc").unwrap().as_deref(),
+            Some("encoded-hlc")
+        );
+        drop(settings);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let sync = SqliteSyncStateRepository::new(connection);
+        assert_eq!(sync.list_outbox(10).unwrap().len(), 1);
+        assert_eq!(
+            sync.get_record_state("tasks", task.id).unwrap().as_deref(),
+            Some(r#"{"title":"Transactional edit"}"#)
+        );
+    }
+
+    #[test]
+    fn sqlite_write_tx_drop_rolls_back_domain_and_sync_state_together() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteTaskRepository::new(connection);
+            repository.insert(task.clone()).unwrap();
+        }
+
+        let edited = update_title(
+            task.clone(),
+            "Rolled back edit".to_string(),
+            task.updated_at + 1,
+        )
+        .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        {
+            let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+            write_tx
+                .update_with_undo(
+                    task.clone(),
+                    edited.clone(),
+                    TaskUndoOperation::Edit,
+                    edited.updated_at,
+                )
+                .unwrap();
+            write_tx
+                .set_setting("sync_local_hlc", "rolled-back-hlc", edited.updated_at)
+                .unwrap();
+            write_tx
+                .enqueue_outbox(NewSyncOutboxEntry {
+                    record_id: task.id,
+                    collection: "tasks".to_string(),
+                    hlc: "rolled-back-hlc".to_string(),
+                    deleted: false,
+                    blob: vec![4, 5, 6],
+                    created_at: edited.updated_at,
+                })
+                .unwrap();
+            write_tx
+                .upsert_record_state(
+                    "tasks",
+                    task.id,
+                    r#"{"title":"Rolled back edit"}"#,
+                    edited.updated_at,
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteTaskRepository::new(connection);
+        assert_eq!(repository.get(task.id).unwrap(), task);
+        assert!(repository.latest_unconsumed_undo().unwrap().is_none());
+        drop(repository);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let settings = SqliteSettingsRepository::new(connection);
+        assert_eq!(settings.get_setting("sync_local_hlc").unwrap(), None);
+        drop(settings);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let sync = SqliteSyncStateRepository::new(connection);
+        assert!(sync.list_outbox(10).unwrap().is_empty());
+        assert_eq!(sync.get_record_state("tasks", task.id).unwrap(), None);
+    }
+
+    #[test]
+    fn encrypted_connections_have_finite_busy_timeout_and_write_tx_locks_immediately() {
+        let file = NamedTempFile::new().unwrap();
+        let mut first = open_encrypted(file.path(), &KEY).unwrap();
+        let second = open_encrypted(file.path(), &KEY).unwrap();
+        let busy_timeout_ms: i64 = second
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(busy_timeout_ms, 5_000);
+        second.busy_timeout(Duration::ZERO).unwrap();
+
+        let _write_tx = SqliteWriteTx::begin(&mut first).unwrap();
+        let result = second.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            params!["other_writer", "blocked", 1],
+        );
+        assert!(matches!(
+            result,
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy
         ));
     }
 }

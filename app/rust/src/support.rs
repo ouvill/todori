@@ -499,6 +499,36 @@ fn active_sync_context() -> Option<ActiveSyncContext> {
     })
 }
 
+pub(crate) enum LocalMutationState {
+    Anonymous,
+    Ready(todori_client::LocalMutationContext),
+    AccountBoundUnavailable,
+}
+
+pub(crate) fn local_mutation_state() -> Result<LocalMutationState, String> {
+    ensure_account_runtime_restored()?;
+    let account = account_runtime_state();
+    if let (Some(session), Some(keys)) = (account.session.as_ref(), account.keys.as_ref()) {
+        if session.logged_in {
+            if let Some(device_id) = session.device_id.clone() {
+                return Ok(LocalMutationState::Ready(
+                    todori_client::LocalMutationContext {
+                        device_id,
+                        keys: LocalSyncKeys::from_account_keys(keys),
+                    },
+                ));
+            }
+        }
+    }
+    drop(account);
+
+    if non_empty_setting(ACCOUNT_TENANT_ID_SETTING_KEY)?.is_some() {
+        Ok(LocalMutationState::AccountBoundUnavailable)
+    } else {
+        Ok(LocalMutationState::Anonymous)
+    }
+}
+
 fn has_active_sync_context() -> bool {
     active_sync_context().is_some()
 }

@@ -13,8 +13,8 @@
 
 ## 次の候補（最大3件）
 
-1. **production同期テスト + transactional client基盤** — production CRUD経路を通る2-client/crash-windowテストを先に追加し、domain更新、outbox、sync state、local HLCを共通client層の同一transactionへ移す。出典: ADR-011 / ADR-012 / task-82。
-2. **field clock + placement同期** — `revision_hlc` と `field_hlcs` を分離し、taskの `list_id` / `parent_task_id` / `sort_order` をcompound placementとして同期する。rank collision、push結果照合、collection固定も含む。出典: ADR-012 / task-82。
+1. **LocalCryptoContext + transactional CRUD移行** — session非依存でList DEKを安全にlocal復元できるcontextを作り、create/list/reorder/status/undoを共通client transactionへ移す。production 2-client fixtureも追加する。出典: ADR-011 / ADR-012 / task-83未解決事項。
+2. **field clock + placement同期** — `revision_hlc` / `mutation_hlc` / `delete_hlc` / `field_hlcs` を分離し、taskの `list_id` / `parent_task_id` / `sort_order` をcompound placementとして同期する。出典: ADR-012 / task-82。
 3. **typed pull + durable quarantine** — missing DEK、corrupt blob、unknown protocolを分類し、key refresh、durable quarantine、upgrade-required、cursor transactionを実装する。aggregate削除はscope/epoch裁定後に行う。出典: ADR-012 / task-82。
 
 着手を決めた候補だけをtaskへ昇格する。未着手候補の詳細は [`BACKLOG.md`](./BACKLOG.md) を参照する。

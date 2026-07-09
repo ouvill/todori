@@ -32,13 +32,12 @@ pub struct NewLocalSyncOutboxEntry {
     pub created_at: i64,
 }
 
-pub trait LocalSyncStore {
-    fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
+/// The local persistence operations needed to prepare a domain mutation for sync.
+///
+/// Implementations must arrange for these writes and the corresponding domain
+/// write to participate in the same transaction.
+pub trait LocalMutationSyncStore {
     fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String>;
-    fn ack_outbox(&mut self, id: i64) -> Result<(), String>;
-    fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;
-    fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String>;
-    fn delete_cursor(&mut self, name: &str) -> Result<(), String>;
     fn get_setting(&mut self, key: &str) -> Result<Option<String>, String>;
     fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), String>;
     fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String>;
@@ -55,6 +54,19 @@ pub trait LocalSyncStore {
         updated_at: i64,
     ) -> Result<(), String>;
     fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String>;
+}
+
+/// The complete local persistence surface used by a sync run.
+///
+/// Pull/apply composes the mutation state with outbox draining, cursor updates,
+/// and domain row application. Mutation-only callers should depend on
+/// [`LocalMutationSyncStore`] instead.
+pub trait LocalSyncStore: LocalMutationSyncStore {
+    fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
+    fn ack_outbox(&mut self, id: i64) -> Result<(), String>;
+    fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;
+    fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String>;
+    fn delete_cursor(&mut self, name: &str) -> Result<(), String>;
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String>;
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String>;
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;
@@ -81,7 +93,7 @@ pub fn enqueue_backfill<S, N>(
     now_ms: &mut N,
 ) -> Result<BackfillSummary, String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let mut summary = BackfillSummary::default();
@@ -126,7 +138,7 @@ pub fn enqueue_task_sync<S, N>(
     now_ms: &mut N,
 ) -> Result<(), String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
@@ -156,7 +168,7 @@ pub fn enqueue_list_sync<S, N>(
     now_ms: &mut N,
 ) -> Result<(), String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
@@ -187,7 +199,7 @@ pub(crate) fn enqueue_merged_plaintext<S, N>(
     now_ms: &mut N,
 ) -> Result<(), String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let mut merged = plaintext.clone();
@@ -226,7 +238,7 @@ fn enqueue_plaintext<S, N>(
     now_ms: &mut N,
 ) -> Result<(), String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let blob = if request.deleted {
@@ -268,7 +280,7 @@ where
 
 fn tick_local_hlc<S, N>(store: &mut S, device_id: &str, now_ms: &mut N) -> Result<Hlc, String>
 where
-    S: LocalSyncStore,
+    S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
     let mut clock = match store.get_setting(SYNC_LOCAL_HLC_SETTING_KEY)? {
@@ -391,40 +403,16 @@ mod tests {
     struct FakeStore {
         next_outbox_id: i64,
         outbox: Vec<LocalSyncOutboxEntry>,
-        cursors: HashMap<String, i64>,
         settings: HashMap<String, String>,
         record_states: HashMap<(String, Uuid), String>,
     }
 
-    impl LocalSyncStore for FakeStore {
-        fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
-            Ok(self.outbox.iter().take(limit).cloned().collect())
-        }
-
+    impl LocalMutationSyncStore for FakeStore {
         fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
             Ok(self
                 .outbox
                 .iter()
                 .any(|entry| entry.collection == collection && entry.record_id == record_id))
-        }
-
-        fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
-            self.outbox.retain(|entry| entry.id != id);
-            Ok(())
-        }
-
-        fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String> {
-            Ok(self.cursors.get(name).copied())
-        }
-
-        fn set_cursor(&mut self, name: &str, seq: i64, _updated_at: i64) -> Result<(), String> {
-            self.cursors.insert(name.to_string(), seq);
-            Ok(())
-        }
-
-        fn delete_cursor(&mut self, name: &str) -> Result<(), String> {
-            self.cursors.remove(name);
-            Ok(())
         }
 
         fn get_setting(&mut self, key: &str) -> Result<Option<String>, String> {
@@ -479,34 +467,6 @@ mod tests {
             self.record_states
                 .remove(&(collection.to_string(), record_id));
             Ok(())
-        }
-
-        fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
-            Ok(None)
-        }
-
-        fn get_list(&mut self, _id: Uuid) -> Result<Option<List>, String> {
-            Ok(None)
-        }
-
-        fn upsert_list_for_sync(&mut self, _list: List) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn delete_list_with_tasks_for_sync(&mut self, _list_id: Uuid) -> Result<usize, String> {
-            Ok(0)
-        }
-
-        fn get_task(&mut self, _id: Uuid) -> Result<Option<Task>, String> {
-            Ok(None)
-        }
-
-        fn upsert_task_for_sync(&mut self, _task: Task) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn delete_task_subtree_for_sync(&mut self, _task_id: Uuid) -> Result<usize, String> {
-            Ok(0)
         }
     }
 

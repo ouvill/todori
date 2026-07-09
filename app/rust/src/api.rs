@@ -14,8 +14,9 @@ use todori_storage::{
 };
 
 use crate::support::{
-    enqueue_list_sync, enqueue_task_sync, ensure_list_dek_for_list, now_ms, with_list_repository,
-    with_reminder_repository, with_settings_repository, with_task_repository,
+    core_state, enqueue_list_sync, enqueue_task_sync, ensure_list_dek_for_list,
+    local_mutation_state, now_ms, with_list_repository, with_reminder_repository,
+    with_settings_repository, with_task_repository, LocalMutationState,
 };
 
 pub struct ListDto {
@@ -449,6 +450,31 @@ pub fn update_task(
 
     let task_id = parse_uuid(&task_id)?;
     let now_ms = now_ms()?;
+
+    match local_mutation_state()? {
+        LocalMutationState::Ready(sync) => {
+            let state = core_state()?;
+            let client = todori_client::Client::new(state.db_path.clone(), state.db_key);
+            let updated = client
+                .update_task(
+                    todori_client::UpdateTaskInput {
+                        task_id,
+                        title,
+                        note,
+                        priority,
+                        due_at,
+                        now_ms,
+                    },
+                    &sync,
+                )
+                .map_err(|error| error.to_string())?;
+            return Ok(task_to_dto(updated));
+        }
+        LocalMutationState::AccountBoundUnavailable => {
+            return Err("account-bound local sync keys are unavailable".to_string());
+        }
+        LocalMutationState::Anonymous => {}
+    }
 
     with_task_repository(|repository| {
         let before = repository.get(task_id).map_err(|error| error.to_string())?;
