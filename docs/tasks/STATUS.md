@@ -6,14 +6,14 @@
 
 ## 現在
 
-- 実装中: なし
+- 実装中: **task-84 session非依存LocalCryptoContext** — MK-wrapped List DEK cacheとaccount-bound fail-closed状態を実装する。
 - 最新の決定: task-82 / ADR-012で、同期correctnessをfield clock、placement、transactional outbox、cascade tombstone、typed pull failure、snapshot full resyncの一体として保証する方式を採用した。現行同期実装は未準拠であり、release blockerとして扱う。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **LocalCryptoContext + transactional CRUD移行** — session非依存でList DEKを安全にlocal復元できるcontextを作り、create/list/reorder/status/undoを共通client transactionへ移す。production 2-client fixtureも追加する。出典: ADR-011 / ADR-012 / task-83未解決事項。
+1. **transactional CRUD移行** — task create/reorder/status/undoとlist rename/archive/unarchiveを共通client transactionへ移し、未移行mutationをaccount-bound fail-closedにする。出典: ADR-012 / task-83 / task-84。
 2. **field clock + placement同期** — `revision_hlc` / `mutation_hlc` / `delete_hlc` / `field_hlcs` を分離し、taskの `list_id` / `parent_task_id` / `sort_order` をcompound placementとして同期する。出典: ADR-012 / task-82。
 3. **typed pull + durable quarantine** — missing DEK、corrupt blob、unknown protocolを分類し、key refresh、durable quarantine、upgrade-required、cursor transactionを実装する。aggregate削除はscope/epoch裁定後に行う。出典: ADR-012 / task-82。
 
