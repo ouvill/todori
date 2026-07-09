@@ -182,7 +182,7 @@ fn validate_push_ops(ops: &[PushOp]) -> Result<(), SyncEngineError> {
                 .base_revision_hlc
                 .as_deref()
                 .is_some_and(|base| Hlc::decode(base).is_err())
-            || !valid_state_clocks(&op.state)
+            || !valid_state_for_revision(&op.revision_hlc, &op.state)
         {
             return Err(SyncEngineError::InvalidRequest);
         }
@@ -190,13 +190,15 @@ fn validate_push_ops(ops: &[PushOp]) -> Result<(), SyncEngineError> {
     Ok(())
 }
 
-fn valid_state_clocks(state: &EncryptedSyncState) -> bool {
-    match state {
-        EncryptedSyncState::Live { mutation_hlc, blob } => {
-            Hlc::decode(mutation_hlc).is_ok() && !blob.is_empty()
-        }
-        EncryptedSyncState::Tombstone { delete_hlc } => Hlc::decode(delete_hlc).is_ok(),
-    }
+fn valid_state_for_revision(revision_hlc: &str, state: &EncryptedSyncState) -> bool {
+    let Ok(revision) = Hlc::decode(revision_hlc) else {
+        return false;
+    };
+    let (semantic_hlc, shape_is_valid) = match state {
+        EncryptedSyncState::Live { mutation_hlc, blob } => (mutation_hlc, !blob.is_empty()),
+        EncryptedSyncState::Tombstone { delete_hlc } => (delete_hlc, true),
+    };
+    shape_is_valid && Hlc::decode(semantic_hlc).is_ok_and(|semantic| revision >= semantic)
 }
 
 fn to_wire_push_op(op: &PushOp) -> protocol::PushOp {
@@ -324,14 +326,14 @@ fn decode_record(record: protocol::SyncRecord) -> Result<PullRecord, SyncEngineE
                 .decode(blob)
                 .map_err(|_| SyncEngineError::InvalidPullResponse)?;
             let state = EncryptedSyncState::Live { mutation_hlc, blob };
-            if !valid_state_clocks(&state) {
+            if !valid_state_for_revision(&record.revision_hlc, &state) {
                 return Err(SyncEngineError::InvalidPullResponse);
             }
             state
         }
         WireRecordState::Tombstone { delete_hlc } => {
             let state = EncryptedSyncState::Tombstone { delete_hlc };
-            if !valid_state_clocks(&state) {
+            if !valid_state_for_revision(&record.revision_hlc, &state) {
                 return Err(SyncEngineError::InvalidPullResponse);
             }
             state
@@ -470,6 +472,24 @@ mod tests {
                 revision_hlc: "invalid".to_string(),
                 state: WireRecordState::Tombstone {
                     delete_hlc: clock("remote", 1),
+                },
+            }],
+            next_since: 1,
+            has_more: false,
+        };
+        assert!(matches!(
+            validate_pull_response(0, response),
+            Err(SyncEngineError::InvalidPullResponse)
+        ));
+
+        let response = PullResponse {
+            records: vec![protocol::SyncRecord {
+                record_id: Uuid::now_v7(),
+                collection: SyncCollection::Tasks,
+                seq: 1,
+                revision_hlc: clock("remote", 1),
+                state: WireRecordState::Tombstone {
+                    delete_hlc: clock("remote", 2),
                 },
             }],
             next_since: 1,
