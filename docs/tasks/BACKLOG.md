@@ -16,7 +16,7 @@
 |---|---|---|
 | Fuzzy-scan full resync / GC horizon | stable-key current-state scan、`base_seq` 後delta、page transactionのhigh-water closure、outbox除外付きmark-and-sweep、push前preflightを実装する | ADR-010 / ADR-012。transactional client、field clock / placement、typed pull / quarantineの完了後 |
 | Aggregate削除scope / epoch設計 | 別端末の未知descendantも含むlist/subtree削除intent、復活規約、opaque scope metadata、tombstone GC、List DEK bundle保持/削除条件を別ADRで裁定する | ADR-009 / ADR-010 / ADR-012。裁定まではList DEK bundleを削除しない |
-| 同期server protocol / RLS hardening | protocol op ID照合、collection enum / immutability、non-owner application role、RLS policy、必要なFORCE RLS、cross-tenant testを実装する | ADR-012。protocol v2 migrationとDB運用設計に依存 |
+| 同期server RLS hardening | non-owner application role、実際のRLS policy、必要なFORCE RLS、cross-tenant testを実装する | ADR-012。protocol v2 CAS / collection immutabilityはtask-86で完了 |
 | デフォルトInbox重複の方針決定 | 端末ごとに生成されたdefault listの一意化・マージ・表示統合のどれを採用するか裁定する | task-79未解決事項 |
 | Windows / Linux本番Device Key Store | Windows current-user DPAPI、Linux Secret Serviceを実装し、平文 `device.key` / account secret fileを本番経路から除外する | ADR-011 / task-81。新規依存は人間承認が必要 |
 | CLI実接続 | 共通client/profile層からFlutter desktopと同じSQLCipher DBを開き、CRUD・検索・同期を提供する。macOSは同一Team / Keychain access groupで署名する | ADR-011。共通client/profileとOS secret storeに依存 |

@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 実装中: **task-86 protocol v2 CAS correctness基盤** — shared wire、base revision CAS、op ID outbox、conflict merge/rebaseへv1互換なしで置換する。
-- 最新の決定: ADR-014で`revision_hlc` blind LWWを棄却し、latest encrypted blobをbase revision CASで更新する方式を採用した。release前のためv1 wire/schema互換は維持しない。
+- 実装中: なし。
+- 最新の完了: **task-86 protocol v2 CAS correctness基盤** — shared wire、base revision CAS、op ID outbox、atomic conflict merge/rebaseへv1互換なしで置換した。production changed-field clockとplacement/rankは次候補である。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
