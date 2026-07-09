@@ -1,5 +1,8 @@
 # task-36: DBスキーママイグレーション機構の整備
 
+> ステータス: 完了（user_version migration runner + v2 archived_at）
+> 作業日: 2026-07-07
+
 ## 1. 背景とコンテキスト
 
 TodoriのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/storage/src/schema.sql` を `open_encrypted` 時に `execute_batch` してスキーマを用意している。現状は `PRAGMA user_version` によるスキーマバージョン管理がなく、今後の列追加・削除・データ移行を安全に積み重ねるためのマイグレーション実行機構がない。

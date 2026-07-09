@@ -1,5 +1,8 @@
 # task-79 sync real-device regression fixes
 
+> ステータス: 完了（default list衝突・セッション復元・List DEK refresh修正）
+> 作業日: 2026-07-10
+
 ## 1. 目的
 
 実機同期確認で見つかった以下2件を修正する。

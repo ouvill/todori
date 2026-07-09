@@ -15,7 +15,7 @@ Todoriは E2EE（エンドツーエンド暗号化）Todoアプリである。UI
 - `docs/05_設計判断記録.md` ── ADR（設計判断記録）
 - `docs/legal_overview.md` ── 公開版の法務・OSS方針（詳細な事業・法務メモはprivate repo側）
 - `docs/07_Phase1計画書.md` ── **現在の実行計画**。マイルストーン（M1〜M5）と完了条件を定義する
-- `docs/tasks/` ── 作業指示書と完了報告。実際の実装作業はこのディレクトリの指示書単位で行う
+- `docs/tasks/` ── 現在地、未着手候補、標準/重要変更の指示書と完了証拠。軽量作業はtask文書を省略できる
 
 **`docs/01`・`docs/02` の変更には人間承認が必要**である。`docs/03_技術仕様書.md` は2026-07-08にプロダクトオーナーが全面編集を許可した（コミットをチェックポイントとして復元可能なため）。ただし変更時は外科的差分とし、日付・ADR参照注記を維持すること。実装中に仕様と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、該当タスクの完了報告の「未解決事項」に記録すること。
 
@@ -50,7 +50,7 @@ sh app/tool/check_hardcoded_strings.sh
 - UI文字列は必ずARB化する（`app/lib/l10n/app_en.arb` + `app_ja.arb`）。文字列の直書きは `app/tool/check_hardcoded_strings.sh` が検出する。
 - 状態管理はRiverpod 3.x（`AsyncNotifier` + `invalidateSelf`）を用いる。`riverpod_generator` は使わない。ルーティングは `go_router` を用い、ルート定義は `app/lib/src/router.dart` に集約する。
 - 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
-- 作業は `docs/tasks/` の指示書方式で行う（詳細は `docs/tasks/README.md`）。タスク完了時は指示書末尾に「## 9. 完了報告」を追記してからコミットする。
+- 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。標準・重要変更は実装着手時に指示書へ昇格し、完了時に「## 9. 完了報告」を追記する。候補段階や軽量作業ではtask文書を作らない。
 
 ## 環境
 
@@ -79,4 +79,4 @@ sh app/tool/check_hardcoded_strings.sh
 
 ## 現在地とバックログ
 
-進捗の詳細と次にやるべきタスクは `docs/tasks/BACKLOG.md` を参照すること。
+現在地と次の3候補は `docs/tasks/STATUS.md`、未着手候補は `docs/tasks/BACKLOG.md` を参照すること。
