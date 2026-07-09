@@ -10,7 +10,6 @@ pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/health", get(health))
         .nest("/v1/auth", auth::router())
-        .nest("/v1/tenants", sync::key_router())
         .nest("/v2/tenants", sync::router())
 }
 

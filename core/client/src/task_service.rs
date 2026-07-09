@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use todori_domain::{update_due_at, update_note, update_priority, update_title, List, Task, Uuid};
 use todori_storage::{
-    open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, TaskUndoOperation,
+    open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
+    SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
 use todori_sync::{
-    enqueue_list_sync, enqueue_task_sync, LocalMutationSyncStore, LocalSyncKeys,
-    NewLocalSyncOutboxEntry,
+    enqueue_list_sync, enqueue_task_sync, EncryptedSyncState, LocalMutationSyncStore,
+    LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
+    SyncCollection,
 };
 
 #[derive(Debug, Error)]
@@ -128,9 +130,13 @@ struct TransactionalMutationStore<'transaction, 'connection> {
 }
 
 impl LocalMutationSyncStore for TransactionalMutationStore<'_, '_> {
-    fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+    fn has_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String> {
         self.transaction
-            .has_outbox_entry(collection, record_id)
+            .has_outbox_head(collection.as_str(), record_id)
             .map_err(|error| error.to_string())
     }
 
@@ -146,14 +152,22 @@ impl LocalMutationSyncStore for TransactionalMutationStore<'_, '_> {
             .map_err(|error| error.to_string())
     }
 
-    fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+    fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
         self.transaction
-            .enqueue_outbox(NewSyncOutboxEntry {
+            .put_outbox_head(NewSyncOutboxEntry {
+                op_id: entry.op_id,
                 record_id: entry.record_id,
-                collection: entry.collection,
-                hlc: entry.hlc,
-                deleted: entry.deleted,
-                blob: entry.blob,
+                collection: entry.collection.to_string(),
+                base_revision_hlc: entry.base_revision_hlc,
+                revision_hlc: entry.revision_hlc,
+                state: match entry.state {
+                    EncryptedSyncState::Live { mutation_hlc, blob } => {
+                        SyncOutboxState::Live { mutation_hlc, blob }
+                    }
+                    EncryptedSyncState::Tombstone { delete_hlc } => {
+                        SyncOutboxState::Tombstone { delete_hlc }
+                    }
+                },
                 created_at: entry.created_at,
             })
             .map(|_| ())
@@ -162,30 +176,71 @@ impl LocalMutationSyncStore for TransactionalMutationStore<'_, '_> {
 
     fn get_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<LocalSyncRecordState>, String> {
         self.transaction
-            .get_record_state(collection, record_id)
+            .get_record_state(collection.as_str(), record_id)
+            .map(|state| state.map(storage_record_to_local))
             .map_err(|error| error.to_string())
     }
 
-    fn upsert_record_state(
+    fn put_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-        plaintext_json: &str,
+        state: LocalSyncRecordState,
         updated_at: i64,
     ) -> Result<(), String> {
         self.transaction
-            .upsert_record_state(collection, record_id, plaintext_json, updated_at)
+            .put_record_state(local_record_to_storage(
+                collection, record_id, state, updated_at,
+            ))
             .map_err(|error| error.to_string())
     }
+}
 
-    fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
-        self.transaction
-            .delete_record_state(collection, record_id)
-            .map_err(|error| error.to_string())
+fn storage_record_to_local(state: SyncRecordState) -> LocalSyncRecordState {
+    LocalSyncRecordState {
+        current_revision_hlc: state.current_revision_hlc,
+        state: match state.state {
+            SyncRecordSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            } => LocalSyncSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            },
+            SyncRecordSemanticState::Tombstone { delete_hlc } => {
+                LocalSyncSemanticState::Tombstone { delete_hlc }
+            }
+        },
+    }
+}
+
+fn local_record_to_storage(
+    collection: SyncCollection,
+    record_id: Uuid,
+    state: LocalSyncRecordState,
+    updated_at: i64,
+) -> SyncRecordState {
+    SyncRecordState {
+        record_id,
+        collection: collection.to_string(),
+        current_revision_hlc: state.current_revision_hlc,
+        state: match state.state {
+            LocalSyncSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            } => SyncRecordSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            },
+            LocalSyncSemanticState::Tombstone { delete_hlc } => {
+                SyncRecordSemanticState::Tombstone { delete_hlc }
+            }
+        },
+        updated_at,
     }
 }
 
@@ -195,7 +250,8 @@ mod tests {
     use todori_domain::{new_list, new_task};
     use todori_storage::{
         ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-        SqliteSyncStateRepository, SqliteTaskRepository, SyncStateRepository, TaskRepository,
+        SqliteSyncStateRepository, SqliteTaskRepository, SyncRecordSemanticState, SyncRecordState,
+        SyncStateRepository, TaskRepository,
     };
     use todori_sync::{Hlc, LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION};
 
@@ -247,7 +303,16 @@ mod tests {
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         let mut sync_state = SqliteSyncStateRepository::new(connection);
         sync_state
-            .upsert_record_state(TASKS_COLLECTION, task.id, "baseline", BASE_MS)
+            .put_record_state(SyncRecordState {
+                record_id: task.id,
+                collection: TASKS_COLLECTION.to_string(),
+                current_revision_hlc: None,
+                state: SyncRecordSemanticState::Live {
+                    mutation_hlc: baseline_hlc,
+                    plaintext_json: "baseline".to_string(),
+                },
+                updated_at: BASE_MS,
+            })
             .unwrap();
 
         Fixture {
@@ -299,13 +364,15 @@ mod tests {
 
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert_eq!(sync.list_outbox(10).unwrap().len(), 1);
-        assert_ne!(
-            sync.get_record_state(TASKS_COLLECTION, fixture.task.id)
-                .unwrap()
-                .as_deref(),
-            Some("baseline")
-        );
+        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
+        let state = sync
+            .get_record_state(TASKS_COLLECTION, fixture.task.id)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            state.state,
+            SyncRecordSemanticState::Live { plaintext_json, .. } if plaintext_json != "baseline"
+        ));
     }
 
     #[test]
@@ -369,12 +436,14 @@ mod tests {
 
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert!(sync.list_outbox(10).unwrap().is_empty());
-        assert_eq!(
-            sync.get_record_state(TASKS_COLLECTION, fixture.task.id)
-                .unwrap()
-                .as_deref(),
-            Some("baseline")
-        );
+        assert!(sync.list_outbox_heads(10).unwrap().is_empty());
+        let state = sync
+            .get_record_state(TASKS_COLLECTION, fixture.task.id)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            state.state,
+            SyncRecordSemanticState::Live { plaintext_json, .. } if plaintext_json == "baseline"
+        ));
     }
 }

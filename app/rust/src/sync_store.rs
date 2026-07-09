@@ -4,10 +4,11 @@ use todori_domain::{List, Task, Uuid};
 use todori_storage::{
     open_encrypted, ListRepository, NewSyncOutboxEntry, SettingsRepository, SqliteListRepository,
     SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository, StorageError,
-    SyncStateRepository, TaskRepository,
+    SyncOutboxState, SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
-    LocalMutationSyncStore, LocalSyncOutboxEntry, LocalSyncStore, NewLocalSyncOutboxEntry,
+    EncryptedSyncState, LocalMutationSyncStore, LocalSyncOutboxEntry, LocalSyncRecordState,
+    LocalSyncSemanticState, LocalSyncStore, NewLocalSyncOutboxEntry, SyncCollection,
 };
 
 pub(crate) struct BridgeSyncStore {
@@ -22,10 +23,14 @@ impl BridgeSyncStore {
 }
 
 impl LocalMutationSyncStore for BridgeSyncStore {
-    fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+    fn has_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .has_outbox_entry(collection, record_id)
+                .has_outbox_head(collection.as_str(), record_id)
                 .map_err(|error| error.to_string())
         })
     }
@@ -46,15 +51,23 @@ impl LocalMutationSyncStore for BridgeSyncStore {
         })
     }
 
-    fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+    fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .enqueue_outbox(NewSyncOutboxEntry {
+                .put_outbox_head(NewSyncOutboxEntry {
+                    op_id: entry.op_id,
                     record_id: entry.record_id,
-                    collection: entry.collection,
-                    hlc: entry.hlc,
-                    deleted: entry.deleted,
-                    blob: entry.blob,
+                    collection: entry.collection.to_string(),
+                    base_revision_hlc: entry.base_revision_hlc,
+                    revision_hlc: entry.revision_hlc,
+                    state: match entry.state {
+                        EncryptedSyncState::Live { mutation_hlc, blob } => {
+                            SyncOutboxState::Live { mutation_hlc, blob }
+                        }
+                        EncryptedSyncState::Tombstone { delete_hlc } => {
+                            SyncOutboxState::Tombstone { delete_hlc }
+                        }
+                    },
                     created_at: entry.created_at,
                 })
                 .map(|_| ())
@@ -64,65 +77,74 @@ impl LocalMutationSyncStore for BridgeSyncStore {
 
     fn get_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<LocalSyncRecordState>, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .get_record_state(collection, record_id)
+                .get_record_state(collection.as_str(), record_id)
+                .map(|state| state.map(storage_record_to_local))
                 .map_err(|error| error.to_string())
         })
     }
 
-    fn upsert_record_state(
+    fn put_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-        plaintext_json: &str,
+        state: LocalSyncRecordState,
         updated_at: i64,
     ) -> Result<(), String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .upsert_record_state(collection, record_id, plaintext_json, updated_at)
-                .map_err(|error| error.to_string())
-        })
-    }
-
-    fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
-        with_sync_repository(&self.db_path, &self.db_key, |repository| {
-            repository
-                .delete_record_state(collection, record_id)
+                .put_record_state(local_record_to_storage(
+                    collection, record_id, state, updated_at,
+                ))
                 .map_err(|error| error.to_string())
         })
     }
 }
 
 impl LocalSyncStore for BridgeSyncStore {
-    fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
+    fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .list_outbox(limit)
+                .list_outbox_heads(limit)
                 .map(|entries| {
                     entries
                         .into_iter()
-                        .map(|entry| LocalSyncOutboxEntry {
-                            id: entry.id,
-                            record_id: entry.record_id,
-                            collection: entry.collection,
-                            hlc: entry.hlc,
-                            deleted: entry.deleted,
-                            blob: entry.blob,
-                            created_at: entry.created_at,
+                        .map(|entry| -> Result<LocalSyncOutboxEntry, String> {
+                            Ok(LocalSyncOutboxEntry {
+                                op_id: entry.op_id,
+                                record_id: entry.record_id,
+                                collection: entry
+                                    .collection
+                                    .parse::<SyncCollection>()
+                                    .map_err(|error| error.to_string())?,
+                                base_revision_hlc: entry.base_revision_hlc,
+                                revision_hlc: entry.revision_hlc,
+                                state: match entry.state {
+                                    SyncOutboxState::Live { mutation_hlc, blob } => {
+                                        EncryptedSyncState::Live { mutation_hlc, blob }
+                                    }
+                                    SyncOutboxState::Tombstone { delete_hlc } => {
+                                        EncryptedSyncState::Tombstone { delete_hlc }
+                                    }
+                                },
+                                created_at: entry.created_at,
+                            })
                         })
-                        .collect()
+                        .collect::<Result<Vec<_>, String>>()
                 })
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?
         })
     }
 
-    fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
+    fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
-            repository.ack_outbox(id).map_err(|error| error.to_string())
+            repository
+                .ack_outbox_op(op_id)
+                .map_err(|error| error.to_string())
         })
     }
 
@@ -210,6 +232,50 @@ impl LocalSyncStore for BridgeSyncStore {
                 .delete_subtree_for_sync(task_id)
                 .map_err(|error| error.to_string())
         })
+    }
+}
+
+fn storage_record_to_local(state: SyncRecordState) -> LocalSyncRecordState {
+    LocalSyncRecordState {
+        current_revision_hlc: state.current_revision_hlc,
+        state: match state.state {
+            SyncRecordSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            } => LocalSyncSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            },
+            SyncRecordSemanticState::Tombstone { delete_hlc } => {
+                LocalSyncSemanticState::Tombstone { delete_hlc }
+            }
+        },
+    }
+}
+
+fn local_record_to_storage(
+    collection: SyncCollection,
+    record_id: Uuid,
+    state: LocalSyncRecordState,
+    updated_at: i64,
+) -> SyncRecordState {
+    SyncRecordState {
+        record_id,
+        collection: collection.to_string(),
+        current_revision_hlc: state.current_revision_hlc,
+        state: match state.state {
+            LocalSyncSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            } => SyncRecordSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            },
+            LocalSyncSemanticState::Tombstone { delete_hlc } => {
+                SyncRecordSemanticState::Tombstone { delete_hlc }
+            }
+        },
+        updated_at,
     }
 }
 

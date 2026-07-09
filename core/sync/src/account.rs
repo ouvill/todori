@@ -231,7 +231,7 @@ impl AccountClient {
         list_key: ListDekBundleDto,
     ) -> Result<(), AccountClientError> {
         self.post_json::<UpsertListKeyResponse>(
-            &format!("/v1/tenants/{tenant_id}/list-keys"),
+            &format!("/v2/tenants/{tenant_id}/list-keys"),
             &list_key,
             Some(session_token),
         )
@@ -245,7 +245,7 @@ impl AccountClient {
         session_token: &str,
     ) -> Result<Vec<ListDekBundleDto>, AccountClientError> {
         self.get_json::<Vec<ListDekBundleDto>>(
-            &format!("/v1/tenants/{tenant_id}/list-keys"),
+            &format!("/v2/tenants/{tenant_id}/list-keys"),
             Some(session_token),
         )
         .await

@@ -191,7 +191,8 @@ mod tests {
     use todori_domain::{new_list, new_task};
     use todori_storage::{
         ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-        SqliteSyncStateRepository, SqliteTaskRepository, SyncStateRepository, TaskRepository,
+        SqliteSyncStateRepository, SqliteTaskRepository, SyncRecordSemanticState, SyncRecordState,
+        SyncStateRepository, TaskRepository,
     };
     use todori_sync::{
         Hlc, LocalSyncKeys, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
@@ -304,7 +305,7 @@ mod tests {
         assert_eq!(restored.status, TaskStatus::Todo);
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert_eq!(sync.list_outbox(10).unwrap().len(), 3);
+        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         assert!(sync
             .get_record_state(TASKS_COLLECTION, created.id)
             .unwrap()
@@ -337,7 +338,7 @@ mod tests {
 
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
-        assert_eq!(sync.list_outbox(10).unwrap().len(), 3);
+        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         assert!(sync
             .get_record_state(LISTS_COLLECTION, fixture.list.id)
             .unwrap()
@@ -469,7 +470,7 @@ mod tests {
         );
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
-            .list_outbox(10)
+            .list_outbox_heads(10)
             .unwrap()
             .is_empty());
     }
@@ -487,7 +488,7 @@ mod tests {
         ));
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
-            .list_outbox(10)
+            .list_outbox_heads(10)
             .unwrap()
             .is_empty());
     }
@@ -563,7 +564,7 @@ mod tests {
         ));
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
-            .list_outbox(10)
+            .list_outbox_heads(10)
             .unwrap()
             .is_empty());
     }
@@ -578,16 +579,35 @@ mod tests {
     fn seed_record_state(fixture: &Fixture, collection: &str, record_id: Uuid) {
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         SqliteSyncStateRepository::new(connection)
-            .upsert_record_state(collection, record_id, "baseline", BASE_MS)
+            .put_record_state(SyncRecordState {
+                record_id,
+                collection: collection.to_string(),
+                current_revision_hlc: None,
+                state: SyncRecordSemanticState::Live {
+                    mutation_hlc: Hlc {
+                        wall_ms: BASE_MS - 1,
+                        counter: 0,
+                        device_id: "seed".to_string(),
+                    }
+                    .encode()
+                    .unwrap(),
+                    plaintext_json: "baseline".to_string(),
+                },
+                updated_at: BASE_MS,
+            })
             .unwrap();
     }
 
     fn record_state(fixture: &Fixture, collection: &str, record_id: Uuid) -> String {
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
-        SqliteSyncStateRepository::new(connection)
+        let state = SqliteSyncStateRepository::new(connection)
             .get_record_state(collection, record_id)
             .unwrap()
-            .unwrap()
+            .unwrap();
+        match state.state {
+            SyncRecordSemanticState::Live { plaintext_json, .. } => plaintext_json,
+            SyncRecordSemanticState::Tombstone { .. } => panic!("expected live state"),
+        }
     }
 
     fn local_hlc(fixture: &Fixture) -> Option<String> {

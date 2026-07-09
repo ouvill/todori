@@ -332,7 +332,7 @@ mod tests {
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         assert_eq!(
             SqliteSyncStateRepository::new(connection)
-                .list_outbox(10)
+                .list_outbox_heads(10)
                 .unwrap()
                 .len(),
             1

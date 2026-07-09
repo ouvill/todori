@@ -5,31 +5,49 @@ use todori_crypto::key_hierarchy::KEY_LEN;
 use todori_domain::{List, Task, TaskStatus, Uuid};
 
 use crate::{
-    encrypt_plaintext, Hlc, SyncPlaintext, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY,
-    TASKS_COLLECTION,
+    encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
+    SYNC_LOCAL_HLC_SETTING_KEY,
 };
 
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSyncOutboxEntry {
-    pub id: i64,
+    pub op_id: Uuid,
     pub record_id: Uuid,
-    pub collection: String,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: Vec<u8>,
+    pub collection: SyncCollection,
+    pub base_revision_hlc: Option<String>,
+    pub revision_hlc: String,
+    pub state: EncryptedSyncState,
     pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewLocalSyncOutboxEntry {
+    pub op_id: Uuid,
     pub record_id: Uuid,
-    pub collection: String,
-    pub hlc: String,
-    pub deleted: bool,
-    pub blob: Vec<u8>,
+    pub collection: SyncCollection,
+    pub base_revision_hlc: Option<String>,
+    pub revision_hlc: String,
+    pub state: EncryptedSyncState,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalSyncSemanticState {
+    Live {
+        mutation_hlc: String,
+        plaintext_json: String,
+    },
+    Tombstone {
+        delete_hlc: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSyncRecordState {
+    pub current_revision_hlc: Option<String>,
+    pub state: LocalSyncSemanticState,
 }
 
 /// The local persistence operations needed to prepare a domain mutation for sync.
@@ -37,23 +55,26 @@ pub struct NewLocalSyncOutboxEntry {
 /// Implementations must arrange for these writes and the corresponding domain
 /// write to participate in the same transaction.
 pub trait LocalMutationSyncStore {
-    fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String>;
+    fn has_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String>;
     fn get_setting(&mut self, key: &str) -> Result<Option<String>, String>;
     fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), String>;
-    fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String>;
+    fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String>;
     fn get_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-    ) -> Result<Option<String>, String>;
-    fn upsert_record_state(
+    ) -> Result<Option<LocalSyncRecordState>, String>;
+    fn put_record_state(
         &mut self,
-        collection: &str,
+        collection: SyncCollection,
         record_id: Uuid,
-        plaintext_json: &str,
+        state: LocalSyncRecordState,
         updated_at: i64,
     ) -> Result<(), String>;
-    fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String>;
 }
 
 /// The complete local persistence surface used by a sync run.
@@ -62,8 +83,8 @@ pub trait LocalMutationSyncStore {
 /// and domain row application. Mutation-only callers should depend on
 /// [`LocalMutationSyncStore`] instead.
 pub trait LocalSyncStore: LocalMutationSyncStore {
-    fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
-    fn ack_outbox(&mut self, id: i64) -> Result<(), String>;
+    fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
+    fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String>;
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String>;
     fn delete_cursor(&mut self, name: &str) -> Result<(), String>;
@@ -99,7 +120,7 @@ where
     let mut summary = BackfillSummary::default();
 
     for list in lists {
-        if store.has_outbox_entry(LISTS_COLLECTION, list.id)? {
+        if store.has_outbox_head(SyncCollection::Lists, list.id)? {
             summary.skipped_existing_outbox += 1;
             continue;
         }
@@ -114,7 +135,7 @@ where
     let mut sorted_tasks = tasks.iter().collect::<Vec<_>>();
     sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
     for task in sorted_tasks {
-        if store.has_outbox_entry(TASKS_COLLECTION, task.id)? {
+        if store.has_outbox_head(SyncCollection::Tasks, task.id)? {
             summary.skipped_existing_outbox += 1;
             continue;
         }
@@ -142,6 +163,10 @@ where
     N: FnMut() -> Result<i64, String>,
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    let base_revision_hlc = store
+        .get_record_state(SyncCollection::Tasks, task.id)?
+        .and_then(|state| state.current_revision_hlc);
     let dek = dek_for_list(keys, task.list_id)
         .ok_or_else(|| "missing list key for task sync".to_string())?;
     let plaintext = task_plaintext(task, hlc.clone());
@@ -149,11 +174,13 @@ where
         store,
         EnqueuePlaintextRequest {
             record_id: task.id,
-            collection: TASKS_COLLECTION,
+            collection: SyncCollection::Tasks,
             deleted,
             plaintext: &plaintext,
             dek: &dek,
-            hlc: &hlc,
+            revision_hlc: &hlc,
+            semantic_hlc: &encoded_hlc,
+            base_revision_hlc,
         },
         now_ms,
     )
@@ -172,6 +199,10 @@ where
     N: FnMut() -> Result<i64, String>,
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    let base_revision_hlc = store
+        .get_record_state(SyncCollection::Lists, list.id)?
+        .and_then(|state| state.current_revision_hlc);
     let dek =
         dek_for_list(keys, list.id).ok_or_else(|| "missing list key for list sync".to_string())?;
     let plaintext = list_plaintext(list, hlc.clone());
@@ -179,57 +210,115 @@ where
         store,
         EnqueuePlaintextRequest {
             record_id: list.id,
-            collection: LISTS_COLLECTION,
+            collection: SyncCollection::Lists,
             deleted,
             plaintext: &plaintext,
             dek: &dek,
-            hlc: &hlc,
+            revision_hlc: &hlc,
+            semantic_hlc: &encoded_hlc,
+            base_revision_hlc,
         },
         now_ms,
     )
 }
 
+pub(crate) struct RebasePlaintextRequest<'a> {
+    pub record_id: Uuid,
+    pub collection: SyncCollection,
+    pub plaintext: &'a SyncPlaintext,
+    pub dek: &'a [u8; KEY_LEN],
+    pub device_id: &'a str,
+    pub base_revision_hlc: &'a str,
+}
+
 pub(crate) fn enqueue_merged_plaintext<S, N>(
     store: &mut S,
-    record_id: Uuid,
-    collection: &str,
-    plaintext: &SyncPlaintext,
-    dek: &[u8; KEY_LEN],
-    device_id: &str,
+    request: RebasePlaintextRequest<'_>,
     now_ms: &mut N,
 ) -> Result<(), String>
 where
     S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    let mut merged = plaintext.clone();
-    let hlc = tick_local_hlc(store, device_id, now_ms)?;
-    for field_hlc in merged.field_hlcs.values_mut() {
-        if *field_hlc < hlc {
-            *field_hlc = hlc.clone();
-        }
-    }
+    let revision_hlc =
+        tick_local_hlc_after(store, request.device_id, request.base_revision_hlc, now_ms)?;
+    let mutation_hlc = request
+        .plaintext
+        .record_hlc()
+        .ok_or_else(|| "sync failed".to_string())?
+        .encode()
+        .map_err(|_| "sync failed".to_string())?;
     enqueue_plaintext(
         store,
         EnqueuePlaintextRequest {
-            record_id,
-            collection,
+            record_id: request.record_id,
+            collection: request.collection,
             deleted: false,
-            plaintext: &merged,
-            dek,
-            hlc: &hlc,
+            plaintext: request.plaintext,
+            dek: request.dek,
+            revision_hlc: &revision_hlc,
+            semantic_hlc: &mutation_hlc,
+            base_revision_hlc: Some(request.base_revision_hlc.to_string()),
         },
         now_ms,
     )
 }
 
+pub(crate) struct RebaseTombstoneRequest<'a> {
+    pub record_id: Uuid,
+    pub collection: SyncCollection,
+    pub delete_hlc: &'a str,
+    pub device_id: &'a str,
+    pub base_revision_hlc: &'a str,
+}
+
+pub(crate) fn enqueue_rebased_tombstone<S, N>(
+    store: &mut S,
+    request: RebaseTombstoneRequest<'_>,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    Hlc::decode(request.delete_hlc).map_err(|_| "sync failed".to_string())?;
+    let revision_hlc =
+        tick_local_hlc_after(store, request.device_id, request.base_revision_hlc, now_ms)?
+            .encode()
+            .map_err(|_| "sync failed".to_string())?;
+    store.put_outbox_head(NewLocalSyncOutboxEntry {
+        op_id: Uuid::now_v7(),
+        record_id: request.record_id,
+        collection: request.collection,
+        base_revision_hlc: Some(request.base_revision_hlc.to_string()),
+        revision_hlc,
+        state: EncryptedSyncState::Tombstone {
+            delete_hlc: request.delete_hlc.to_string(),
+        },
+        created_at: now_ms()?,
+    })?;
+    store.put_record_state(
+        request.collection,
+        request.record_id,
+        LocalSyncRecordState {
+            current_revision_hlc: Some(request.base_revision_hlc.to_string()),
+            state: LocalSyncSemanticState::Tombstone {
+                delete_hlc: request.delete_hlc.to_string(),
+            },
+        },
+        now_ms()?,
+    )
+}
+
 struct EnqueuePlaintextRequest<'a> {
     record_id: Uuid,
-    collection: &'a str,
+    collection: SyncCollection,
     deleted: bool,
     plaintext: &'a SyncPlaintext,
     dek: &'a [u8; KEY_LEN],
-    hlc: &'a Hlc,
+    revision_hlc: &'a Hlc,
+    semantic_hlc: &'a str,
+    base_revision_hlc: Option<String>,
 }
 
 fn enqueue_plaintext<S, N>(
@@ -241,41 +330,57 @@ where
     S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    let blob = if request.deleted {
-        Vec::new()
+    let state = if request.deleted {
+        EncryptedSyncState::Tombstone {
+            delete_hlc: request.semantic_hlc.to_string(),
+        }
     } else {
-        encrypt_plaintext(
+        let blob = encrypt_plaintext(
             request.dek,
-            request.collection,
+            request.collection.as_str(),
             &request.record_id.to_string(),
             request.plaintext,
         )
-        .map_err(|_| "sync failed".to_string())?
+        .map_err(|_| "sync failed".to_string())?;
+        EncryptedSyncState::Live {
+            mutation_hlc: request.semantic_hlc.to_string(),
+            blob,
+        }
     };
-    let encoded_hlc = request
-        .hlc
+    let revision_hlc = request
+        .revision_hlc
         .encode()
         .map_err(|_| "sync failed".to_string())?;
-    store.enqueue_outbox(NewLocalSyncOutboxEntry {
+    store.put_outbox_head(NewLocalSyncOutboxEntry {
+        op_id: Uuid::now_v7(),
         record_id: request.record_id,
-        collection: request.collection.to_string(),
-        hlc: encoded_hlc,
-        deleted: request.deleted,
-        blob,
+        collection: request.collection,
+        base_revision_hlc: request.base_revision_hlc.clone(),
+        revision_hlc,
+        state,
         created_at: now_ms()?,
     })?;
-    if request.deleted {
-        store.delete_record_state(request.collection, request.record_id)
+    let semantic_state = if request.deleted {
+        LocalSyncSemanticState::Tombstone {
+            delete_hlc: request.semantic_hlc.to_string(),
+        }
     } else {
         let plaintext_json =
             serde_json::to_string(request.plaintext).map_err(|_| "sync failed".to_string())?;
-        store.upsert_record_state(
-            request.collection,
-            request.record_id,
-            &plaintext_json,
-            now_ms()?,
-        )
-    }
+        LocalSyncSemanticState::Live {
+            mutation_hlc: request.semantic_hlc.to_string(),
+            plaintext_json,
+        }
+    };
+    store.put_record_state(
+        request.collection,
+        request.record_id,
+        LocalSyncRecordState {
+            current_revision_hlc: request.base_revision_hlc,
+            state: semantic_state,
+        },
+        now_ms()?,
+    )
 }
 
 fn tick_local_hlc<S, N>(store: &mut S, device_id: &str, now_ms: &mut N) -> Result<Hlc, String>
@@ -290,6 +395,32 @@ where
         _ => Hlc::new(device_id.to_string()),
     };
     let hlc = clock.now(now_ms()?);
+    store.set_setting(
+        SYNC_LOCAL_HLC_SETTING_KEY,
+        &hlc.encode().map_err(|_| "sync failed".to_string())?,
+        now_ms()?,
+    )?;
+    Ok(hlc)
+}
+
+fn tick_local_hlc_after<S, N>(
+    store: &mut S,
+    device_id: &str,
+    remote_revision_hlc: &str,
+    now_ms: &mut N,
+) -> Result<Hlc, String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let mut clock = match store.get_setting(SYNC_LOCAL_HLC_SETTING_KEY)? {
+        Some(encoded) if !encoded.is_empty() => {
+            Hlc::decode(&encoded).unwrap_or_else(|_| Hlc::new(device_id.to_string()))
+        }
+        _ => Hlc::new(device_id.to_string()),
+    };
+    let remote = Hlc::decode(remote_revision_hlc).map_err(|_| "sync failed".to_string())?;
+    let hlc = clock.merge(&remote, now_ms()?);
     store.set_setting(
         SYNC_LOCAL_HLC_SETTING_KEY,
         &hlc.encode().map_err(|_| "sync failed".to_string())?,
@@ -401,14 +532,17 @@ mod tests {
 
     #[derive(Default)]
     struct FakeStore {
-        next_outbox_id: i64,
         outbox: Vec<LocalSyncOutboxEntry>,
         settings: HashMap<String, String>,
-        record_states: HashMap<(String, Uuid), String>,
+        record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
     }
 
     impl LocalMutationSyncStore for FakeStore {
-        fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+        fn has_outbox_head(
+            &mut self,
+            collection: SyncCollection,
+            record_id: Uuid,
+        ) -> Result<bool, String> {
             Ok(self
                 .outbox
                 .iter()
@@ -424,15 +558,15 @@ mod tests {
             Ok(())
         }
 
-        fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
-            self.next_outbox_id += 1;
+        fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+            self.outbox.retain(|head| head.record_id != entry.record_id);
             self.outbox.push(LocalSyncOutboxEntry {
-                id: self.next_outbox_id,
+                op_id: entry.op_id,
                 record_id: entry.record_id,
                 collection: entry.collection,
-                hlc: entry.hlc,
-                deleted: entry.deleted,
-                blob: entry.blob,
+                base_revision_hlc: entry.base_revision_hlc,
+                revision_hlc: entry.revision_hlc,
+                state: entry.state,
                 created_at: entry.created_at,
             });
             Ok(())
@@ -440,32 +574,20 @@ mod tests {
 
         fn get_record_state(
             &mut self,
-            collection: &str,
+            collection: SyncCollection,
             record_id: Uuid,
-        ) -> Result<Option<String>, String> {
-            Ok(self
-                .record_states
-                .get(&(collection.to_string(), record_id))
-                .cloned())
+        ) -> Result<Option<LocalSyncRecordState>, String> {
+            Ok(self.record_states.get(&(collection, record_id)).cloned())
         }
 
-        fn upsert_record_state(
+        fn put_record_state(
             &mut self,
-            collection: &str,
+            collection: SyncCollection,
             record_id: Uuid,
-            plaintext_json: &str,
+            state: LocalSyncRecordState,
             _updated_at: i64,
         ) -> Result<(), String> {
-            self.record_states.insert(
-                (collection.to_string(), record_id),
-                plaintext_json.to_string(),
-            );
-            Ok(())
-        }
-
-        fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
-            self.record_states
-                .remove(&(collection.to_string(), record_id));
+            self.record_states.insert((collection, record_id), state);
             Ok(())
         }
     }
@@ -490,9 +612,9 @@ mod tests {
 
         assert_eq!(summary.enqueued_lists, 1);
         assert_eq!(summary.enqueued_tasks, 1);
-        assert_eq!(store.outbox[0].collection, LISTS_COLLECTION);
+        assert_eq!(store.outbox[0].collection, SyncCollection::Lists);
         assert_eq!(store.outbox[0].record_id, list.id);
-        assert_eq!(store.outbox[1].collection, TASKS_COLLECTION);
+        assert_eq!(store.outbox[1].collection, SyncCollection::Tasks);
         assert_eq!(store.outbox[1].record_id, task.id);
     }
 
@@ -503,7 +625,7 @@ mod tests {
         let mut store = FakeStore::default();
         store
             .outbox
-            .push(existing_outbox(TASKS_COLLECTION, task.id));
+            .push(existing_outbox(SyncCollection::Tasks, task.id));
         let keys = sync_keys(&[list.id]);
         let mut now = ticking_now();
 
@@ -525,7 +647,7 @@ mod tests {
             store
                 .outbox
                 .iter()
-                .filter(|entry| entry.collection == TASKS_COLLECTION)
+                .filter(|entry| entry.collection == SyncCollection::Tasks)
                 .count(),
             1
         );
@@ -553,7 +675,7 @@ mod tests {
         let task_ids = store
             .outbox
             .iter()
-            .filter(|entry| entry.collection == TASKS_COLLECTION)
+            .filter(|entry| entry.collection == SyncCollection::Tasks)
             .map(|entry| entry.record_id)
             .collect::<Vec<_>>();
         assert_eq!(task_ids, vec![earlier.id, later.id]);
@@ -647,14 +769,17 @@ mod tests {
         }
     }
 
-    fn existing_outbox(collection: &str, record_id: Uuid) -> LocalSyncOutboxEntry {
+    fn existing_outbox(collection: SyncCollection, record_id: Uuid) -> LocalSyncOutboxEntry {
         LocalSyncOutboxEntry {
-            id: 99,
+            op_id: Uuid::now_v7(),
             record_id,
-            collection: collection.to_string(),
-            hlc: "existing".to_string(),
-            deleted: false,
-            blob: Vec::new(),
+            collection,
+            base_revision_hlc: None,
+            revision_hlc: Hlc::new("existing").now(1).encode().unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: Hlc::new("existing").now(1).encode().unwrap(),
+                blob: vec![1],
+            },
             created_at: 1,
         }
     }

@@ -13,15 +13,17 @@ pub mod field_map;
 pub mod hlc;
 pub mod keys;
 pub mod merge;
+pub mod protocol;
 
 pub use apply::{run_sync_now, ActiveSyncContext};
 pub use engine::{
-    PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus, SyncEngine,
-    SyncEngineError, SyncRunSummary,
+    EncryptedSyncState, PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus,
+    SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
     enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary,
-    LocalMutationSyncStore, LocalSyncOutboxEntry, LocalSyncStore, NewLocalSyncOutboxEntry,
+    LocalMutationSyncStore, LocalSyncOutboxEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, NewLocalSyncOutboxEntry,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
@@ -35,6 +37,7 @@ pub use keys::{
     SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
+pub use protocol::SyncCollection;
 
 #[cfg(test)]
 mod convergence_tests {

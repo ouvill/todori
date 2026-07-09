@@ -21,13 +21,10 @@ pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
-}
-
-pub fn key_router() -> Router<SharedState> {
-    Router::new().route(
-        "/{tenant_id}/list-keys",
-        get(list_key_bundles).post(upsert_list_key_bundle),
-    )
+        .route(
+            "/{tenant_id}/list-keys",
+            get(list_key_bundles).post(upsert_list_key_bundle),
+        )
 }
 
 #[derive(Debug, Deserialize)]

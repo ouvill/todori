@@ -5,7 +5,7 @@ use todori_crypto::{decrypt, encrypt, CryptoError};
 
 use crate::field_map::SyncPlaintext;
 
-pub const ENVELOPE_VERSION: u8 = 1;
+pub const ENVELOPE_VERSION: u8 = 2;
 pub const MAX_ENCRYPTED_BLOB_LEN: usize = 64 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -61,7 +61,7 @@ pub fn decrypt_plaintext(
 }
 
 fn aad(collection: &str, record_id: &str) -> Vec<u8> {
-    format!("todori-sync-envelope/v1\ncollection:{collection}\nrecord_id:{record_id}").into_bytes()
+    format!("todori-sync-envelope/v2\ncollection:{collection}\nrecord_id:{record_id}").into_bytes()
 }
 
 #[cfg(test)]

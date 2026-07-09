@@ -1,15 +1,18 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 use todori_domain::{List, Task, TaskStatus, Uuid};
 
 use crate::{
-    decrypt_plaintext, merge_lww, Hlc, PullRecord, PushOp, PushStatus, SyncEngine, SyncPlaintext,
-    SyncRunSummary, LISTS_COLLECTION, SYNC_CURSOR_NAME, TASKS_COLLECTION,
+    decrypt_plaintext, merge_lww, EncryptedSyncState, Hlc, PullRecord, PushOp, PushStatus,
+    SyncCollection, SyncEngine, SyncPlaintext, SyncRunSummary, LISTS_COLLECTION, SYNC_CURSOR_NAME,
+    TASKS_COLLECTION,
 };
 
 use crate::enqueue::{
-    enqueue_merged_plaintext, list_plaintext, parse_status, task_plaintext, LocalSyncStore,
+    enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, parse_status,
+    task_plaintext, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -43,20 +46,24 @@ where
     let mut summary = SyncRunSummary::default();
 
     for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
-        let outbox = store.list_outbox(PUSH_BATCH_LIMIT)?;
+        let outbox = store.list_outbox_heads(PUSH_BATCH_LIMIT)?;
         if outbox.is_empty() {
             break;
         }
         summary.pushed_count += outbox.len();
+        let revisions = outbox
+            .iter()
+            .map(|entry| (entry.op_id, entry.revision_hlc.clone()))
+            .collect::<HashMap<_, _>>();
         let push_ops = outbox
             .into_iter()
             .map(|entry| PushOp {
-                outbox_id: entry.id,
+                op_id: entry.op_id,
                 record_id: entry.record_id,
                 collection: entry.collection,
-                hlc: entry.hlc,
-                deleted: entry.deleted,
-                blob: entry.blob,
+                base_revision_hlc: entry.base_revision_hlc,
+                revision_hlc: entry.revision_hlc,
+                state: entry.state,
             })
             .collect::<Vec<_>>();
         let push_outcome = engine
@@ -66,12 +73,37 @@ where
         for outcome in push_outcome.outcomes {
             match outcome.status {
                 PushStatus::Accepted | PushStatus::NoOp => {
-                    store.ack_outbox(outcome.outbox_id)?;
-                    summary.push_acked_count += 1;
+                    let revision_hlc = revisions
+                        .get(&outcome.op_id)
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    if store.ack_outbox_op(outcome.op_id)? {
+                        update_current_revision(
+                            store,
+                            outcome.collection,
+                            outcome.record_id,
+                            revision_hlc,
+                            now_ms,
+                        )?;
+                        summary.push_acked_count += 1;
+                    }
                 }
                 PushStatus::Superseded => {
-                    store.ack_outbox(outcome.outbox_id)?;
+                    let current = outcome
+                        .current
+                        .as_ref()
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    apply_pull_record(current, &context, store, now_ms, &mut summary)?;
+                    store.ack_outbox_op(outcome.op_id)?;
                     summary.push_superseded_count += 1;
+                }
+                PushStatus::Conflict => {
+                    let current = outcome
+                        .current
+                        .as_ref()
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    apply_pull_record(current, &context, store, now_ms, &mut summary)?;
+                    store.ack_outbox_op(outcome.op_id)?;
+                    summary.push_conflict_count += 1;
                 }
             }
         }
@@ -99,6 +131,24 @@ where
     Ok(summary)
 }
 
+fn update_current_revision<S, N>(
+    store: &mut S,
+    collection: SyncCollection,
+    record_id: Uuid,
+    revision_hlc: &str,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let Some(mut state) = store.get_record_state(collection, record_id)? else {
+        return Err("sync failed".to_string());
+    };
+    state.current_revision_hlc = Some(revision_hlc.to_string());
+    store.put_record_state(collection, record_id, state, now_ms()?)
+}
+
 fn apply_pull_record<S, N>(
     record: &PullRecord,
     context: &ActiveSyncContext,
@@ -110,13 +160,9 @@ where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    match record.collection.as_str() {
-        LISTS_COLLECTION => apply_pull_list(record, context, store, now_ms, summary),
-        TASKS_COLLECTION => apply_pull_task(record, context, store, now_ms, summary),
-        _ => {
-            summary.decrypt_failed_count += 1;
-            Ok(())
-        }
+    match record.collection {
+        SyncCollection::Lists => apply_pull_list(record, context, store, now_ms, summary),
+        SyncCollection::Tasks => apply_pull_task(record, context, store, now_ms, summary),
     }
 }
 
@@ -131,13 +177,6 @@ where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    if record.deleted {
-        let deleted = store.delete_list_with_tasks_for_sync(record.record_id)?;
-        summary.deleted_count += 1 + deleted;
-        store.delete_record_state(LISTS_COLLECTION, record.record_id)?;
-        return Ok(());
-    }
-
     let dek = match dek_for_list(&context.keys, record.record_id) {
         Some(dek) => dek,
         None => {
@@ -145,12 +184,78 @@ where
             return Ok(());
         }
     };
-    let incoming = decrypt_plaintext(
-        &dek,
-        LISTS_COLLECTION,
-        &record.record_id.to_string(),
-        &record.blob,
-    );
+    let local_state = store.get_record_state(SyncCollection::Lists, record.record_id)?;
+    let (incoming_mutation_hlc, blob) = match &record.state {
+        EncryptedSyncState::Tombstone { delete_hlc } => {
+            if let Some(LocalSyncRecordState {
+                state:
+                    LocalSyncSemanticState::Live {
+                        mutation_hlc,
+                        plaintext_json,
+                    },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(mutation_hlc, delete_hlc)? == std::cmp::Ordering::Greater {
+                    let plaintext: SyncPlaintext = serde_json::from_str(plaintext_json)
+                        .map_err(|_| "sync failed".to_string())?;
+                    enqueue_merged_plaintext(
+                        store,
+                        RebasePlaintextRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Lists,
+                            plaintext: &plaintext,
+                            dek: &dek,
+                            device_id: &context.device_id,
+                            base_revision_hlc: &record.revision_hlc,
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(());
+                }
+            }
+            let deleted = store.delete_list_with_tasks_for_sync(record.record_id)?;
+            summary.deleted_count += 1 + deleted;
+            store.put_record_state(
+                SyncCollection::Lists,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Tombstone {
+                        delete_hlc: delete_hlc.clone(),
+                    },
+                },
+                now_ms()?,
+            )?;
+            return Ok(());
+        }
+        EncryptedSyncState::Live { mutation_hlc, blob } => {
+            if let Some(LocalSyncRecordState {
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(delete_hlc, mutation_hlc)? != std::cmp::Ordering::Less {
+                    enqueue_rebased_tombstone(
+                        store,
+                        RebaseTombstoneRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Lists,
+                            delete_hlc,
+                            device_id: &context.device_id,
+                            base_revision_hlc: &record.revision_hlc,
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(());
+                }
+            }
+            (mutation_hlc, blob)
+        }
+    };
+    let incoming = decrypt_plaintext(&dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
     let incoming = match incoming {
         Ok(incoming) => incoming,
         Err(_) => {
@@ -159,7 +264,7 @@ where
         }
     };
     let existing = store.get_list(record.record_id)?;
-    let stored_plaintext = stored_sync_plaintext(store, LISTS_COLLECTION, record.record_id)?;
+    let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Lists, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
         (Some(local_plaintext), _) => {
             let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
@@ -184,16 +289,27 @@ where
         }
     }
     store.upsert_list_for_sync(list)?;
-    store_sync_plaintext(store, LISTS_COLLECTION, record.record_id, &merged, now_ms)?;
+    store_sync_plaintext(
+        store,
+        SyncCollection::Lists,
+        record.record_id,
+        &record.revision_hlc,
+        incoming_mutation_hlc,
+        &merged,
+        now_ms,
+    )?;
     summary.applied_count += 1;
     if needs_repush {
         enqueue_merged_plaintext(
             store,
-            record.record_id,
-            LISTS_COLLECTION,
-            &merged,
-            &dek,
-            &context.device_id,
+            RebasePlaintextRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::Lists,
+                plaintext: &merged,
+                dek: &dek,
+                device_id: &context.device_id,
+                base_revision_hlc: &record.revision_hlc,
+            },
             now_ms,
         )?;
         summary.repush_count += 1;
@@ -212,14 +328,86 @@ where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    if record.deleted {
-        let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
-        summary.deleted_count += deleted;
-        store.delete_record_state(TASKS_COLLECTION, record.record_id)?;
-        return Ok(());
-    }
-
     let existing = store.get_task(record.record_id)?;
+    let local_state = store.get_record_state(SyncCollection::Tasks, record.record_id)?;
+    let (incoming_mutation_hlc, _blob) = match &record.state {
+        EncryptedSyncState::Tombstone { delete_hlc } => {
+            if let Some(LocalSyncRecordState {
+                state:
+                    LocalSyncSemanticState::Live {
+                        mutation_hlc,
+                        plaintext_json,
+                    },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(mutation_hlc, delete_hlc)? == std::cmp::Ordering::Greater {
+                    let plaintext: SyncPlaintext = serde_json::from_str(plaintext_json)
+                        .map_err(|_| "sync failed".to_string())?;
+                    let list_id = plaintext
+                        .fields
+                        .get("list_id")
+                        .and_then(Value::as_str)
+                        .and_then(|value| value.parse::<Uuid>().ok())
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    let dek = dek_for_list(&context.keys, list_id)
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    enqueue_merged_plaintext(
+                        store,
+                        RebasePlaintextRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Tasks,
+                            plaintext: &plaintext,
+                            dek: &dek,
+                            device_id: &context.device_id,
+                            base_revision_hlc: &record.revision_hlc,
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(());
+                }
+            }
+            let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
+            summary.deleted_count += deleted;
+            store.put_record_state(
+                SyncCollection::Tasks,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Tombstone {
+                        delete_hlc: delete_hlc.clone(),
+                    },
+                },
+                now_ms()?,
+            )?;
+            return Ok(());
+        }
+        EncryptedSyncState::Live { mutation_hlc, blob } => {
+            if let Some(LocalSyncRecordState {
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(delete_hlc, mutation_hlc)? != std::cmp::Ordering::Less {
+                    enqueue_rebased_tombstone(
+                        store,
+                        RebaseTombstoneRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Tasks,
+                            delete_hlc,
+                            device_id: &context.device_id,
+                            base_revision_hlc: &record.revision_hlc,
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(());
+                }
+            }
+            (mutation_hlc, blob)
+        }
+    };
     let incoming = match decrypt_task_plaintext(record, existing.as_ref(), &context.keys) {
         Some(incoming) => incoming,
         None => {
@@ -239,7 +427,7 @@ where
         summary.decrypt_failed_count += 1;
         return Ok(());
     };
-    let stored_plaintext = stored_sync_plaintext(store, TASKS_COLLECTION, record.record_id)?;
+    let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Tasks, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
         (Some(local_plaintext), _) => {
             let merge = merge_lww(&local_plaintext, &incoming).map_err(|_| "sync failed")?;
@@ -256,16 +444,27 @@ where
     };
     let task = task_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
     store.upsert_task_for_sync(task)?;
-    store_sync_plaintext(store, TASKS_COLLECTION, record.record_id, &merged, now_ms)?;
+    store_sync_plaintext(
+        store,
+        SyncCollection::Tasks,
+        record.record_id,
+        &record.revision_hlc,
+        incoming_mutation_hlc,
+        &merged,
+        now_ms,
+    )?;
     summary.applied_count += 1;
     if needs_repush {
         enqueue_merged_plaintext(
             store,
-            record.record_id,
-            TASKS_COLLECTION,
-            &merged,
-            &dek,
-            &context.device_id,
+            RebasePlaintextRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::Tasks,
+                plaintext: &merged,
+                dek: &dek,
+                device_id: &context.device_id,
+                base_revision_hlc: &record.revision_hlc,
+            },
             now_ms,
         )?;
         summary.repush_count += 1;
@@ -275,22 +474,33 @@ where
 
 fn stored_sync_plaintext<S>(
     store: &mut S,
-    collection: &str,
+    collection: SyncCollection,
     record_id: Uuid,
 ) -> Result<Option<SyncPlaintext>, String>
 where
     S: LocalSyncStore,
 {
-    store
-        .get_record_state(collection, record_id)?
-        .map(|json| serde_json::from_str(&json).map_err(|_| "sync failed".to_string()))
-        .transpose()
+    match store.get_record_state(collection, record_id)? {
+        Some(LocalSyncRecordState {
+            state: LocalSyncSemanticState::Live { plaintext_json, .. },
+            ..
+        }) => serde_json::from_str(&plaintext_json)
+            .map(Some)
+            .map_err(|_| "sync failed".to_string()),
+        Some(LocalSyncRecordState {
+            state: LocalSyncSemanticState::Tombstone { .. },
+            ..
+        })
+        | None => Ok(None),
+    }
 }
 
 fn store_sync_plaintext<S, N>(
     store: &mut S,
-    collection: &str,
+    collection: SyncCollection,
     record_id: Uuid,
+    current_revision_hlc: &str,
+    incoming_mutation_hlc: &str,
     plaintext: &SyncPlaintext,
     now_ms: &mut N,
 ) -> Result<(), String>
@@ -299,7 +509,36 @@ where
     N: FnMut() -> Result<i64, String>,
 {
     let plaintext_json = serde_json::to_string(plaintext).map_err(|_| "sync failed".to_string())?;
-    store.upsert_record_state(collection, record_id, &plaintext_json, now_ms()?)
+    let merged_mutation_hlc = plaintext
+        .record_hlc()
+        .ok_or_else(|| "sync failed".to_string())?
+        .encode()
+        .map_err(|_| "sync failed".to_string())?;
+    let mutation_hlc = if compare_encoded_hlc(&merged_mutation_hlc, incoming_mutation_hlc)?
+        == std::cmp::Ordering::Less
+    {
+        incoming_mutation_hlc.to_string()
+    } else {
+        merged_mutation_hlc
+    };
+    store.put_record_state(
+        collection,
+        record_id,
+        LocalSyncRecordState {
+            current_revision_hlc: Some(current_revision_hlc.to_string()),
+            state: LocalSyncSemanticState::Live {
+                mutation_hlc,
+                plaintext_json,
+            },
+        },
+        now_ms()?,
+    )
+}
+
+fn compare_encoded_hlc(left: &str, right: &str) -> Result<std::cmp::Ordering, String> {
+    let left = Hlc::decode(left).map_err(|_| "sync failed".to_string())?;
+    let right = Hlc::decode(right).map_err(|_| "sync failed".to_string())?;
+    Ok(left.cmp(&right))
 }
 
 fn decrypt_task_plaintext(
@@ -307,6 +546,9 @@ fn decrypt_task_plaintext(
     existing: Option<&Task>,
     keys: &LocalSyncKeys,
 ) -> Option<SyncPlaintext> {
+    let EncryptedSyncState::Live { blob, .. } = &record.state else {
+        return None;
+    };
     let mut candidates = Vec::new();
     if let Some(task) = existing {
         if let Some(dek) = dek_for_list(keys, task.list_id) {
@@ -319,13 +561,7 @@ fn decrypt_task_plaintext(
         }
     }
     candidates.into_iter().find_map(|dek| {
-        decrypt_plaintext(
-            &dek,
-            TASKS_COLLECTION,
-            &record.record_id.to_string(),
-            &record.blob,
-        )
-        .ok()
+        decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob).ok()
     })
 }
 
@@ -478,12 +714,16 @@ mod tests {
     #[derive(Default)]
     struct FakeStore {
         lists: HashMap<Uuid, List>,
-        record_states: HashMap<(String, Uuid), String>,
+        record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
         outbox: Vec<LocalSyncOutboxEntry>,
     }
 
     impl LocalMutationSyncStore for FakeStore {
-        fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+        fn has_outbox_head(
+            &mut self,
+            collection: SyncCollection,
+            record_id: Uuid,
+        ) -> Result<bool, String> {
             Ok(self
                 .outbox
                 .iter()
@@ -503,14 +743,15 @@ mod tests {
             Ok(())
         }
 
-        fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+        fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+            self.outbox.retain(|head| head.record_id != entry.record_id);
             self.outbox.push(LocalSyncOutboxEntry {
-                id: self.outbox.len() as i64 + 1,
+                op_id: entry.op_id,
                 record_id: entry.record_id,
                 collection: entry.collection,
-                hlc: entry.hlc,
-                deleted: entry.deleted,
-                blob: entry.blob,
+                base_revision_hlc: entry.base_revision_hlc,
+                revision_hlc: entry.revision_hlc,
+                state: entry.state,
                 created_at: entry.created_at,
             });
             Ok(())
@@ -518,44 +759,33 @@ mod tests {
 
         fn get_record_state(
             &mut self,
-            collection: &str,
+            collection: SyncCollection,
             record_id: Uuid,
-        ) -> Result<Option<String>, String> {
-            Ok(self
-                .record_states
-                .get(&(collection.to_string(), record_id))
-                .cloned())
+        ) -> Result<Option<LocalSyncRecordState>, String> {
+            Ok(self.record_states.get(&(collection, record_id)).cloned())
         }
 
-        fn upsert_record_state(
+        fn put_record_state(
             &mut self,
-            collection: &str,
+            collection: SyncCollection,
             record_id: Uuid,
-            plaintext_json: &str,
+            state: LocalSyncRecordState,
             _updated_at: i64,
         ) -> Result<(), String> {
-            self.record_states.insert(
-                (collection.to_string(), record_id),
-                plaintext_json.to_string(),
-            );
-            Ok(())
-        }
-
-        fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
-            self.record_states
-                .remove(&(collection.to_string(), record_id));
+            self.record_states.insert((collection, record_id), state);
             Ok(())
         }
     }
 
     impl LocalSyncStore for FakeStore {
-        fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
+        fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
             Ok(self.outbox.iter().take(limit).cloned().collect())
         }
 
-        fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
-            self.outbox.retain(|entry| entry.id != id);
-            Ok(())
+        fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String> {
+            let previous_len = self.outbox.len();
+            self.outbox.retain(|entry| entry.op_id != op_id);
+            Ok(previous_len != self.outbox.len())
         }
 
         fn get_cursor_seq(&mut self, _name: &str) -> Result<Option<i64>, String> {
@@ -629,7 +859,7 @@ mod tests {
 
         assert!(!store.lists.get(&incoming_list.id).unwrap().is_default);
         let stored_plaintext =
-            stored_sync_plaintext(&mut store, LISTS_COLLECTION, incoming_list.id).unwrap();
+            stored_sync_plaintext(&mut store, SyncCollection::Lists, incoming_list.id).unwrap();
         assert_eq!(
             stored_plaintext
                 .unwrap()
@@ -660,6 +890,117 @@ mod tests {
         assert_eq!(summary.repush_count, 0);
     }
 
+    #[test]
+    fn conflict_current_merges_distinct_fields_and_rebases_without_first_client() {
+        let list_id = uuid(4);
+        let dek = [0x4c; KEY_LEN];
+        let base_clock = Hlc {
+            wall_ms: 1_799_000_000_000,
+            counter: 0,
+            device_id: "base".to_string(),
+        };
+        let local_clock = Hlc {
+            wall_ms: 1_799_000_000_100,
+            counter: 0,
+            device_id: "client-b".to_string(),
+        };
+        let remote_clock = Hlc {
+            wall_ms: 1_799_000_000_101,
+            counter: 0,
+            device_id: "client-a".to_string(),
+        };
+        let server_revision = Hlc {
+            wall_ms: 1_799_000_000_102,
+            counter: 0,
+            device_id: "client-a".to_string(),
+        }
+        .encode()
+        .unwrap();
+        let base_list = sample_list(list_id, false);
+        let mut local_plaintext = list_plaintext(&base_list, base_clock.clone());
+        local_plaintext
+            .fields
+            .insert("color".to_string(), Value::String("#00ff00".to_string()));
+        local_plaintext
+            .field_hlcs
+            .insert("color".to_string(), local_clock.clone());
+        let mut remote_plaintext = list_plaintext(&base_list, base_clock);
+        remote_plaintext
+            .fields
+            .insert("name".to_string(), Value::String("Remote name".to_string()));
+        remote_plaintext
+            .field_hlcs
+            .insert("name".to_string(), remote_clock.clone());
+
+        let blob = encrypt_plaintext(
+            &dek,
+            LISTS_COLLECTION,
+            &list_id.to_string(),
+            &remote_plaintext,
+        )
+        .unwrap();
+        let record = PullRecord {
+            record_id: list_id,
+            collection: SyncCollection::Lists,
+            seq: 2,
+            revision_hlc: server_revision.clone(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: remote_clock.encode().unwrap(),
+                blob,
+            },
+        };
+        let context = context_for(list_id, dek);
+        let mut local_list = base_list;
+        local_list.color = "#00ff00".to_string();
+        let mut store = FakeStore::default();
+        store.lists.insert(list_id, local_list);
+        store.record_states.insert(
+            (SyncCollection::Lists, list_id),
+            LocalSyncRecordState {
+                current_revision_hlc: Some(
+                    Hlc {
+                        wall_ms: 1_799_000_000_001,
+                        counter: 0,
+                        device_id: "base".to_string(),
+                    }
+                    .encode()
+                    .unwrap(),
+                ),
+                state: LocalSyncSemanticState::Live {
+                    mutation_hlc: local_clock.encode().unwrap(),
+                    plaintext_json: serde_json::to_string(&local_plaintext).unwrap(),
+                },
+            },
+        );
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_list(&record, &context, &mut store, &mut now, &mut summary).unwrap();
+
+        let merged_list = store.lists.get(&list_id).unwrap();
+        assert_eq!(merged_list.name, "Remote name");
+        assert_eq!(merged_list.color, "#00ff00");
+        assert_eq!(summary.repush_count, 1);
+        assert_eq!(store.outbox.len(), 1);
+        assert_eq!(
+            store.outbox[0].base_revision_hlc.as_deref(),
+            Some(server_revision.as_str())
+        );
+        let EncryptedSyncState::Live { blob, .. } = &store.outbox[0].state else {
+            panic!("expected rebased live head");
+        };
+        let rebased =
+            decrypt_plaintext(&dek, LISTS_COLLECTION, &list_id.to_string(), blob).unwrap();
+        assert_eq!(
+            rebased.fields["name"],
+            Value::String("Remote name".to_string())
+        );
+        assert_eq!(
+            rebased.fields["color"],
+            Value::String("#00ff00".to_string())
+        );
+    }
+
     fn encrypted_list_record(list: &List, dek: &[u8; KEY_LEN]) -> PullRecord {
         let hlc = Hlc {
             wall_ms: list.updated_at,
@@ -671,11 +1012,13 @@ mod tests {
             .expect("test list plaintext encrypts");
         PullRecord {
             record_id: list.id,
-            collection: LISTS_COLLECTION.to_string(),
+            collection: SyncCollection::Lists,
             seq: 1,
-            hlc: hlc.encode().unwrap(),
-            deleted: false,
-            blob,
+            revision_hlc: hlc.encode().unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: hlc.encode().unwrap(),
+                blob,
+            },
         }
     }
 
