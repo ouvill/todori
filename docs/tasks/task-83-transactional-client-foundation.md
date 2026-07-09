@@ -90,5 +90,5 @@ ADR-012は、domain row、outbox、sync record state、local HLCを同一SQLite 
 - 作業日: 2026-07-10
 - 結果: `todori-client`と`SqliteWriteTx`を追加し、account-boundかつlocal key利用可能時のFlutter `update_task`を、task、undo、local HLC、outbox、record stateの同一`BEGIN IMMEDIATE` transactionへ移した。匿名profileだけは従来のlocal-only経路を維持し、account-boundでkey利用不能な状態はdomain-only commitせず明示errorにした。
 - 証拠: `todori-client` 4 test成功（success、outbox失敗rollback、既存record-state更新失敗rollback、missing List DEK rollback）。`cargo test --workspace`成功（Docker/Testcontainers 5件を含む）。`cargo clippy --workspace -- -D warnings`、`flutter analyze`、`flutter test` 124件、hardcoded strings check、FRB codegen、`git diff --check`成功。
-- Commit: 未コミット
+- Commit: `4f41568`
 - 未解決: vertical sliceは`update_task`だけで、production 2-client test、残りCRUD/Undo、session非依存`LocalCryptoContext`とList DEK local cacheは後続。再起動後にDEK未復元の場合はsilent commitせず編集を失敗させるため、offline-first要件は未達。protocol v2 field clock / placementも後続。
