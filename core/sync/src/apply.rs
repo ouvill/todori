@@ -10,14 +10,22 @@ use crate::{
 };
 
 use crate::enqueue::{
-    enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, parse_status,
-    task_plaintext, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    RebasePlaintextRequest, RebaseTombstoneRequest,
+    enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, observe_remote_hlc,
+    parse_status, task_plaintext, LocalSyncAtomicStore, LocalSyncRecordState,
+    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, RebasePlaintextRequest,
+    RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
 const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApplyDisposition {
+    AppliedCurrent,
+    Rebased,
+    Deferred,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSyncContext {
@@ -34,7 +42,7 @@ pub async fn run_sync_now<S, N>(
     now_ms: &mut N,
 ) -> Result<SyncRunSummary, String>
 where
-    S: LocalSyncStore,
+    S: LocalSyncAtomicStore,
     N: FnMut() -> Result<i64, String>,
 {
     let engine = SyncEngine::new(
@@ -76,9 +84,10 @@ where
                     let revision_hlc = revisions
                         .get(&outcome.op_id)
                         .ok_or_else(|| "sync failed".to_string())?;
-                    if store.ack_outbox_op(outcome.op_id)? {
+                    let mut transaction = store.begin_write_transaction()?;
+                    if transaction.ack_outbox_op(outcome.op_id)? {
                         update_current_revision(
-                            store,
+                            &mut transaction,
                             outcome.collection,
                             outcome.record_id,
                             revision_hlc,
@@ -86,14 +95,23 @@ where
                         )?;
                         summary.push_acked_count += 1;
                     }
+                    transaction.commit()?;
                 }
                 PushStatus::Superseded => {
                     let current = outcome
                         .current
                         .as_ref()
                         .ok_or_else(|| "sync failed".to_string())?;
-                    apply_pull_record(current, &context, store, now_ms, &mut summary)?;
-                    store.ack_outbox_op(outcome.op_id)?;
+                    let mut transaction = store.begin_write_transaction()?;
+                    reconcile_nonaccepted_push_in_transaction(
+                        current,
+                        outcome.op_id,
+                        &context,
+                        &mut transaction,
+                        now_ms,
+                        &mut summary,
+                    )?;
+                    transaction.commit()?;
                     summary.push_superseded_count += 1;
                 }
                 PushStatus::Conflict => {
@@ -101,8 +119,16 @@ where
                         .current
                         .as_ref()
                         .ok_or_else(|| "sync failed".to_string())?;
-                    apply_pull_record(current, &context, store, now_ms, &mut summary)?;
-                    store.ack_outbox_op(outcome.op_id)?;
+                    let mut transaction = store.begin_write_transaction()?;
+                    reconcile_nonaccepted_push_in_transaction(
+                        current,
+                        outcome.op_id,
+                        &context,
+                        &mut transaction,
+                        now_ms,
+                        &mut summary,
+                    )?;
+                    transaction.commit()?;
                     summary.push_conflict_count += 1;
                 }
             }
@@ -120,7 +146,12 @@ where
         }
         summary.pulled_count += page.records.len();
         for record in &page.records {
-            apply_pull_record(record, &context, store, now_ms, &mut summary)?;
+            let mut transaction = store.begin_write_transaction()?;
+            let disposition =
+                apply_pull_record(record, &context, &mut transaction, now_ms, &mut summary)?;
+            if disposition != ApplyDisposition::Deferred {
+                transaction.commit()?;
+            }
         }
         store.set_cursor(SYNC_CURSOR_NAME, page.next_since, now_ms()?)?;
         if !page.has_more {
@@ -149,13 +180,34 @@ where
     store.put_record_state(collection, record_id, state, now_ms()?)
 }
 
+fn reconcile_nonaccepted_push_in_transaction<S, N>(
+    current: &PullRecord,
+    stale_op_id: Uuid,
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    if !store.ack_outbox_op(stale_op_id)? {
+        return Ok(());
+    }
+    match apply_pull_record(current, context, store, now_ms, summary)? {
+        ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => Ok(()),
+        ApplyDisposition::Deferred => Err("sync failed".to_string()),
+    }
+}
+
 fn apply_pull_record<S, N>(
     record: &PullRecord,
     context: &ActiveSyncContext,
     store: &mut S,
     now_ms: &mut N,
     summary: &mut SyncRunSummary,
-) -> Result<(), String>
+) -> Result<ApplyDisposition, String>
 where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
@@ -172,7 +224,7 @@ fn apply_pull_list<S, N>(
     store: &mut S,
     now_ms: &mut N,
     summary: &mut SyncRunSummary,
-) -> Result<(), String>
+) -> Result<ApplyDisposition, String>
 where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
@@ -181,9 +233,10 @@ where
         Some(dek) => dek,
         None => {
             summary.decrypt_failed_count += 1;
-            return Ok(());
+            return Ok(ApplyDisposition::Deferred);
         }
     };
+    observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
     let local_state = store.get_record_state(SyncCollection::Lists, record.record_id)?;
     let (incoming_mutation_hlc, blob) = match &record.state {
         EncryptedSyncState::Tombstone { delete_hlc } => {
@@ -212,7 +265,7 @@ where
                         now_ms,
                     )?;
                     summary.repush_count += 1;
-                    return Ok(());
+                    return Ok(ApplyDisposition::Rebased);
                 }
             }
             let deleted = store.delete_list_with_tasks_for_sync(record.record_id)?;
@@ -228,7 +281,7 @@ where
                 },
                 now_ms()?,
             )?;
-            return Ok(());
+            return Ok(ApplyDisposition::AppliedCurrent);
         }
         EncryptedSyncState::Live { mutation_hlc, blob } => {
             if let Some(LocalSyncRecordState {
@@ -249,7 +302,7 @@ where
                         now_ms,
                     )?;
                     summary.repush_count += 1;
-                    return Ok(());
+                    return Ok(ApplyDisposition::Rebased);
                 }
             }
             (mutation_hlc, blob)
@@ -260,7 +313,7 @@ where
         Ok(incoming) => incoming,
         Err(_) => {
             summary.decrypt_failed_count += 1;
-            return Ok(());
+            return Ok(ApplyDisposition::Deferred);
         }
     };
     let existing = store.get_list(record.record_id)?;
@@ -314,7 +367,11 @@ where
         )?;
         summary.repush_count += 1;
     }
-    Ok(())
+    Ok(if needs_repush {
+        ApplyDisposition::Rebased
+    } else {
+        ApplyDisposition::AppliedCurrent
+    })
 }
 
 fn apply_pull_task<S, N>(
@@ -323,11 +380,12 @@ fn apply_pull_task<S, N>(
     store: &mut S,
     now_ms: &mut N,
     summary: &mut SyncRunSummary,
-) -> Result<(), String>
+) -> Result<ApplyDisposition, String>
 where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
+    observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
     let existing = store.get_task(record.record_id)?;
     let local_state = store.get_record_state(SyncCollection::Tasks, record.record_id)?;
     let (incoming_mutation_hlc, _blob) = match &record.state {
@@ -365,7 +423,7 @@ where
                         now_ms,
                     )?;
                     summary.repush_count += 1;
-                    return Ok(());
+                    return Ok(ApplyDisposition::Rebased);
                 }
             }
             let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
@@ -381,7 +439,7 @@ where
                 },
                 now_ms()?,
             )?;
-            return Ok(());
+            return Ok(ApplyDisposition::AppliedCurrent);
         }
         EncryptedSyncState::Live { mutation_hlc, blob } => {
             if let Some(LocalSyncRecordState {
@@ -402,7 +460,7 @@ where
                         now_ms,
                     )?;
                     summary.repush_count += 1;
-                    return Ok(());
+                    return Ok(ApplyDisposition::Rebased);
                 }
             }
             (mutation_hlc, blob)
@@ -412,7 +470,7 @@ where
         Some(incoming) => incoming,
         None => {
             summary.decrypt_failed_count += 1;
-            return Ok(());
+            return Ok(ApplyDisposition::Deferred);
         }
     };
     let dek = if let Some(incoming_dek) = incoming
@@ -425,7 +483,7 @@ where
         incoming_dek
     } else {
         summary.decrypt_failed_count += 1;
-        return Ok(());
+        return Ok(ApplyDisposition::Deferred);
     };
     let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Tasks, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
@@ -469,7 +527,11 @@ where
         )?;
         summary.repush_count += 1;
     }
-    Ok(())
+    Ok(if needs_repush {
+        ApplyDisposition::Rebased
+    } else {
+        ApplyDisposition::AppliedCurrent
+    })
 }
 
 fn stored_sync_plaintext<S>(
@@ -999,6 +1061,127 @@ mod tests {
             rebased.fields["color"],
             Value::String("#00ff00".to_string())
         );
+    }
+
+    #[test]
+    fn undecryptable_conflict_current_keeps_the_local_outbox_head() {
+        let list_id = uuid(5);
+        let dek = [0x5d; KEY_LEN];
+        let semantic_hlc = Hlc {
+            wall_ms: 1_799_000_000_010,
+            counter: 0,
+            device_id: "local".to_string(),
+        }
+        .encode()
+        .unwrap();
+        let revision_hlc = Hlc {
+            wall_ms: 1_799_000_000_011,
+            counter: 0,
+            device_id: "local".to_string(),
+        }
+        .encode()
+        .unwrap();
+        let stale_op_id = Uuid::now_v7();
+        let mut store = FakeStore::default();
+        store.outbox.push(LocalSyncOutboxEntry {
+            op_id: stale_op_id,
+            record_id: list_id,
+            collection: SyncCollection::Lists,
+            base_revision_hlc: None,
+            revision_hlc: revision_hlc.clone(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: semantic_hlc,
+                blob: vec![1, 2, 3],
+            },
+            created_at: 1,
+        });
+        let current = PullRecord {
+            record_id: list_id,
+            collection: SyncCollection::Lists,
+            seq: 1,
+            revision_hlc,
+            state: EncryptedSyncState::Live {
+                mutation_hlc: Hlc {
+                    wall_ms: 1_799_000_000_009,
+                    counter: 0,
+                    device_id: "remote".to_string(),
+                }
+                .encode()
+                .unwrap(),
+                blob: vec![0xff; 8],
+            },
+        };
+        let context = context_for(list_id, dek);
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        assert_eq!(
+            apply_pull_record(&current, &context, &mut store, &mut now, &mut summary).unwrap(),
+            ApplyDisposition::Deferred
+        );
+
+        assert_eq!(store.outbox.len(), 1);
+        assert_eq!(store.outbox[0].op_id, stale_op_id);
+        assert_eq!(summary.decrypt_failed_count, 1);
+    }
+
+    #[test]
+    fn stale_response_does_not_apply_after_a_newer_local_head_replaces_its_op() {
+        let list_id = uuid(6);
+        let dek = [0x6e; KEY_LEN];
+        let current = encrypted_list_record(
+            &List {
+                name: "Remote stale".to_string(),
+                ..sample_list(list_id, false)
+            },
+            &dek,
+        );
+        let newer_op_id = Uuid::now_v7();
+        let clock = Hlc {
+            wall_ms: 1_799_000_000_020,
+            counter: 0,
+            device_id: "new-local".to_string(),
+        }
+        .encode()
+        .unwrap();
+        let mut store = FakeStore::default();
+        store.lists.insert(
+            list_id,
+            List {
+                name: "New local".to_string(),
+                ..sample_list(list_id, false)
+            },
+        );
+        store.outbox.push(LocalSyncOutboxEntry {
+            op_id: newer_op_id,
+            record_id: list_id,
+            collection: SyncCollection::Lists,
+            base_revision_hlc: None,
+            revision_hlc: clock.clone(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: clock,
+                blob: vec![1],
+            },
+            created_at: 1,
+        });
+        let context = context_for(list_id, dek);
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        reconcile_nonaccepted_push_in_transaction(
+            &current,
+            Uuid::now_v7(),
+            &context,
+            &mut store,
+            &mut now,
+            &mut summary,
+        )
+        .unwrap();
+
+        assert_eq!(store.lists[&list_id].name, "New local");
+        assert_eq!(store.outbox.len(), 1);
+        assert_eq!(store.outbox[0].op_id, newer_op_id);
+        assert_eq!(summary.applied_count, 0);
     }
 
     fn encrypted_list_record(list: &List, dek: &[u8; KEY_LEN]) -> PullRecord {

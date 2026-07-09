@@ -97,6 +97,16 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String>;
 }
 
+pub trait LocalSyncWriteTransaction: LocalSyncStore {
+    fn commit(self) -> Result<(), String>;
+}
+
+pub trait LocalSyncAtomicStore: LocalSyncStore {
+    type WriteTransaction: LocalSyncWriteTransaction;
+
+    fn begin_write_transaction(&mut self) -> Result<Self::WriteTransaction, String>;
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BackfillSummary {
     pub enqueued_lists: usize,
@@ -427,6 +437,31 @@ where
         now_ms()?,
     )?;
     Ok(hlc)
+}
+
+pub(crate) fn observe_remote_hlc<S, N>(
+    store: &mut S,
+    device_id: &str,
+    remote_revision_hlc: &str,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let mut clock = match store.get_setting(SYNC_LOCAL_HLC_SETTING_KEY)? {
+        Some(encoded) if !encoded.is_empty() => {
+            Hlc::decode(&encoded).unwrap_or_else(|_| Hlc::new(device_id.to_string()))
+        }
+        _ => Hlc::new(device_id.to_string()),
+    };
+    let remote = Hlc::decode(remote_revision_hlc).map_err(|_| "sync failed".to_string())?;
+    let observed = clock.merge(&remote, now_ms()?);
+    store.set_setting(
+        SYNC_LOCAL_HLC_SETTING_KEY,
+        &observed.encode().map_err(|_| "sync failed".to_string())?,
+        now_ms()?,
+    )
 }
 
 pub(crate) fn task_plaintext(task: &Task, hlc: Hlc) -> SyncPlaintext {

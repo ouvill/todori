@@ -2,13 +2,15 @@ use std::path::{Path, PathBuf};
 
 use todori_domain::{List, Task, Uuid};
 use todori_storage::{
-    open_encrypted, ListRepository, NewSyncOutboxEntry, SettingsRepository, SqliteListRepository,
-    SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository, StorageError,
-    SyncOutboxState, SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
+    open_encrypted, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx, SettingsRepository,
+    SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
+    SqliteTaskRepository, StorageError, SyncOutboxState, SyncRecordSemanticState, SyncRecordState,
+    SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
-    EncryptedSyncState, LocalMutationSyncStore, LocalSyncOutboxEntry, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, NewLocalSyncOutboxEntry, SyncCollection,
+    EncryptedSyncState, LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry,
+    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
+    NewLocalSyncOutboxEntry, SyncCollection,
 };
 
 pub(crate) struct BridgeSyncStore {
@@ -16,9 +18,25 @@ pub(crate) struct BridgeSyncStore {
     db_key: [u8; 32],
 }
 
+pub(crate) struct BridgeSyncWriteTx {
+    transaction: OwnedSqliteWriteTx,
+}
+
 impl BridgeSyncStore {
     pub(crate) fn new(db_path: PathBuf, db_key: [u8; 32]) -> Self {
         Self { db_path, db_key }
+    }
+}
+
+impl LocalSyncAtomicStore for BridgeSyncStore {
+    type WriteTransaction = BridgeSyncWriteTx;
+
+    fn begin_write_transaction(&mut self) -> Result<Self::WriteTransaction, String> {
+        let connection =
+            open_encrypted(&self.db_path, &self.db_key).map_err(|error| error.to_string())?;
+        let transaction =
+            OwnedSqliteWriteTx::begin(connection).map_err(|error| error.to_string())?;
+        Ok(BridgeSyncWriteTx { transaction })
     }
 }
 
@@ -233,6 +251,192 @@ impl LocalSyncStore for BridgeSyncStore {
                 .map_err(|error| error.to_string())
         })
     }
+}
+
+impl LocalMutationSyncStore for BridgeSyncWriteTx {
+    fn has_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String> {
+        self.transaction
+            .has_outbox_head(collection.as_str(), record_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_setting(&mut self, key: &str) -> Result<Option<String>, String> {
+        self.transaction
+            .get_setting(key)
+            .map_err(|error| error.to_string())
+    }
+
+    fn set_setting(&mut self, key: &str, value: &str, updated_at: i64) -> Result<(), String> {
+        self.transaction
+            .set_setting(key, value, updated_at)
+            .map_err(|error| error.to_string())
+    }
+
+    fn put_outbox_head(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+        self.transaction
+            .put_outbox_head(local_outbox_to_storage(entry))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_record_state(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<Option<LocalSyncRecordState>, String> {
+        self.transaction
+            .get_record_state(collection.as_str(), record_id)
+            .map(|state| state.map(storage_record_to_local))
+            .map_err(|error| error.to_string())
+    }
+
+    fn put_record_state(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+        state: LocalSyncRecordState,
+        updated_at: i64,
+    ) -> Result<(), String> {
+        self.transaction
+            .put_record_state(local_record_to_storage(
+                collection, record_id, state, updated_at,
+            ))
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl LocalSyncStore for BridgeSyncWriteTx {
+    fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
+        self.transaction
+            .list_outbox_heads(limit)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(storage_outbox_to_local)
+            .collect()
+    }
+
+    fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .ack_outbox_op(op_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String> {
+        self.transaction
+            .get_cursor(name)
+            .map(|cursor| cursor.map(|cursor| cursor.seq))
+            .map_err(|error| error.to_string())
+    }
+
+    fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String> {
+        self.transaction
+            .set_cursor(name, seq, updated_at)
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_cursor(&mut self, name: &str) -> Result<(), String> {
+        self.transaction
+            .delete_cursor(name)
+            .map_err(|error| error.to_string())
+    }
+
+    fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
+        self.transaction
+            .default_list_id()
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String> {
+        self.transaction
+            .get_list(id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String> {
+        self.transaction
+            .upsert_list_for_sync(list)
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
+        self.transaction
+            .delete_list_with_tasks_for_sync(list_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String> {
+        self.transaction
+            .get_task(id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
+        self.transaction
+            .upsert_task_for_sync(task)
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String> {
+        self.transaction
+            .delete_task_subtree_for_sync(task_id)
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl LocalSyncWriteTransaction for BridgeSyncWriteTx {
+    fn commit(self) -> Result<(), String> {
+        self.transaction
+            .commit()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn local_outbox_to_storage(entry: NewLocalSyncOutboxEntry) -> NewSyncOutboxEntry {
+    NewSyncOutboxEntry {
+        op_id: entry.op_id,
+        record_id: entry.record_id,
+        collection: entry.collection.to_string(),
+        base_revision_hlc: entry.base_revision_hlc,
+        revision_hlc: entry.revision_hlc,
+        state: match entry.state {
+            EncryptedSyncState::Live { mutation_hlc, blob } => {
+                SyncOutboxState::Live { mutation_hlc, blob }
+            }
+            EncryptedSyncState::Tombstone { delete_hlc } => {
+                SyncOutboxState::Tombstone { delete_hlc }
+            }
+        },
+        created_at: entry.created_at,
+    }
+}
+
+fn storage_outbox_to_local(
+    entry: todori_storage::SyncOutboxEntry,
+) -> Result<LocalSyncOutboxEntry, String> {
+    Ok(LocalSyncOutboxEntry {
+        op_id: entry.op_id,
+        record_id: entry.record_id,
+        collection: entry
+            .collection
+            .parse::<SyncCollection>()
+            .map_err(|error| error.to_string())?,
+        base_revision_hlc: entry.base_revision_hlc,
+        revision_hlc: entry.revision_hlc,
+        state: match entry.state {
+            SyncOutboxState::Live { mutation_hlc, blob } => {
+                EncryptedSyncState::Live { mutation_hlc, blob }
+            }
+            SyncOutboxState::Tombstone { delete_hlc } => {
+                EncryptedSyncState::Tombstone { delete_hlc }
+            }
+        },
+        created_at: entry.created_at,
+    })
 }
 
 fn storage_record_to_local(state: SyncRecordState) -> LocalSyncRecordState {

@@ -260,8 +260,11 @@ fn validate_push_response(
         }
         let valid_shape = match result.status {
             PushStatus::Accepted | PushStatus::NoOp => result.seq.is_some() && current.is_none(),
-            PushStatus::Superseded => current.is_some(),
-            PushStatus::Conflict => current.is_some() || result.seq.is_none(),
+            PushStatus::Superseded => result.seq.is_some() && current.is_some(),
+            PushStatus::Conflict => matches!(
+                (result.seq, current.as_ref()),
+                (Some(_), Some(_)) | (None, None)
+            ),
         };
         if !valid_shape {
             return Err(SyncEngineError::InvalidPushResponse);
@@ -438,6 +441,50 @@ mod tests {
         for response in cases {
             assert!(matches!(
                 validate_push_response(&[first.clone(), second.clone()], response),
+                Err(SyncEngineError::InvalidPushResponse)
+            ));
+        }
+    }
+
+    #[test]
+    fn push_response_rejects_invalid_status_shapes() {
+        let op = push_op(Uuid::now_v7(), Uuid::now_v7());
+        let current = protocol::SyncRecord {
+            record_id: op.record_id,
+            collection: op.collection,
+            seq: 1,
+            revision_hlc: clock("remote", 2),
+            state: WireRecordState::Live {
+                mutation_hlc: clock("remote", 1),
+                blob: STANDARD.encode([1, 2, 3]),
+            },
+        };
+        let invalid = [
+            protocol::PushResponse {
+                results: vec![protocol::PushResult {
+                    op_id: op.op_id,
+                    record_id: op.record_id,
+                    collection: op.collection,
+                    status: PushStatus::Superseded,
+                    seq: None,
+                    current: Some(current.clone()),
+                }],
+            },
+            protocol::PushResponse {
+                results: vec![protocol::PushResult {
+                    op_id: op.op_id,
+                    record_id: op.record_id,
+                    collection: op.collection,
+                    status: PushStatus::Conflict,
+                    seq: Some(1),
+                    current: None,
+                }],
+            },
+        ];
+
+        for response in invalid {
+            assert!(matches!(
+                validate_push_response(std::slice::from_ref(&op), response),
                 Err(SyncEngineError::InvalidPushResponse)
             ));
         }
