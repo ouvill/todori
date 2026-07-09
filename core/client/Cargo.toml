@@ -7,10 +7,11 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+todori-crypto.workspace = true
 todori-domain.workspace = true
 todori-storage.workspace = true
 todori-sync.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-todori-crypto.workspace = true

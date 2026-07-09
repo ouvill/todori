@@ -1,3 +1,5 @@
+use std::fmt;
+
 use todori_crypto::key_hierarchy::{generate_list_dek, KEY_LEN};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -11,9 +13,26 @@ pub const SYNC_LOCAL_HLC_SETTING_KEY: &str = "sync_local_hlc";
 pub const TASKS_COLLECTION: &str = "tasks";
 pub const LISTS_COLLECTION: &str = "lists";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct LocalSyncKeys {
     pub list_deks: Vec<(Uuid, [u8; KEY_LEN])>,
+}
+
+impl fmt::Debug for LocalSyncKeys {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LocalSyncKeys")
+            .field("list_count", &self.list_deks.len())
+            .field(
+                "list_ids",
+                &self
+                    .list_deks
+                    .iter()
+                    .map(|(list_id, _)| list_id)
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl LocalSyncKeys {
@@ -74,4 +93,24 @@ pub async fn ensure_list_dek_for_list(
         list_id: list_id.to_string(),
         dek: Zeroizing::new(*list_dek),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_sync_keys_debug_redacts_key_material() {
+        let list_id = Uuid::now_v7();
+        let keys = LocalSyncKeys {
+            list_deks: vec![(list_id, [0x5a; KEY_LEN])],
+        };
+
+        let debug = format!("{keys:?}");
+
+        assert_eq!(
+            debug,
+            format!("LocalSyncKeys {{ list_count: 1, list_ids: [{list_id}] }}")
+        );
+    }
 }

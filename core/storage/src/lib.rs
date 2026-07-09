@@ -11,7 +11,7 @@ use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 9;
+pub const LATEST_SCHEMA_VERSION: i32 = 10;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -55,6 +55,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_sync_record_states",
         apply: add_sync_record_states,
     },
+    Migration {
+        target_version: 10,
+        name: "add_local_crypto_cache",
+        apply: add_local_crypto_cache,
+    },
 ];
 
 #[derive(Debug, Error)]
@@ -84,6 +89,22 @@ pub enum StorageError {
     UnsupportedSchemaVersion { found: i32, latest: i32 },
     #[error("incompatible database schema: {0}")]
     IncompatibleSchema(String),
+    #[error(
+        "local profile is bound to tenant {bound_tenant_id}, not requested tenant {requested_tenant_id}"
+    )]
+    LocalProfileTenantMismatch {
+        bound_tenant_id: Uuid,
+        requested_tenant_id: Uuid,
+    },
+    #[error(
+        "local profile is bound to user {bound_user_id}, not requested user {requested_user_id}"
+    )]
+    LocalProfileUserMismatch {
+        bound_user_id: Uuid,
+        requested_user_id: Uuid,
+    },
+    #[error("local crypto cache contains entries for a different tenant")]
+    LocalCryptoCacheTenantMismatch,
     #[error(
         "failed to migrate database schema to version {target_version} ({migration}): {source}"
     )]
@@ -174,6 +195,38 @@ pub struct SyncCursor {
     pub name: String,
     pub seq: i64,
     pub updated_at: i64,
+}
+
+/// SQLCipher内に保持するaccount-bound local profile identity。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalProfileBinding {
+    pub tenant_id: Uuid,
+    pub user_id: Uuid,
+    pub device_id: Uuid,
+    pub bound_at: i64,
+    pub updated_at: i64,
+}
+
+/// Master Keyでwrap済みのList DEK bundle。
+///
+/// `wrapped_list_dek`はopaque bytesとして保存し、このstorage層では復号しない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalListKeyBundle {
+    pub tenant_id: Uuid,
+    pub list_id: Uuid,
+    pub wrapped_list_dek: Vec<u8>,
+    pub updated_at: i64,
+}
+
+/// account bindingとMK-wrapped List DEK cacheの永続化を担うリポジトリ。
+pub trait LocalCryptoRepository {
+    fn load_binding(&self) -> Result<Option<LocalProfileBinding>, StorageError>;
+    fn bind_and_replace_bundles(
+        &mut self,
+        binding: LocalProfileBinding,
+        bundles: &[LocalListKeyBundle],
+    ) -> Result<(), StorageError>;
+    fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError>;
 }
 
 /// タスクの永続化を担うリポジトリ。
@@ -647,6 +700,47 @@ fn add_sync_record_states(transaction: &Transaction<'_>) -> rusqlite::Result<()>
              updated_at INTEGER NOT NULL,
              PRIMARY KEY (collection, record_id)
          );",
+    )
+}
+
+fn add_local_crypto_cache(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE local_profile_binding (
+             singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+             tenant_id TEXT NOT NULL,
+             user_id TEXT NOT NULL,
+             device_id TEXT NOT NULL,
+             bound_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE local_list_key_bundles (
+             tenant_id TEXT NOT NULL,
+             list_id TEXT NOT NULL,
+             wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
+             updated_at INTEGER NOT NULL,
+             PRIMARY KEY (tenant_id, list_id)
+         );
+         CREATE INDEX idx_local_list_key_bundles_tenant
+             ON local_list_key_bundles(tenant_id);
+         INSERT INTO local_profile_binding (
+             singleton, tenant_id, user_id, device_id, bound_at, updated_at
+         )
+         SELECT 1,
+                tenant.value,
+                account_user.value,
+                device.value,
+                MIN(tenant.updated_at, account_user.updated_at, device.updated_at),
+                MAX(tenant.updated_at, account_user.updated_at, device.updated_at)
+         FROM settings AS tenant,
+              settings AS account_user,
+              settings AS device
+         WHERE tenant.key = 'account_tenant_id'
+           AND account_user.key = 'account_user_id'
+           AND device.key = 'account_device_id'
+           AND trim(tenant.value) <> ''
+           AND trim(account_user.value) <> ''
+           AND trim(device.value) <> ''
+         LIMIT 1;",
     )
 }
 
@@ -1517,6 +1611,175 @@ impl SettingsRepository for SqliteSettingsRepository {
     }
 }
 
+/// SQLCipher-backed local profile binding and wrapped List DEK cache.
+pub struct SqliteLocalCryptoRepository {
+    connection: Connection,
+}
+
+impl SqliteLocalCryptoRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl LocalCryptoRepository for SqliteLocalCryptoRepository {
+    fn load_binding(&self) -> Result<Option<LocalProfileBinding>, StorageError> {
+        load_local_profile_binding_on(&self.connection)
+    }
+
+    fn bind_and_replace_bundles(
+        &mut self,
+        binding: LocalProfileBinding,
+        bundles: &[LocalListKeyBundle],
+    ) -> Result<(), StorageError> {
+        for bundle in bundles {
+            if bundle.tenant_id != binding.tenant_id {
+                return Err(StorageError::LocalProfileTenantMismatch {
+                    bound_tenant_id: binding.tenant_id,
+                    requested_tenant_id: bundle.tenant_id,
+                });
+            }
+        }
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(existing) = load_local_profile_binding_on(&transaction)? {
+            if existing.tenant_id != binding.tenant_id {
+                return Err(StorageError::LocalProfileTenantMismatch {
+                    bound_tenant_id: existing.tenant_id,
+                    requested_tenant_id: binding.tenant_id,
+                });
+            }
+            if existing.user_id != binding.user_id {
+                return Err(StorageError::LocalProfileUserMismatch {
+                    bound_user_id: existing.user_id,
+                    requested_user_id: binding.user_id,
+                });
+            }
+        }
+
+        transaction.execute(
+            "INSERT INTO local_profile_binding (
+                 singleton, tenant_id, user_id, device_id, bound_at, updated_at
+             ) VALUES (1, ?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(singleton) DO UPDATE SET
+                 device_id = excluded.device_id,
+                 updated_at = excluded.updated_at",
+            params![
+                binding.tenant_id.to_string(),
+                binding.user_id.to_string(),
+                binding.device_id.to_string(),
+                binding.bound_at,
+                binding.updated_at,
+            ],
+        )?;
+        transaction.execute("DELETE FROM local_list_key_bundles", [])?;
+        for bundle in bundles {
+            transaction.execute(
+                "INSERT INTO local_list_key_bundles (
+                     tenant_id, list_id, wrapped_list_dek, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    bundle.tenant_id.to_string(),
+                    bundle.list_id.to_string(),
+                    bundle.wrapped_list_dek,
+                    bundle.updated_at,
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError> {
+        if let Some(binding) = load_local_profile_binding_on(&self.connection)? {
+            if binding.tenant_id != tenant_id {
+                return Err(StorageError::LocalProfileTenantMismatch {
+                    bound_tenant_id: binding.tenant_id,
+                    requested_tenant_id: tenant_id,
+                });
+            }
+        }
+        let foreign_count: i64 = self.connection.query_row(
+            "SELECT count(*) FROM local_list_key_bundles WHERE tenant_id <> ?1",
+            [tenant_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if foreign_count != 0 {
+            return Err(StorageError::LocalCryptoCacheTenantMismatch);
+        }
+        load_local_list_key_bundles_on(&self.connection, tenant_id)
+    }
+}
+
+fn load_local_profile_binding_on(
+    connection: &Connection,
+) -> Result<Option<LocalProfileBinding>, StorageError> {
+    let row = connection
+        .query_row(
+            "SELECT tenant_id, user_id, device_id, bound_at, updated_at
+             FROM local_profile_binding
+             WHERE singleton = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    row.map(|(tenant_id, user_id, device_id, bound_at, updated_at)| {
+        Ok(LocalProfileBinding {
+            tenant_id: Uuid::parse_str(&tenant_id)?,
+            user_id: Uuid::parse_str(&user_id)?,
+            device_id: Uuid::parse_str(&device_id)?,
+            bound_at,
+            updated_at,
+        })
+    })
+    .transpose()
+}
+
+fn load_local_list_key_bundles_on(
+    connection: &Connection,
+    tenant_id: Uuid,
+) -> Result<Vec<LocalListKeyBundle>, StorageError> {
+    let mut statement = connection.prepare(
+        "SELECT list_id, wrapped_list_dek, updated_at
+         FROM local_list_key_bundles
+         WHERE tenant_id = ?1
+         ORDER BY list_id ASC",
+    )?;
+    let rows = statement
+        .query_map([tenant_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(list_id, wrapped_list_dek, updated_at)| {
+            Ok(LocalListKeyBundle {
+                tenant_id,
+                list_id: Uuid::parse_str(&list_id)?,
+                wrapped_list_dek,
+                updated_at,
+            })
+        })
+        .collect()
+}
+
 fn get_setting_on(connection: &Connection, key: &str) -> Result<Option<String>, StorageError> {
     connection
         .query_row(
@@ -2258,6 +2521,17 @@ mod tests {
         transaction.commit().unwrap();
     }
 
+    fn create_v9_database(path: &Path, key: &[u8; 32]) {
+        create_v7_database(path, key);
+        let mut connection = open_raw_encrypted(path, key);
+        let transaction = connection.transaction().unwrap();
+        add_sync_outbox_and_cursors(&transaction).unwrap();
+        set_user_version(&transaction, 8).unwrap();
+        add_sync_record_states(&transaction).unwrap();
+        set_user_version(&transaction, 9).unwrap();
+        transaction.commit().unwrap();
+    }
+
     fn insert_v2_list(connection: &Connection, list: &List) {
         connection
             .execute(
@@ -2930,6 +3204,323 @@ mod tests {
             Some(("INTEGER".to_string(), 1))
         );
         assert!(index_exists(&connection, "idx_sync_outbox_stable_order"));
+    }
+
+    #[test]
+    fn v9_database_migrates_to_v10_and_adds_local_crypto_cache() {
+        let file = NamedTempFile::new().unwrap();
+        create_v9_database(file.path(), &KEY);
+        let tenant_id = Uuid::now_v7();
+        let user_id = Uuid::now_v7();
+        let device_id = Uuid::now_v7();
+        let connection = open_raw_encrypted(file.path(), &KEY);
+        for (key, value, updated_at) in [
+            ("account_tenant_id", tenant_id.to_string(), 100),
+            ("account_user_id", user_id.to_string(), 200),
+            ("account_device_id", device_id.to_string(), 300),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                    params![key, value, updated_at],
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+
+        assert_eq!(read_user_version(&connection).unwrap(), 10);
+        assert_eq!(
+            table_columns(&connection, "local_profile_binding").unwrap(),
+            vec![
+                "singleton",
+                "tenant_id",
+                "user_id",
+                "device_id",
+                "bound_at",
+                "updated_at",
+            ]
+        );
+        assert_eq!(
+            table_columns(&connection, "local_list_key_bundles").unwrap(),
+            vec!["tenant_id", "list_id", "wrapped_list_dek", "updated_at"]
+        );
+        assert!(index_exists(
+            &connection,
+            "idx_local_list_key_bundles_tenant"
+        ));
+        assert_eq!(
+            SqliteLocalCryptoRepository::new(connection)
+                .load_binding()
+                .unwrap(),
+            Some(LocalProfileBinding {
+                tenant_id,
+                user_id,
+                device_id,
+                bound_at: 100,
+                updated_at: 300,
+            })
+        );
+    }
+
+    #[test]
+    fn local_crypto_cache_roundtrips_and_same_account_replaces_bundles() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let user_id = Uuid::now_v7();
+        let first_device_id = Uuid::now_v7();
+        let second_device_id = Uuid::now_v7();
+        let first_list_id = Uuid::now_v7();
+        let second_list_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteLocalCryptoRepository::new(connection);
+        let initial_binding = LocalProfileBinding {
+            tenant_id,
+            user_id,
+            device_id: first_device_id,
+            bound_at: 100,
+            updated_at: 100,
+        };
+        repository
+            .bind_and_replace_bundles(
+                initial_binding.clone(),
+                &[LocalListKeyBundle {
+                    tenant_id,
+                    list_id: first_list_id,
+                    wrapped_list_dek: vec![1, 2, 3],
+                    updated_at: 100,
+                }],
+            )
+            .unwrap();
+
+        assert_eq!(repository.load_binding().unwrap(), Some(initial_binding));
+        assert_eq!(
+            repository.load_bundles(tenant_id).unwrap(),
+            vec![LocalListKeyBundle {
+                tenant_id,
+                list_id: first_list_id,
+                wrapped_list_dek: vec![1, 2, 3],
+                updated_at: 100,
+            }]
+        );
+
+        repository
+            .bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id,
+                    user_id,
+                    device_id: second_device_id,
+                    bound_at: 999,
+                    updated_at: 200,
+                },
+                &[LocalListKeyBundle {
+                    tenant_id,
+                    list_id: second_list_id,
+                    wrapped_list_dek: vec![4, 5, 6],
+                    updated_at: 200,
+                }],
+            )
+            .unwrap();
+
+        assert_eq!(
+            repository.load_binding().unwrap(),
+            Some(LocalProfileBinding {
+                tenant_id,
+                user_id,
+                device_id: second_device_id,
+                bound_at: 100,
+                updated_at: 200,
+            })
+        );
+        assert_eq!(
+            repository.load_bundles(tenant_id).unwrap(),
+            vec![LocalListKeyBundle {
+                tenant_id,
+                list_id: second_list_id,
+                wrapped_list_dek: vec![4, 5, 6],
+                updated_at: 200,
+            }]
+        );
+    }
+
+    #[test]
+    fn failed_local_crypto_cache_replace_rolls_back_binding_and_bundles() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let user_id = Uuid::now_v7();
+        let first_device_id = Uuid::now_v7();
+        let second_device_id = Uuid::now_v7();
+        let list_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteLocalCryptoRepository::new(connection);
+        let original_binding = LocalProfileBinding {
+            tenant_id,
+            user_id,
+            device_id: first_device_id,
+            bound_at: 100,
+            updated_at: 100,
+        };
+        let original_bundle = LocalListKeyBundle {
+            tenant_id,
+            list_id,
+            wrapped_list_dek: vec![1, 2, 3],
+            updated_at: 100,
+        };
+        repository
+            .bind_and_replace_bundles(original_binding.clone(), &[original_bundle.clone()])
+            .unwrap();
+
+        let result = repository.bind_and_replace_bundles(
+            LocalProfileBinding {
+                tenant_id,
+                user_id,
+                device_id: second_device_id,
+                bound_at: 100,
+                updated_at: 200,
+            },
+            &[LocalListKeyBundle {
+                tenant_id,
+                list_id: Uuid::now_v7(),
+                wrapped_list_dek: Vec::new(),
+                updated_at: 200,
+            }],
+        );
+
+        assert!(matches!(result, Err(StorageError::Sqlite(_))));
+        assert_eq!(repository.load_binding().unwrap(), Some(original_binding));
+        assert_eq!(
+            repository.load_bundles(tenant_id).unwrap(),
+            vec![original_bundle]
+        );
+    }
+
+    #[test]
+    fn local_crypto_cache_rejects_tenant_and_user_rebinding() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let user_id = Uuid::now_v7();
+        let binding = LocalProfileBinding {
+            tenant_id,
+            user_id,
+            device_id: Uuid::now_v7(),
+            bound_at: 100,
+            updated_at: 100,
+        };
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteLocalCryptoRepository::new(connection);
+        repository
+            .bind_and_replace_bundles(binding.clone(), &[])
+            .unwrap();
+
+        let other_tenant_id = Uuid::now_v7();
+        assert!(matches!(
+            repository.bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id: other_tenant_id,
+                    ..binding.clone()
+                },
+                &[]
+            ),
+            Err(StorageError::LocalProfileTenantMismatch {
+                bound_tenant_id,
+                requested_tenant_id,
+            }) if bound_tenant_id == tenant_id && requested_tenant_id == other_tenant_id
+        ));
+
+        let other_user_id = Uuid::now_v7();
+        assert!(matches!(
+            repository.bind_and_replace_bundles(
+                LocalProfileBinding {
+                    user_id: other_user_id,
+                    ..binding.clone()
+                },
+                &[]
+            ),
+            Err(StorageError::LocalProfileUserMismatch {
+                bound_user_id,
+                requested_user_id,
+            }) if bound_user_id == user_id && requested_user_id == other_user_id
+        ));
+        assert!(matches!(
+            repository.load_bundles(other_tenant_id),
+            Err(StorageError::LocalProfileTenantMismatch {
+                bound_tenant_id,
+                requested_tenant_id,
+            }) if bound_tenant_id == tenant_id && requested_tenant_id == other_tenant_id
+        ));
+        assert_eq!(repository.load_binding().unwrap(), Some(binding));
+    }
+
+    #[test]
+    fn local_crypto_cache_rejects_foreign_tenant_rows() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let binding = LocalProfileBinding {
+            tenant_id,
+            user_id: Uuid::now_v7(),
+            device_id: Uuid::now_v7(),
+            bound_at: 100,
+            updated_at: 100,
+        };
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteLocalCryptoRepository::new(connection);
+        repository
+            .bind_and_replace_bundles(binding.clone(), &[])
+            .unwrap();
+        repository
+            .connection()
+            .execute(
+                "INSERT INTO local_list_key_bundles (
+                     tenant_id, list_id, wrapped_list_dek, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    Uuid::now_v7().to_string(),
+                    Uuid::now_v7().to_string(),
+                    vec![1_u8, 2, 3],
+                    100,
+                ],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            repository.load_bundles(tenant_id),
+            Err(StorageError::LocalCryptoCacheTenantMismatch)
+        ));
+        repository.bind_and_replace_bundles(binding, &[]).unwrap();
+        assert!(repository.load_bundles(tenant_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_crypto_cache_survives_encrypted_database_reopen() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let binding = LocalProfileBinding {
+            tenant_id,
+            user_id: Uuid::now_v7(),
+            device_id: Uuid::now_v7(),
+            bound_at: 100,
+            updated_at: 100,
+        };
+        let bundle = LocalListKeyBundle {
+            tenant_id,
+            list_id: Uuid::now_v7(),
+            wrapped_list_dek: vec![9, 8, 7],
+            updated_at: 100,
+        };
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteLocalCryptoRepository::new(connection);
+            repository
+                .bind_and_replace_bundles(binding.clone(), &[bundle.clone()])
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let repository = SqliteLocalCryptoRepository::new(connection);
+
+        assert_eq!(repository.load_binding().unwrap(), Some(binding));
+        assert_eq!(repository.load_bundles(tenant_id).unwrap(), vec![bundle]);
     }
 
     #[test]

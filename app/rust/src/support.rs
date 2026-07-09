@@ -4,21 +4,25 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use todori_client::{
+    load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
+    LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity,
+};
 use todori_crypto::{
-    delete_account_secret,
-    key_hierarchy::{unwrap_master_key_with_device_key, KEY_LEN},
-    load_account_secret, load_or_create_device_key, store_account_secret, AccountSecretKind,
+    delete_account_secret, key_hierarchy::unwrap_master_key_with_device_key, load_account_secret,
+    load_or_create_device_key, store_account_secret, AccountSecretKind,
 };
 use todori_domain::Uuid;
 use todori_storage::{
-    open_encrypted, ListRepository, SettingsRepository, SqliteListRepository,
-    SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository, TaskRepository,
+    open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
+    SqliteListRepository, SqliteLocalCryptoRepository, SqliteReminderRepository,
+    SqliteSettingsRepository, SqliteTaskRepository, TaskRepository,
 };
 use todori_sync::{
-    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
+    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial},
     ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary, SYNC_CURSOR_NAME,
 };
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
 
 use crate::{
     api::{AccountAuthResultDto, AccountSessionStateDto, SyncStatusDto},
@@ -46,8 +50,7 @@ pub(crate) struct CoreState {
 
 struct AccountRuntimeState {
     session: Option<AccountSessionStateDto>,
-    #[allow(dead_code)]
-    keys: Option<AccountKeyMaterial>,
+    crypto: Option<LocalCryptoContext>,
 }
 
 #[derive(Default)]
@@ -137,16 +140,15 @@ pub(crate) fn account_logout() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     if let Some(token) = token {
         if let Ok(token) = String::from_utf8(token) {
-            let client = AccountClient::new(server_url).map_err(|_| "account logout failed")?;
-            run_async(client.logout(&token)).map_err(|_| "account logout failed")?;
+            if let Ok(client) = AccountClient::new(server_url) {
+                let _ = run_async(client.logout(&token));
+            }
         }
     }
     delete_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
         .map_err(|error| error.to_string())?;
-    delete_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
-        .map_err(|error| error.to_string())?;
-    clear_account_settings()?;
-    replace_account_runtime_state(None, None);
+    let mut account = account_runtime_state();
+    account.session = None;
     Ok(())
 }
 
@@ -192,19 +194,21 @@ pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
     ensure_account_runtime_restored()?;
     let state = core_state()?;
     let account = account_runtime_state();
-    let Some(session) = account.session.clone() else {
-        return Ok(());
+    let Some(crypto) = account.crypto.as_ref() else {
+        drop(account);
+        return match local_mutation_state()? {
+            LocalMutationState::Anonymous => Ok(()),
+            LocalMutationState::Ready(_) => unreachable!("ready state has local crypto"),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err("account-bound local sync keys are unavailable".to_string())
+            }
+        };
     };
-    if !session.logged_in {
-        return Ok(());
-    }
-    let Some(keys) = account.keys.as_ref() else {
-        return Ok(());
-    };
-    let existing_list_ids = keys
+    let existing_list_ids = crypto
+        .sync_keys()
         .list_deks
         .iter()
-        .map(|entry| entry.list_id.clone())
+        .map(|(list_id, _)| list_id.to_string())
         .collect::<Vec<_>>();
     if existing_list_ids
         .iter()
@@ -212,7 +216,12 @@ pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
     {
         return Ok(());
     }
-    let master_key = *keys.master_key;
+    let Some(session) = account.session.clone().filter(|session| session.logged_in) else {
+        return Err("creating a list requires an active sync session".to_string());
+    };
+    let master_key = *crypto.master_key();
+    let user_id = crypto.user_id();
+    let device_id = crypto.device_id();
     let tenant_id = parse_uuid(
         session
             .tenant_id
@@ -235,23 +244,43 @@ pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
     ))?;
 
     if let Some(material) = material {
-        let mut account = account_runtime_state();
-        if let Some(keys) = account.keys.as_mut() {
-            if !keys
-                .list_deks
-                .iter()
-                .any(|entry| entry.list_id == material.list_id)
-            {
-                keys.list_deks.push(material);
-            }
+        let material_list_id = parse_uuid(&material.list_id)?;
+        let mut sync_keys = {
+            let account = account_runtime_state();
+            let crypto = account
+                .crypto
+                .as_ref()
+                .ok_or_else(|| "list key registration failed".to_string())?;
+            crypto.sync_keys().clone()
+        };
+        if !sync_keys.contains_list(material_list_id) {
+            sync_keys.list_deks.push((material_list_id, *material.dek));
         }
+        let crypto = persist_local_crypto_context(
+            &state.db_path,
+            &state.db_key,
+            LocalCryptoIdentity {
+                tenant_id,
+                user_id,
+                device_id,
+            },
+            &master_key,
+            sync_keys,
+            now_ms()?,
+        )
+        .map_err(|error| error.to_string())?;
+        account_runtime_state().crypto = Some(crypto);
     }
     Ok(())
 }
 
 pub(crate) fn enqueue_task_sync(task: &todori_domain::Task, deleted: bool) -> Result<(), String> {
-    let Some(context) = active_sync_context() else {
-        return Ok(());
+    let context = match local_mutation_state()? {
+        LocalMutationState::Anonymous => return Ok(()),
+        LocalMutationState::Ready(context) => context,
+        LocalMutationState::AccountBoundUnavailable => {
+            return Err("account-bound local sync keys are unavailable".to_string());
+        }
     };
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
@@ -267,8 +296,12 @@ pub(crate) fn enqueue_task_sync(task: &todori_domain::Task, deleted: bool) -> Re
 }
 
 pub(crate) fn enqueue_list_sync(list: &todori_domain::List, deleted: bool) -> Result<(), String> {
-    let Some(context) = active_sync_context() else {
-        return Ok(());
+    let context = match local_mutation_state()? {
+        LocalMutationState::Anonymous => return Ok(()),
+        LocalMutationState::Ready(context) => context,
+        LocalMutationState::AccountBoundUnavailable => {
+            return Err("account-bound local sync keys are unavailable".to_string());
+        }
     };
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
@@ -281,6 +314,15 @@ pub(crate) fn enqueue_list_sync(list: &todori_domain::List, deleted: bool) -> Re
         deleted,
         &mut now,
     )
+}
+
+pub(crate) fn preflight_sync_mutation() -> Result<(), String> {
+    match local_mutation_state()? {
+        LocalMutationState::Anonymous | LocalMutationState::Ready(_) => Ok(()),
+        LocalMutationState::AccountBoundUnavailable => {
+            Err("account-bound local sync keys are unavailable".to_string())
+        }
+    }
 }
 
 pub(crate) fn core_state() -> Result<&'static CoreState, String> {
@@ -359,10 +401,11 @@ fn account_auth(
         None => get_sync_server_url()?,
     };
     let device_key = load_or_create_device_key(&state.db_dir).map_err(|error| error.to_string())?;
-    let client = AccountClient::new(server_url).map_err(|_| "account request failed")?;
+    let client = AccountClient::new(&server_url).map_err(|_| "account request failed")?;
 
     let outcome = match mode {
         AccountAuthMode::Register => {
+            ensure_profile_is_unbound_for_registration()?;
             let initial_list_ids = local_list_ids_for_registration()?;
             let outcome = run_async(client.register(
                 &email,
@@ -380,15 +423,16 @@ fn account_auth(
                 outcome.session.tenant_id.clone(),
                 outcome.session.device_id.clone(),
             );
-            persist_account_state(
-                &state.db_dir,
+            let crypto = persist_account_state(
+                state,
                 &session,
                 outcome.session.expires_at_ms,
                 outcome.session.session_token.as_bytes(),
                 &outcome.local_wrapped_master_key,
+                &outcome.keys,
             )?;
             let recovery_key = outcome.recovery_key.to_string();
-            replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+            replace_account_runtime_state(Some(session.clone()), Some(crypto));
             reset_login_sync_cursors()?;
             return Ok(AccountAuthResultDto {
                 session,
@@ -396,10 +440,19 @@ fn account_auth(
             });
         }
         AccountAuthMode::Login => {
-            let outcome =
+            let mut outcome =
                 run_async(client.login(&email, &password, device_name.as_deref(), &device_key))
                     .map_err(|_| "account request failed".to_string())?;
             password.zeroize();
+            let tenant_id = parse_uuid(&outcome.session.tenant_id)?;
+            let user_id = parse_uuid(&outcome.session.user_id)?;
+            validate_existing_profile_identity(tenant_id, user_id)?;
+            ensure_key_material_covers_local_lists(
+                &server_url,
+                tenant_id,
+                &outcome.session.session_token,
+                &mut outcome.keys,
+            )?;
             outcome
         }
     };
@@ -411,14 +464,15 @@ fn account_auth(
         outcome.session.tenant_id.clone(),
         outcome.session.device_id.clone(),
     );
-    persist_account_state(
-        &state.db_dir,
+    let crypto = persist_account_state(
+        state,
         &session,
         outcome.session.expires_at_ms,
         outcome.session.session_token.as_bytes(),
         &outcome.local_wrapped_master_key,
+        &outcome.keys,
     )?;
-    replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
+    replace_account_runtime_state(Some(session.clone()), Some(crypto));
     reset_login_sync_cursors()?;
     Ok(AccountAuthResultDto {
         session,
@@ -481,10 +535,10 @@ fn active_sync_context() -> Option<ActiveSyncContext> {
     if !session.logged_in {
         return None;
     }
-    let keys = account.keys.as_ref()?;
-    let tenant_id = parse_uuid(session.tenant_id.as_deref()?).ok()?;
-    let device_id = session.device_id.clone()?;
-    let sync_keys = LocalSyncKeys::from_account_keys(keys);
+    let crypto = account.crypto.as_ref()?;
+    let tenant_id = crypto.tenant_id();
+    let device_id = crypto.device_id().to_string();
+    let sync_keys = crypto.sync_keys().clone();
     drop(account);
     let session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
         .ok()
@@ -508,24 +562,25 @@ pub(crate) enum LocalMutationState {
 pub(crate) fn local_mutation_state() -> Result<LocalMutationState, String> {
     ensure_account_runtime_restored()?;
     let account = account_runtime_state();
-    if let (Some(session), Some(keys)) = (account.session.as_ref(), account.keys.as_ref()) {
-        if session.logged_in {
-            if let Some(device_id) = session.device_id.clone() {
-                return Ok(LocalMutationState::Ready(
-                    todori_client::LocalMutationContext {
-                        device_id,
-                        keys: LocalSyncKeys::from_account_keys(keys),
-                    },
-                ));
-            }
-        }
+    if let Some(crypto) = account.crypto.as_ref() {
+        return Ok(LocalMutationState::Ready(crypto.mutation_context()));
     }
     drop(account);
 
-    if non_empty_setting(ACCOUNT_TENANT_ID_SETTING_KEY)?.is_some() {
-        Ok(LocalMutationState::AccountBoundUnavailable)
-    } else {
-        Ok(LocalMutationState::Anonymous)
+    let state = core_state()?;
+    match load_local_crypto_context(&state.db_path, &state.db_key, None)
+        .map_err(|error| error.to_string())?
+    {
+        LocalCryptoAvailability::Anonymous => {
+            if has_legacy_account_binding()? {
+                Ok(LocalMutationState::AccountBoundUnavailable)
+            } else {
+                Ok(LocalMutationState::Anonymous)
+            }
+        }
+        LocalCryptoAvailability::Ready(_) | LocalCryptoAvailability::AccountBoundUnavailable(_) => {
+            Ok(LocalMutationState::AccountBoundUnavailable)
+        }
     }
 }
 
@@ -534,24 +589,34 @@ fn has_active_sync_context() -> bool {
 }
 
 fn ensure_account_runtime_restored() -> Result<(), String> {
-    {
-        let account = account_runtime_state();
-        if account.session.is_some() {
-            return Ok(());
+    let state = core_state()?;
+    let restore_crypto = account_runtime_state().crypto.is_none();
+    if restore_crypto {
+        let master_key = match load_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
+            .map_err(|error| error.to_string())?
+        {
+            Some(local_wrapped_master_key) => {
+                let device_key =
+                    load_or_create_device_key(&state.db_dir).map_err(|error| error.to_string())?;
+                unwrap_master_key_with_device_key(&local_wrapped_master_key, &device_key).ok()
+            }
+            None => None,
+        };
+        if let LocalCryptoAvailability::Ready(crypto) =
+            load_local_crypto_context(&state.db_path, &state.db_key, master_key)
+                .map_err(|error| error.to_string())?
+        {
+            account_runtime_state().crypto = Some(crypto);
         }
     }
 
-    let state = core_state()?;
+    if account_runtime_state().session.is_some() {
+        return Ok(());
+    }
     let Some(_session_token) = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
         .map_err(|error| error.to_string())?
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .filter(|token| !token.is_empty())
-    else {
-        return Ok(());
-    };
-    let Some(local_wrapped_master_key) =
-        load_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
-            .map_err(|error| error.to_string())?
     else {
         return Ok(());
     };
@@ -576,20 +641,8 @@ fn ensure_account_runtime_restored() -> Result<(), String> {
         return Ok(());
     }
 
-    let device_key = load_or_create_device_key(&state.db_dir).map_err(|error| error.to_string())?;
-    let master_key = match unwrap_master_key_with_device_key(&local_wrapped_master_key, &device_key)
-    {
-        Ok(master_key) => master_key,
-        Err(_) => return Ok(()),
-    };
     let session = account_session_to_dto(true, email, user_id, tenant_id, device_id);
-    let keys = AccountKeyMaterial {
-        master_key: Zeroizing::new(master_key),
-        user_secret_key: Zeroizing::new([0; KEY_LEN]),
-        tenant_root_dek: Zeroizing::new([0; KEY_LEN]),
-        list_deks: Vec::new(),
-    };
-    replace_account_runtime_state(Some(session), Some(keys));
+    account_runtime_state().session = Some(session);
     Ok(())
 }
 
@@ -601,7 +654,7 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .ok_or_else(|| "list key refresh failed".to_string())?;
-    let (tenant_id, master_key) = {
+    let (tenant_id, user_id, device_id, master_key) = {
         let account = account_runtime_state();
         let Some(session) = account.session.as_ref() else {
             return Ok(());
@@ -609,16 +662,15 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
         if !session.logged_in {
             return Ok(());
         }
-        let Some(keys) = account.keys.as_ref() else {
+        let Some(crypto) = account.crypto.as_ref() else {
             return Ok(());
         };
-        let tenant_id = parse_uuid(
-            session
-                .tenant_id
-                .as_deref()
-                .ok_or_else(|| "list key refresh failed".to_string())?,
-        )?;
-        (tenant_id, *keys.master_key)
+        (
+            crypto.tenant_id(),
+            crypto.user_id(),
+            crypto.device_id(),
+            *crypto.master_key(),
+        )
     };
 
     let client =
@@ -627,24 +679,27 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
         .map_err(|_| "list key refresh failed".to_string())?;
     let materials = unwrap_list_dek_bundles(&bundles, &master_key)
         .map_err(|_| "list key refresh failed".to_string())?;
-    merge_account_list_deks(materials);
-    Ok(())
-}
-
-fn merge_account_list_deks(materials: Vec<AccountListDekMaterial>) {
-    let mut account = account_runtime_state();
-    let Some(keys) = account.keys.as_mut() else {
-        return;
+    let sync_keys = LocalSyncKeys {
+        list_deks: materials
+            .into_iter()
+            .map(|material| Ok((parse_uuid(&material.list_id)?, *material.dek)))
+            .collect::<Result<Vec<_>, String>>()?,
     };
-    for material in materials {
-        if !keys
-            .list_deks
-            .iter()
-            .any(|entry| entry.list_id == material.list_id)
-        {
-            keys.list_deks.push(material);
-        }
-    }
+    let crypto = persist_local_crypto_context(
+        &state.db_path,
+        &state.db_key,
+        LocalCryptoIdentity {
+            tenant_id,
+            user_id,
+            device_id,
+        },
+        &master_key,
+        sync_keys,
+        now_ms()?,
+    )
+    .map_err(|error| error.to_string())?;
+    account_runtime_state().crypto = Some(crypto);
+    Ok(())
 }
 
 fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
@@ -652,6 +707,72 @@ fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
         .into_iter()
         .map(|list| list.id)
         .collect())
+}
+
+fn ensure_key_material_covers_local_lists(
+    server_url: &str,
+    tenant_id: Uuid,
+    session_token: &str,
+    keys: &mut AccountKeyMaterial,
+) -> Result<(), String> {
+    for list_id in local_list_ids_for_registration()? {
+        let existing_list_ids = keys
+            .list_deks
+            .iter()
+            .map(|entry| entry.list_id.clone())
+            .collect::<Vec<_>>();
+        if let Some(material) = run_async(todori_sync::ensure_list_dek_for_list(
+            server_url,
+            tenant_id,
+            session_token,
+            &keys.master_key,
+            &existing_list_ids,
+            list_id,
+        ))? {
+            keys.list_deks.push(material);
+        }
+    }
+    Ok(())
+}
+
+fn ensure_profile_is_unbound_for_registration() -> Result<(), String> {
+    let state = core_state()?;
+    let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
+    let repository = SqliteLocalCryptoRepository::new(connection);
+    if repository
+        .load_binding()
+        .map_err(|error| error.to_string())?
+        .is_some()
+        || has_legacy_account_binding()?
+    {
+        return Err("local profile is already account-bound".to_string());
+    }
+    Ok(())
+}
+
+fn validate_existing_profile_identity(tenant_id: Uuid, user_id: Uuid) -> Result<(), String> {
+    let state = core_state()?;
+    let connection = open_encrypted(&state.db_path, &state.db_key).map_err(|e| e.to_string())?;
+    let repository = SqliteLocalCryptoRepository::new(connection);
+    if let Some(binding) = repository
+        .load_binding()
+        .map_err(|error| error.to_string())?
+    {
+        if binding.tenant_id != tenant_id || binding.user_id != user_id {
+            return Err("local profile belongs to a different account".to_string());
+        }
+    } else if has_legacy_account_binding()? {
+        let legacy_tenant_id = non_empty_setting(ACCOUNT_TENANT_ID_SETTING_KEY)?
+            .ok_or_else(|| "local profile account binding is incomplete".to_string())?;
+        let legacy_tenant_id = parse_uuid(&legacy_tenant_id)?;
+        let legacy_user_id = non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+            .ok_or_else(|| "local profile account binding is incomplete".to_string())?;
+        let legacy_user_id = parse_uuid(&legacy_user_id)?;
+        if legacy_tenant_id != tenant_id || legacy_user_id != user_id {
+            return Err("local profile belongs to a different account".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn local_lists_including_archived() -> Result<Vec<todori_domain::List>, String> {
@@ -674,16 +795,45 @@ fn reset_login_sync_cursors() -> Result<(), String> {
 }
 
 fn persist_account_state(
-    db_dir: &PathBuf,
+    state: &CoreState,
     session: &AccountSessionStateDto,
     expires_at_ms: i64,
     session_token: &[u8],
     local_wrapped_master_key: &[u8],
-) -> Result<(), String> {
-    store_account_secret(db_dir, AccountSecretKind::SessionToken, session_token)
-        .map_err(|error| error.to_string())?;
+    keys: &AccountKeyMaterial,
+) -> Result<LocalCryptoContext, String> {
+    let tenant_id = parse_uuid(
+        session
+            .tenant_id
+            .as_deref()
+            .ok_or_else(|| "account state is incomplete".to_string())?,
+    )?;
+    let user_id = parse_uuid(
+        session
+            .user_id
+            .as_deref()
+            .ok_or_else(|| "account state is incomplete".to_string())?,
+    )?;
+    let device_id = parse_uuid(
+        session
+            .device_id
+            .as_deref()
+            .ok_or_else(|| "account state is incomplete".to_string())?,
+    )?;
+    let crypto = persist_account_crypto_context(
+        &state.db_path,
+        &state.db_key,
+        LocalCryptoIdentity {
+            tenant_id,
+            user_id,
+            device_id,
+        },
+        keys,
+        now_ms()?,
+    )
+    .map_err(|error| error.to_string())?;
     store_account_secret(
-        db_dir,
+        &state.db_dir,
         AccountSecretKind::MasterKeyWrap,
         local_wrapped_master_key,
     )
@@ -708,20 +858,13 @@ fn persist_account_state(
         ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY.to_string(),
         expires_at_ms.to_string(),
     )?;
-    Ok(())
-}
-
-fn clear_account_settings() -> Result<(), String> {
-    for key in [
-        ACCOUNT_EMAIL_SETTING_KEY,
-        ACCOUNT_USER_ID_SETTING_KEY,
-        ACCOUNT_TENANT_ID_SETTING_KEY,
-        ACCOUNT_DEVICE_ID_SETTING_KEY,
-        ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
-    ] {
-        set_setting(key.to_string(), String::new())?;
-    }
-    Ok(())
+    store_account_secret(
+        &state.db_dir,
+        AccountSecretKind::SessionToken,
+        session_token,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(crypto)
 }
 
 fn get_setting(key: String) -> Result<Option<String>, String> {
@@ -743,6 +886,33 @@ fn set_setting(key: String, value: String) -> Result<(), String> {
 
 fn non_empty_setting(key: &str) -> Result<Option<String>, String> {
     Ok(get_setting(key.to_string())?.filter(|value| !value.trim().is_empty()))
+}
+
+fn has_legacy_account_binding() -> Result<bool, String> {
+    for key in [
+        ACCOUNT_EMAIL_SETTING_KEY,
+        ACCOUNT_USER_ID_SETTING_KEY,
+        ACCOUNT_TENANT_ID_SETTING_KEY,
+        ACCOUNT_DEVICE_ID_SETTING_KEY,
+        ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
+    ] {
+        if non_empty_setting(key)?.is_some() {
+            return Ok(true);
+        }
+    }
+    let state = core_state()?;
+    for secret in [
+        AccountSecretKind::MasterKeyWrap,
+        AccountSecretKind::SessionToken,
+    ] {
+        if load_account_secret(&state.db_dir, secret)
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn account_session_to_dto(
@@ -776,7 +946,7 @@ fn account_runtime_state() -> MutexGuard<'static, AccountRuntimeState> {
         .get_or_init(|| {
             Mutex::new(AccountRuntimeState {
                 session: None,
-                keys: None,
+                crypto: None,
             })
         })
         .lock()
@@ -785,11 +955,11 @@ fn account_runtime_state() -> MutexGuard<'static, AccountRuntimeState> {
 
 fn replace_account_runtime_state(
     session: Option<AccountSessionStateDto>,
-    keys: Option<AccountKeyMaterial>,
+    crypto: Option<LocalCryptoContext>,
 ) {
     let mut state = account_runtime_state();
     state.session = session;
-    state.keys = keys;
+    state.crypto = crypto;
 }
 
 fn sync_runtime_state() -> MutexGuard<'static, SyncRuntimeState> {

@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 実装中: **task-84 session非依存LocalCryptoContext** — MK-wrapped List DEK cacheとaccount-bound fail-closed状態を実装する。
-- 最新の決定: task-82 / ADR-012で、同期correctnessをfield clock、placement、transactional outbox、cascade tombstone、typed pull failure、snapshot full resyncの一体として保証する方式を採用した。現行同期実装は未準拠であり、release blockerとして扱う。
+- 実装中: なし
+- 最新の決定: task-84 / ADR-013でremote sessionとLocalCryptoContextを分離し、list IDへAAD-bindしたMK-wrapped List DEK cache、account profile binding、fail-closed状態を実装した。残りCRUDのtransaction移行とprotocol v2はrelease blockerとして継続する。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

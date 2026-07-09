@@ -1,6 +1,6 @@
 # task-84: session非依存LocalCryptoContext
 
-> ステータス: 実装中
+> ステータス: 完了（session非依存のaccount-bound local crypto復元を実装）
 > 作業日: 2026-07-10
 
 ## 1. 背景とコンテキスト
@@ -53,15 +53,15 @@ task-83のtransactional task editは、再起動後にList DEKがRAMへ復元さ
 
 ## 6. 受け入れ基準
 
-- [ ] DB schema v9からv10へtransactionalに移行する。
-- [ ] List DEK平文を永続化せず、MK-wrapped bundleだけを保存する。
-- [ ] cache lookupがtenant IDで分離される。
-- [ ] login/register/refreshで検証済みbundleが永続cacheへ反映される。
-- [ ] runtimeを破棄した再open後、session tokenなし/期限切れでもtask editがdomain+undo+HLC+outbox+record stateをatomic commitする。
-- [ ] cache欠落・破損・tenant不一致はtyped unavailableとなり、domain/sync stateを変更しない。
-- [ ] logout後にaccount-bound DBがAnonymousへ降格しない。
-- [ ] 既存workspace testとFlutter品質ゲートが成功する。
-- [ ] `git diff --check`が成功する。
+- [x] DB schema v9からv10へtransactionalに移行する。
+- [x] List DEK平文を永続化せず、MK-wrapped bundleだけを保存する。
+- [x] cache lookupがtenant IDで分離される。
+- [x] login/register/refreshで検証済みbundleが永続cacheへ反映される。
+- [x] runtimeを破棄した再open後、session tokenなし/期限切れでもtask editがdomain+undo+HLC+outbox+record stateをatomic commitする。
+- [x] cache欠落・破損・tenant不一致はtyped unavailableとなり、domain/sync stateを変更しない。
+- [x] logout後にaccount-bound DBがAnonymousへ降格しない。
+- [x] 既存workspace testとFlutter品質ゲートが成功する。
+- [x] `git diff --check`が成功する。
 
 ## 7. 制約・注意事項
 
@@ -78,3 +78,11 @@ task-83のtransactional task editは、再起動後にList DEKがRAMへ復元さ
 - auth/refresh/logout経路の変更。
 - 実行した品質ゲート。
 - 残りCRUD、offline list作成、production 2-client fixtureへの後続事項。
+
+## 9. 完了報告
+
+- 作業日: 2026-07-10
+- 結果: schema v10へtenant/user/deviceのprofile bindingとList DEK cacheを追加した。cache ciphertextはMKでwrapしlist IDをAADへ含める。register/login/refreshで全件検証後にtransactional replaceし、再起動・session期限切れ・logout後も既存Listのlocal mutationはsession非依存contextからoutboxを生成する。cache欠落/破損、別account、別tenant row、旧account stateの途中書込はAnonymousへ降格せずfail closedする。offline list作成はkey upload queue未実装のためrow作成前に明示失敗する。
+- 証拠: `todori-client` 8 test、`todori-storage` 57 test成功/1件ignored、`todori-sync` 39 test、`todori-crypto` 29 test成功/1件ignored。`cargo test --workspace`（Docker/Testcontainers 5件を含む）、`cargo clippy --workspace -- -D warnings`、Rust release build、`flutter analyze`、`flutter test` 124件、hardcoded strings check、`git diff --check`成功。独立verifierでP1なしを確認した。
+- Commit: 未コミット
+- 未解決: v9既存accountはbindingを自動移行するが、旧schemaにList DEK cacheがないため次回loginでcacheを補完するまでfail closedする。残りCRUDの同一transaction移行、offline list作成用key-bundle upload queue、production 2-client fixture、bridge状態分岐の直接test、`LocalSyncKeys` drop時zeroizeは後続。protocol v2 field clock / placementとcascade deleteも未実装。

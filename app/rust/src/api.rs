@@ -15,8 +15,8 @@ use todori_storage::{
 
 use crate::support::{
     core_state, enqueue_list_sync, enqueue_task_sync, ensure_list_dek_for_list,
-    local_mutation_state, now_ms, with_list_repository, with_reminder_repository,
-    with_settings_repository, with_task_repository, LocalMutationState,
+    local_mutation_state, now_ms, preflight_sync_mutation, with_list_repository,
+    with_reminder_repository, with_settings_repository, with_task_repository, LocalMutationState,
 };
 
 pub struct ListDto {
@@ -210,6 +210,7 @@ pub fn sync_now() -> Result<SyncStatusDto, String> {
 /// Automatic fractional index generation is a later M3 concern and is not done
 /// in this bridge layer.
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
+    preflight_sync_mutation()?;
     let list = new_list(name, sort_order, now_ms()?).map_err(|error| error.to_string())?;
     ensure_list_dek_for_list(list.id)?;
     with_list_repository(|repository| {
@@ -240,6 +241,7 @@ pub fn get_archived_lists() -> Result<Vec<ListDto>, String> {
 }
 
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
+    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
     with_list_repository(|repository| {
@@ -254,6 +256,7 @@ pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
 }
 
 pub fn archive_list(list_id: String) -> Result<ListDto, String> {
+    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
     with_list_repository(|repository| {
@@ -272,6 +275,7 @@ pub fn archive_list(list_id: String) -> Result<ListDto, String> {
 }
 
 pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
+    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
     with_list_repository(|repository| {
@@ -294,6 +298,7 @@ pub fn create_task(
     due_at: Option<i64>,
     note: Option<String>,
 ) -> Result<TaskDto, String> {
+    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
     let now_ms = now_ms()?;
@@ -344,6 +349,7 @@ pub fn reorder_task(
     previous_task_id: Option<String>,
     next_task_id: Option<String>,
 ) -> Result<TaskDto, String> {
+    preflight_sync_mutation()?;
     let task_id = parse_uuid(&task_id)?;
     let previous_task_id = previous_task_id.as_deref().map(parse_uuid).transpose()?;
     let next_task_id = next_task_id.as_deref().map(parse_uuid).transpose()?;
@@ -496,6 +502,7 @@ pub fn set_task_status(
     status: String,
     closed_reason: Option<String>,
 ) -> Result<TaskDto, String> {
+    preflight_sync_mutation()?;
     let task_id = parse_uuid(&task_id)?;
     let status = parse_status(&status)?;
     let now_ms = now_ms()?;
@@ -519,6 +526,7 @@ pub fn set_task_status(
 }
 
 pub fn delete_task(task_id: String) -> Result<(), String> {
+    preflight_sync_mutation()?;
     let task_id = parse_uuid(&task_id)?;
     with_task_repository(|repository| {
         let task = repository.get(task_id).map_err(|error| error.to_string())?;
@@ -530,6 +538,7 @@ pub fn delete_task(task_id: String) -> Result<(), String> {
 }
 
 pub fn delete_list(list_id: String) -> Result<(), String> {
+    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
@@ -553,13 +562,15 @@ pub fn get_latest_task_undo() -> Result<Option<TaskUndoDto>, String> {
 }
 
 pub fn undo_task_operation(undo_id: String) -> Result<TaskDto, String> {
+    preflight_sync_mutation()?;
     let undo_id = parse_uuid(&undo_id)?;
     let now_ms = now_ms()?;
     with_task_repository(|repository| {
-        repository
+        let task = repository
             .undo_task_operation(undo_id, now_ms)
-            .map_err(|error| error.to_string())
-            .map(task_to_dto)
+            .map_err(|error| error.to_string())?;
+        enqueue_task_sync(&task, false)?;
+        Ok(task_to_dto(task))
     })
 }
 

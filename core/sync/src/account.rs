@@ -36,6 +36,8 @@ pub enum AccountClientError {
     Opaque,
     #[error("key hierarchy error")]
     KeyHierarchy(#[from] KeyHierarchyError),
+    #[error("invalid list ID")]
+    InvalidListId,
 }
 
 pub struct AccountClient {
@@ -344,6 +346,25 @@ pub fn wrap_list_dek_bundle(
     })
 }
 
+/// Wraps every List DEK in account key material with its master key.
+///
+/// The conversion is all-or-nothing: an invalid list ID or wrapping failure
+/// returns an error instead of exposing a partial bundle set to the caller.
+pub fn wrap_account_list_dek_bundles(
+    keys: &AccountKeyMaterial,
+) -> Result<Vec<ListDekBundleDto>, AccountClientError> {
+    keys.list_deks
+        .iter()
+        .map(|entry| {
+            let list_id = entry
+                .list_id
+                .parse::<Uuid>()
+                .map_err(|_| AccountClientError::InvalidListId)?;
+            wrap_list_dek_bundle(list_id, &entry.dek, &keys.master_key)
+        })
+        .collect()
+}
+
 fn build_registration_key_bundle(
     export_key: &[u8],
     device_key: &[u8; KEY_LEN],
@@ -541,5 +562,59 @@ mod tests {
             &[0xff; KEY_LEN],
         )
         .is_err());
+    }
+
+    #[test]
+    fn account_list_dek_bundles_roundtrip_all_entries() {
+        let first_list_id = Uuid::now_v7();
+        let second_list_id = Uuid::now_v7();
+        let keys = AccountKeyMaterial {
+            master_key: Zeroizing::new([0x62; KEY_LEN]),
+            user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
+            tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
+            list_deks: vec![
+                AccountListDekMaterial {
+                    list_id: first_list_id.to_string(),
+                    dek: Zeroizing::new([0x31; KEY_LEN]),
+                },
+                AccountListDekMaterial {
+                    list_id: second_list_id.to_string(),
+                    dek: Zeroizing::new([0x42; KEY_LEN]),
+                },
+            ],
+        };
+
+        let bundles = wrap_account_list_dek_bundles(&keys).unwrap();
+        let unwrapped = unwrap_list_dek_bundles(&bundles, &keys.master_key).unwrap();
+
+        assert_eq!(unwrapped.len(), 2);
+        assert_eq!(unwrapped[0].list_id, first_list_id.to_string());
+        assert_eq!(*unwrapped[0].dek, [0x31; KEY_LEN]);
+        assert_eq!(unwrapped[1].list_id, second_list_id.to_string());
+        assert_eq!(*unwrapped[1].dek, [0x42; KEY_LEN]);
+    }
+
+    #[test]
+    fn account_list_dek_bundle_conversion_rejects_invalid_id_without_partial_result() {
+        let keys = AccountKeyMaterial {
+            master_key: Zeroizing::new([0x62; KEY_LEN]),
+            user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
+            tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
+            list_deks: vec![
+                AccountListDekMaterial {
+                    list_id: Uuid::now_v7().to_string(),
+                    dek: Zeroizing::new([0x31; KEY_LEN]),
+                },
+                AccountListDekMaterial {
+                    list_id: "not-a-uuid".to_string(),
+                    dek: Zeroizing::new([0x42; KEY_LEN]),
+                },
+            ],
+        };
+
+        assert!(matches!(
+            wrap_account_list_dek_bundles(&keys),
+            Err(AccountClientError::InvalidListId)
+        ));
     }
 }

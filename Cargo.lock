@@ -3278,6 +3278,7 @@ dependencies = [
  "todori-domain",
  "todori-storage",
  "todori-sync",
+ "zeroize",
 ]
 
 [[package]]
