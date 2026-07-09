@@ -108,12 +108,13 @@
 - **task-75 core extraction refactor完了（2026-07-08）**: `app/rust/src/api.rs` から同期run/pull適用/outbox enqueue/HLC tick/plaintext変換/List DEK補完を `core/sync` へ移し、Device Key / Keychain / account secret storeを `core/crypto` へ移した。FRB公開API、SQLite schema、sync wire format、UI文字列は変更していない。
 - **task-76 運用ドキュメント整備完了（2026-07-08）**: `docs/09_運用ガイド.md` と `docs/ops/` 配下のサーバーデプロイ、DB migration、障害対応、クライアントリリースrunbookを追加した。public repo安全のため、公開不可の運用・事業詳細や実クレデンシャルは書かず、必要箇所はプレースホルダとprivate側/人間管理へ分離した。
 - **task-77 Keychain entitlementゼロプロンプト化完了（2026-07-08）**: iOS/macOS Runnerに `keychain-access-groups = $(AppIdentifierPrefix)dev.todori.todori` を追加し、`core/crypto` のData Protection Keychain queryで署名済みアプリのaccess group entitlementを指定するようにした。legacy login keychain + ACLは未署名/entitlementなしmacOS開発ビルド救済として残した。署名手順は `docs/dev/code-signing-setup.md` に記録した。2026-07-09にTeam ID `4DQWW3VH88` 設定・開発証明書発行・WWDR G3導入・pbxprojのCODE_SIGN_IDENTITY上書きを経て、署名付きmacOSビルドと起動2回のゼロプロンプトをプロダクトオーナーが実機確認済み。iOSでの確認のみ残る。
+- **2台同期の実機検証完了（2026-07-10）**: macOS + iOS Simulatorの2クライアントとローカルdev server（Docker Postgres + todori-server）で、登録→ログイン→push/pull→双方向編集の収束→アプリ再起動後のセッション維持→同期後UI即時反映まで、プロダクトオーナーが手動確認した。検証過程で発見・修正したのはtask-78（初回バックフィル）、task-79（デフォルトリスト衝突・セッション復元・List DEKリフレッシュ・list-keys GET API）、task-80（UI invalidate漏れ・再ログインでのpullカーソルリセット）、およびsync_nowのMutex自己デッドロック修正とHTTP 30秒タイムアウト。
 - **Phase 2計画書改訂（2026-07-08）**: `docs/01_企画書.md` §8と整合させるため、`docs/08_Phase2計画書.md` にP2-M6カレンダー表示、P2-M7タイマー/Pomodoro、P2-M8テンプレート・繰り返しタスクを追加した。課金はApp Store IAPとprivate repo側事業設計を含むため、人間協働必須として自律スコープ外に残す。
 
 ## 帰還後の人間確認リスト
 
 - push（30コミット超）
-- iOS Simulator/実機でのKeychain・通知・同期の通し確認。署名付きKeychainゼロプロンプト検証はmacOS確認済み（2026-07-09）、iOSのみ残る
+- iOS Simulator/実機でのKeychain・通知・同期の通し確認。同期の通し確認はmacOS + iOS Simulatorで完了済み（2026-07-10）。残りは通知の通し確認、iOS実機での確認、iOS署名付きKeychainゼロプロンプト確認
 - AWS/Neonデプロイ
 - 課金/IAP/外部課金/レシート検証の仕様確定と実装判断（App Store IAP、private repo側事業設計を含むため人間協働必須）
 - coral/amberピルのコントラスト裁定
@@ -154,6 +155,9 @@
 | 28 | Android Keystore DeviceKeyStore | Androidで暫定 `FileDeviceKeyStore` を本番用Android Keystore backed実装へ置き換える | M5 / セキュリティ後続 | 出典: `docs/03_技術仕様書.md` §4.3、Android Developers「Android Keystore system」 https://developer.android.com/privacy-and-security/keystore 。Android公式は、Keystoreが暗号鍵を抽出困難なcontainerへ保存し、key materialをnon-exportableにできると説明している |
 | 29 | サーバーのデバイス行重複排除 | 現状ログインのたびにpublic_keyの異なる新デバイス行が作成される。同一インストールからの再ログインでデバイス行を再利用する設計を検討する | Phase 2後半 / アカウント運用 | 出典: 2026-07-10実機同期確認で同一ユーザーに4デバイス行を確認 |
 | 30 | デフォルトリスト（Inbox）の2端末マージ後の重複解消 | 各端末が別UUIDのInboxを持つため、バックフィル同期後に両端末でInboxが2つ並ぶ。`is_default` の一意化またはマージ方針の裁定が必要 | Phase 2後半 / 同期UX | 出典: 2026-07-10初回バックフィル設計ギャップ修正時の既知課題。要人間判断にも記録 |
+| 31 | task-78 sync-initial-backfill | 初回同期時に既存ローカルデータをサーバーへバックフィルし、2台目がpullできるようにする | Phase 2後半 / 同期UX | 完了（2026-07-10）。指示書: docs/tasks/task-78-sync-initial-backfill.md |
+| 32 | task-79 sync-real-device-regressions | 2台同期実機検証で発見したデフォルトリスト衝突、セッション復元、List DEKリフレッシュ、list-keys GET APIの回帰を修正する | Phase 2後半 / 同期UX | 完了（2026-07-10）。指示書: docs/tasks/task-79-sync-real-device-regressions.md |
+| 33 | task-80 sync-pull-recovery | UI invalidate漏れと再ログイン時のpullカーソルリセットを修正し、同期後UI即時反映と復旧性を改善する | Phase 2後半 / 同期UX | 完了（2026-07-10）。指示書: docs/tasks/task-80-sync-pull-recovery.md |
 
 （`docs/07_Phase1計画書.md` のマイルストーン表と整合させること。表のID対応が計画書と厳密一致しない場合は「相当」と表記する。）
 
