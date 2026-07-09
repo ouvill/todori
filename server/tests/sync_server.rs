@@ -1026,6 +1026,16 @@ async fn account_client_register_logout_login_restores_keys_and_rejects_invalid_
         .list_deks
         .iter()
         .any(|bundle| bundle.list_id == added_list_id));
+    let listed_bundles = client
+        .list_key_bundles(
+            Uuid::parse_str(&logged_in.session.tenant_id).unwrap(),
+            &logged_in.session.session_token,
+        )
+        .await
+        .unwrap();
+    assert!(listed_bundles
+        .iter()
+        .any(|bundle| bundle.list_id == added_list_id));
 
     assert!(client
         .login(

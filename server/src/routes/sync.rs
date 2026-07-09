@@ -18,7 +18,10 @@ pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
-        .route("/{tenant_id}/list-keys", post(upsert_list_key_bundle))
+        .route(
+            "/{tenant_id}/list-keys",
+            get(list_key_bundles).post(upsert_list_key_bundle),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +71,18 @@ async fn upsert_list_key_bundle(
     let token = bearer_token(&headers)?;
     let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
     sync::upsert_list_key_bundle(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
+}
+
+async fn list_key_bundles(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ListDekBundleDto>>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    sync::list_key_bundles(&state.pool, tenant_id, auth_context)
         .await
         .map(Json)
 }

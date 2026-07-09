@@ -55,6 +55,7 @@ pub trait LocalSyncStore {
         updated_at: i64,
     ) -> Result<(), String>;
     fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String>;
+    fn default_list_id(&mut self) -> Result<Option<Uuid>, String>;
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String>;
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;
     fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
@@ -478,6 +479,10 @@ mod tests {
             self.record_states
                 .remove(&(collection.to_string(), record_id));
             Ok(())
+        }
+
+        fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
+            Ok(None)
         }
 
         fn get_list(&mut self, _id: Uuid) -> Result<Option<List>, String> {

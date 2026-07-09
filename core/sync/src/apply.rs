@@ -174,7 +174,15 @@ where
         }
         (None, None) => (incoming, false),
     };
-    let list = list_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
+    let mut list = list_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
+    if list.is_default {
+        if let Some(default_list_id) = store.default_list_id()? {
+            if default_list_id != list.id {
+                // Inbox重複のマージ方針はBACKLOG #30の裁定待ち。ここでは同期を失敗させないための暫定デモーション。
+                list.is_default = false;
+            }
+        }
+    }
     store.upsert_list_for_sync(list)?;
     store_sync_plaintext(store, LISTS_COLLECTION, record.record_id, &merged, now_ms)?;
     summary.applied_count += 1;
@@ -454,4 +462,255 @@ fn value_uuid(fields: &BTreeMap<String, Value>, key: &str) -> Result<Option<Uuid
         .map(str::parse::<Uuid>)
         .transpose()
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use todori_crypto::key_hierarchy::KEY_LEN;
+
+    use super::*;
+    use crate::{encrypt_plaintext, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry};
+
+    #[derive(Default)]
+    struct FakeStore {
+        lists: HashMap<Uuid, List>,
+        record_states: HashMap<(String, Uuid), String>,
+        outbox: Vec<LocalSyncOutboxEntry>,
+    }
+
+    impl LocalSyncStore for FakeStore {
+        fn list_outbox(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
+            Ok(self.outbox.iter().take(limit).cloned().collect())
+        }
+
+        fn has_outbox_entry(&mut self, collection: &str, record_id: Uuid) -> Result<bool, String> {
+            Ok(self
+                .outbox
+                .iter()
+                .any(|entry| entry.collection == collection && entry.record_id == record_id))
+        }
+
+        fn ack_outbox(&mut self, id: i64) -> Result<(), String> {
+            self.outbox.retain(|entry| entry.id != id);
+            Ok(())
+        }
+
+        fn get_cursor_seq(&mut self, _name: &str) -> Result<Option<i64>, String> {
+            Ok(None)
+        }
+
+        fn set_cursor(&mut self, _name: &str, _seq: i64, _updated_at: i64) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn delete_cursor(&mut self, _name: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn get_setting(&mut self, _key: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+
+        fn set_setting(
+            &mut self,
+            _key: &str,
+            _value: &str,
+            _updated_at: i64,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn enqueue_outbox(&mut self, entry: NewLocalSyncOutboxEntry) -> Result<(), String> {
+            self.outbox.push(LocalSyncOutboxEntry {
+                id: self.outbox.len() as i64 + 1,
+                record_id: entry.record_id,
+                collection: entry.collection,
+                hlc: entry.hlc,
+                deleted: entry.deleted,
+                blob: entry.blob,
+                created_at: entry.created_at,
+            });
+            Ok(())
+        }
+
+        fn get_record_state(
+            &mut self,
+            collection: &str,
+            record_id: Uuid,
+        ) -> Result<Option<String>, String> {
+            Ok(self
+                .record_states
+                .get(&(collection.to_string(), record_id))
+                .cloned())
+        }
+
+        fn upsert_record_state(
+            &mut self,
+            collection: &str,
+            record_id: Uuid,
+            plaintext_json: &str,
+            _updated_at: i64,
+        ) -> Result<(), String> {
+            self.record_states.insert(
+                (collection.to_string(), record_id),
+                plaintext_json.to_string(),
+            );
+            Ok(())
+        }
+
+        fn delete_record_state(&mut self, collection: &str, record_id: Uuid) -> Result<(), String> {
+            self.record_states
+                .remove(&(collection.to_string(), record_id));
+            Ok(())
+        }
+
+        fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
+            Ok(self
+                .lists
+                .values()
+                .find(|list| list.is_default)
+                .map(|list| list.id))
+        }
+
+        fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String> {
+            Ok(self.lists.get(&id).cloned())
+        }
+
+        fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String> {
+            if list.is_default
+                && self
+                    .lists
+                    .values()
+                    .any(|existing| existing.is_default && existing.id != list.id)
+            {
+                return Err("default list conflict".to_string());
+            }
+            self.lists.insert(list.id, list);
+            Ok(())
+        }
+
+        fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
+            self.lists.remove(&list_id);
+            Ok(0)
+        }
+
+        fn get_task(&mut self, _id: Uuid) -> Result<Option<Task>, String> {
+            Ok(None)
+        }
+
+        fn upsert_task_for_sync(&mut self, _task: Task) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn delete_task_subtree_for_sync(&mut self, _task_id: Uuid) -> Result<usize, String> {
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn pull_default_list_with_existing_different_default_demotes_local_row_only() {
+        let local_default = sample_list(uuid(1), true);
+        let incoming_list = sample_list(uuid(2), true);
+        let dek = [0x7a; KEY_LEN];
+        let record = encrypted_list_record(&incoming_list, &dek);
+        let context = context_for(incoming_list.id, dek);
+        let mut store = FakeStore::default();
+        store.lists.insert(local_default.id, local_default);
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_list(&record, &context, &mut store, &mut now, &mut summary).unwrap();
+
+        assert!(!store.lists.get(&incoming_list.id).unwrap().is_default);
+        let stored_plaintext =
+            stored_sync_plaintext(&mut store, LISTS_COLLECTION, incoming_list.id).unwrap();
+        assert_eq!(
+            stored_plaintext
+                .unwrap()
+                .fields
+                .get("is_default")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(store.outbox.len(), 0);
+        assert_eq!(summary.applied_count, 1);
+        assert_eq!(summary.repush_count, 0);
+    }
+
+    #[test]
+    fn pull_default_list_without_existing_default_keeps_default_flag() {
+        let incoming_list = sample_list(uuid(3), true);
+        let dek = [0x3b; KEY_LEN];
+        let record = encrypted_list_record(&incoming_list, &dek);
+        let context = context_for(incoming_list.id, dek);
+        let mut store = FakeStore::default();
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_list(&record, &context, &mut store, &mut now, &mut summary).unwrap();
+
+        assert!(store.lists.get(&incoming_list.id).unwrap().is_default);
+        assert_eq!(summary.applied_count, 1);
+        assert_eq!(summary.repush_count, 0);
+    }
+
+    fn encrypted_list_record(list: &List, dek: &[u8; KEY_LEN]) -> PullRecord {
+        let hlc = Hlc {
+            wall_ms: list.updated_at,
+            counter: 0,
+            device_id: "remote".to_string(),
+        };
+        let plaintext = list_plaintext(list, hlc.clone());
+        let blob = encrypt_plaintext(dek, LISTS_COLLECTION, &list.id.to_string(), &plaintext)
+            .expect("test list plaintext encrypts");
+        PullRecord {
+            record_id: list.id,
+            collection: LISTS_COLLECTION.to_string(),
+            seq: 1,
+            hlc: hlc.encode().unwrap(),
+            deleted: false,
+            blob,
+        }
+    }
+
+    fn context_for(list_id: Uuid, dek: [u8; KEY_LEN]) -> ActiveSyncContext {
+        ActiveSyncContext {
+            server_url: "http://localhost".to_string(),
+            tenant_id: uuid(100),
+            device_id: "local".to_string(),
+            session_token: "token".to_string(),
+            keys: LocalSyncKeys {
+                list_deks: vec![(list_id, dek)],
+            },
+        }
+    }
+
+    fn sample_list(id: Uuid, is_default: bool) -> List {
+        List {
+            id,
+            name: format!("List {id}"),
+            color: "#ffffff".to_string(),
+            icon: "list".to_string(),
+            org_id: None,
+            sort_order: "a0".to_string(),
+            is_default,
+            archived_at: None,
+            created_at: 1_799_000_000_000,
+            updated_at: 1_799_000_000_000,
+        }
+    }
+
+    fn ticking_now() -> impl FnMut() -> Result<i64, String> {
+        let mut now = 1_799_000_000_000;
+        move || {
+            now += 1;
+            Ok(now)
+        }
+    }
+
+    fn uuid(value: u128) -> Uuid {
+        Uuid::from_u128(value)
+    }
 }

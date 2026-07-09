@@ -5,8 +5,9 @@ use std::{
 };
 
 use todori_crypto::{
-    delete_account_secret, load_account_secret, load_or_create_device_key, store_account_secret,
-    AccountSecretKind,
+    delete_account_secret,
+    key_hierarchy::{unwrap_master_key_with_device_key, KEY_LEN},
+    load_account_secret, load_or_create_device_key, store_account_secret, AccountSecretKind,
 };
 use todori_domain::Uuid;
 use todori_storage::{
@@ -14,10 +15,10 @@ use todori_storage::{
     SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository, TaskRepository,
 };
 use todori_sync::{
-    account::{AccountClient, AccountKeyMaterial},
+    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
     ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary,
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     api::{AccountAuthResultDto, AccountSessionStateDto, SyncStatusDto},
@@ -91,40 +92,12 @@ pub(crate) fn set_sync_server_url(server_url: String) -> Result<(), String> {
 }
 
 pub(crate) fn get_account_session_state() -> Result<AccountSessionStateDto, String> {
+    ensure_account_runtime_restored()?;
     if let Some(session) = account_runtime_state().session.clone() {
         return Ok(session);
     }
 
-    let state = core_state()?;
-    let has_session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
-        .map_err(|error| error.to_string())?
-        .is_some();
-    let has_local_wrapped_mk = load_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
-        .map_err(|error| error.to_string())?
-        .is_some();
-    if !has_session_token || !has_local_wrapped_mk {
-        return Ok(logged_out_account_state());
-    }
-
-    let email = get_setting(ACCOUNT_EMAIL_SETTING_KEY.to_string())?;
-    let user_id = get_setting(ACCOUNT_USER_ID_SETTING_KEY.to_string())?;
-    let tenant_id = get_setting(ACCOUNT_TENANT_ID_SETTING_KEY.to_string())?;
-    let device_id = get_setting(ACCOUNT_DEVICE_ID_SETTING_KEY.to_string())?;
-    if email.as_deref().unwrap_or("").is_empty()
-        || user_id.as_deref().unwrap_or("").is_empty()
-        || tenant_id.as_deref().unwrap_or("").is_empty()
-        || device_id.as_deref().unwrap_or("").is_empty()
-    {
-        return Ok(logged_out_account_state());
-    }
-
-    Ok(AccountSessionStateDto {
-        logged_in: true,
-        email,
-        user_id,
-        tenant_id,
-        device_id,
-    })
+    Ok(logged_out_account_state())
 }
 
 pub(crate) fn account_register(
@@ -216,6 +189,7 @@ pub(crate) fn sync_now() -> Result<SyncStatusDto, String> {
 }
 
 pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
+    ensure_account_runtime_restored()?;
     let state = core_state()?;
     let account = account_runtime_state();
     let Some(session) = account.session.clone() else {
@@ -453,7 +427,9 @@ fn account_auth(
 }
 
 fn run_sync_now() -> Result<SyncRunSummary, String> {
+    ensure_account_runtime_restored()?;
     run_initial_backfill_if_needed()?;
+    let _ = refresh_list_deks_for_sync();
     let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
@@ -498,6 +474,7 @@ fn run_initial_backfill_if_needed() -> Result<(), String> {
 }
 
 fn active_sync_context() -> Option<ActiveSyncContext> {
+    ensure_account_runtime_restored().ok()?;
     let state = core_state().ok()?;
     let account = account_runtime_state();
     let session = account.session.clone()?;
@@ -524,6 +501,120 @@ fn active_sync_context() -> Option<ActiveSyncContext> {
 
 fn has_active_sync_context() -> bool {
     active_sync_context().is_some()
+}
+
+fn ensure_account_runtime_restored() -> Result<(), String> {
+    {
+        let account = account_runtime_state();
+        if account.session.is_some() {
+            return Ok(());
+        }
+    }
+
+    let state = core_state()?;
+    let Some(_session_token) = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .filter(|token| !token.is_empty())
+    else {
+        return Ok(());
+    };
+    let Some(local_wrapped_master_key) =
+        load_account_secret(&state.db_dir, AccountSecretKind::MasterKeyWrap)
+            .map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    let Some(email) = non_empty_setting(ACCOUNT_EMAIL_SETTING_KEY)? else {
+        return Ok(());
+    };
+    let Some(user_id) = non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)? else {
+        return Ok(());
+    };
+    let Some(tenant_id) = non_empty_setting(ACCOUNT_TENANT_ID_SETTING_KEY)? else {
+        return Ok(());
+    };
+    let Some(device_id) = non_empty_setting(ACCOUNT_DEVICE_ID_SETTING_KEY)? else {
+        return Ok(());
+    };
+    let expires_at = non_empty_setting(ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY)?
+        .and_then(|value| value.parse::<i64>().ok());
+    let Some(expires_at) = expires_at else {
+        return Ok(());
+    };
+    if expires_at <= now_ms()? {
+        return Ok(());
+    }
+
+    let device_key = load_or_create_device_key(&state.db_dir).map_err(|error| error.to_string())?;
+    let master_key = match unwrap_master_key_with_device_key(&local_wrapped_master_key, &device_key)
+    {
+        Ok(master_key) => master_key,
+        Err(_) => return Ok(()),
+    };
+    let session = account_session_to_dto(true, email, user_id, tenant_id, device_id);
+    let keys = AccountKeyMaterial {
+        master_key: Zeroizing::new(master_key),
+        user_secret_key: Zeroizing::new([0; KEY_LEN]),
+        tenant_root_dek: Zeroizing::new([0; KEY_LEN]),
+        list_deks: Vec::new(),
+    };
+    replace_account_runtime_state(Some(session), Some(keys));
+    Ok(())
+}
+
+fn refresh_list_deks_for_sync() -> Result<(), String> {
+    ensure_account_runtime_restored()?;
+    let state = core_state()?;
+    let server_url = get_sync_server_url()?;
+    let session_token = load_account_secret(&state.db_dir, AccountSecretKind::SessionToken)
+        .map_err(|error| error.to_string())?
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| "list key refresh failed".to_string())?;
+    let (tenant_id, master_key) = {
+        let account = account_runtime_state();
+        let Some(session) = account.session.as_ref() else {
+            return Ok(());
+        };
+        if !session.logged_in {
+            return Ok(());
+        }
+        let Some(keys) = account.keys.as_ref() else {
+            return Ok(());
+        };
+        let tenant_id = parse_uuid(
+            session
+                .tenant_id
+                .as_deref()
+                .ok_or_else(|| "list key refresh failed".to_string())?,
+        )?;
+        (tenant_id, *keys.master_key)
+    };
+
+    let client =
+        AccountClient::new(server_url).map_err(|_| "list key refresh failed".to_string())?;
+    let bundles = run_async(client.list_key_bundles(tenant_id, &session_token))
+        .map_err(|_| "list key refresh failed".to_string())?;
+    let materials = unwrap_list_dek_bundles(&bundles, &master_key)
+        .map_err(|_| "list key refresh failed".to_string())?;
+    merge_account_list_deks(materials);
+    Ok(())
+}
+
+fn merge_account_list_deks(materials: Vec<AccountListDekMaterial>) {
+    let mut account = account_runtime_state();
+    let Some(keys) = account.keys.as_mut() else {
+        return;
+    };
+    for material in materials {
+        if !keys
+            .list_deks
+            .iter()
+            .any(|entry| entry.list_id == material.list_id)
+        {
+            keys.list_deks.push(material);
+        }
+    }
 }
 
 fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
@@ -617,6 +708,10 @@ fn set_setting(key: String, value: String) -> Result<(), String> {
             .set_setting(&key, &value, now_ms)
             .map_err(|error| error.to_string())
     })
+}
+
+fn non_empty_setting(key: &str) -> Result<Option<String>, String> {
+    Ok(get_setting(key.to_string())?.filter(|value| !value.trim().is_empty()))
 }
 
 fn account_session_to_dto(

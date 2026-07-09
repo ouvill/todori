@@ -196,6 +196,35 @@ pub async fn upsert_list_key_bundle(
     Ok(UpsertListKeyResponse {})
 }
 
+pub async fn list_key_bundles(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    _auth: AuthContext,
+) -> Result<Vec<ListDekBundleDto>, AppError> {
+    let rows = query::<Postgres>(
+        "SELECT list_id, wrapped_list_dek
+         FROM list_key_bundles
+         WHERE tenant_id = $1
+         ORDER BY created_at ASC, list_id ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let list_id = row.try_get("list_id").map_err(|_| AppError::internal())?;
+            let wrapped_list_dek: Vec<u8> = row
+                .try_get("wrapped_list_dek")
+                .map_err(|_| AppError::internal())?;
+            Ok(ListDekBundleDto {
+                list_id,
+                wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+            })
+        })
+        .collect()
+}
+
 pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, AppError> {
     let result = query::<Postgres>(
         "DELETE FROM sync_records

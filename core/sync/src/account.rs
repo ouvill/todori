@@ -237,6 +237,34 @@ impl AccountClient {
         Ok(())
     }
 
+    pub async fn list_key_bundles(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+    ) -> Result<Vec<ListDekBundleDto>, AccountClientError> {
+        self.get_json::<Vec<ListDekBundleDto>>(
+            &format!("/v1/tenants/{tenant_id}/list-keys"),
+            Some(session_token),
+        )
+        .await
+    }
+
+    async fn get_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        bearer_token: Option<&str>,
+    ) -> Result<T, AccountClientError> {
+        let mut request = self.http.get(format!("{}{}", self.base_url, path));
+        if let Some(token) = bearer_token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server);
+        }
+        response.json::<T>().await.map_err(AccountClientError::Http)
+    }
+
     async fn post_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -277,16 +305,7 @@ pub fn unwrap_login_key_bundle(
         &decode_base64(&bundle.wrapped_tenant_root_dek)?,
         &master_key,
     )?);
-    let mut list_deks = Vec::with_capacity(bundle.list_deks.len());
-    for list_dek in &bundle.list_deks {
-        list_deks.push(AccountListDekMaterial {
-            list_id: list_dek.list_id.to_string(),
-            dek: Zeroizing::new(unwrap_list_dek_with_master_key(
-                &decode_base64(&list_dek.wrapped_list_dek)?,
-                &master_key,
-            )?),
-        });
-    }
+    let list_deks = unwrap_list_dek_bundles(&bundle.list_deks, &master_key)?;
 
     Ok(AccountKeyMaterial {
         master_key,
@@ -294,6 +313,23 @@ pub fn unwrap_login_key_bundle(
         tenant_root_dek,
         list_deks,
     })
+}
+
+pub fn unwrap_list_dek_bundles(
+    bundles: &[ListDekBundleDto],
+    master_key: &[u8; KEY_LEN],
+) -> Result<Vec<AccountListDekMaterial>, AccountClientError> {
+    let mut list_deks = Vec::with_capacity(bundles.len());
+    for bundle in bundles {
+        list_deks.push(AccountListDekMaterial {
+            list_id: bundle.list_id.to_string(),
+            dek: Zeroizing::new(unwrap_list_dek_with_master_key(
+                &decode_base64(&bundle.wrapped_list_dek)?,
+                master_key,
+            )?),
+        });
+    }
+    Ok(list_deks)
 }
 
 pub fn wrap_list_dek_bundle(
@@ -486,5 +522,24 @@ mod tests {
             .bundle
             .wrapped_master_key_by_password
             .contains(&STANDARD.encode(&setup.local_wrapped_master_key)));
+    }
+
+    #[test]
+    fn list_dek_bundle_unwrap_roundtrips_with_master_key() {
+        let list_id = Uuid::now_v7();
+        let list_dek = [0x31; KEY_LEN];
+        let master_key = [0x62; KEY_LEN];
+        let bundle = wrap_list_dek_bundle(list_id, &list_dek, &master_key).unwrap();
+
+        let unwrapped = unwrap_list_dek_bundles(&[bundle], &master_key).unwrap();
+
+        assert_eq!(unwrapped.len(), 1);
+        assert_eq!(unwrapped[0].list_id, list_id.to_string());
+        assert_eq!(*unwrapped[0].dek, list_dek);
+        assert!(unwrap_list_dek_bundles(
+            &[wrap_list_dek_bundle(list_id, &list_dek, &master_key).unwrap()],
+            &[0xff; KEY_LEN],
+        )
+        .is_err());
     }
 }

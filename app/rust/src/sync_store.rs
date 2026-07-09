@@ -147,6 +147,15 @@ impl LocalSyncStore for BridgeSyncStore {
         })
     }
 
+    fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
+        with_list_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .get_default()
+                .map(|list| list.map(|list| list.id))
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String> {
         with_list_repository(&self.db_path, &self.db_key, |repository| {
             match repository.get(id) {
