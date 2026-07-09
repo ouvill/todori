@@ -14,6 +14,9 @@
 
 | 候補 | 内容 | 出典・依存 |
 |---|---|---|
+| Snapshot full resync / GC horizon | 固定 `snapshot_seq`、stable page token、delta catch-up、outbox除外付きmark-and-sweep、server high-water cursor、push前preflightを実装する | ADR-010 / ADR-012。transactional client、field clock / placement、cascade tombstone / typed pullの完了後 |
+| 同期server protocol / RLS hardening | protocol op ID照合、collection enum / immutability、non-owner application role、RLS policy、必要なFORCE RLS、cross-tenant testを実装する | ADR-012。protocol v2 migrationとDB運用設計に依存 |
+| デフォルトInbox重複の方針決定 | 端末ごとに生成されたdefault listの一意化・マージ・表示統合のどれを採用するか裁定する | task-79未解決事項 |
 | Windows / Linux本番Device Key Store | Windows current-user DPAPI、Linux Secret Serviceを実装し、平文 `device.key` / account secret fileを本番経路から除外する | ADR-011 / task-81。新規依存は人間承認が必要 |
 | CLI実接続 | 共通client/profile層からFlutter desktopと同じSQLCipher DBを開き、CRUD・検索・同期を提供する。macOSは同一Team / Keychain access groupで署名する | ADR-011。共通client/profileとOS secret storeに依存 |
 | MCPサーバー実接続 | CLIと同じ共通client/profile層からタスクCRUD・検索・同期をstdio MCPとして公開する | FTS5 task-62、sync task-72、ADR-011に依存 |

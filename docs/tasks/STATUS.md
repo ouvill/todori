@@ -7,15 +7,15 @@
 ## 現在
 
 - 実装中: なし
-- 最新の決定: task-81 / ADR-011で、同一PCのFlutter desktopとCLIが同一local profileを共有する方式を採用した。
+- 最新の決定: task-82 / ADR-012で、同期correctnessをfield clock、placement、transactional outbox、cascade tombstone、typed pull failure、snapshot full resyncの一体として保証する方式を採用した。現行同期実装は未準拠であり、release blockerとして扱う。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **フル再同期とGCホライズン** — `410 Gone`、`gc_horizon_seq`、未ACK outbox除外を実装し、pull取りこぼしを構造的に回復可能にする。出典: ADR-010 / task-80。
-2. **デフォルトInbox重複の方針決定** — 端末ごとに生成されたdefault listの一意化・マージ・表示統合のどれを採用するか裁定する。出典: task-79未解決事項。
-3. **共通client/profile層の抽出** — `app/rust` に残るDB初期化、repository + domain + outbox enqueue、account/sync状態をfrontend非依存層へ移す。出典: ADR-011 / task-81。
+1. **production同期テスト + transactional client基盤** — production CRUD経路を通る2-client/crash-windowテストを先に追加し、domain更新、outbox、sync state、local HLCを共通client層の同一transactionへ移す。出典: ADR-011 / ADR-012 / task-82。
+2. **field clock + placement同期** — `revision_hlc` と `field_hlcs` を分離し、taskの `list_id` / `parent_task_id` / `sort_order` をcompound placementとして同期する。rank collision、push結果照合、collection固定も含む。出典: ADR-012 / task-82。
+3. **cascade tombstone + typed pull** — subtree/list配下全recordのtombstone、list key bundle削除状態、missing DEK / corrupt / unknown protocol時のcursor規約を実装する。出典: ADR-010 / ADR-012 / task-82。
 
 着手を決めた候補だけをtaskへ昇格する。未着手候補の詳細は [`BACKLOG.md`](./BACKLOG.md) を参照する。
 
