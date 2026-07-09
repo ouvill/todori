@@ -473,6 +473,154 @@ impl<'connection> SqliteWriteTx<'connection> {
     }
 }
 
+/// An owned `BEGIN IMMEDIATE` transaction for sync runs that must move across
+/// adapter boundaries without borrowing or self-referencing a connection.
+///
+/// Calling [`Self::commit`] or [`Self::rollback`] returns the opened
+/// connection. Dropping an unfinished value rolls every write back.
+pub struct OwnedSqliteWriteTx {
+    connection: Option<Connection>,
+}
+
+impl OwnedSqliteWriteTx {
+    pub fn begin(connection: Connection) -> Result<Self, StorageError> {
+        connection.execute_batch("BEGIN IMMEDIATE")?;
+        Ok(Self {
+            connection: Some(connection),
+        })
+    }
+
+    fn connection(&self) -> &Connection {
+        self.connection
+            .as_ref()
+            .expect("active owned transaction always has a connection")
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        get_setting_on(self.connection(), key)
+    }
+
+    pub fn set_setting(
+        &mut self,
+        key: &str,
+        value: &str,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        set_setting_on(self.connection(), key, value, updated_at)
+    }
+
+    pub fn put_outbox_head(
+        &mut self,
+        entry: NewSyncOutboxEntry,
+    ) -> Result<SyncOutboxEntry, StorageError> {
+        put_outbox_head_on(self.connection(), entry)
+    }
+
+    pub fn list_outbox_heads(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError> {
+        list_outbox_heads_on(self.connection(), limit)
+    }
+
+    pub fn has_outbox_head(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError> {
+        has_outbox_head_on(self.connection(), collection, record_id)
+    }
+
+    pub fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError> {
+        ack_outbox_op_on(self.connection(), op_id)
+    }
+
+    pub fn get_record_state(
+        &self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<Option<SyncRecordState>, StorageError> {
+        get_record_state_on(self.connection(), collection, record_id)
+    }
+
+    pub fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
+        put_record_state_on(self.connection(), state)
+    }
+
+    pub fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError> {
+        get_cursor_on(self.connection(), name)
+    }
+
+    pub fn set_cursor(
+        &mut self,
+        name: &str,
+        seq: i64,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        set_cursor_on(self.connection(), name, seq, updated_at)
+    }
+
+    pub fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError> {
+        delete_cursor_on(self.connection(), name)
+    }
+
+    pub fn default_list_id(&self) -> Result<Option<Uuid>, StorageError> {
+        get_default_list_on(self.connection()).map(|list| list.map(|list| list.id))
+    }
+
+    pub fn get_list(&self, id: Uuid) -> Result<Option<List>, StorageError> {
+        optional_not_found(get_list_on(self.connection(), id))
+    }
+
+    pub fn upsert_list_for_sync(&mut self, list: List) -> Result<(), StorageError> {
+        upsert_list_for_sync_on(self.connection(), list)
+    }
+
+    pub fn delete_list_with_tasks_for_sync(
+        &mut self,
+        list_id: Uuid,
+    ) -> Result<usize, StorageError> {
+        delete_list_with_tasks_for_sync_on(self.connection(), list_id)
+    }
+
+    pub fn get_task(&self, id: Uuid) -> Result<Option<Task>, StorageError> {
+        optional_not_found(get_task_on(self.connection(), id))
+    }
+
+    pub fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
+        upsert_task_for_sync_on(self.connection(), task)
+    }
+
+    pub fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, StorageError> {
+        delete_task_subtree_on(self.connection(), task_id)
+    }
+
+    pub fn commit(mut self) -> Result<Connection, StorageError> {
+        self.connection().execute_batch("COMMIT")?;
+        Ok(self
+            .connection
+            .take()
+            .expect("committed owned transaction has a connection"))
+    }
+
+    pub fn rollback(mut self) -> Result<Connection, StorageError> {
+        self.connection().execute_batch("ROLLBACK")?;
+        Ok(self
+            .connection
+            .take()
+            .expect("rolled back owned transaction has a connection"))
+    }
+}
+
+impl Drop for OwnedSqliteWriteTx {
+    fn drop(&mut self) {
+        if let Some(connection) = &self.connection {
+            let _ = connection.execute_batch("ROLLBACK");
+        }
+    }
+}
+
+fn optional_not_found<T>(result: Result<T, StorageError>) -> Result<Option<T>, StorageError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(StorageError::NotFound(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// Opens a SQLCipher encrypted SQLite database and migrates it to the latest schema.
 pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, StorageError> {
     let mut connection = Connection::open(path)?;
@@ -964,20 +1112,7 @@ impl SqliteTaskRepository {
     }
 
     pub fn upsert_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
-        let exists = self
-            .connection
-            .query_row(
-                "SELECT 1 FROM tasks WHERE id = ?1",
-                [task.id.to_string()],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        if exists {
-            update_task_on(&self.connection, &task)
-        } else {
-            self.insert(task)
-        }
+        upsert_task_for_sync_on(&self.connection, task)
     }
 
     pub fn delete_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, StorageError> {
@@ -1188,6 +1323,22 @@ fn get_task_on(connection: &Connection, id: Uuid) -> Result<Task, StorageError> 
         .optional()?;
 
     task.ok_or(StorageError::NotFound(id))
+}
+
+fn upsert_task_for_sync_on(connection: &Connection, task: Task) -> Result<(), StorageError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM tasks WHERE id = ?1",
+            [task.id.to_string()],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if exists {
+        update_task_on(connection, &task)
+    } else {
+        insert_task_on(connection, &task)
+    }
 }
 
 fn list_active_tasks_by_list_on(
@@ -1471,6 +1622,92 @@ fn get_list_on(connection: &Connection, id: Uuid) -> Result<List, StorageError> 
     list.ok_or(StorageError::NotFound(id))
 }
 
+fn get_default_list_on(connection: &Connection) -> Result<Option<List>, StorageError> {
+    connection
+        .query_row(
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    is_default, created_at, updated_at
+             FROM lists
+             WHERE is_default = 1
+             LIMIT 1",
+            [],
+            row_to_list,
+        )
+        .optional()
+        .map_err(StorageError::from)
+}
+
+fn insert_list_on(connection: &Connection, list: &List) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO lists (
+            id, name, color, icon, org_id, sort_order, is_default, archived_at,
+            created_at, updated_at
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+        )",
+        params![
+            list.id.to_string(),
+            list.name,
+            list.color,
+            list.icon,
+            list.org_id.map(|id| id.to_string()),
+            list.sort_order,
+            list.is_default,
+            list.archived_at,
+            list.created_at,
+            list.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_list_for_sync_on(connection: &Connection, list: List) -> Result<(), StorageError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM lists WHERE id = ?1",
+            [list.id.to_string()],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if exists {
+        update_list_on(connection, &list)
+    } else {
+        insert_list_on(connection, &list)
+    }
+}
+
+fn delete_list_with_tasks_for_sync_on(
+    connection: &Connection,
+    list_id: Uuid,
+) -> Result<usize, StorageError> {
+    let task_count: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM tasks WHERE list_id = ?1",
+            [list_id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    connection.execute(
+        "DELETE FROM task_undo_entries
+         WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+        [list_id.to_string()],
+    )?;
+    connection.execute(
+        "DELETE FROM reminders
+         WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+        [list_id.to_string()],
+    )?;
+    connection.execute(
+        "DELETE FROM tasks WHERE list_id = ?1",
+        [list_id.to_string()],
+    )?;
+    connection.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
+    usize::try_from(task_count)
+        .map_err(|_| StorageError::IncompatibleSchema("list task count exceeded usize".to_string()))
+}
+
 fn update_list_on(connection: &Connection, list: &List) -> Result<(), StorageError> {
     if list.is_default && list.archived_at.is_some() {
         return Err(StorageError::DefaultListProtected {
@@ -1524,51 +1761,14 @@ impl SqliteListRepository {
     }
 
     pub fn upsert_for_sync(&mut self, list: List) -> Result<(), StorageError> {
-        let exists = self
-            .connection
-            .query_row(
-                "SELECT 1 FROM lists WHERE id = ?1",
-                [list.id.to_string()],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        if exists {
-            self.update(list)
-        } else {
-            self.insert(list)
-        }
+        upsert_list_for_sync_on(&self.connection, list)
     }
 
     pub fn delete_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
         let transaction = self.connection.transaction()?;
-        let task_count: i64 = transaction
-            .query_row(
-                "SELECT count(*) FROM tasks WHERE list_id = ?1",
-                [list_id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()?
-            .unwrap_or(0);
-        transaction.execute(
-            "DELETE FROM task_undo_entries
-             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-            [list_id.to_string()],
-        )?;
-        transaction.execute(
-            "DELETE FROM reminders
-             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-            [list_id.to_string()],
-        )?;
-        transaction.execute(
-            "DELETE FROM tasks WHERE list_id = ?1",
-            [list_id.to_string()],
-        )?;
-        transaction.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
+        let task_count = delete_list_with_tasks_for_sync_on(&transaction, list_id)?;
         transaction.commit()?;
-        usize::try_from(task_count).map_err(|_| {
-            StorageError::IncompatibleSchema("list task count exceeded usize".to_string())
-        })
+        Ok(task_count)
     }
 }
 
@@ -1578,27 +1778,7 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn insert(&mut self, list: List) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO lists (
-                id, name, color, icon, org_id, sort_order, is_default, archived_at,
-                created_at, updated_at
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
-            )",
-            params![
-                list.id.to_string(),
-                list.name,
-                list.color,
-                list.icon,
-                list.org_id.map(|id| id.to_string()),
-                list.sort_order,
-                list.is_default,
-                list.archived_at,
-                list.created_at,
-                list.updated_at,
-            ],
-        )?;
-        Ok(())
+        insert_list_on(&self.connection, &list)
     }
 
     fn update(&mut self, list: List) -> Result<(), StorageError> {
@@ -1636,18 +1816,7 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn get_default(&self) -> Result<Option<List>, StorageError> {
-        self.connection
-            .query_row(
-                "SELECT id, name, color, icon, org_id, sort_order, archived_at,
-                        is_default, created_at, updated_at
-                 FROM lists
-                 WHERE is_default = 1
-                 LIMIT 1",
-                [],
-                row_to_list,
-            )
-            .optional()
-            .map_err(StorageError::from)
+        get_default_list_on(&self.connection)
     }
 
     fn ensure_default_list(&mut self, name: String, now_ms: i64) -> Result<List, StorageError> {
@@ -2130,35 +2299,51 @@ impl SyncStateRepository for SqliteSyncStateRepository {
     }
 
     fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError> {
-        self.connection
-            .query_row(
-                "SELECT name, seq, updated_at
-                 FROM sync_cursors
-                 WHERE name = ?1",
-                [name],
-                row_to_sync_cursor,
-            )
-            .optional()
-            .map_err(StorageError::from)
+        get_cursor_on(&self.connection, name)
     }
 
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO sync_cursors (name, seq, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(name) DO UPDATE SET
-                 seq = excluded.seq,
-                 updated_at = excluded.updated_at",
-            params![name, seq, updated_at],
-        )?;
-        Ok(())
+        set_cursor_on(&self.connection, name, seq, updated_at)
     }
 
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError> {
-        self.connection
-            .execute("DELETE FROM sync_cursors WHERE name = ?1", [name])?;
-        Ok(())
+        delete_cursor_on(&self.connection, name)
     }
+}
+
+fn get_cursor_on(connection: &Connection, name: &str) -> Result<Option<SyncCursor>, StorageError> {
+    connection
+        .query_row(
+            "SELECT name, seq, updated_at
+             FROM sync_cursors
+             WHERE name = ?1",
+            [name],
+            row_to_sync_cursor,
+        )
+        .optional()
+        .map_err(StorageError::from)
+}
+
+fn set_cursor_on(
+    connection: &Connection,
+    name: &str,
+    seq: i64,
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO sync_cursors (name, seq, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(name) DO UPDATE SET
+             seq = excluded.seq,
+             updated_at = excluded.updated_at",
+        params![name, seq, updated_at],
+    )?;
+    Ok(())
+}
+
+fn delete_cursor_on(connection: &Connection, name: &str) -> Result<(), StorageError> {
+    connection.execute("DELETE FROM sync_cursors WHERE name = ?1", [name])?;
+    Ok(())
 }
 
 fn get_record_state_on(
@@ -5677,6 +5862,133 @@ mod tests {
         let sync = SqliteSyncStateRepository::new(connection);
         assert!(sync.list_outbox_heads(10).unwrap().is_empty());
         assert_eq!(sync.get_record_state("tasks", task.id).unwrap(), None);
+    }
+
+    #[test]
+    fn owned_sqlite_write_tx_commits_domain_hlc_record_state_and_outbox() {
+        let file = NamedTempFile::new().unwrap();
+        let mut list = sample_list("a0");
+        list.is_default = true;
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let op_id = Uuid::now_v7();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .set_setting("sync_local_hlc", "owned-hlc", task.updated_at)
+            .unwrap();
+        transaction.upsert_list_for_sync(list.clone()).unwrap();
+        transaction.upsert_task_for_sync(task.clone()).unwrap();
+        transaction
+            .put_record_state(live_record_state(
+                task.id,
+                "tasks",
+                Some("owned-hlc"),
+                "owned-hlc",
+                r#"{"title":"Owned commit"}"#,
+                task.updated_at,
+            ))
+            .unwrap();
+        transaction
+            .put_outbox_head(new_live_outbox(
+                task.id,
+                "tasks",
+                op_id,
+                Some("base-hlc"),
+                "owned-hlc",
+                "owned-hlc",
+                vec![1, 2, 3],
+            ))
+            .unwrap();
+        transaction
+            .set_cursor("default", 7, task.updated_at)
+            .unwrap();
+        assert_eq!(transaction.default_list_id().unwrap(), Some(list.id));
+        assert_eq!(transaction.get_list(list.id).unwrap(), Some(list.clone()));
+        assert_eq!(transaction.get_task(task.id).unwrap(), Some(task.clone()));
+        assert!(transaction.has_outbox_head("tasks", task.id).unwrap());
+        assert_eq!(transaction.list_outbox_heads(10).unwrap().len(), 1);
+        assert_eq!(transaction.get_cursor("default").unwrap().unwrap().seq, 7);
+        let connection = transaction.commit().unwrap();
+
+        assert_eq!(
+            get_setting_on(&connection, "sync_local_hlc")
+                .unwrap()
+                .as_deref(),
+            Some("owned-hlc")
+        );
+        assert_eq!(get_list_on(&connection, list.id).unwrap(), list);
+        assert_eq!(get_task_on(&connection, task.id).unwrap(), task);
+        assert!(get_record_state_on(&connection, "tasks", task.id)
+            .unwrap()
+            .is_some());
+        assert_eq!(list_outbox_heads_on(&connection, 10).unwrap().len(), 1);
+        assert_eq!(
+            get_cursor_on(&connection, "default").unwrap().unwrap().seq,
+            7
+        );
+    }
+
+    #[test]
+    fn owned_sqlite_write_tx_drop_rolls_back_domain_hlc_record_state_and_outbox() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            transaction
+                .set_setting("sync_local_hlc", "rolled-back-owned-hlc", task.updated_at)
+                .unwrap();
+            transaction.upsert_list_for_sync(list.clone()).unwrap();
+            transaction.upsert_task_for_sync(task.clone()).unwrap();
+            transaction
+                .put_record_state(live_record_state(
+                    task.id,
+                    "tasks",
+                    None,
+                    "rolled-back-owned-hlc",
+                    r#"{"title":"Owned rollback"}"#,
+                    task.updated_at,
+                ))
+                .unwrap();
+            transaction
+                .put_outbox_head(new_live_outbox(
+                    task.id,
+                    "tasks",
+                    Uuid::now_v7(),
+                    None,
+                    "rolled-back-owned-hlc",
+                    "rolled-back-owned-hlc",
+                    vec![4, 5, 6],
+                ))
+                .unwrap();
+            transaction
+                .set_cursor("default", 9, task.updated_at)
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(get_setting_on(&connection, "sync_local_hlc").unwrap(), None);
+        assert!(matches!(
+            get_list_on(&connection, list.id),
+            Err(StorageError::NotFound(id)) if id == list.id
+        ));
+        assert!(matches!(
+            get_task_on(&connection, task.id),
+            Err(StorageError::NotFound(id)) if id == task.id
+        ));
+        assert_eq!(
+            get_record_state_on(&connection, "tasks", task.id).unwrap(),
+            None
+        );
+        assert!(list_outbox_heads_on(&connection, 10).unwrap().is_empty());
+        assert_eq!(get_cursor_on(&connection, "default").unwrap(), None);
     }
 
     #[test]
