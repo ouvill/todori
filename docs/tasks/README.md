@@ -96,6 +96,7 @@
 | task-76 | 完了 | [task-76-ops-documentation.md](./task-76-ops-documentation.md) | 運用ドキュメント整備。公開repo安全な運用ガイド、サーバーデプロイ/DB migration/障害対応/クライアントリリースrunbookを作成する | task-70〜75の成果物、`docs/03_技術仕様書.md` §1.5・§6.6、ADR-008/009/010、`tool/dev_server.sh`、2台同期手順に依存。git commitなし |
 | task-77 | 完了 | [task-77-keychain-entitlement.md](./task-77-keychain-entitlement.md) | Data Protection Keychainとkeychain-access-groups entitlementによりmacOS/iOS署名済みビルドの起動時Keychainプロンプトをゼロ化する | task-64・task-75の成果物、`docs/design/ui-spec.md` 起動時の無音原則に依存。git commitなし |
 | task-78 | 完了 | [task-78-sync-initial-backfill.md](./task-78-sync-initial-backfill.md) | ログイン前から存在するローカルリスト/タスクを初回同期前にoutboxへバックフィルし、pushをバッチドレインする | task-72・task-73・task-75の成果物、2026-07-10実機同期確認の設計ギャップに依存。git commitなし |
+| task-80 | 完了 | [task-80-sync-pull-recovery.md](./task-80-sync-pull-recovery.md) | 同期後のDart provider更新漏れを修正し、再ログイン時にpullカーソルを削除して旧バイナリ由来のpull取りこぼしを回復可能にする | task-72・task-75・task-78の成果物、2026-07-10実機同期確認の不具合に依存。git commitなし |
 
 依存関係の要点: **task-01・task-02・task-03・task-04は互いに独立しており並行着手できる。** 各タスクは現在コミット済みの雛形（Rust workspace: `core/{domain,crypto,sync,storage}`, `cli`, `mcp-server`, `server` + Flutter `app/`）にのみ依存し、他タスクの成果物を前提としない。task-04（計画書）は内容としてtask-01〜03のPoC結果を参照する記述を含むが、計画書自体の執筆はPoCの完了を待たずに着手してよい（未完了の場合は「前提: task-0Xの結果待ち」と明記すること）。
 

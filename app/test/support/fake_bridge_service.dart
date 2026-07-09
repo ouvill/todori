@@ -14,6 +14,7 @@ class FakeBridgeService implements BridgeService {
   final List<ReminderDto> _reminders = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
   final Map<String, String> _settings = {};
+  final List<void Function()> _pendingSyncMutations = [];
   final List<FakeReorderCall> reorderCalls = [];
   int syncNowCalls = 0;
   AccountSessionStateDto _accountSession = const AccountSessionStateDto(
@@ -46,6 +47,7 @@ class FakeBridgeService implements BridgeService {
     _tasks.clear();
     _reminders.clear();
     _undoEntries.clear();
+    _pendingSyncMutations.clear();
     reorderCalls.clear();
     syncNowCalls = 0;
     _settings.clear();
@@ -237,6 +239,11 @@ class FakeBridgeService implements BridgeService {
       _syncStatus = _copySyncStatus(_syncStatus, loggedIn: false);
       return _syncStatus;
     }
+    final syncMutations = List<void Function()>.of(_pendingSyncMutations);
+    _pendingSyncMutations.clear();
+    for (final mutation in syncMutations) {
+      mutation();
+    }
     _syncStatus = _copySyncStatus(
       _syncStatus,
       loggedIn: true,
@@ -245,6 +252,33 @@ class FakeBridgeService implements BridgeService {
       lastError: null,
     );
     return _syncStatus;
+  }
+
+  void addRemoteTaskForNextSync({
+    required String listId,
+    required String title,
+    String? parentTaskId,
+    int? dueAt,
+    String note = '',
+  }) {
+    _pendingSyncMutations.add(() {
+      final taskSeq = _taskSeq++;
+      _tasks.add(
+        TaskDto(
+          id: 'remote-task-$taskSeq',
+          listId: listId,
+          parentTaskId: parentTaskId,
+          title: title,
+          note: note,
+          status: 'todo',
+          priority: 0,
+          dueAt: dueAt,
+          sortOrder: 'remote-$taskSeq',
+          createdAt: _fakeTimestamp(3000 + taskSeq),
+          updatedAt: _fakeTimestamp(3000 + taskSeq),
+        ),
+      );
+    });
   }
 
   @override

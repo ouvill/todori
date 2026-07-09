@@ -165,7 +165,10 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     state = AsyncData(status);
     ref.invalidate(listsProvider);
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(tasksProvider);
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(latestTaskUndoProvider);
+    ref.invalidate(taskRemindersProvider);
   }
 
   Future<void> syncOnResume() async {

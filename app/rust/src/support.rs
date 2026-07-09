@@ -16,7 +16,7 @@ use todori_storage::{
 };
 use todori_sync::{
     account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
-    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary,
+    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary, SYNC_CURSOR_NAME,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -389,7 +389,7 @@ fn account_auth(
             )?;
             let recovery_key = outcome.recovery_key.to_string();
             replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
-            reset_initial_backfill_cursor()?;
+            reset_login_sync_cursors()?;
             return Ok(AccountAuthResultDto {
                 session,
                 recovery_key: Some(recovery_key),
@@ -419,7 +419,7 @@ fn account_auth(
         &outcome.local_wrapped_master_key,
     )?;
     replace_account_runtime_state(Some(session.clone()), Some(outcome.keys));
-    reset_initial_backfill_cursor()?;
+    reset_login_sync_cursors()?;
     Ok(AccountAuthResultDto {
         session,
         recovery_key: None,
@@ -636,10 +636,11 @@ fn local_lists_including_archived() -> Result<Vec<todori_domain::List>, String> 
     })
 }
 
-fn reset_initial_backfill_cursor() -> Result<(), String> {
+fn reset_login_sync_cursors() -> Result<(), String> {
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
-    store.delete_cursor(INITIAL_BACKFILL_CURSOR_NAME)
+    store.delete_cursor(INITIAL_BACKFILL_CURSOR_NAME)?;
+    store.delete_cursor(SYNC_CURSOR_NAME)
 }
 
 fn persist_account_state(

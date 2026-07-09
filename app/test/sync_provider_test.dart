@@ -38,4 +38,31 @@ void main() {
 
     expect(fake.syncNowCalls, greaterThan(callsAfterLogin));
   });
+
+  test('sync now refreshes list-scoped tasks', () async {
+    final fake = FakeBridgeService();
+    final container = ProviderContainer(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(accountProvider.notifier)
+        .login(email: 'alice@example.com', password: 'correct password');
+    final list = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    expect(await container.read(tasksProvider(list.id).future), isEmpty);
+
+    fake.addRemoteTaskForNextSync(
+      listId: list.id,
+      title: 'Pulled task without due date',
+    );
+    await container.read(syncStatusProvider.notifier).syncNow();
+
+    final tasks = await container.read(tasksProvider(list.id).future);
+    expect(
+      tasks.map((task) => task.title),
+      contains('Pulled task without due date'),
+    );
+  });
 }
