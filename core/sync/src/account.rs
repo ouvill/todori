@@ -96,10 +96,10 @@ pub struct ListDekBundleDto {
 impl AccountClient {
     pub fn new(server_url: impl Into<String>) -> Result<Self, AccountClientError> {
         let base_url = normalize_base_url(server_url.into())?;
-        Ok(Self {
-            base_url,
-            http: reqwest::Client::new(),
-        })
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        Ok(Self { base_url, http })
     }
 
     pub async fn register(

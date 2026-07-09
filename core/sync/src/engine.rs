@@ -97,11 +97,14 @@ impl SyncEngine {
         session_token: impl Into<String>,
     ) -> Result<Self, SyncEngineError> {
         let base_url = normalize_base_url(server_url.into())?;
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
         Ok(Self {
             base_url,
             tenant_id,
             session_token: Zeroizing::new(session_token.into()),
-            http: reqwest::Client::new(),
+            http,
         })
     }
 

@@ -177,17 +177,20 @@ pub(crate) fn account_logout() -> Result<(), String> {
 }
 
 pub(crate) fn get_sync_status() -> Result<SyncStatusDto, String> {
-    Ok(sync_status_dto(has_active_sync_context()))
+    let logged_in = has_active_sync_context();
+    let state = sync_runtime_state();
+    Ok(sync_status_dto(logged_in, &state))
 }
 
 pub(crate) fn sync_now() -> Result<SyncStatusDto, String> {
     if !has_active_sync_context() {
-        return Ok(sync_status_dto(false));
+        let state = sync_runtime_state();
+        return Ok(sync_status_dto(false, &state));
     }
     {
         let mut state = sync_runtime_state();
         if state.running {
-            return Ok(sync_status_dto(true));
+            return Ok(sync_status_dto(true, &state));
         }
         state.running = true;
         state.last_error = None;
@@ -208,7 +211,7 @@ pub(crate) fn sync_now() -> Result<SyncStatusDto, String> {
             state.last_error = Some("sync failed".to_string());
         }
     }
-    Ok(sync_status_dto(true))
+    Ok(sync_status_dto(true, &state))
 }
 
 pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
@@ -617,8 +620,7 @@ fn sync_runtime_state() -> MutexGuard<'static, SyncRuntimeState> {
         .expect("sync runtime state mutex poisoned")
 }
 
-fn sync_status_dto(logged_in: bool) -> SyncStatusDto {
-    let state = sync_runtime_state();
+fn sync_status_dto(logged_in: bool, state: &SyncRuntimeState) -> SyncStatusDto {
     SyncStatusDto {
         logged_in,
         running: state.running,
