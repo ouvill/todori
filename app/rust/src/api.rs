@@ -241,24 +241,33 @@ pub fn get_archived_lists() -> Result<Vec<ListDto>, String> {
 }
 
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
-    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .rename_list(list_id, name, now_ms, &sync)
+            .map(list_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
         let updated = domain_rename_list(list, name, now_ms).map_err(|error| error.to_string())?;
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
-        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
 
 pub fn archive_list(list_id: String) -> Result<ListDto, String> {
-    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .archive_list(list_id, now_ms, &sync)
+            .map(list_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
         if list.archived_at.is_none() && list.is_default {
@@ -269,22 +278,25 @@ pub fn archive_list(list_id: String) -> Result<ListDto, String> {
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
-        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
 
 pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
-    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .unarchive_list(list_id, now_ms, &sync)
+            .map(list_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
         let updated = domain_unarchive_list(list, now_ms).map_err(|error| error.to_string())?;
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
-        enqueue_list_sync(&updated, false)?;
         Ok(list_to_dto(updated))
     })
 }
@@ -298,10 +310,25 @@ pub fn create_task(
     due_at: Option<i64>,
     note: Option<String>,
 ) -> Result<TaskDto, String> {
-    preflight_sync_mutation()?;
     let list_id = parse_uuid(&list_id)?;
     let parent_task_id = parent_task_id.as_deref().map(parse_uuid).transpose()?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .create_task(
+                todori_client::CreateTaskInput {
+                    list_id,
+                    title,
+                    parent_task_id,
+                    due_at,
+                    note,
+                    now_ms,
+                },
+                &sync,
+            )
+            .map(task_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_task_repository(|repository| {
         let mut tasks = repository
             .list_active_by_list(list_id)
@@ -339,7 +366,6 @@ pub fn create_task(
         repository
             .insert(task.clone())
             .map_err(|error| error.to_string())?;
-        enqueue_task_sync(&task, false)?;
         Ok(task_to_dto(task))
     })
 }
@@ -492,7 +518,6 @@ pub fn update_task(
         repository
             .update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now_ms)
             .map_err(|error| error.to_string())?;
-        enqueue_task_sync(&updated, false)?;
         Ok(task_to_dto(updated))
     })
 }
@@ -502,10 +527,23 @@ pub fn set_task_status(
     status: String,
     closed_reason: Option<String>,
 ) -> Result<TaskDto, String> {
-    preflight_sync_mutation()?;
     let task_id = parse_uuid(&task_id)?;
     let status = parse_status(&status)?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .set_task_status(
+                todori_client::SetTaskStatusInput {
+                    task_id,
+                    status,
+                    closed_reason,
+                    now_ms,
+                },
+                &sync,
+            )
+            .map(task_to_dto)
+            .map_err(|error| error.to_string());
+    }
 
     with_task_repository(|repository| {
         let before = repository.get(task_id).map_err(|error| error.to_string())?;
@@ -520,7 +558,6 @@ pub fn set_task_status(
                 .update(updated.clone())
                 .map_err(|error| error.to_string())?;
         }
-        enqueue_task_sync(&updated, false)?;
         Ok(task_to_dto(updated))
     })
 }
@@ -562,15 +599,19 @@ pub fn get_latest_task_undo() -> Result<Option<TaskUndoDto>, String> {
 }
 
 pub fn undo_task_operation(undo_id: String) -> Result<TaskDto, String> {
-    preflight_sync_mutation()?;
     let undo_id = parse_uuid(&undo_id)?;
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .undo_task_operation(undo_id, now_ms, &sync)
+            .map(task_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_task_repository(|repository| {
-        let task = repository
+        repository
             .undo_task_operation(undo_id, now_ms)
-            .map_err(|error| error.to_string())?;
-        enqueue_task_sync(&task, false)?;
-        Ok(task_to_dto(task))
+            .map_err(|error| error.to_string())
+            .map(task_to_dto)
     })
 }
 
@@ -659,6 +700,23 @@ pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<Remind
             .map_err(|error| error.to_string())
             .map(reminder_to_dto)
     })
+}
+
+fn account_bound_client(
+) -> Result<Option<(todori_client::Client, todori_client::LocalMutationContext)>, String> {
+    match local_mutation_state()? {
+        LocalMutationState::Anonymous => Ok(None),
+        LocalMutationState::AccountBoundUnavailable => {
+            Err("account-bound local sync keys are unavailable".to_string())
+        }
+        LocalMutationState::Ready(sync) => {
+            let state = core_state()?;
+            Ok(Some((
+                todori_client::Client::new(state.db_path.clone(), state.db_key),
+                sync,
+            )))
+        }
+    }
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, String> {
@@ -779,4 +837,25 @@ fn task_undo_operation_to_string(operation_type: TaskUndoOperation) -> String {
         TaskUndoOperation::Edit => "edit",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transactional_crud_public_signatures_remain_stable() {
+        let _: fn(String, String) -> Result<ListDto, String> = rename_list;
+        let _: fn(String) -> Result<ListDto, String> = archive_list;
+        let _: fn(String) -> Result<ListDto, String> = unarchive_list;
+        let _: fn(
+            String,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+        ) -> Result<TaskDto, String> = create_task;
+        let _: fn(String, String, Option<String>) -> Result<TaskDto, String> = set_task_status;
+        let _: fn(String) -> Result<TaskDto, String> = undo_task_operation;
+    }
 }

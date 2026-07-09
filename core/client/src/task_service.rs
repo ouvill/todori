@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
-use todori_domain::{update_due_at, update_note, update_priority, update_title, Task, Uuid};
+use todori_domain::{update_due_at, update_note, update_priority, update_title, List, Task, Uuid};
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, TaskUndoOperation,
 };
 use todori_sync::{
-    enqueue_task_sync, LocalMutationSyncStore, LocalSyncKeys, NewLocalSyncOutboxEntry,
+    enqueue_list_sync, enqueue_task_sync, LocalMutationSyncStore, LocalSyncKeys,
+    NewLocalSyncOutboxEntry,
 };
 
 #[derive(Debug, Error)]
@@ -38,8 +39,8 @@ pub struct UpdateTaskInput {
 }
 
 pub struct Client {
-    db_path: PathBuf,
-    db_key: [u8; 32],
+    pub(crate) db_path: PathBuf,
+    pub(crate) db_key: [u8; 32],
 }
 
 impl Client {
@@ -76,22 +77,50 @@ impl Client {
             TaskUndoOperation::Edit,
             input.now_ms,
         )?;
-        let mut store = TransactionalMutationStore {
-            transaction: &mut transaction,
-        };
-        let mut now = || Ok(input.now_ms);
-        enqueue_task_sync(
-            &mut store,
-            &sync.keys,
-            &sync.device_id,
-            &updated,
-            false,
-            &mut now,
-        )
-        .map_err(|_| ClientError::Sync)?;
+        enqueue_task_in_transaction(&mut transaction, sync, &updated, false, input.now_ms)?;
         transaction.commit()?;
         Ok(updated)
     }
+}
+
+pub(crate) fn enqueue_task_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    task: &Task,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_task_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        task,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn enqueue_list_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    list: &List,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_list_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        list,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
 }
 
 struct TransactionalMutationStore<'transaction, 'connection> {

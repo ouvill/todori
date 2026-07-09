@@ -1,6 +1,6 @@
 # task-85: 既存List CRUDのtransactional client移行
 
-> ステータス: 実装中
+> ステータス: 完了（既存List上の主要CRUDを共通transactionへ移行）
 > 作業日: 2026-07-10
 
 ## 1. 背景とコンテキスト
@@ -50,14 +50,14 @@ task-83はtask editだけを共通client transactionへ移し、task-84はsessio
 
 ## 6. 受け入れ基準
 
-- [ ] task create/status/undoが共通client transactionを通る。
-- [ ] list rename/archive/unarchiveが共通client transactionを通る。
-- [ ] 各操作でdomain row、必要なundo、HLC、outbox、record stateがatomicにcommitされる。
-- [ ] outbox/state失敗時に全状態がrollbackされる。
-- [ ] status/undoのdomain conflict semanticsが既存挙動を維持する。
-- [ ] account-bound session期限切れでもLocalCryptoContextからoutboxを生成する。
-- [ ] Flutter公開signatureとDTOを維持する。
-- [ ] workspace/Flutter品質ゲートと`git diff --check`が成功する。
+- [x] task create/status/undoが共通client transactionを通る。
+- [x] list rename/archive/unarchiveが共通client transactionを通る。
+- [x] 各操作でdomain row、必要なundo、HLC、outbox、record stateがatomicにcommitされる。
+- [x] outbox/state失敗時に全状態がrollbackされる。
+- [x] status/undoのdomain conflict semanticsが既存挙動を維持する。
+- [x] account-bound session期限切れでもLocalCryptoContextからoutboxを生成する。
+- [x] Flutter公開signatureとDTOを維持する。
+- [x] workspace/Flutter品質ゲートと`git diff --check`が成功する。
 
 ## 7. 制約・注意事項
 
@@ -74,3 +74,11 @@ task-83はtask editだけを共通client transactionへ移し、task-84はsessio
 - anonymous/account-bound bridge分岐。
 - 品質ゲート。
 - reorder、delete、offline list createの後続事項。
+
+## 9. 完了報告
+
+- 作業日: 2026-07-10
+- 結果: account-boundのtask create/status/undoとlist rename/archive/unarchiveを`core/client`へ移し、domain row、Complete undo、local HLC、outbox、sync record stateを同一`BEGIN IMMEDIATE` transactionで確定するようにした。Flutter bridgeはReadyならcommon clientへreturn、Unavailableなら書込前error、Anonymousならlocal-onlyとし、状態の再判定を伴うenqueueを除去した。task editのAnonymous経路も同じ規則へ揃えた。
+- 証拠: `todori-client` 17 test、`todori-storage` 59 test成功/1件ignored、bridge公開signature test 1件成功。create/status/undo/list updateのoutbox・record-state failure rollback、missing parent/domain error、missing DEK、default archive拒否を確認した。`cargo test --workspace`（Docker/Testcontainers 5件を含む）、`cargo clippy --workspace -- -D warnings`、Rust release build、`flutter analyze`、`flutter test` 124件、hardcoded strings check、FRB codegen、`git diff --check`成功。独立verifierでP1/P2なし。
+- Commit: 未コミット
+- 未解決: task reorderはprotocol v2 placement、task/list deleteはknown-record cascade tombstone、list createはoffline key-bundle upload queueと同時にtransaction移行する。production 2-client fixtureとfield clock v2も後続。

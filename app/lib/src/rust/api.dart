@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_bound_client`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>

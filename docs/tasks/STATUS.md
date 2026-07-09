@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 実装中: **task-85 既存List CRUDのtransactional client移行** — task create/status/undoとlist rename/archive/unarchiveを共通transactionへ移す。
-- 最新の決定: task-84 / ADR-013でremote sessionとLocalCryptoContextを分離し、list IDへAAD-bindしたMK-wrapped List DEK cache、account profile binding、fail-closed状態を実装した。残りCRUDのtransaction移行とprotocol v2はrelease blockerとして継続する。
+- 実装中: なし
+- 最新の決定: task-85でtask create/status/undoとlist rename/archive/unarchiveをtransactional common clientへ移した。reorder/placement、cascade delete、offline list create、protocol v2はrelease blockerとして継続する。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

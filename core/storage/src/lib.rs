@@ -324,7 +324,27 @@ impl<'connection> SqliteWriteTx<'connection> {
         get_task_on(&self.transaction, id)
     }
 
-    pub fn update_with_undo(
+    pub fn get_list(&self, id: Uuid) -> Result<List, StorageError> {
+        get_list_on(&self.transaction, id)
+    }
+
+    pub fn list_active_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        list_active_tasks_by_list_on(&self.transaction, list_id)
+    }
+
+    pub fn insert_task(&mut self, task: Task) -> Result<(), StorageError> {
+        insert_task_on(&self.transaction, &task)
+    }
+
+    pub fn update_task(&mut self, task: Task) -> Result<(), StorageError> {
+        update_task_on(&self.transaction, &task)
+    }
+
+    pub fn update_list(&mut self, list: List) -> Result<(), StorageError> {
+        update_list_on(&self.transaction, &list)
+    }
+
+    pub fn update_task_with_undo(
         &mut self,
         before: Task,
         after: Task,
@@ -332,6 +352,24 @@ impl<'connection> SqliteWriteTx<'connection> {
         created_at: i64,
     ) -> Result<TaskUndoEntry, StorageError> {
         update_task_with_undo_on(&self.transaction, before, after, operation_type, created_at)
+    }
+
+    pub fn update_with_undo(
+        &mut self,
+        before: Task,
+        after: Task,
+        operation_type: TaskUndoOperation,
+        created_at: i64,
+    ) -> Result<TaskUndoEntry, StorageError> {
+        self.update_task_with_undo(before, after, operation_type, created_at)
+    }
+
+    pub fn undo_task_operation(
+        &mut self,
+        undo_id: Uuid,
+        consumed_at: i64,
+    ) -> Result<Task, StorageError> {
+        undo_task_operation_on(&self.transaction, undo_id, consumed_at)
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
@@ -908,58 +946,10 @@ impl SqliteTaskRepository {
         consumed_at: i64,
     ) -> Result<Task, StorageError> {
         let transaction = self.connection.transaction()?;
-        let entry = transaction
-            .query_row(
-                "SELECT id, operation_type, task_id, list_id, before_snapshot,
-                        after_updated_at, after_deleted_at, after_completed_at,
-                        created_at, consumed_at
-                 FROM task_undo_entries
-                 WHERE id = ?1",
-                [undo_id.to_string()],
-                row_to_task_undo_entry,
-            )
-            .optional()?
-            .transpose()?
-            .ok_or(StorageError::NotFound(undo_id))?;
-
-        if entry.consumed_at.is_some() {
-            return Err(StorageError::UndoConsumed(undo_id));
-        }
-
-        let current = transaction
-            .query_row(
-                "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                        due_at, scheduled_at, estimated_minutes, sort_order,
-                        completed_at, closed_reason, deleted_at, assignee,
-                        created_at, updated_at
-                 FROM tasks
-                 WHERE id = ?1",
-                [entry.task_id.to_string()],
-                row_to_task,
-            )
-            .optional()?
-            .ok_or(StorageError::NotFound(entry.task_id))?;
-
-        if current.updated_at != entry.after_updated_at
-            || current.deleted_at != entry.after_deleted_at
-            || current.completed_at != entry.after_completed_at
-        {
-            return Err(StorageError::UndoConflict(entry.task_id));
-        }
-
-        update_task_on(&transaction, &entry.before_snapshot)?;
-        let changed = transaction.execute(
-            "UPDATE task_undo_entries
-             SET consumed_at = ?2
-             WHERE id = ?1 AND consumed_at IS NULL",
-            params![undo_id.to_string(), consumed_at],
-        )?;
-        if changed == 0 {
-            return Err(StorageError::UndoConsumed(undo_id));
-        }
+        let restored = undo_task_operation_on(&transaction, undo_id, consumed_at)?;
         transaction.commit()?;
 
-        Ok(entry.before_snapshot)
+        Ok(restored)
     }
 }
 
@@ -969,37 +959,7 @@ impl TaskRepository for SqliteTaskRepository {
     }
 
     fn insert(&mut self, task: Task) -> Result<(), StorageError> {
-        self.connection.execute(
-            "INSERT INTO tasks (
-                id, list_id, parent_task_id, title, note, status, priority,
-                due_at, scheduled_at, estimated_minutes, sort_order,
-                completed_at, closed_reason, deleted_at, assignee,
-                created_at, updated_at
-            ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                ?12, ?13, ?14, ?15, ?16, ?17
-            )",
-            params![
-                task.id.to_string(),
-                task.list_id.to_string(),
-                task.parent_task_id.map(|id| id.to_string()),
-                task.title,
-                task.note,
-                status_to_str(task.status),
-                task.priority,
-                task.due_at,
-                task.scheduled_at,
-                task.estimated_minutes,
-                task.sort_order,
-                task.completed_at,
-                task.closed_reason,
-                task.deleted_at,
-                task.assignee.map(|id| id.to_string()),
-                task.created_at,
-                task.updated_at,
-            ],
-        )?;
-        Ok(())
+        insert_task_on(&self.connection, &task)
     }
 
     fn update(&mut self, task: Task) -> Result<(), StorageError> {
@@ -1023,20 +983,7 @@ impl TaskRepository for SqliteTaskRepository {
     }
 
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
-        let mut statement = self.connection.prepare(
-            "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_at, scheduled_at, estimated_minutes, sort_order,
-                    completed_at, closed_reason, deleted_at, assignee,
-                    created_at, updated_at
-             FROM tasks
-             WHERE list_id = ?1
-             ORDER BY sort_order ASC",
-        )?;
-        let tasks = statement
-            .query_map([list_id.to_string()], row_to_task)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        Ok(tasks)
+        list_active_tasks_by_list_on(&self.connection, list_id)
     }
 
     fn list_home(
@@ -1162,6 +1109,59 @@ fn get_task_on(connection: &Connection, id: Uuid) -> Result<Task, StorageError> 
     task.ok_or(StorageError::NotFound(id))
 }
 
+fn list_active_tasks_by_list_on(
+    connection: &Connection,
+    list_id: Uuid,
+) -> Result<Vec<Task>, StorageError> {
+    let mut statement = connection.prepare(
+        "SELECT id, list_id, parent_task_id, title, note, status, priority,
+                due_at, scheduled_at, estimated_minutes, sort_order,
+                completed_at, closed_reason, deleted_at, assignee,
+                created_at, updated_at
+         FROM tasks
+         WHERE list_id = ?1
+         ORDER BY sort_order ASC",
+    )?;
+    let tasks = statement
+        .query_map([list_id.to_string()], row_to_task)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(tasks)
+}
+
+fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
+    connection.execute(
+        "INSERT INTO tasks (
+            id, list_id, parent_task_id, title, note, status, priority,
+            due_at, scheduled_at, estimated_minutes, sort_order,
+            completed_at, closed_reason, deleted_at, assignee,
+            created_at, updated_at
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+            ?12, ?13, ?14, ?15, ?16, ?17
+        )",
+        params![
+            task.id.to_string(),
+            task.list_id.to_string(),
+            task.parent_task_id.map(|id| id.to_string()),
+            task.title,
+            task.note,
+            status_to_str(task.status),
+            task.priority,
+            task.due_at,
+            task.scheduled_at,
+            task.estimated_minutes,
+            task.sort_order,
+            task.completed_at,
+            task.closed_reason,
+            task.deleted_at,
+            task.assignee.map(|id| id.to_string()),
+            task.created_at,
+            task.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
 fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
     let changed = connection.execute(
         "UPDATE tasks
@@ -1233,6 +1233,51 @@ fn update_task_with_undo_on(
     update_task_on(connection, &after)?;
     insert_task_undo_on(connection, &entry)?;
     Ok(entry)
+}
+
+fn undo_task_operation_on(
+    connection: &Connection,
+    undo_id: Uuid,
+    consumed_at: i64,
+) -> Result<Task, StorageError> {
+    let entry = connection
+        .query_row(
+            "SELECT id, operation_type, task_id, list_id, before_snapshot,
+                    after_updated_at, after_deleted_at, after_completed_at,
+                    created_at, consumed_at
+             FROM task_undo_entries
+             WHERE id = ?1",
+            [undo_id.to_string()],
+            row_to_task_undo_entry,
+        )
+        .optional()?
+        .transpose()?
+        .ok_or(StorageError::NotFound(undo_id))?;
+
+    if entry.consumed_at.is_some() {
+        return Err(StorageError::UndoConsumed(undo_id));
+    }
+
+    let current = get_task_on(connection, entry.task_id)?;
+    if current.updated_at != entry.after_updated_at
+        || current.deleted_at != entry.after_deleted_at
+        || current.completed_at != entry.after_completed_at
+    {
+        return Err(StorageError::UndoConflict(entry.task_id));
+    }
+
+    update_task_on(connection, &entry.before_snapshot)?;
+    let changed = connection.execute(
+        "UPDATE task_undo_entries
+         SET consumed_at = ?2
+         WHERE id = ?1 AND consumed_at IS NULL",
+        params![undo_id.to_string(), consumed_at],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::UndoConsumed(undo_id));
+    }
+
+    Ok(entry.before_snapshot)
 }
 
 fn build_fts_prefix_query(query: &str) -> Option<String> {
@@ -1331,6 +1376,58 @@ fn insert_task_undo_on(connection: &Connection, entry: &TaskUndoEntry) -> Result
     Ok(())
 }
 
+fn get_list_on(connection: &Connection, id: Uuid) -> Result<List, StorageError> {
+    let list = connection
+        .query_row(
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    is_default, created_at, updated_at
+             FROM lists
+             WHERE id = ?1",
+            [id.to_string()],
+            row_to_list,
+        )
+        .optional()?;
+    list.ok_or(StorageError::NotFound(id))
+}
+
+fn update_list_on(connection: &Connection, list: &List) -> Result<(), StorageError> {
+    if list.is_default && list.archived_at.is_some() {
+        return Err(StorageError::DefaultListProtected {
+            operation: "archived",
+            list_id: list.id,
+        });
+    }
+    let changed = connection.execute(
+        "UPDATE lists
+         SET name = ?2,
+             color = ?3,
+             icon = ?4,
+             org_id = ?5,
+             sort_order = ?6,
+             is_default = ?7,
+             archived_at = ?8,
+             created_at = ?9,
+             updated_at = ?10
+         WHERE id = ?1",
+        params![
+            list.id.to_string(),
+            list.name,
+            list.color,
+            list.icon,
+            list.org_id.map(|id| id.to_string()),
+            list.sort_order,
+            list.is_default,
+            list.archived_at,
+            list.created_at,
+            list.updated_at,
+        ],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::NotFound(list.id));
+    }
+    Ok(())
+}
+
 /// SQLite-backed implementation of [`ListRepository`].
 pub struct SqliteListRepository {
     connection: Connection,
@@ -1396,19 +1493,7 @@ impl SqliteListRepository {
 
 impl ListRepository for SqliteListRepository {
     fn get(&self, id: Uuid) -> Result<List, StorageError> {
-        let list = self
-            .connection
-            .query_row(
-                "SELECT id, name, color, icon, org_id, sort_order, archived_at,
-                        is_default, created_at, updated_at
-                 FROM lists
-                 WHERE id = ?1",
-                [id.to_string()],
-                row_to_list,
-            )
-            .optional()?;
-
-        list.ok_or(StorageError::NotFound(id))
+        get_list_on(&self.connection, id)
     }
 
     fn insert(&mut self, list: List) -> Result<(), StorageError> {
@@ -1436,43 +1521,7 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn update(&mut self, list: List) -> Result<(), StorageError> {
-        if list.is_default && list.archived_at.is_some() {
-            return Err(StorageError::DefaultListProtected {
-                operation: "archived",
-                list_id: list.id,
-            });
-        }
-        let changed = self.connection.execute(
-            "UPDATE lists
-             SET name = ?2,
-                 color = ?3,
-                 icon = ?4,
-                 org_id = ?5,
-                 sort_order = ?6,
-                 is_default = ?7,
-                 archived_at = ?8,
-                 created_at = ?9,
-                 updated_at = ?10
-             WHERE id = ?1",
-            params![
-                list.id.to_string(),
-                list.name,
-                list.color,
-                list.icon,
-                list.org_id.map(|id| id.to_string()),
-                list.sort_order,
-                list.is_default,
-                list.archived_at,
-                list.created_at,
-                list.updated_at,
-            ],
-        )?;
-
-        if changed == 0 {
-            return Err(StorageError::NotFound(list.id));
-        }
-
-        Ok(())
+        update_list_on(&self.connection, &list)
     }
 
     fn list_all(&self) -> Result<Vec<List>, StorageError> {
@@ -5186,6 +5235,134 @@ mod tests {
         let sync = SqliteSyncStateRepository::new(connection);
         assert!(sync.list_outbox(10).unwrap().is_empty());
         assert_eq!(sync.get_record_state("tasks", task.id).unwrap(), None);
+    }
+
+    #[test]
+    fn sqlite_write_tx_commits_task_and_list_crud_without_nested_transactions() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut repository = SqliteListRepository::new(connection);
+            repository.insert(list.clone()).unwrap();
+        }
+
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let mut prepared = task.clone();
+        prepared.note = "Updated before status transition".to_string();
+        prepared.updated_at += 1;
+        let done = transition_task(
+            prepared.clone(),
+            TaskStatus::Done,
+            None,
+            prepared.updated_at + 1,
+        )
+        .unwrap();
+        let mut renamed_list = list.clone();
+        renamed_list.name = "Renamed transactionally".to_string();
+        renamed_list.updated_at += 1;
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert_eq!(write_tx.get_list(list.id).unwrap(), list);
+        write_tx.update_list(renamed_list.clone()).unwrap();
+        write_tx.insert_task(task.clone()).unwrap();
+        write_tx.update_task(prepared.clone()).unwrap();
+        assert_eq!(
+            write_tx.list_active_tasks_by_list(list.id).unwrap(),
+            vec![prepared.clone()]
+        );
+        let undo = write_tx
+            .update_task_with_undo(
+                prepared,
+                done.clone(),
+                TaskUndoOperation::Complete,
+                done.updated_at,
+            )
+            .unwrap();
+        assert_eq!(write_tx.get_task(done.id).unwrap(), done);
+        write_tx.commit().unwrap();
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let list_repository = SqliteListRepository::new(connection);
+        assert_eq!(list_repository.get(list.id).unwrap(), renamed_list);
+        drop(list_repository);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let task_repository = SqliteTaskRepository::new(connection);
+        assert_eq!(task_repository.get(done.id).unwrap(), done);
+        assert_eq!(
+            task_repository.latest_unconsumed_undo().unwrap(),
+            Some(undo)
+        );
+    }
+
+    #[test]
+    fn sqlite_write_tx_drop_rolls_back_undo_restore_and_list_update() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let edited = update_title(
+            task.clone(),
+            "Awaiting undo".to_string(),
+            task.updated_at + 1,
+        )
+        .unwrap();
+        let undo = {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut list_repository = SqliteListRepository::new(connection);
+            list_repository.insert(list.clone()).unwrap();
+            drop(list_repository);
+
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut task_repository = SqliteTaskRepository::new(connection);
+            task_repository.insert(task.clone()).unwrap();
+            task_repository
+                .update_with_undo(
+                    task.clone(),
+                    edited.clone(),
+                    TaskUndoOperation::Edit,
+                    edited.updated_at,
+                )
+                .unwrap()
+        };
+        let mut archived_list = list.clone();
+        archived_list.archived_at = Some(edited.updated_at + 1);
+        archived_list.updated_at = edited.updated_at + 1;
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        {
+            let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+            assert_eq!(
+                write_tx
+                    .undo_task_operation(undo.id, edited.updated_at + 1)
+                    .unwrap(),
+                task
+            );
+            write_tx.update_list(archived_list).unwrap();
+            assert_eq!(write_tx.get_task(task.id).unwrap(), task);
+        }
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let list_repository = SqliteListRepository::new(connection);
+        assert_eq!(list_repository.get(list.id).unwrap(), list);
+        drop(list_repository);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut task_repository = SqliteTaskRepository::new(connection);
+        assert_eq!(task_repository.get(task.id).unwrap(), edited);
+        assert_eq!(
+            task_repository
+                .undo_task_operation(undo.id, edited.updated_at + 2)
+                .unwrap(),
+            task
+        );
     }
 
     #[test]
