@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_bound_client`, `count_to_i32`, `home_task_to_dto`, `list_to_dto`, `load_reorder_boundary`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_bound_client`, `count_to_i32`, `create_anonymous_list_on`, `create_anonymous_list`, `create_anonymous_task_on`, `create_anonymous_task`, `home_task_to_dto`, `list_to_dto`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `reorder_anonymous_task_on`, `reorder_anonymous_task`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -392,6 +392,10 @@ class SyncStatusDto {
   final int deletedCount;
   final int decryptFailedCount;
   final int repushCount;
+  final int missingKeyQuarantinedCount;
+  final int corruptionQuarantinedCount;
+  final int resolvedQuarantineCount;
+  final bool upgradeRequired;
 
   const SyncStatusDto({
     required this.loggedIn,
@@ -407,6 +411,10 @@ class SyncStatusDto {
     required this.deletedCount,
     required this.decryptFailedCount,
     required this.repushCount,
+    required this.missingKeyQuarantinedCount,
+    required this.corruptionQuarantinedCount,
+    required this.resolvedQuarantineCount,
+    required this.upgradeRequired,
   });
 
   @override
@@ -423,7 +431,11 @@ class SyncStatusDto {
       appliedCount.hashCode ^
       deletedCount.hashCode ^
       decryptFailedCount.hashCode ^
-      repushCount.hashCode;
+      repushCount.hashCode ^
+      missingKeyQuarantinedCount.hashCode ^
+      corruptionQuarantinedCount.hashCode ^
+      resolvedQuarantineCount.hashCode ^
+      upgradeRequired.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -442,7 +454,11 @@ class SyncStatusDto {
           appliedCount == other.appliedCount &&
           deletedCount == other.deletedCount &&
           decryptFailedCount == other.decryptFailedCount &&
-          repushCount == other.repushCount;
+          repushCount == other.repushCount &&
+          missingKeyQuarantinedCount == other.missingKeyQuarantinedCount &&
+          corruptionQuarantinedCount == other.corruptionQuarantinedCount &&
+          resolvedQuarantineCount == other.resolvedQuarantineCount &&
+          upgradeRequired == other.upgradeRequired;
 }
 
 class TaskDto {

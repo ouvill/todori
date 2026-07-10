@@ -1621,6 +1621,10 @@ impl SseDecode for crate::api::SyncStatusDto {
         let mut var_deletedCount = <i32>::sse_decode(deserializer);
         let mut var_decryptFailedCount = <i32>::sse_decode(deserializer);
         let mut var_repushCount = <i32>::sse_decode(deserializer);
+        let mut var_missingKeyQuarantinedCount = <i32>::sse_decode(deserializer);
+        let mut var_corruptionQuarantinedCount = <i32>::sse_decode(deserializer);
+        let mut var_resolvedQuarantineCount = <i32>::sse_decode(deserializer);
+        let mut var_upgradeRequired = <bool>::sse_decode(deserializer);
         return crate::api::SyncStatusDto {
             logged_in: var_loggedIn,
             running: var_running,
@@ -1635,6 +1639,10 @@ impl SseDecode for crate::api::SyncStatusDto {
             deleted_count: var_deletedCount,
             decrypt_failed_count: var_decryptFailedCount,
             repush_count: var_repushCount,
+            missing_key_quarantined_count: var_missingKeyQuarantinedCount,
+            corruption_quarantined_count: var_corruptionQuarantinedCount,
+            resolved_quarantine_count: var_resolvedQuarantineCount,
+            upgrade_required: var_upgradeRequired,
         };
     }
 }
@@ -1901,6 +1909,14 @@ impl flutter_rust_bridge::IntoDart for crate::api::SyncStatusDto {
             self.deleted_count.into_into_dart().into_dart(),
             self.decrypt_failed_count.into_into_dart().into_dart(),
             self.repush_count.into_into_dart().into_dart(),
+            self.missing_key_quarantined_count
+                .into_into_dart()
+                .into_dart(),
+            self.corruption_quarantined_count
+                .into_into_dart()
+                .into_dart(),
+            self.resolved_quarantine_count.into_into_dart().into_dart(),
+            self.upgrade_required.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2152,6 +2168,10 @@ impl SseEncode for crate::api::SyncStatusDto {
         <i32>::sse_encode(self.deleted_count, serializer);
         <i32>::sse_encode(self.decrypt_failed_count, serializer);
         <i32>::sse_encode(self.repush_count, serializer);
+        <i32>::sse_encode(self.missing_key_quarantined_count, serializer);
+        <i32>::sse_encode(self.corruption_quarantined_count, serializer);
+        <i32>::sse_encode(self.resolved_quarantine_count, serializer);
+        <bool>::sse_encode(self.upgrade_required, serializer);
     }
 }
 

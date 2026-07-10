@@ -1603,8 +1603,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SyncStatusDto dco_decode_sync_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 17)
+      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
     return SyncStatusDto(
       loggedIn: dco_decode_bool(arr[0]),
       running: dco_decode_bool(arr[1]),
@@ -1619,6 +1619,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deletedCount: dco_decode_i_32(arr[10]),
       decryptFailedCount: dco_decode_i_32(arr[11]),
       repushCount: dco_decode_i_32(arr[12]),
+      missingKeyQuarantinedCount: dco_decode_i_32(arr[13]),
+      corruptionQuarantinedCount: dco_decode_i_32(arr[14]),
+      resolvedQuarantineCount: dco_decode_i_32(arr[15]),
+      upgradeRequired: dco_decode_bool(arr[16]),
     );
   }
 
@@ -1930,6 +1934,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deletedCount = sse_decode_i_32(deserializer);
     var var_decryptFailedCount = sse_decode_i_32(deserializer);
     var var_repushCount = sse_decode_i_32(deserializer);
+    var var_missingKeyQuarantinedCount = sse_decode_i_32(deserializer);
+    var var_corruptionQuarantinedCount = sse_decode_i_32(deserializer);
+    var var_resolvedQuarantineCount = sse_decode_i_32(deserializer);
+    var var_upgradeRequired = sse_decode_bool(deserializer);
     return SyncStatusDto(
       loggedIn: var_loggedIn,
       running: var_running,
@@ -1944,6 +1952,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deletedCount: var_deletedCount,
       decryptFailedCount: var_decryptFailedCount,
       repushCount: var_repushCount,
+      missingKeyQuarantinedCount: var_missingKeyQuarantinedCount,
+      corruptionQuarantinedCount: var_corruptionQuarantinedCount,
+      resolvedQuarantineCount: var_resolvedQuarantineCount,
+      upgradeRequired: var_upgradeRequired,
     );
   }
 
@@ -2239,6 +2251,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.deletedCount, serializer);
     sse_encode_i_32(self.decryptFailedCount, serializer);
     sse_encode_i_32(self.repushCount, serializer);
+    sse_encode_i_32(self.missingKeyQuarantinedCount, serializer);
+    sse_encode_i_32(self.corruptionQuarantinedCount, serializer);
+    sse_encode_i_32(self.resolvedQuarantineCount, serializer);
+    sse_encode_bool(self.upgradeRequired, serializer);
   }
 
   @protected

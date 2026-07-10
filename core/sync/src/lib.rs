@@ -15,7 +15,7 @@ pub mod keys;
 pub mod merge;
 pub mod protocol;
 
-pub use apply::{run_sync_now, ActiveSyncContext};
+pub use apply::{run_sync_now, run_sync_now_with_key_refresh, ActiveSyncContext, SyncKeyRefresher};
 pub use engine::{
     EncryptedSyncState, PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus,
     SyncEngine, SyncEngineError, SyncRunSummary,
@@ -36,7 +36,7 @@ pub use field_map::{
 pub use hlc::{Hlc, HlcError};
 pub use keys::{
     dek_for_list, ensure_list_dek_for_list, LocalSyncKeys, LISTS_COLLECTION, SYNC_CURSOR_NAME,
-    SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
+    SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;

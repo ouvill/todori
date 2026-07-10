@@ -31,6 +31,8 @@ pub enum SyncEngineError {
     InvalidPushResponse,
     #[error("invalid pull response")]
     InvalidPullResponse,
+    #[error("sync client upgrade required")]
+    UpgradeRequired,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +101,10 @@ pub struct SyncRunSummary {
     pub deleted_count: usize,
     pub decrypt_failed_count: usize,
     pub repush_count: usize,
+    pub missing_key_quarantined_count: usize,
+    pub corruption_quarantined_count: usize,
+    pub resolved_quarantine_count: usize,
+    pub upgrade_required: bool,
 }
 
 impl SyncEngine {
@@ -117,6 +123,28 @@ impl SyncEngine {
             session_token: Zeroizing::new(session_token.into()),
             http,
         })
+    }
+
+    pub async fn preflight(&self) -> Result<(), SyncEngineError> {
+        let response = self
+            .http
+            .get(format!(
+                "{}/v2/tenants/{}/preflight",
+                self.base_url, self.tenant_id
+            ))
+            .bearer_auth(self.session_token.as_str())
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(SyncEngineError::Server(response.status()));
+        }
+        let capabilities = response.json::<protocol::SyncCapabilities>().await?;
+        if capabilities.protocol_version != protocol::SYNC_PROTOCOL_VERSION
+            || capabilities.envelope_version != crate::ENVELOPE_VERSION
+        {
+            return Err(SyncEngineError::UpgradeRequired);
+        }
+        Ok(())
     }
 
     pub async fn push_batch(&self, ops: Vec<PushOp>) -> Result<PushBatchOutcome, SyncEngineError> {

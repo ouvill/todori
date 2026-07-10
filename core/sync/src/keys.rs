@@ -10,6 +10,7 @@ use crate::account::{
 
 pub const SYNC_CURSOR_NAME: &str = "main";
 pub const SYNC_LOCAL_HLC_SETTING_KEY: &str = "sync_local_hlc";
+pub const SYNC_UPGRADE_REQUIRED_SETTING_KEY: &str = "sync_upgrade_required_v2";
 pub const TASKS_COLLECTION: &str = "tasks";
 pub const LISTS_COLLECTION: &str = "lists";
 

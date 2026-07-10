@@ -1,17 +1,18 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use todori_domain::{List, Task, Uuid};
 
 use crate::{
-    decrypt_plaintext, merge_lww, EncryptedSyncState, Hlc, PullRecord, PushOp, PushStatus,
-    SyncCollection, SyncEngine, SyncPlaintext, SyncRunSummary, LISTS_COLLECTION, SYNC_CURSOR_NAME,
-    TASKS_COLLECTION,
+    decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc, PullRecord, PushOp,
+    PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext, SyncRunSummary,
+    LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
 };
 
 use crate::enqueue::{
     enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, observe_remote_hlc,
-    task_plaintext, LocalSyncAtomicStore, LocalSyncRecordState, LocalSyncSemanticState,
-    LocalSyncStore, LocalSyncWriteTransaction, RebasePlaintextRequest, RebaseTombstoneRequest,
+    task_plaintext, LocalSyncAtomicStore, LocalSyncQuarantineEntry, LocalSyncRecordState,
+    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, PullFailureReason,
+    RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -22,7 +23,24 @@ const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
 enum ApplyDisposition {
     AppliedCurrent,
     Rebased,
-    Deferred,
+    Deferred(PullFailureReason, Option<Uuid>),
+    UpgradeRequired,
+}
+
+pub trait SyncKeyRefresher {
+    fn refresh<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>>;
+}
+
+struct UnavailableKeyRefresher;
+
+impl SyncKeyRefresher for UnavailableKeyRefresher {
+    fn refresh<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>> {
+        Box::pin(async { Err("key refresh unavailable".to_string()) })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +61,20 @@ where
     S: LocalSyncAtomicStore,
     N: FnMut() -> Result<i64, String>,
 {
+    run_sync_now_with_key_refresh(context, store, now_ms, &mut UnavailableKeyRefresher).await
+}
+
+pub async fn run_sync_now_with_key_refresh<S, N, R>(
+    mut context: ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    key_refresher: &mut R,
+) -> Result<SyncRunSummary, String>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+    R: SyncKeyRefresher,
+{
     let engine = SyncEngine::new(
         context.server_url.clone(),
         context.tenant_id,
@@ -50,6 +82,25 @@ where
     )
     .map_err(|_| "sync failed".to_string())?;
     let mut summary = SyncRunSummary::default();
+
+    if store
+        .get_setting(SYNC_UPGRADE_REQUIRED_SETTING_KEY)?
+        .is_some()
+    {
+        return Err("upgrade required".to_string());
+    }
+    match engine.preflight().await {
+        Ok(()) => {}
+        Err(SyncEngineError::UpgradeRequired) => {
+            store.set_setting(
+                SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                "protocol_or_envelope",
+                now_ms()?,
+            )?;
+            return Err("upgrade required".to_string());
+        }
+        Err(_) => return Err("sync failed".to_string()),
+    }
 
     for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
         let outbox = store.list_outbox_heads(PUSH_BATCH_LIMIT)?;
@@ -133,6 +184,25 @@ where
         }
     }
 
+    if store.list_quarantine(100)?.iter().any(|entry| {
+        matches!(
+            entry.reason,
+            PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+        )
+    }) {
+        context.keys = key_refresher.refresh().await?;
+    }
+    if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
+        if error == "upgrade required" {
+            store.set_setting(
+                SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                "unsupported_envelope",
+                now_ms()?,
+            )?;
+        }
+        return Err(error);
+    }
+
     loop {
         let since = store.get_cursor_seq(SYNC_CURSOR_NAME)?.unwrap_or(0);
         let page = engine
@@ -142,22 +212,199 @@ where
         if page.records.is_empty() {
             break;
         }
-        summary.pulled_count += page.records.len();
-        for record in &page.records {
-            let mut transaction = store.begin_write_transaction()?;
-            let disposition =
-                apply_pull_record(record, &context, &mut transaction, now_ms, &mut summary)?;
-            if disposition != ApplyDisposition::Deferred {
-                transaction.commit()?;
+        match apply_pull_page(&page, &context, store, now_ms, false) {
+            Ok(page_summary) => merge_summary(&mut summary, page_summary),
+            Err(PageApplyError::MissingKey) => {
+                context.keys = key_refresher.refresh().await?;
+                if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
+                    if error == "upgrade required" {
+                        store.set_setting(
+                            SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                            "unsupported_envelope",
+                            now_ms()?,
+                        )?;
+                    }
+                    return Err(error);
+                }
+                let page_summary = apply_pull_page(&page, &context, store, now_ms, true)
+                    .map_err(page_apply_error_to_string)?;
+                merge_summary(&mut summary, page_summary);
             }
+            Err(PageApplyError::UpgradeRequired) => {
+                store.set_setting(
+                    SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                    "unsupported_envelope",
+                    now_ms()?,
+                )?;
+                return Err("upgrade required".to_string());
+            }
+            Err(error) => return Err(page_apply_error_to_string(error)),
         }
-        store.set_cursor(SYNC_CURSOR_NAME, page.next_since, now_ms()?)?;
         if !page.has_more {
             break;
         }
     }
 
     Ok(summary)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PageApplyError {
+    MissingKey,
+    UpgradeRequired,
+    Hard,
+}
+
+fn page_apply_error_to_string(error: PageApplyError) -> String {
+    match error {
+        PageApplyError::UpgradeRequired => "upgrade required".to_string(),
+        PageApplyError::MissingKey | PageApplyError::Hard => "sync failed".to_string(),
+    }
+}
+
+fn merge_summary(target: &mut SyncRunSummary, page: SyncRunSummary) {
+    target.pulled_count += page.pulled_count;
+    target.applied_count += page.applied_count;
+    target.deleted_count += page.deleted_count;
+    target.decrypt_failed_count += page.decrypt_failed_count;
+    target.repush_count += page.repush_count;
+    target.missing_key_quarantined_count += page.missing_key_quarantined_count;
+    target.corruption_quarantined_count += page.corruption_quarantined_count;
+    target.resolved_quarantine_count += page.resolved_quarantine_count;
+}
+
+fn apply_pull_page<S, N>(
+    page: &crate::PullPage,
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    quarantine_missing: bool,
+) -> Result<SyncRunSummary, PageApplyError>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let mut transaction = store
+        .begin_write_transaction()
+        .map_err(|_| PageApplyError::Hard)?;
+    let mut page_summary = SyncRunSummary {
+        pulled_count: page.records.len(),
+        ..SyncRunSummary::default()
+    };
+    for record in &page.records {
+        let disposition =
+            apply_pull_record(record, context, &mut transaction, now_ms, &mut page_summary)
+                .map_err(|_| PageApplyError::Hard)?;
+        match disposition {
+            ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => {
+                if transaction
+                    .delete_quarantine(record.record_id)
+                    .map_err(|_| PageApplyError::Hard)?
+                {
+                    page_summary.resolved_quarantine_count += 1;
+                }
+            }
+            ApplyDisposition::Deferred(reason, required_list_id) => {
+                if matches!(
+                    reason,
+                    PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+                ) && !quarantine_missing
+                {
+                    return Err(PageApplyError::MissingKey);
+                }
+                let failed_at = now_ms().map_err(|_| PageApplyError::Hard)?;
+                transaction
+                    .put_quarantine(LocalSyncQuarantineEntry {
+                        record_id: record.record_id,
+                        collection: record.collection,
+                        seq: record.seq,
+                        revision_hlc: record.revision_hlc.clone(),
+                        state: record.state.clone(),
+                        reason,
+                        required_list_id,
+                        first_failed_at: failed_at,
+                        last_failed_at: failed_at,
+                        attempt_count: 1,
+                    })
+                    .map_err(|_| PageApplyError::Hard)?;
+                page_summary.decrypt_failed_count += 1;
+                if matches!(
+                    reason,
+                    PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+                ) {
+                    page_summary.missing_key_quarantined_count += 1;
+                } else {
+                    page_summary.corruption_quarantined_count += 1;
+                }
+            }
+            ApplyDisposition::UpgradeRequired => return Err(PageApplyError::UpgradeRequired),
+        }
+    }
+    transaction
+        .set_cursor(
+            SYNC_CURSOR_NAME,
+            page.next_since,
+            now_ms().map_err(|_| PageApplyError::Hard)?,
+        )
+        .map_err(|_| PageApplyError::Hard)?;
+    transaction.commit().map_err(|_| PageApplyError::Hard)?;
+    Ok(page_summary)
+}
+
+fn replay_quarantine<S, N>(
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    summary: &mut SyncRunSummary,
+) -> Result<(), String>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let entries = store.list_quarantine(100)?;
+    for entry in entries {
+        let record = PullRecord {
+            record_id: entry.record_id,
+            collection: entry.collection,
+            seq: entry.seq,
+            revision_hlc: entry.revision_hlc,
+            state: entry.state,
+        };
+        let mut transaction = store.begin_write_transaction()?;
+        let mut replay_summary = SyncRunSummary::default();
+        match apply_pull_record(
+            &record,
+            context,
+            &mut transaction,
+            now_ms,
+            &mut replay_summary,
+        )? {
+            ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => {
+                transaction.delete_quarantine(record.record_id)?;
+                transaction.commit()?;
+                replay_summary.resolved_quarantine_count += 1;
+                merge_summary(summary, replay_summary);
+            }
+            ApplyDisposition::Deferred(reason, required_list_id) => {
+                let failed_at = now_ms()?;
+                transaction.put_quarantine(LocalSyncQuarantineEntry {
+                    record_id: record.record_id,
+                    collection: record.collection,
+                    seq: record.seq,
+                    revision_hlc: record.revision_hlc,
+                    state: record.state,
+                    reason,
+                    required_list_id,
+                    first_failed_at: failed_at,
+                    last_failed_at: failed_at,
+                    attempt_count: 1,
+                })?;
+                transaction.commit()?;
+            }
+            ApplyDisposition::UpgradeRequired => return Err("upgrade required".to_string()),
+        }
+    }
+    Ok(())
 }
 
 fn update_current_revision<S, N>(
@@ -195,7 +442,9 @@ where
     }
     match apply_pull_record(current, context, store, now_ms, summary)? {
         ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => Ok(()),
-        ApplyDisposition::Deferred => Err("sync failed".to_string()),
+        ApplyDisposition::Deferred(_, _) | ApplyDisposition::UpgradeRequired => {
+            Err("sync failed".to_string())
+        }
     }
 }
 
@@ -227,13 +476,6 @@ where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    let dek = match dek_for_list(&context.keys, record.record_id) {
-        Some(dek) => dek,
-        None => {
-            summary.decrypt_failed_count += 1;
-            return Ok(ApplyDisposition::Deferred);
-        }
-    };
     observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
     let local_state = store.get_record_state(SyncCollection::Lists, record.record_id)?;
     let (incoming_mutation_hlc, blob) = match &record.state {
@@ -248,6 +490,12 @@ where
             }) = local_state.as_ref()
             {
                 if compare_encoded_hlc(mutation_hlc, delete_hlc)? == std::cmp::Ordering::Greater {
+                    let Some(dek) = dek_for_list(&context.keys, record.record_id) else {
+                        return Ok(ApplyDisposition::Deferred(
+                            PullFailureReason::MissingDek,
+                            Some(record.record_id),
+                        ));
+                    };
                     let plaintext: SyncPlaintext = serde_json::from_str(plaintext_json)
                         .map_err(|_| "sync failed".to_string())?;
                     enqueue_merged_plaintext(
@@ -306,13 +554,16 @@ where
             (mutation_hlc, blob)
         }
     };
+    let Some(dek) = dek_for_list(&context.keys, record.record_id) else {
+        return Ok(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDek,
+            Some(record.record_id),
+        ));
+    };
     let incoming = decrypt_plaintext(&dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
     let incoming = match incoming {
         Ok(incoming) => incoming,
-        Err(_) => {
-            summary.decrypt_failed_count += 1;
-            return Ok(ApplyDisposition::Deferred);
-        }
+        Err(error) => return Ok(classify_envelope_error(error, Some(record.record_id))),
     };
     let existing = store.get_list(record.record_id)?;
     let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Lists, record.record_id)?;
@@ -404,8 +655,12 @@ where
                         return Err("sync failed".to_string());
                     };
                     let list_id = task.placement.value.list_id;
-                    let dek = dek_for_list(&context.keys, list_id)
-                        .ok_or_else(|| "sync failed".to_string())?;
+                    let Some(dek) = dek_for_list(&context.keys, list_id) else {
+                        return Ok(ApplyDisposition::Deferred(
+                            PullFailureReason::MissingDek,
+                            Some(list_id),
+                        ));
+                    };
                     enqueue_merged_plaintext(
                         store,
                         RebasePlaintextRequest {
@@ -463,11 +718,8 @@ where
         }
     };
     let incoming = match decrypt_task_plaintext(record, existing.as_ref(), &context.keys) {
-        Some(incoming) => incoming,
-        None => {
-            summary.decrypt_failed_count += 1;
-            return Ok(ApplyDisposition::Deferred);
-        }
+        Ok(incoming) => incoming,
+        Err(disposition) => return Ok(disposition),
     };
     let incoming_list_id = match &incoming {
         SyncPlaintext::Task(task) => task.placement.value.list_id,
@@ -476,8 +728,10 @@ where
     let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
         incoming_dek
     } else {
-        summary.decrypt_failed_count += 1;
-        return Ok(ApplyDisposition::Deferred);
+        return Ok(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDek,
+            Some(incoming_list_id),
+        ));
     };
     let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Tasks, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
@@ -605,24 +859,92 @@ fn decrypt_task_plaintext(
     record: &PullRecord,
     existing: Option<&Task>,
     keys: &LocalSyncKeys,
-) -> Option<SyncPlaintext> {
+) -> Result<SyncPlaintext, ApplyDisposition> {
     let EncryptedSyncState::Live { blob, .. } = &record.state else {
-        return None;
+        return Err(ApplyDisposition::Deferred(
+            PullFailureReason::CorruptEnvelope,
+            None,
+        ));
     };
+    if blob.is_empty() || blob.len() > crate::MAX_ENCRYPTED_BLOB_LEN {
+        return Err(ApplyDisposition::Deferred(
+            PullFailureReason::CorruptEnvelope,
+            None,
+        ));
+    }
+    if blob[0] != crate::ENVELOPE_VERSION {
+        return Err(ApplyDisposition::UpgradeRequired);
+    }
     let mut candidates = Vec::new();
+    let mut expected_list_id = None;
     if let Some(task) = existing {
-        if let Some(dek) = dek_for_list(keys, task.list_id) {
-            candidates.push(dek);
-        }
+        expected_list_id = Some(task.list_id);
+        let Some(dek) = dek_for_list(keys, task.list_id) else {
+            return Err(ApplyDisposition::Deferred(
+                PullFailureReason::MissingDek,
+                Some(task.list_id),
+            ));
+        };
+        candidates.push(dek);
     }
     for (_, dek) in &keys.list_deks {
         if !candidates.iter().any(|candidate| candidate == dek) {
             candidates.push(*dek);
         }
     }
-    candidates.into_iter().find_map(|dek| {
-        decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob).ok()
-    })
+    if candidates.is_empty() {
+        return Err(ApplyDisposition::Deferred(
+            PullFailureReason::NoMatchingDek,
+            None,
+        ));
+    }
+    let mut invalid_plaintext = false;
+    for dek in candidates {
+        match decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
+            Ok(plaintext) => return Ok(plaintext),
+            Err(EnvelopeError::UnsupportedVersion) => {
+                return Err(ApplyDisposition::UpgradeRequired)
+            }
+            Err(EnvelopeError::Deserialization | EnvelopeError::Serialization) => {
+                invalid_plaintext = true;
+            }
+            Err(_) => {}
+        }
+    }
+    if invalid_plaintext {
+        Err(ApplyDisposition::Deferred(
+            PullFailureReason::InvalidPlaintext,
+            expected_list_id,
+        ))
+    } else if expected_list_id.is_some() {
+        Err(ApplyDisposition::Deferred(
+            PullFailureReason::AuthenticationFailed,
+            expected_list_id,
+        ))
+    } else {
+        Err(ApplyDisposition::Deferred(
+            PullFailureReason::NoMatchingDek,
+            None,
+        ))
+    }
+}
+
+fn classify_envelope_error(
+    error: EnvelopeError,
+    required_list_id: Option<Uuid>,
+) -> ApplyDisposition {
+    match error {
+        EnvelopeError::UnsupportedVersion => ApplyDisposition::UpgradeRequired,
+        EnvelopeError::Crypto(_) => {
+            ApplyDisposition::Deferred(PullFailureReason::AuthenticationFailed, required_list_id)
+        }
+        EnvelopeError::Deserialization | EnvelopeError::Serialization => {
+            ApplyDisposition::Deferred(PullFailureReason::InvalidPlaintext, required_list_id)
+        }
+        EnvelopeError::EmptyBlob | EnvelopeError::BlobTooLarge => {
+            ApplyDisposition::Deferred(PullFailureReason::CorruptEnvelope, required_list_id)
+        }
+    }
 }
 
 fn record_hlc_or_initial(plaintext: &SyncPlaintext) -> Hlc {
@@ -1039,12 +1361,12 @@ mod tests {
 
         assert_eq!(
             apply_pull_record(&current, &context, &mut store, &mut now, &mut summary).unwrap(),
-            ApplyDisposition::Deferred
+            ApplyDisposition::UpgradeRequired
         );
 
         assert_eq!(store.outbox.len(), 1);
         assert_eq!(store.outbox[0].op_id, stale_op_id);
-        assert_eq!(summary.decrypt_failed_count, 1);
+        assert_eq!(summary.decrypt_failed_count, 0);
     }
 
     #[test]
@@ -1098,9 +1420,9 @@ mod tests {
 
         assert_eq!(
             apply_pull_record(&record, &context, &mut store, &mut now, &mut summary).unwrap(),
-            ApplyDisposition::Deferred
+            ApplyDisposition::Deferred(PullFailureReason::InvalidPlaintext, None)
         );
-        assert_eq!(summary.decrypt_failed_count, 1);
+        assert_eq!(summary.decrypt_failed_count, 0);
         assert!(!store
             .record_states
             .contains_key(&(SyncCollection::Tasks, record_id)));

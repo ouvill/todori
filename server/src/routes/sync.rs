@@ -19,12 +19,26 @@ use todori_sync::{
 
 pub fn router() -> Router<SharedState> {
     Router::new()
+        .route("/{tenant_id}/preflight", get(preflight))
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
         .route(
             "/{tenant_id}/list-keys",
             get(list_key_bundles).post(upsert_list_key_bundle),
         )
+}
+
+async fn preflight(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<todori_sync::protocol::SyncCapabilities>, AppError> {
+    let token = bearer_token(&headers)?;
+    let _auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    Ok(Json(todori_sync::protocol::SyncCapabilities {
+        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+        envelope_version: todori_sync::ENVELOPE_VERSION,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

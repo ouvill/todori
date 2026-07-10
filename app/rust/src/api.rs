@@ -106,6 +106,10 @@ pub struct SyncStatusDto {
     pub deleted_count: i32,
     pub decrypt_failed_count: i32,
     pub repush_count: i32,
+    pub missing_key_quarantined_count: i32,
+    pub corruption_quarantined_count: i32,
+    pub resolved_quarantine_count: i32,
+    pub upgrade_required: bool,
 }
 
 pub fn greet(name: String) -> String {

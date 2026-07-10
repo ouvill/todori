@@ -1,3 +1,12 @@
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
+
 use axum::{
     body::{to_bytes, Body},
     http::{Method, Request, StatusCode},
@@ -23,12 +32,15 @@ use todori_server::{
     AppState,
 };
 use todori_storage::{
-    open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
+    open_encrypted, ListRepository, NewSyncOutboxEntry, SqliteListRepository,
+    SqliteSyncStateRepository, SqliteTaskRepository, SyncOutboxState, SyncStateRepository,
+    TaskRepository,
 };
 use todori_sync::{
-    decrypt_plaintext,
+    decrypt_plaintext, encrypt_plaintext,
     protocol::{PushOp, PushRequest, PushStatus, SyncCollection, SyncRecordState},
-    run_sync_now, ActiveSyncContext, Hlc, LocalSyncKeys, SyncPlaintext,
+    run_sync_now, run_sync_now_with_key_refresh, ActiveSyncContext, Hlc, LocalMutationSyncStore,
+    LocalSyncKeys, LocalSyncStore, SyncKeyRefresher, SyncPlaintext, SYNC_CURSOR_NAME,
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -130,6 +142,241 @@ impl Fixture {
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         format!("http://{address}")
     }
+}
+
+struct TestKeyRefresher {
+    calls: usize,
+    keys: LocalSyncKeys,
+    fail: bool,
+}
+
+impl SyncKeyRefresher for TestKeyRefresher {
+    fn refresh<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>> {
+        self.calls += 1;
+        let result = if self.fail {
+            Err("refresh failed".to_string())
+        } else {
+            Ok(self.keys.clone())
+        };
+        Box::pin(async move { result })
+    }
+}
+
+#[tokio::test]
+async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines() {
+    const DB_KEY: [u8; 32] = [0xc3; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("quarantine.sqlite3");
+    let now = Utc::now().timestamp_millis() - 20_000;
+    let good = todori_domain::new_list(
+        "Recovered".to_string(),
+        "3fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    let missing = todori_domain::new_list(
+        "Waiting".to_string(),
+        "7fffffffffffffffffffffffffffffff".to_string(),
+        now + 1,
+    )
+    .unwrap();
+    let corrupt = todori_domain::new_list(
+        "Corrupt".to_string(),
+        "bfffffffffffffffffffffffffffffff".to_string(),
+        now + 2,
+    )
+    .unwrap();
+    let good_dek = [0x31; 32];
+    let missing_dek = [0x32; 32];
+    let corrupt_dek = [0x33; 32];
+    for (index, (list, dek)) in [
+        (&good, good_dek),
+        (&missing, missing_dek),
+        (&corrupt, corrupt_dek),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mutation = Hlc {
+            wall_ms: now + 100 + index as i64,
+            counter: 0,
+            device_id: "remote".to_string(),
+        };
+        let revision = Hlc {
+            wall_ms: now + 200 + index as i64,
+            counter: 0,
+            device_id: "remote".to_string(),
+        };
+        let plaintext = SyncPlaintext::from_list(list, mutation.clone()).unwrap();
+        let blob = if list.id == corrupt.id {
+            let mut blob =
+                encrypt_plaintext(&dek, "lists", &list.id.to_string(), &plaintext).unwrap();
+            let last = blob.len() - 1;
+            blob[last] ^= 0x40;
+            blob
+        } else {
+            encrypt_plaintext(&dek, "lists", &list.id.to_string(), &plaintext).unwrap()
+        };
+        fixture
+            .push(PushOp {
+                op_id: Uuid::now_v7(),
+                record_id: list.id,
+                collection: SyncCollection::Lists,
+                base_revision_hlc: None,
+                revision_hlc: revision.encode().unwrap(),
+                state: SyncRecordState::Live {
+                    mutation_hlc: mutation.encode().unwrap(),
+                    blob: STANDARD.encode(blob),
+                },
+            })
+            .await;
+    }
+
+    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut key_refresher = TestKeyRefresher {
+        calls: 0,
+        keys: LocalSyncKeys {
+            list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+        },
+        fail: false,
+    };
+    let context = ActiveSyncContext {
+        server_url,
+        tenant_id: fixture.tenant_id,
+        device_id: "quarantine-client".to_string(),
+        session_token: fixture.token.clone(),
+        keys: LocalSyncKeys::default(),
+    };
+    let mut clock = now + 1_000;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    let summary =
+        run_sync_now_with_key_refresh(context, &mut store, &mut ticking_now, &mut key_refresher)
+            .await
+            .unwrap();
+    assert_eq!(key_refresher.calls, 1);
+    assert_eq!(summary.applied_count, 1);
+    assert_eq!(summary.missing_key_quarantined_count, 1);
+    assert_eq!(summary.corruption_quarantined_count, 1);
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    assert_eq!(
+        repository
+            .get_cursor(SYNC_CURSOR_NAME)
+            .unwrap()
+            .unwrap()
+            .seq,
+        3
+    );
+    let quarantined = repository.list_quarantine(10).unwrap();
+    assert_eq!(quarantined.len(), 2);
+    assert!(quarantined
+        .iter()
+        .any(|row| row.record_id == missing.id && row.reason == "missing_dek"));
+    assert!(quarantined
+        .iter()
+        .any(|row| row.record_id == corrupt.id && row.reason == "authentication_failed"));
+    assert_eq!(
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .get(good.id)
+            .unwrap()
+            .name,
+        "Recovered"
+    );
+}
+
+#[tokio::test]
+async fn unsupported_preflight_durably_blocks_outbox_before_push() {
+    const DB_KEY: [u8; 32] = [0xd4; 32];
+    let preflight_count = Arc::new(AtomicUsize::new(0));
+    let push_count = Arc::new(AtomicUsize::new(0));
+    let preflight_counter = preflight_count.clone();
+    let push_counter = push_count.clone();
+    let app = Router::new()
+        .route(
+            "/v2/tenants/{tenant_id}/preflight",
+            axum::routing::get(move || {
+                let counter = preflight_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(todori_sync::protocol::SyncCapabilities {
+                        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
+                        envelope_version: todori_sync::ENVELOPE_VERSION,
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/push",
+            axum::routing::post(move || {
+                let counter = push_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(todori_sync::protocol::PushResponse { results: vec![] })
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("upgrade.sqlite3");
+    let record_id = Uuid::now_v7();
+    let op_id = Uuid::now_v7();
+    let revision = hlc(-100, 0, "local-revision");
+    let mutation = hlc(-200, 0, "local-mutation");
+    let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    repository
+        .put_outbox_head(NewSyncOutboxEntry {
+            op_id,
+            record_id,
+            collection: "tasks".to_string(),
+            base_revision_hlc: None,
+            revision_hlc: revision,
+            state: SyncOutboxState::Live {
+                mutation_hlc: mutation,
+                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+            },
+            created_at: Utc::now().timestamp_millis(),
+        })
+        .unwrap();
+    drop(repository);
+    let context = ActiveSyncContext {
+        server_url: format!("http://{address}"),
+        tenant_id: Uuid::now_v7(),
+        device_id: "upgrade-client".to_string(),
+        session_token: "token".to_string(),
+        keys: LocalSyncKeys::default(),
+    };
+    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut now = || Ok(Utc::now().timestamp_millis());
+    assert_eq!(
+        run_sync_now(context.clone(), &mut store, &mut now).await,
+        Err("upgrade required".to_string())
+    );
+    assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
+    assert_eq!(push_count.load(Ordering::SeqCst), 0);
+    assert!(store
+        .has_outbox_head(SyncCollection::Tasks, record_id)
+        .unwrap());
+    assert!(store.get_cursor_seq(SYNC_CURSOR_NAME).unwrap().is_none());
+    assert!(store
+        .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
+        .unwrap()
+        .is_some());
+
+    assert_eq!(
+        run_sync_now(context, &mut store, &mut now).await,
+        Err("upgrade required".to_string())
+    );
+    assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
+    assert_eq!(push_count.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

@@ -1,5 +1,7 @@
 use std::{
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     sync::{Mutex, MutexGuard, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -20,7 +22,7 @@ use todori_storage::{
 };
 use todori_sync::{
     account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial},
-    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncRunSummary, SYNC_CURSOR_NAME,
+    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncKeyRefresher, SyncRunSummary,
 };
 use zeroize::Zeroize;
 
@@ -182,9 +184,13 @@ pub(crate) fn sync_now() -> Result<SyncStatusDto, String> {
             state.last_error = None;
             state.last_summary = summary;
         }
-        Err(_) => {
+        Err(error) => {
             state.last_failure_at = Some(now);
-            state.last_error = Some("sync failed".to_string());
+            state.last_error = Some(if error == "upgrade required" {
+                error
+            } else {
+                "sync failed".to_string()
+            });
         }
     }
     Ok(sync_status_dto(true, &state))
@@ -483,12 +489,27 @@ fn account_auth(
 fn run_sync_now() -> Result<SyncRunSummary, String> {
     ensure_account_runtime_restored()?;
     run_initial_backfill_if_needed()?;
-    let _ = refresh_list_deks_for_sync();
     let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
     let mut now = now_ms;
-    run_async(todori_sync::run_sync_now(context, &mut store, &mut now))
+    let mut key_refresher = ProductionKeyRefresher;
+    run_async(todori_sync::run_sync_now_with_key_refresh(
+        context,
+        &mut store,
+        &mut now,
+        &mut key_refresher,
+    ))
+}
+
+struct ProductionKeyRefresher;
+
+impl SyncKeyRefresher for ProductionKeyRefresher {
+    fn refresh<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>> {
+        Box::pin(refresh_list_deks_for_sync())
+    }
 }
 
 fn run_initial_backfill_if_needed() -> Result<(), String> {
@@ -646,7 +667,7 @@ fn ensure_account_runtime_restored() -> Result<(), String> {
     Ok(())
 }
 
-fn refresh_list_deks_for_sync() -> Result<(), String> {
+async fn refresh_list_deks_for_sync() -> Result<LocalSyncKeys, String> {
     ensure_account_runtime_restored()?;
     let state = core_state()?;
     let server_url = get_sync_server_url()?;
@@ -657,13 +678,13 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
     let (tenant_id, user_id, device_id, master_key) = {
         let account = account_runtime_state();
         let Some(session) = account.session.as_ref() else {
-            return Ok(());
+            return Err("list key refresh failed".to_string());
         };
         if !session.logged_in {
-            return Ok(());
+            return Err("list key refresh failed".to_string());
         }
         let Some(crypto) = account.crypto.as_ref() else {
-            return Ok(());
+            return Err("list key refresh failed".to_string());
         };
         (
             crypto.tenant_id(),
@@ -675,7 +696,9 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
 
     let client =
         AccountClient::new(server_url).map_err(|_| "list key refresh failed".to_string())?;
-    let bundles = run_async(client.list_key_bundles(tenant_id, &session_token))
+    let bundles = client
+        .list_key_bundles(tenant_id, &session_token)
+        .await
         .map_err(|_| "list key refresh failed".to_string())?;
     let materials = unwrap_list_dek_bundles(&bundles, &master_key)
         .map_err(|_| "list key refresh failed".to_string())?;
@@ -694,12 +717,12 @@ fn refresh_list_deks_for_sync() -> Result<(), String> {
             device_id,
         },
         &master_key,
-        sync_keys,
+        sync_keys.clone(),
         now_ms()?,
     )
     .map_err(|error| error.to_string())?;
     account_runtime_state().crypto = Some(crypto);
-    Ok(())
+    Ok(sync_keys)
 }
 
 fn local_list_ids_for_registration() -> Result<Vec<Uuid>, String> {
@@ -790,8 +813,7 @@ fn local_lists_including_archived() -> Result<Vec<todori_domain::List>, String> 
 fn reset_login_sync_cursors() -> Result<(), String> {
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
-    store.delete_cursor(INITIAL_BACKFILL_CURSOR_NAME)?;
-    store.delete_cursor(SYNC_CURSOR_NAME)
+    store.delete_cursor(INITIAL_BACKFILL_CURSOR_NAME)
 }
 
 fn persist_account_state(
@@ -984,6 +1006,12 @@ fn sync_status_dto(logged_in: bool, state: &SyncRuntimeState) -> SyncStatusDto {
         deleted_count: usize_to_i32(state.last_summary.deleted_count),
         decrypt_failed_count: usize_to_i32(state.last_summary.decrypt_failed_count),
         repush_count: usize_to_i32(state.last_summary.repush_count),
+        missing_key_quarantined_count: usize_to_i32(
+            state.last_summary.missing_key_quarantined_count,
+        ),
+        corruption_quarantined_count: usize_to_i32(state.last_summary.corruption_quarantined_count),
+        resolved_quarantine_count: usize_to_i32(state.last_summary.resolved_quarantine_count),
+        upgrade_required: state.last_error.as_deref() == Some("upgrade required"),
     }
 }
 
