@@ -8,7 +8,14 @@ use clap::{Parser, Subcommand};
 
 // `todori-client`をfrontend共通入口としてcompile時にも固定する。実際の
 // profile openとsubcommand接続はOS secret store実装後の後続taskで行う。
-use todori_client as _;
+use todori_client::{ClientError, ClientProfile, ProfileConfig};
+
+const _: fn(ProfileConfig) -> Result<ClientProfile, ClientError> = ClientProfile::open;
+
+#[allow(dead_code)]
+fn _assert_async_profile_api(profile: &ClientProfile) {
+    std::mem::drop(profile.sync_now());
+}
 
 #[derive(Parser)]
 #[command(name = "todori", version, about = "Todori: E2EE Todo CLI")]

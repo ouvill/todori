@@ -1,0 +1,1115 @@
+use todori_domain::{
+    archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
+    new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
+    unarchive_list as domain_unarchive_list, update_due_at, update_note, update_priority,
+    update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
+};
+use todori_storage::{
+    open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SqliteWriteTx,
+    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
+};
+use zeroize::Zeroizing;
+
+use crate::task_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
+use crate::{
+    load_local_crypto_context, Client, ClientError, CreateTaskInput, LocalCryptoAvailability,
+    LocalMutationContext, ReorderTaskInput, SetTaskStatusInput, UpdateTaskInput,
+};
+
+use super::{now_ms, ClientProfile, CryptoRuntimeState, LocalMutationState};
+
+#[derive(Debug, Clone)]
+pub struct CreateTaskCommand {
+    pub list_id: Uuid,
+    pub title: String,
+    pub parent_task_id: Option<Uuid>,
+    pub due_at: Option<i64>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReorderTaskCommand {
+    pub task_id: Uuid,
+    pub previous_task_id: Option<Uuid>,
+    pub next_task_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateTaskCommand {
+    pub task_id: Uuid,
+    pub title: String,
+    pub note: String,
+    pub priority: i32,
+    pub due_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetTaskStatusCommand {
+    pub task_id: Uuid,
+    pub status: TaskStatus,
+    pub closed_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomeTaskView {
+    pub task: Task,
+    pub list_name: String,
+    pub is_home_target: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskUndoKind {
+    Delete,
+    Complete,
+    Edit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskUndoView {
+    pub id: Uuid,
+    pub operation: TaskUndoKind,
+    pub task_id: Uuid,
+    pub list_id: Uuid,
+    pub task_title: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReminderView {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub remind_at: i64,
+    pub snoozed_until: Option<i64>,
+    pub created_at: i64,
+}
+
+enum CreateListMode {
+    Anonymous,
+    Ready {
+        tenant_id: Uuid,
+        master_key: Zeroizing<[u8; 32]>,
+        mutation: LocalMutationContext,
+    },
+}
+
+impl ClientProfile {
+    pub fn create_list(&self, name: String) -> Result<List, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        let mode = self.create_list_mode()?;
+        match mode {
+            CreateListMode::Anonymous => self.create_anonymous_list(name, now),
+            CreateListMode::Ready {
+                tenant_id,
+                master_key,
+                mutation,
+            } => {
+                let list =
+                    self.client()
+                        .create_list(name, now, tenant_id, &master_key, &mutation)?;
+                let refreshed =
+                    load_local_crypto_context(&self.db_path, &self.db_key, Some(*master_key))?;
+                let LocalCryptoAvailability::Ready(crypto) = refreshed else {
+                    return Err(ClientError::AccountBoundUnavailable);
+                };
+                self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+                Ok(list)
+            }
+        }
+    }
+
+    pub fn get_lists(&self) -> Result<Vec<List>, ClientError> {
+        self.with_list_repository(|repository| Ok(repository.list_all()?))
+    }
+
+    pub fn get_archived_lists(&self) -> Result<Vec<List>, ClientError> {
+        self.with_list_repository(|repository| Ok(repository.list_archived()?))
+    }
+
+    pub fn rename_list(&self, list_id: Uuid, name: String) -> Result<List, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => {
+                self.mutate_anonymous_list(list_id, |list| Ok(domain_rename_list(list, name, now)?))
+            }
+            LocalMutationState::Ready(sync) => self.client().rename_list(list_id, name, now, &sync),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn archive_list(&self, list_id: Uuid) -> Result<List, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.mutate_anonymous_list(list_id, |list| {
+                if list.archived_at.is_none() && list.is_default {
+                    return Err(StorageError::DefaultListProtected {
+                        operation: "archived",
+                        list_id,
+                    }
+                    .into());
+                }
+                Ok(domain_archive_list(list, now)?)
+            }),
+            LocalMutationState::Ready(sync) => self.client().archive_list(list_id, now, &sync),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn unarchive_list(&self, list_id: Uuid) -> Result<List, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => {
+                self.mutate_anonymous_list(list_id, |list| Ok(domain_unarchive_list(list, now)?))
+            }
+            LocalMutationState::Ready(sync) => self.client().unarchive_list(list_id, now, &sync),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn delete_list(&self, list_id: Uuid) -> Result<(), ClientError> {
+        let _guard = self.operation_guard()?;
+        let state = self.local_mutation_state()?;
+        self.delete_list_with_state(list_id, state, now_ms()?)
+    }
+
+    pub fn create_task(&self, command: CreateTaskCommand) -> Result<Task, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.create_anonymous_task(command, now),
+            LocalMutationState::Ready(sync) => self.client().create_task(
+                CreateTaskInput {
+                    list_id: command.list_id,
+                    title: command.title,
+                    parent_task_id: command.parent_task_id,
+                    due_at: command.due_at,
+                    note: command.note,
+                    now_ms: now,
+                },
+                &sync,
+            ),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn reorder_task(&self, command: ReorderTaskCommand) -> Result<Task, ClientError> {
+        let _guard = self.operation_guard()?;
+        validate_reorder_ids(
+            command.task_id,
+            command.previous_task_id,
+            command.next_task_id,
+        )?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.reorder_anonymous_task(command, now),
+            LocalMutationState::Ready(sync) => self.client().reorder_task(
+                ReorderTaskInput {
+                    task_id: command.task_id,
+                    previous_task_id: command.previous_task_id,
+                    next_task_id: command.next_task_id,
+                    now_ms: now,
+                },
+                &sync,
+            ),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn get_tasks(&self, list_id: Uuid) -> Result<Vec<Task>, ClientError> {
+        self.with_task_repository(|repository| Ok(repository.list_active_by_list(list_id)?))
+    }
+
+    pub fn search_tasks(&self, query: &str) -> Result<Vec<Task>, ClientError> {
+        self.with_task_repository(|repository| Ok(repository.search_tasks(query)?))
+    }
+
+    pub fn get_home_tasks(
+        &self,
+        today_start_ms: i64,
+        tomorrow_start_ms: i64,
+    ) -> Result<Vec<HomeTaskView>, ClientError> {
+        self.with_task_repository(|repository| {
+            Ok(repository
+                .list_home(today_start_ms, tomorrow_start_ms)?
+                .into_iter()
+                .map(HomeTaskView::from)
+                .collect())
+        })
+    }
+
+    pub fn count_task_descendants(&self, task_id: Uuid) -> Result<usize, ClientError> {
+        self.with_task_repository(|repository| {
+            repository.get(task_id)?;
+            Ok(repository.count_descendants(task_id)?)
+        })
+    }
+
+    pub fn count_tasks_in_list(&self, list_id: Uuid) -> Result<usize, ClientError> {
+        self.with_list_repository(|repository| {
+            repository.get(list_id)?;
+            Ok(repository.count_tasks(list_id)?)
+        })
+    }
+
+    pub fn update_task(&self, command: UpdateTaskCommand) -> Result<Task, ClientError> {
+        if !(0..=3).contains(&command.priority) {
+            return Err(ClientError::InvalidPriority);
+        }
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.update_anonymous_task(command, now),
+            LocalMutationState::Ready(sync) => self.client().update_task(
+                UpdateTaskInput {
+                    task_id: command.task_id,
+                    title: command.title,
+                    note: command.note,
+                    priority: command.priority,
+                    due_at: command.due_at,
+                    now_ms: now,
+                },
+                &sync,
+            ),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn set_task_status(&self, command: SetTaskStatusCommand) -> Result<Task, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.set_anonymous_task_status(command, now),
+            LocalMutationState::Ready(sync) => self.client().set_task_status(
+                SetTaskStatusInput {
+                    task_id: command.task_id,
+                    status: command.status,
+                    closed_reason: command.closed_reason,
+                    now_ms: now,
+                },
+                &sync,
+            ),
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn delete_task(&self, task_id: Uuid) -> Result<(), ClientError> {
+        let _guard = self.operation_guard()?;
+        let state = self.local_mutation_state()?;
+        self.delete_task_with_state(task_id, state, now_ms()?)
+    }
+
+    pub fn get_latest_task_undo(&self) -> Result<Option<TaskUndoView>, ClientError> {
+        self.with_task_repository(|repository| {
+            Ok(repository.latest_unconsumed_undo()?.map(TaskUndoView::from))
+        })
+    }
+
+    pub fn undo_task_operation(&self, undo_id: Uuid) -> Result<Task, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => self.with_task_repository(|repository| {
+                Ok(repository.undo_task_operation(undo_id, now)?)
+            }),
+            LocalMutationState::Ready(sync) => {
+                self.client().undo_task_operation(undo_id, now, &sync)
+            }
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, ClientError> {
+        self.setting(key)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), ClientError> {
+        let _guard = self.operation_guard()?;
+        self.set_setting_value(key, value)
+    }
+
+    pub fn set_task_reminder(
+        &self,
+        task_id: Uuid,
+        remind_at: i64,
+    ) -> Result<ReminderView, ClientError> {
+        let _guard = self.operation_guard()?;
+        let created_at = now_ms()?;
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .set_task_reminder(task_id, remind_at, created_at)?
+                .into())
+        })
+    }
+
+    pub fn clear_task_reminders(&self, task_id: Uuid) -> Result<Vec<ReminderView>, ClientError> {
+        let _guard = self.operation_guard()?;
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .clear_task_reminders(task_id)?
+                .into_iter()
+                .map(ReminderView::from)
+                .collect())
+        })
+    }
+
+    pub fn get_task_reminders(&self, task_id: Uuid) -> Result<Vec<ReminderView>, ClientError> {
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .list_task_reminders(task_id)?
+                .into_iter()
+                .map(ReminderView::from)
+                .collect())
+        })
+    }
+
+    pub fn get_task_subtree_reminders(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<ReminderView>, ClientError> {
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .list_task_subtree_reminders(task_id)?
+                .into_iter()
+                .map(ReminderView::from)
+                .collect())
+        })
+    }
+
+    pub fn get_list_reminders(&self, list_id: Uuid) -> Result<Vec<ReminderView>, ClientError> {
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .list_list_reminders(list_id)?
+                .into_iter()
+                .map(ReminderView::from)
+                .collect())
+        })
+    }
+
+    pub fn list_pending_reminders(&self, at_ms: i64) -> Result<Vec<ReminderView>, ClientError> {
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .list_pending_reminders(at_ms)?
+                .into_iter()
+                .map(ReminderView::from)
+                .collect())
+        })
+    }
+
+    pub fn snooze_reminder(
+        &self,
+        reminder_id: Uuid,
+        snoozed_until: i64,
+    ) -> Result<ReminderView, ClientError> {
+        let _guard = self.operation_guard()?;
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .snooze_reminder(reminder_id, snoozed_until)?
+                .into())
+        })
+    }
+}
+
+impl ClientProfile {
+    fn client(&self) -> Client {
+        Client::new(self.db_path.clone(), self.db_key())
+    }
+
+    fn create_list_mode(&self) -> Result<CreateListMode, ClientError> {
+        self.ensure_account_runtime_restored()?;
+        let account = self.account_state()?;
+        match &account.crypto {
+            CryptoRuntimeState::Anonymous => Ok(CreateListMode::Anonymous),
+            CryptoRuntimeState::Ready(crypto) => Ok(CreateListMode::Ready {
+                tenant_id: crypto.tenant_id(),
+                master_key: Zeroizing::new(*crypto.master_key()),
+                mutation: crypto.mutation_context(),
+            }),
+            CryptoRuntimeState::Unavailable(_) | CryptoRuntimeState::Unloaded => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
+    }
+
+    fn create_anonymous_list(&self, name: String, now: i64) -> Result<List, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let mut lists = transaction.list_lists_including_archived()?;
+        lists.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+        let rank = match fractional_index_after(lists.last().map(|list| list.sort_order.as_str())) {
+            Ok(rank) => rank,
+            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+                let ranks = rebalance_ranks(lists.len() + 1)?;
+                for (mut list, rank) in lists.into_iter().zip(ranks.iter()) {
+                    if list.sort_order != *rank {
+                        list.sort_order.clone_from(rank);
+                        list.updated_at = now;
+                        transaction.update_list(list)?;
+                    }
+                }
+                ranks.last().cloned().ok_or(ClientError::Sync)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let list = new_list(name, rank, now)?;
+        transaction.insert_list(list.clone())?;
+        transaction.commit()?;
+        Ok(list)
+    }
+
+    fn mutate_anonymous_list(
+        &self,
+        list_id: Uuid,
+        mutation: impl FnOnce(List) -> Result<List, ClientError>,
+    ) -> Result<List, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let before = transaction.get_list(list_id)?;
+        let updated = mutation(before.clone())?;
+        if updated == before {
+            return Ok(before);
+        }
+        transaction.update_list(updated.clone())?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    fn create_anonymous_task(
+        &self,
+        command: CreateTaskCommand,
+        now: i64,
+    ) -> Result<Task, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        transaction.get_list(command.list_id)?;
+        let mut tasks = transaction.list_active_tasks_by_list(command.list_id)?;
+        let mut siblings = tasks
+            .iter()
+            .filter(|task| task.parent_task_id == command.parent_task_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        siblings.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+        let rank =
+            match fractional_index_after(siblings.last().map(|task| task.sort_order.as_str())) {
+                Ok(rank) => rank,
+                Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+                    let ranks = rebalance_ranks(siblings.len() + 1)?;
+                    for (mut sibling, rank) in siblings.into_iter().zip(ranks.iter()) {
+                        if sibling.sort_order != *rank {
+                            sibling.sort_order.clone_from(rank);
+                            sibling.updated_at = now;
+                            transaction.update_task(sibling)?;
+                        }
+                    }
+                    ranks.last().cloned().ok_or(ClientError::Sync)?
+                }
+                Err(error) => return Err(error.into()),
+            };
+        let mut task = new_task(
+            command.list_id,
+            command.parent_task_id,
+            command.title,
+            rank,
+            now,
+        )?;
+        if let Some(note) = command.note {
+            task = update_note(task, note, now)?;
+        }
+        if let Some(due_at) = command.due_at {
+            task = update_due_at(task, Some(due_at), now)?;
+        }
+        if let Some(parent_id) = command.parent_task_id {
+            if !tasks.iter().any(|existing| existing.id == parent_id) {
+                match transaction.get_task(parent_id) {
+                    Ok(parent) => tasks.push(parent),
+                    Err(StorageError::NotFound(_)) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            validate_parent_for(task.id, command.list_id, parent_id, &tasks)?;
+        }
+        transaction.insert_task(task.clone())?;
+        transaction.commit()?;
+        Ok(task)
+    }
+
+    fn reorder_anonymous_task(
+        &self,
+        command: ReorderTaskCommand,
+        now: i64,
+    ) -> Result<Task, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let target = transaction.get_task(command.task_id)?;
+        let mut scope = transaction
+            .list_active_tasks_by_list(target.list_id)?
+            .into_iter()
+            .filter(|task| task.parent_task_id == target.parent_task_id && task.id != target.id)
+            .collect::<Vec<_>>();
+        scope.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+        let insertion = insertion_index(&scope, command.previous_task_id, command.next_task_id)?;
+        let previous_rank = insertion
+            .checked_sub(1)
+            .and_then(|index| scope.get(index))
+            .map(|task| task.sort_order.as_str());
+        let next_rank = scope.get(insertion).map(|task| task.sort_order.as_str());
+        let midpoint = fractional_index_between(previous_rank, next_rank).ok();
+        let collides = midpoint
+            .as_ref()
+            .is_some_and(|rank| scope.iter().any(|task| task.sort_order == *rank));
+        if let Some(rank) = midpoint.filter(|_| !collides) {
+            let mut updated = target;
+            updated.sort_order = rank;
+            updated.updated_at = now;
+            transaction.update_task(updated.clone())?;
+            transaction.commit()?;
+            return Ok(updated);
+        }
+
+        scope.insert(insertion, target);
+        let ranks = rebalance_ranks(scope.len())?;
+        let mut reordered = None;
+        for (mut task, rank) in scope.into_iter().zip(ranks) {
+            if task.sort_order != rank {
+                task.sort_order = rank;
+                task.updated_at = now;
+                transaction.update_task(task.clone())?;
+            }
+            if task.id == command.task_id {
+                reordered = Some(task);
+            }
+        }
+        transaction.commit()?;
+        reordered.ok_or(ClientError::Storage(StorageError::NotFound(
+            command.task_id,
+        )))
+    }
+
+    fn update_anonymous_task(
+        &self,
+        command: UpdateTaskCommand,
+        now: i64,
+    ) -> Result<Task, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let before = transaction.get_task(command.task_id)?;
+        let task = update_title(before.clone(), command.title, now)?;
+        let task = update_note(task, command.note, now)?;
+        let task = update_priority(task, command.priority, now)?;
+        let updated = update_due_at(task, command.due_at, now)?;
+        transaction.update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now)?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    fn set_anonymous_task_status(
+        &self,
+        command: SetTaskStatusCommand,
+        now: i64,
+    ) -> Result<Task, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let before = transaction.get_task(command.task_id)?;
+        let updated = transition_task(before.clone(), command.status, command.closed_reason, now)?;
+        if matches!(command.status, TaskStatus::Done | TaskStatus::WontDo) {
+            transaction.update_task_with_undo(
+                before,
+                updated.clone(),
+                TaskUndoOperation::Complete,
+                now,
+            )?;
+        } else {
+            transaction.update_task(updated.clone())?;
+        }
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    fn delete_task_with_state(
+        &self,
+        task_id: Uuid,
+        state: LocalMutationState,
+        now: i64,
+    ) -> Result<(), ClientError> {
+        let sync = match state {
+            LocalMutationState::Anonymous => None,
+            LocalMutationState::Ready(sync) => Some(sync),
+            LocalMutationState::AccountBoundUnavailable => {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+        };
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        transaction.get_task(task_id)?;
+        let tasks = transaction.list_task_subtree(task_id)?;
+        if let Some(sync) = sync.as_ref() {
+            for task in &tasks {
+                enqueue_task_in_transaction(&mut transaction, sync, task, true, now)?;
+            }
+        }
+        transaction.delete_task_subtree(task_id)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    fn delete_list_with_state(
+        &self,
+        list_id: Uuid,
+        state: LocalMutationState,
+        now: i64,
+    ) -> Result<(), ClientError> {
+        let sync = match state {
+            LocalMutationState::Anonymous => None,
+            LocalMutationState::Ready(sync) => Some(sync),
+            LocalMutationState::AccountBoundUnavailable => {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+        };
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let list = transaction.get_list(list_id)?;
+        if list.is_default {
+            return Err(StorageError::DefaultListProtected {
+                operation: "deleted",
+                list_id,
+            }
+            .into());
+        }
+        let tasks = transaction.list_tasks_by_list(list_id)?;
+        if let Some(sync) = sync.as_ref() {
+            for task in &tasks {
+                enqueue_task_in_transaction(&mut transaction, sync, task, true, now)?;
+            }
+            enqueue_list_in_transaction(&mut transaction, sync, &list, true, now)?;
+        }
+        transaction.delete_list_with_tasks(list_id)?;
+        transaction.commit()?;
+        Ok(())
+    }
+}
+
+fn validate_reorder_ids(
+    task_id: Uuid,
+    previous_task_id: Option<Uuid>,
+    next_task_id: Option<Uuid>,
+) -> Result<(), ClientError> {
+    if previous_task_id == Some(task_id)
+        || next_task_id == Some(task_id)
+        || (previous_task_id.is_some() && previous_task_id == next_task_id)
+    {
+        return Err(todori_domain::DomainError::InvalidSortOrderBoundary.into());
+    }
+    Ok(())
+}
+
+fn insertion_index(
+    scope: &[Task],
+    previous_task_id: Option<Uuid>,
+    next_task_id: Option<Uuid>,
+) -> Result<usize, ClientError> {
+    let find = |id| {
+        scope
+            .iter()
+            .position(|task| task.id == id)
+            .ok_or(ClientError::Storage(StorageError::NotFound(id)))
+    };
+    match (previous_task_id, next_task_id) {
+        (None, None) => Ok(scope.len()),
+        (Some(previous), None) => Ok(find(previous)? + 1),
+        (None, Some(next)) => find(next),
+        (Some(previous), Some(next)) => {
+            let previous = find(previous)?;
+            let next = find(next)?;
+            if previous + 1 != next {
+                return Err(todori_domain::DomainError::InvalidSortOrderBoundary.into());
+            }
+            Ok(next)
+        }
+    }
+}
+
+impl From<HomeTask> for HomeTaskView {
+    fn from(value: HomeTask) -> Self {
+        Self {
+            task: value.task,
+            list_name: value.list_name,
+            is_home_target: value.is_home_target,
+        }
+    }
+}
+
+impl From<TaskUndoEntry> for TaskUndoView {
+    fn from(value: TaskUndoEntry) -> Self {
+        Self {
+            id: value.id,
+            operation: match value.operation_type {
+                TaskUndoOperation::Delete => TaskUndoKind::Delete,
+                TaskUndoOperation::Complete => TaskUndoKind::Complete,
+                TaskUndoOperation::Edit => TaskUndoKind::Edit,
+            },
+            task_id: value.task_id,
+            list_id: value.list_id,
+            task_title: value.before_snapshot.title,
+            created_at: value.created_at,
+        }
+    }
+}
+
+impl From<Reminder> for ReminderView {
+    fn from(value: Reminder) -> Self {
+        Self {
+            id: value.id,
+            task_id: value.task_id,
+            remind_at: value.remind_at,
+            snoozed_until: value.snoozed_until,
+            created_at: value.created_at,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use tempfile::TempDir;
+    use todori_domain::{new_list, new_task};
+    use todori_storage::{
+        ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
+        SqliteSyncStateRepository, SqliteTaskRepository, SyncStateRepository, TaskRepository,
+    };
+    use todori_sync::{LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY};
+
+    use super::*;
+    use crate::{
+        persist_local_crypto_context,
+        profile::{AccountRuntimeState, SyncRuntimeState},
+        AccountSessionState, LocalCryptoIdentity, LocalCryptoUnavailable,
+    };
+
+    const DB_KEY: [u8; 32] = [0xd2; 32];
+    const BASE_MS: i64 = 1_799_500_000_000;
+
+    #[test]
+    fn update_task_rejects_priority_outside_public_contract_before_writing() {
+        let temp = TempDir::new().unwrap();
+        let profile = ClientProfile {
+            db_dir: temp.path().to_path_buf(),
+            db_path: temp.path().join("profile.sqlite3"),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        let result = profile.update_task(UpdateTaskCommand {
+            task_id: Uuid::now_v7(),
+            title: "invalid".into(),
+            note: String::new(),
+            priority: 4,
+            due_at: None,
+        });
+
+        assert!(matches!(result, Err(ClientError::InvalidPriority)));
+        assert!(!profile.db_path.exists());
+    }
+
+    #[test]
+    fn network_operation_blocks_local_mutation_and_drop_reopens_the_gate() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("gate.sqlite3");
+        let list = new_list(
+            "Before".into(),
+            fractional_index_after(None).unwrap(),
+            BASE_MS,
+        )
+        .unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list.clone())
+            .unwrap();
+        let profile = ClientProfile {
+            db_dir: temp.path().to_path_buf(),
+            db_path,
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        let network_operation = profile.begin_operation().unwrap();
+        assert!(matches!(
+            profile.rename_list(list.id, "Blocked".into()),
+            Err(ClientError::Busy)
+        ));
+        drop(network_operation);
+
+        assert_eq!(
+            profile.rename_list(list.id, "Allowed".into()).unwrap().name,
+            "Allowed"
+        );
+    }
+
+    #[test]
+    fn public_mutation_matrix_keeps_anonymous_ready_and_unavailable_distinct() {
+        let run = |name: &str, crypto: CryptoRuntimeState| {
+            let temp = TempDir::new().unwrap();
+            let db_path = temp.path().join(format!("{name}.sqlite3"));
+            let list = new_list(
+                "Before".into(),
+                fractional_index_after(None).unwrap(),
+                BASE_MS,
+            )
+            .unwrap();
+            SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+                .insert(list.clone())
+                .unwrap();
+            let profile = ClientProfile {
+                db_dir: temp.path().to_path_buf(),
+                db_path: db_path.clone(),
+                db_key: Zeroizing::new(DB_KEY),
+                account: Mutex::new(AccountRuntimeState {
+                    session: None,
+                    session_restored: true,
+                    crypto,
+                }),
+                sync: Mutex::new(SyncRuntimeState::default()),
+                operation_busy: std::sync::atomic::AtomicBool::new(false),
+            };
+            (temp, db_path, list, profile)
+        };
+
+        let (_temp, anonymous_path, anonymous_list, anonymous) =
+            run("anonymous", CryptoRuntimeState::Anonymous);
+        assert_eq!(
+            anonymous
+                .rename_list(anonymous_list.id, "Anonymous".into())
+                .unwrap()
+                .name,
+            "Anonymous"
+        );
+        assert!(
+            SqliteSyncStateRepository::new(open_encrypted(&anonymous_path, &DB_KEY).unwrap())
+                .list_outbox_heads(10)
+                .unwrap()
+                .is_empty()
+        );
+
+        let ready_temp = TempDir::new().unwrap();
+        let ready_path = ready_temp.path().join("ready.sqlite3");
+        let ready_list = new_list(
+            "Before".into(),
+            fractional_index_after(None).unwrap(),
+            BASE_MS,
+        )
+        .unwrap();
+        SqliteListRepository::new(open_encrypted(&ready_path, &DB_KEY).unwrap())
+            .insert(ready_list.clone())
+            .unwrap();
+        let ready_crypto = persist_local_crypto_context(
+            &ready_path,
+            &DB_KEY,
+            LocalCryptoIdentity {
+                tenant_id: Uuid::now_v7(),
+                user_id: Uuid::now_v7(),
+                device_id: Uuid::now_v7(),
+            },
+            &[0x44; 32],
+            LocalSyncKeys {
+                list_deks: vec![(ready_list.id, [0x55; 32])],
+            },
+            BASE_MS,
+        )
+        .unwrap();
+        let ready = ClientProfile {
+            db_dir: ready_temp.path().to_path_buf(),
+            db_path: ready_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: Some(AccountSessionState {
+                    logged_in: true,
+                    email: Some("ready@example.com".into()),
+                    user_id: Some("user".into()),
+                    tenant_id: Some("tenant".into()),
+                    device_id: Some("device".into()),
+                }),
+                session_restored: true,
+                crypto: CryptoRuntimeState::Ready(ready_crypto),
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+        ready
+            .rename_list(ready_list.id, "Online ready".into())
+            .unwrap();
+        {
+            let mut account = ready.account_state().unwrap();
+            account.session = None;
+            account.session_restored = true;
+        }
+        ready
+            .rename_list(ready_list.id, "Offline ready".into())
+            .unwrap();
+        assert_eq!(
+            SqliteSyncStateRepository::new(open_encrypted(&ready_path, &DB_KEY).unwrap())
+                .list_outbox_heads(10)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let (_temp, unavailable_path, unavailable_list, unavailable) = run(
+            "unavailable",
+            CryptoRuntimeState::Unavailable(LocalCryptoUnavailable::MissingMasterKey),
+        );
+        assert!(matches!(
+            unavailable.rename_list(unavailable_list.id, "No write".into()),
+            Err(ClientError::AccountBoundUnavailable)
+        ));
+        assert_eq!(
+            SqliteListRepository::new(open_encrypted(&unavailable_path, &DB_KEY).unwrap())
+                .get(unavailable_list.id)
+                .unwrap(),
+            unavailable_list
+        );
+    }
+
+    #[test]
+    fn task_delete_tombstone_failure_rolls_back_entire_subtree() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("profile.sqlite3");
+        let list = new_list("Project".into(), "a0".into(), BASE_MS).unwrap();
+        let root = new_task(list.id, None, "root".into(), "a0".into(), BASE_MS).unwrap();
+        let child = new_task(list.id, Some(root.id), "child".into(), "a0".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list.clone())
+            .unwrap();
+        let mut tasks = SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        tasks.insert(root.clone()).unwrap();
+        tasks.insert(child.clone()).unwrap();
+        drop(tasks);
+        open_encrypted(&db_path, &DB_KEY)
+            .unwrap()
+            .execute_batch(&format!(
+                "CREATE TRIGGER fail_root_tombstone BEFORE INSERT ON sync_outbox
+                 WHEN NEW.record_id = '{}' BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+                child.id
+            ))
+            .unwrap();
+
+        let profile = ClientProfile {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+        let sync = LocalMutationContext {
+            device_id: "device-a".into(),
+            keys: LocalSyncKeys {
+                list_deks: vec![(list.id, [0x55; 32])],
+            },
+        };
+        assert!(profile
+            .delete_task_with_state(root.id, LocalMutationState::Ready(sync), BASE_MS + 1)
+            .is_err());
+
+        let tasks = SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(tasks.get(root.id).unwrap(), root);
+        assert_eq!(tasks.get(child.id).unwrap(), child);
+        drop(tasks);
+        let sync = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert!(sync.list_outbox_heads(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_delete_tombstone_failure_rolls_back_every_task_and_list() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("profile.sqlite3");
+        let list = new_list("Project".into(), "a0".into(), BASE_MS).unwrap();
+        let first = new_task(list.id, None, "first".into(), "a0".into(), BASE_MS).unwrap();
+        let second = new_task(list.id, None, "second".into(), "a1".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list.clone())
+            .unwrap();
+        let mut tasks = SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        tasks.insert(first.clone()).unwrap();
+        tasks.insert(second.clone()).unwrap();
+        drop(tasks);
+        open_encrypted(&db_path, &DB_KEY)
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_list_tombstone BEFORE INSERT ON sync_outbox
+                 WHEN NEW.collection = 'lists'
+                 BEGIN SELECT RAISE(ABORT, 'fail list tombstone'); END;",
+            )
+            .unwrap();
+
+        let profile = ClientProfile {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+        let sync = LocalMutationContext {
+            device_id: "device-a".into(),
+            keys: LocalSyncKeys {
+                list_deks: vec![(list.id, [0x55; 32])],
+            },
+        };
+        assert!(profile
+            .delete_list_with_state(list.id, LocalMutationState::Ready(sync), BASE_MS + 1)
+            .is_err());
+
+        let lists = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(lists.get(list.id).unwrap(), list);
+        drop(lists);
+        let tasks = SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(tasks.get(first.id).unwrap(), first);
+        assert_eq!(tasks.get(second.id).unwrap(), second);
+        drop(tasks);
+        let sync = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert!(sync.list_outbox_heads(10).unwrap().is_empty());
+        drop(sync);
+        let settings = SqliteSettingsRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(
+            settings.get_setting(SYNC_LOCAL_HLC_SETTING_KEY).unwrap(),
+            None
+        );
+    }
+}

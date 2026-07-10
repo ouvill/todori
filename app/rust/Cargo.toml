@@ -10,14 +10,5 @@ crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.12.0"
-serde_json.workspace = true
-todori-crypto.workspace = true
 todori-client.workspace = true
-todori-domain.workspace = true
-todori-sync.workspace = true
-todori-storage.workspace = true
 tokio.workspace = true
-zeroize.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true

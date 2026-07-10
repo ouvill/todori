@@ -3387,15 +3387,8 @@ name = "todori_app_bridge"
 version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
- "serde_json",
- "tempfile",
  "todori-client",
- "todori-crypto",
- "todori-domain",
- "todori-storage",
- "todori-sync",
  "tokio",
- "zeroize",
 ]
 
 [[package]]

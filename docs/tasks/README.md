@@ -60,6 +60,7 @@
 - [ ] `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release` の後 `cd app && flutter test`（Flutter変更時）
 - [ ] `sh app/tool/check_hardcoded_strings.sh`（Flutter変更時）
 - [ ] `sh app/tool/check_client_boundaries.sh`
+- [ ] `sh app/tool/test_client_boundaries.sh`
 - [ ] `git diff --check`
 - [ ] ARB変更時に `flutter gen-l10n` を実行し、生成物を手編集していない
 - [ ] UI変更時にtooltip / semantics、タップ領域、色以外の情報伝達を維持している

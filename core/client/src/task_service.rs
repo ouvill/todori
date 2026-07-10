@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+#[cfg(any(test, feature = "test-support"))]
+use std::path::Path;
 
 use thiserror::Error;
 use todori_domain::{update_due_at, update_note, update_priority, update_title, List, Task, Uuid};
@@ -22,6 +25,30 @@ pub enum ClientError {
     Sync,
     #[error("local sync key is unavailable for list {0}")]
     MissingListKey(Uuid),
+    #[error("profile I/O failed")]
+    Io(#[source] std::io::Error),
+    #[error("profile secret store failed")]
+    KeyStore(#[source] todori_crypto::KeyStoreError),
+    #[error("account request failed")]
+    AccountRequest,
+    #[error("account-bound local sync keys are unavailable")]
+    AccountBoundUnavailable,
+    #[error("local profile is already account-bound")]
+    ProfileAlreadyBound,
+    #[error("local profile belongs to a different account")]
+    ProfileIdentityMismatch,
+    #[error("account state is incomplete")]
+    IncompleteAccountState,
+    #[error("sync failed")]
+    SyncRun,
+    #[error("upgrade required")]
+    UpgradeRequired,
+    #[error("client runtime state is unavailable")]
+    RuntimeState,
+    #[error("another account or sync operation is already running")]
+    Busy,
+    #[error("task priority must be between 0 and 3")]
+    InvalidPriority,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +80,7 @@ impl Client {
         }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn db_path(&self) -> &Path {
         &self.db_path
     }

@@ -6,7 +6,7 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_bound_client`, `count_to_i32`, `create_anonymous_list_on`, `create_anonymous_list`, `create_anonymous_task_on`, `create_anonymous_task`, `home_task_to_dto`, `list_to_dto`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `reorder_anonymous_task_on`, `reorder_anonymous_task`, `status_to_string`, `task_to_dto`, `task_undo_operation_to_string`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `json_string`, `list_to_dto`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_to_dto`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -18,10 +18,9 @@ Future<String> createDraftTask({required String title}) =>
 /// Initializes Todori core for the process using `db_dir`.
 ///
 /// This creates or loads a platform Device Key, derives the SQLCipher key,
-/// initializes `<db_dir>/todori.db`, and stores only the DB path plus derived
-/// key in process-global state. Reinitializing with the same DB path succeeds
-/// idempotently; reinitializing with a different DB path returns an error
-/// because `OnceLock` cannot safely swap process-global state.
+/// initializes `<db_dir>/todori.db`, and stores the process-global client
+/// profile. Reinitializing with the same DB path succeeds idempotently;
+/// reinitializing with a different DB path returns an error.
 Future<void> initCore({
   required String dbDir,
   required String defaultInboxName,
@@ -70,10 +69,10 @@ Future<SyncStatusDto> getSyncStatus() =>
 
 Future<SyncStatusDto> syncNow() => RustLib.instance.api.crateApiSyncNow();
 
-/// Creates a list using the caller-provided fractional `sort_order`.
+/// Creates a list using a client-owned fractional `sort_order`.
 ///
-/// Automatic fractional index generation is a later M3 concern and is not done
-/// in this bridge layer.
+/// `sort_order` remains in the FRB contract for compatibility, but rank
+/// generation and rebalance are owned by `ClientProfile`.
 Future<ListDto> createList({required String name, required String sortOrder}) =>
     RustLib.instance.api.crateApiCreateList(name: name, sortOrder: sortOrder);
 
@@ -91,7 +90,7 @@ Future<ListDto> archiveList({required String listId}) =>
 Future<ListDto> unarchiveList({required String listId}) =>
     RustLib.instance.api.crateApiUnarchiveList(listId: listId);
 
-/// Creates a task at the end of its sibling group using a domain-generated
+/// Creates a task at the end of its sibling group using a client-generated
 /// fractional `sort_order`.
 Future<TaskDto> createTask({
   required String listId,

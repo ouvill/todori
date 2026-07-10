@@ -431,6 +431,22 @@ impl<'connection> SqliteWriteTx<'connection> {
         list_active_tasks_by_list_on(&self.transaction, list_id)
     }
 
+    /// Snapshots every task rooted at `task_id` inside this write transaction.
+    ///
+    /// Callers can use the returned domain records to prepare per-record sync
+    /// tombstones before deleting the same subtree and committing atomically.
+    pub fn list_task_subtree(&self, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        list_task_subtree_on(&self.transaction, task_id)
+    }
+
+    /// Snapshots every task stored in `list_id` inside this write transaction.
+    ///
+    /// This intentionally includes records regardless of `deleted_at`: a
+    /// physical list deletion must account for every persisted task record.
+    pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        list_active_tasks_by_list_on(&self.transaction, list_id)
+    }
+
     pub fn list_lists_including_archived(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.transaction.prepare(
             "SELECT id, name, color, icon, org_id, sort_order, archived_at,
@@ -472,6 +488,31 @@ impl<'connection> SqliteWriteTx<'connection> {
 
     pub fn update_list(&mut self, list: List) -> Result<(), StorageError> {
         update_list_on(&self.transaction, &list)
+    }
+
+    /// Physically deletes a task and all descendants in this write transaction.
+    ///
+    /// Related reminders and undo entries are removed by the same operation.
+    /// Dropping the transaction without committing rolls every deletion back.
+    pub fn delete_task_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError> {
+        self.get_task(task_id)?;
+        delete_task_subtree_on(&self.transaction, task_id)
+    }
+
+    /// Physically deletes a non-default list and all of its tasks in this write
+    /// transaction.
+    ///
+    /// Related reminders and undo entries are removed by the same operation.
+    /// Dropping the transaction without committing rolls every deletion back.
+    pub fn delete_list_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+        let list = self.get_list(list_id)?;
+        if list.is_default {
+            return Err(StorageError::DefaultListProtected {
+                operation: "deleted",
+                list_id,
+            });
+        }
+        delete_list_with_tasks_for_sync_on(&self.transaction, list_id)
     }
 
     pub fn update_task_with_undo(
@@ -1265,27 +1306,7 @@ impl SqliteTaskRepository {
     }
 
     pub fn list_subtree_for_sync(&self, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
-        let mut statement = self.connection.prepare(
-            "WITH RECURSIVE subtree(id) AS (
-                 SELECT id FROM tasks WHERE id = ?1
-                 UNION ALL
-                 SELECT tasks.id
-                 FROM tasks
-                 INNER JOIN subtree ON tasks.parent_task_id = subtree.id
-             )
-             SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_at, scheduled_at, estimated_minutes, sort_order,
-                    completed_at, closed_reason, deleted_at, assignee,
-                    created_at, updated_at
-             FROM tasks
-             WHERE id IN (SELECT id FROM subtree)
-             ORDER BY sort_order ASC, id ASC",
-        )?;
-        let tasks = statement
-            .query_map([task_id.to_string()], row_to_task)?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(StorageError::from)?;
-        Ok(tasks)
+        list_task_subtree_on(&self.connection, task_id)
     }
 
     pub fn upsert_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
@@ -1533,6 +1554,29 @@ fn list_active_tasks_by_list_on(
     )?;
     let tasks = statement
         .query_map([list_id.to_string()], row_to_task)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(tasks)
+}
+
+fn list_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
+    let mut statement = connection.prepare(
+        "WITH RECURSIVE subtree(id) AS (
+             SELECT id FROM tasks WHERE id = ?1
+             UNION ALL
+             SELECT tasks.id
+             FROM tasks
+             INNER JOIN subtree ON tasks.parent_task_id = subtree.id
+         )
+         SELECT id, list_id, parent_task_id, title, note, status, priority,
+                due_at, scheduled_at, estimated_minutes, sort_order,
+                completed_at, closed_reason, deleted_at, assignee,
+                created_at, updated_at
+         FROM tasks
+         WHERE id IN (SELECT id FROM subtree)
+         ORDER BY sort_order ASC, id ASC",
+    )?;
+    let tasks = statement
+        .query_map([task_id.to_string()], row_to_task)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(tasks)
 }
@@ -6845,6 +6889,171 @@ mod tests {
             task_repository.latest_unconsumed_undo().unwrap(),
             Some(undo)
         );
+    }
+
+    #[test]
+    fn sqlite_write_tx_snapshots_and_commits_task_subtree_delete() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut parent = sample_task();
+        parent.list_id = list.id;
+        parent.parent_task_id = None;
+        parent.sort_order = "a0".to_string();
+        let mut child = sample_task();
+        child.list_id = list.id;
+        child.parent_task_id = Some(parent.id);
+        child.sort_order = "a1".to_string();
+        let mut sibling = sample_task();
+        sibling.list_id = list.id;
+        sibling.parent_task_id = None;
+        sibling.sort_order = "a2".to_string();
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut tasks = SqliteTaskRepository::new(connection);
+            tasks.insert(parent.clone()).unwrap();
+            tasks.insert(child.clone()).unwrap();
+            tasks.insert(sibling.clone()).unwrap();
+        }
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert_eq!(
+            write_tx.list_task_subtree(parent.id).unwrap(),
+            vec![parent.clone(), child.clone()]
+        );
+        assert_eq!(
+            write_tx.list_tasks_by_list(list.id).unwrap(),
+            vec![parent.clone(), child.clone(), sibling.clone()]
+        );
+        assert_eq!(write_tx.delete_task_subtree(parent.id).unwrap(), 2);
+        assert!(matches!(
+            write_tx.get_task(parent.id),
+            Err(StorageError::NotFound(id)) if id == parent.id
+        ));
+        assert!(matches!(
+            write_tx.get_task(child.id),
+            Err(StorageError::NotFound(id)) if id == child.id
+        ));
+        assert_eq!(write_tx.get_task(sibling.id).unwrap(), sibling.clone());
+        write_tx.commit().unwrap();
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let tasks = SqliteTaskRepository::new(connection);
+        assert!(matches!(
+            tasks.get(parent.id),
+            Err(StorageError::NotFound(id)) if id == parent.id
+        ));
+        assert!(matches!(
+            tasks.get(child.id),
+            Err(StorageError::NotFound(id)) if id == child.id
+        ));
+        assert_eq!(tasks.get(sibling.id).unwrap(), sibling);
+    }
+
+    #[test]
+    fn sqlite_write_tx_drop_rolls_back_list_and_task_physical_delete() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut active = sample_task();
+        active.list_id = list.id;
+        active.parent_task_id = None;
+        active.sort_order = "a0".to_string();
+        let mut logically_deleted = sample_task();
+        logically_deleted.list_id = list.id;
+        logically_deleted.parent_task_id = None;
+        logically_deleted.sort_order = "a1".to_string();
+        logically_deleted.deleted_at = Some(logically_deleted.updated_at + 1);
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut tasks = SqliteTaskRepository::new(connection);
+            tasks.insert(active.clone()).unwrap();
+            tasks.insert(logically_deleted.clone()).unwrap();
+        }
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        {
+            let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+            assert_eq!(
+                write_tx.list_tasks_by_list(list.id).unwrap(),
+                vec![active.clone(), logically_deleted.clone()]
+            );
+            assert_eq!(write_tx.delete_list_with_tasks(list.id).unwrap(), 2);
+            assert!(matches!(
+                write_tx.get_list(list.id),
+                Err(StorageError::NotFound(id)) if id == list.id
+            ));
+        }
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let lists = SqliteListRepository::new(connection);
+        assert_eq!(lists.get(list.id).unwrap(), list);
+        drop(lists);
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let tasks = SqliteTaskRepository::new(connection);
+        assert_eq!(tasks.get(active.id).unwrap(), active);
+        assert_eq!(tasks.get(logically_deleted.id).unwrap(), logically_deleted);
+    }
+
+    #[test]
+    fn sqlite_write_tx_commits_list_delete_and_protects_default_list() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("a0");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let mut default_list = sample_list("a1");
+        default_list.is_default = true;
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(list.clone()).unwrap();
+            lists.insert(default_list.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut tasks = SqliteTaskRepository::new(connection);
+            tasks.insert(task.clone()).unwrap();
+        }
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert!(matches!(
+            write_tx.delete_list_with_tasks(default_list.id),
+            Err(StorageError::DefaultListProtected { list_id, .. }) if list_id == default_list.id
+        ));
+        assert_eq!(write_tx.delete_list_with_tasks(list.id).unwrap(), 1);
+        write_tx.commit().unwrap();
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let lists = SqliteListRepository::new(connection);
+        assert!(matches!(
+            lists.get(list.id),
+            Err(StorageError::NotFound(id)) if id == list.id
+        ));
+        assert_eq!(lists.get(default_list.id).unwrap(), default_list);
+        drop(lists);
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let tasks = SqliteTaskRepository::new(connection);
+        assert!(matches!(
+            tasks.get(task.id),
+            Err(StorageError::NotFound(id)) if id == task.id
+        ));
     }
 
     #[test]

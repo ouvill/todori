@@ -501,8 +501,8 @@ void main() {
       priority: 0,
       dueAt: null,
     );
-    expect(
-      () => undoTaskOperation(undoId: staleEditUndo.id),
+    await expectLater(
+      undoTaskOperation(undoId: staleEditUndo.id),
       throwsA(anything),
     );
 
@@ -513,13 +513,19 @@ void main() {
     await setTaskStatus(taskId: completeTask.id, status: 'done');
     final completeUndo = (await getLatestTaskUndo())!;
     await deleteTask(taskId: completeTask.id);
-    expect(() => undoTaskOperation(undoId: completeUndo.id), throwsA(anything));
+    await expectLater(
+      undoTaskOperation(undoId: completeUndo.id),
+      throwsA(anything),
+    );
 
     final consumedTask = await createTask(listId: list.id, title: 'Consumed');
     await setTaskStatus(taskId: consumedTask.id, status: 'done');
     final consumedUndo = (await getLatestTaskUndo())!;
     await undoTaskOperation(undoId: consumedUndo.id);
-    expect(() => undoTaskOperation(undoId: consumedUndo.id), throwsA(anything));
+    await expectLater(
+      undoTaskOperation(undoId: consumedUndo.id),
+      throwsA(anything),
+    );
   });
 
   test('settings roundtrip through Rust bridge', () async {

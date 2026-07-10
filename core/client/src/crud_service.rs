@@ -727,7 +727,7 @@ mod tests {
             .unwrap();
         assert_eq!(existing.sort_order.len(), 32);
         assert!(existing.sort_order < created.sort_order);
-        assert!(created.sort_order < "ffffffffffffffffffffffffffffffff".to_string());
+        assert!(created.sort_order.as_str() < "ffffffffffffffffffffffffffffffff");
     }
 
     #[test]

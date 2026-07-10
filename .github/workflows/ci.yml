@@ -62,7 +62,9 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Client architecture boundary
-        run: sh app/tool/check_client_boundaries.sh
+        run: |
+          sh app/tool/check_client_boundaries.sh
+          sh app/tool/test_client_boundaries.sh
 
       - name: Rust clippy
         run: cargo clippy --workspace -- -D warnings

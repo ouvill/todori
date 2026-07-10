@@ -23,7 +23,7 @@ use testcontainers_modules::{
     postgres,
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
-use todori_client::{
+use todori_client::test_support::{
     persist_local_crypto_context, Client, LocalCryptoIdentity, LocalMutationContext,
     SqliteSyncStore, UpdateTaskInput,
 };
@@ -821,9 +821,14 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     );
     assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
 
-    let local_context =
-        todori_client::load_local_crypto_context(&path_a, &DB_KEY_A, Some(MASTER_KEY)).unwrap();
-    let todori_client::LocalCryptoAvailability::Ready(local_context) = local_context else {
+    let local_context = todori_client::test_support::load_local_crypto_context(
+        &path_a,
+        &DB_KEY_A,
+        Some(MASTER_KEY),
+    )
+    .unwrap();
+    let todori_client::test_support::LocalCryptoAvailability::Ready(local_context) = local_context
+    else {
         panic!("local crypto context");
     };
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
@@ -996,7 +1001,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     let client_b = Client::new(path_b.clone(), DB_KEY_B);
     let task = client_a
         .create_task(
-            todori_client::CreateTaskInput {
+            todori_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "Base title".to_string(),
                 parent_task_id: None,
@@ -1143,7 +1148,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
     let client_b = Client::new(path_b.clone(), DB_KEY_B);
     let target = client_a
         .create_task(
-            todori_client::CreateTaskInput {
+            todori_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "reorder target".to_string(),
                 parent_task_id: None,
@@ -1185,7 +1190,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
 
     let concurrent_a = client_a
         .create_task(
-            todori_client::CreateTaskInput {
+            todori_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "same gap A".to_string(),
                 parent_task_id: None,
@@ -1198,7 +1203,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         .unwrap();
     let concurrent_b = client_b
         .create_task(
-            todori_client::CreateTaskInput {
+            todori_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "same gap B".to_string(),
                 parent_task_id: None,
@@ -1248,7 +1253,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
 
     client_a
         .reorder_task(
-            todori_client::ReorderTaskInput {
+            todori_client::test_support::ReorderTaskInput {
                 task_id: target.id,
                 previous_task_id: Some(previous),
                 next_task_id: Some(next),
