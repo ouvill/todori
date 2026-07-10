@@ -16,6 +16,7 @@ use todori_sync::account::{
     unwrap_login_key_bundle, wrap_list_dek_bundle, AccountClient, AccountClientError,
     AccountKeyBundleDto, ListDekBundleDto,
 };
+use todori_sync::SyncEngine;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -134,6 +135,18 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         )
         .await
         .is_err());
+
+    let sync = SyncEngine::new(
+        &server_url,
+        tenant_id,
+        logged_in.session.session_token.to_string(),
+    )
+    .unwrap();
+    sync.preflight(0).await.unwrap();
+    let closure = sync.pull_page(0, 100).await.unwrap();
+    sync.ack_continuity(closure.closure_proof.unwrap())
+        .await
+        .unwrap();
 
     let added_list_id = Uuid::now_v7();
     let added_list_dek = [0x7a; 32];

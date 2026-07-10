@@ -10,8 +10,9 @@ use zeroize::Zeroizing;
 
 use crate::{
     protocol::{
-        self, BaseScanResponse, PullResponse, PushRequest, SyncCollection,
-        SyncRecordState as WireRecordState,
+        self, BaseScanResponse, ClosureProof, ContinuityAckRequest, ContinuityAckResponse,
+        PullResponse, PushRequest, SyncCollection, SyncRecordState as WireRecordState,
+        SYNC_PROTOCOL_VERSION_HEADER,
     },
     Hlc,
 };
@@ -83,7 +84,16 @@ pub struct PushOpOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreflightResult {
     pub gc_horizon_seq: i64,
+    pub continuity_seq: i64,
+    pub continuity_generation: i64,
+    pub required_generation: i64,
     pub full_resync_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullResyncStart {
+    pub base_seq: i64,
+    pub generation: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +115,7 @@ pub struct DeltaPage {
     pub next_since: i64,
     pub has_more: bool,
     pub high_water: i64,
+    pub closure_proof: Option<ClosureProof>,
 }
 
 impl DeltaPage {
@@ -160,15 +171,9 @@ impl SyncEngine {
         if since < 0 {
             return Err(SyncEngineError::InvalidRequest);
         }
-        let mut response = self.request_preflight(since).await?;
+        let response = self.request_preflight(since).await?;
         let full_resync_required = response.status() == StatusCode::GONE;
-        if full_resync_required {
-            // A continuity response carries no capabilities body. Re-check as
-            // a new profile before fetching any payload so an old client
-            // cannot bypass protocol/envelope upgrade enforcement.
-            response = self.request_preflight(0).await?;
-        }
-        if !response.status().is_success() {
+        if !response.status().is_success() && !full_resync_required {
             return Err(SyncEngineError::Server(response.status()));
         }
         let capabilities = response.json::<protocol::SyncCapabilities>().await?;
@@ -180,11 +185,19 @@ impl SyncEngine {
                 envelope_version: capabilities.envelope_version,
             });
         }
-        if capabilities.gc_horizon_seq < 0 {
+        if capabilities.gc_horizon_seq < 0
+            || capabilities.continuity_seq < 0
+            || capabilities.continuity_generation < 0
+            || capabilities.required_generation < capabilities.continuity_generation
+            || capabilities.full_resync_required != full_resync_required
+        {
             return Err(SyncEngineError::InvalidPreflightResponse);
         }
         Ok(PreflightResult {
             gc_horizon_seq: capabilities.gc_horizon_seq,
+            continuity_seq: capabilities.continuity_seq,
+            continuity_generation: capabilities.continuity_generation,
+            required_generation: capabilities.required_generation,
             full_resync_required,
         })
     }
@@ -196,6 +209,10 @@ impl SyncEngine {
                 self.base_url, self.tenant_id
             ))
             .bearer_auth(self.session_token.as_str())
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
             .query(&[("since", since)])
             .send()
             .await
@@ -219,6 +236,10 @@ impl SyncEngine {
                 self.base_url, self.tenant_id
             ))
             .bearer_auth(self.session_token.as_str())
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
             .json(&request)
             .send()
             .await?;
@@ -229,7 +250,7 @@ impl SyncEngine {
         validate_push_response(&ops, response)
     }
 
-    pub async fn begin_full_resync(&self) -> Result<i64, SyncEngineError> {
+    pub async fn begin_full_resync(&self) -> Result<FullResyncStart, SyncEngineError> {
         let response = self
             .http
             .post(format!(
@@ -237,20 +258,28 @@ impl SyncEngine {
                 self.base_url, self.tenant_id
             ))
             .bearer_auth(self.session_token.as_str())
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
             .send()
             .await?;
         if !response.status().is_success() {
             return Err(SyncEngineError::Server(response.status()));
         }
         let response = response.json::<protocol::ResyncStartResponse>().await?;
-        if response.base_seq < 0 {
+        if response.base_seq < 0 || response.generation <= 0 {
             return Err(SyncEngineError::InvalidPullResponse);
         }
-        Ok(response.base_seq)
+        Ok(FullResyncStart {
+            base_seq: response.base_seq,
+            generation: response.generation,
+        })
     }
 
     pub async fn scan_base_page(
         &self,
+        generation: i64,
         cursor: Option<&StableCursor>,
         limit: i64,
     ) -> Result<BasePage, SyncEngineError> {
@@ -261,7 +290,11 @@ impl SyncEngine {
                 self.base_url, self.tenant_id
             ))
             .bearer_auth(self.session_token.as_str())
-            .query(&[("limit", limit)]);
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .query(&[("generation", generation), ("limit", limit)]);
         if let Some(cursor) = cursor {
             request = request.query(&[
                 ("after_collection", cursor.collection.as_str().to_string()),
@@ -277,21 +310,60 @@ impl SyncEngine {
     }
 
     pub async fn pull_page(&self, since: i64, limit: i64) -> Result<DeltaPage, SyncEngineError> {
-        let response = self
+        self.pull_page_for_generation(since, limit, None).await
+    }
+
+    pub async fn pull_page_for_generation(
+        &self,
+        since: i64,
+        limit: i64,
+        generation: Option<i64>,
+    ) -> Result<DeltaPage, SyncEngineError> {
+        let mut request = self
             .http
             .get(format!(
                 "{}/v2/tenants/{}/pull",
                 self.base_url, self.tenant_id
             ))
             .bearer_auth(self.session_token.as_str())
-            .query(&[("since", since), ("limit", limit)])
-            .send()
-            .await?;
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .query(&[("since", since), ("limit", limit)]);
+        if let Some(generation) = generation {
+            request = request.query(&[("generation", generation)]);
+        }
+        let response = request.send().await?;
         if !response.status().is_success() {
             return Err(SyncEngineError::Server(response.status()));
         }
         let response = response.json::<PullResponse>().await?;
         validate_pull_response(since, response)
+    }
+
+    pub async fn ack_continuity(
+        &self,
+        proof: ClosureProof,
+    ) -> Result<ContinuityAckResponse, SyncEngineError> {
+        let response = self
+            .http
+            .post(format!(
+                "{}/v2/tenants/{}/continuity/ack",
+                self.base_url, self.tenant_id
+            ))
+            .bearer_auth(self.session_token.as_str())
+            .header(
+                SYNC_PROTOCOL_VERSION_HEADER,
+                protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .json(&ContinuityAckRequest { proof })
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(SyncEngineError::Server(response.status()));
+        }
+        response.json().await.map_err(SyncEngineError::from)
     }
 }
 
@@ -456,6 +528,7 @@ fn validate_pull_response(
         next_since: response.next_since,
         has_more: response.has_more,
         high_water: response.high_water,
+        closure_proof: response.closure_proof,
     })
 }
 
@@ -691,6 +764,7 @@ mod tests {
             next_since: 1,
             has_more: false,
             high_water: 1,
+            closure_proof: None,
         };
         assert!(matches!(
             validate_pull_response(0, response),
@@ -710,6 +784,7 @@ mod tests {
             next_since: 1,
             has_more: false,
             high_water: 1,
+            closure_proof: None,
         };
         assert!(matches!(
             validate_pull_response(0, response),
@@ -729,6 +804,7 @@ mod tests {
             next_since: 1,
             has_more: false,
             high_water: 1,
+            closure_proof: None,
         };
         assert!(matches!(
             validate_pull_response(0, response),
@@ -751,6 +827,7 @@ mod tests {
             next_since: 1,
             has_more: true,
             high_water: 2,
+            closure_proof: None,
         };
         let open = validate_pull_response(0, open).unwrap();
         assert!(!open.reached_closure());
@@ -760,6 +837,7 @@ mod tests {
             next_since: 1,
             has_more: false,
             high_water: 2,
+            closure_proof: None,
         };
         assert!(matches!(
             validate_pull_response(1, premature),
@@ -771,6 +849,7 @@ mod tests {
             next_since: 2,
             has_more: false,
             high_water: 2,
+            closure_proof: None,
         };
         assert!(validate_pull_response(1, closed).unwrap().reached_closure());
     }

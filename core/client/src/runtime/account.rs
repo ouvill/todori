@@ -7,7 +7,7 @@ use todori_crypto::{
 use todori_domain::Uuid;
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SqliteLocalCryptoRepository,
-    SqliteSyncStateRepository,
+    SqliteSyncStateRepository, StorageError,
 };
 use todori_sync::{
     account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
@@ -297,7 +297,9 @@ impl TodoriClient {
             crypto.sync_keys().clone()
         };
         let pending = self.pending_list_key_ids(tenant_id)?;
-        let sync_keys = merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending)?;
+        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
+        let sync_keys =
+            merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending, &retained)?;
         let crypto = persist_local_crypto_context(
             &self.db_path,
             &self.db_key,
@@ -342,10 +344,12 @@ impl TodoriClient {
         match load_local_crypto_context(&self.db_path, &self.db_key, Some(*keys.master_key))? {
             LocalCryptoAvailability::Ready(local) => {
                 let pending = self.pending_list_key_ids(tenant_id)?;
+                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
                 let merged = merge_remote_and_pending_local_keys(
                     LocalSyncKeys::from_account_keys(keys),
                     local.sync_keys().clone(),
                     &pending,
+                    &retained,
                 )?;
                 keys.list_deks = merged
                     .list_deks
@@ -554,10 +558,33 @@ fn pending_list_key_ids_on(
         .collect())
 }
 
+pub(super) fn retained_deleted_list_key_ids_on(
+    db_path: &std::path::Path,
+    db_key: &[u8; 32],
+) -> Result<HashSet<Uuid>, ClientError> {
+    let connection = open_encrypted(db_path, db_key)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT record_id FROM sync_record_states
+         WHERE collection = 'lists' AND state_kind = 'tombstone'",
+        )
+        .map_err(StorageError::from)?;
+    let result = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(StorageError::from)?
+        .map(|row| {
+            let value = row.map_err(StorageError::from)?;
+            parse_uuid(&value)
+        })
+        .collect();
+    result
+}
+
 fn merge_remote_and_pending_local_keys(
     mut remote: LocalSyncKeys,
     local: LocalSyncKeys,
     pending: &HashSet<Uuid>,
+    retained_deleted: &HashSet<Uuid>,
 ) -> Result<LocalSyncKeys, ClientError> {
     for (list_id, local_dek) in local.list_deks {
         if let Some((_, remote_dek)) = remote
@@ -568,7 +595,7 @@ fn merge_remote_and_pending_local_keys(
             if remote_dek != &local_dek {
                 return Err(ClientError::AccountBoundUnavailable);
             }
-        } else if pending.contains(&list_id) {
+        } else if pending.contains(&list_id) || retained_deleted.contains(&list_id) {
             remote.list_deks.push((list_id, local_dek));
         } else {
             return Err(ClientError::AccountBoundUnavailable);
@@ -599,9 +626,13 @@ mod tests {
         let local = LocalSyncKeys {
             list_deks: vec![(remote_id, [0x11; 32]), (pending_id, [0x22; 32])],
         };
-        let merged =
-            merge_remote_and_pending_local_keys(remote, local, &HashSet::from([pending_id]))
-                .unwrap();
+        let merged = merge_remote_and_pending_local_keys(
+            remote,
+            local,
+            &HashSet::from([pending_id]),
+            &HashSet::new(),
+        )
+        .unwrap();
         assert!(merged.contains_list(remote_id));
         assert!(merged.contains_list(pending_id));
     }
@@ -617,6 +648,7 @@ mod tests {
                 list_deks: vec![(list_id, [0x22; 32])],
             },
             &HashSet::new(),
+            &HashSet::new(),
         )
         .is_err());
         assert!(merge_remote_and_pending_local_keys(
@@ -625,8 +657,24 @@ mod tests {
                 list_deks: vec![(list_id, [0x22; 32])],
             },
             &HashSet::new(),
+            &HashSet::new(),
         )
         .is_err());
+    }
+
+    #[test]
+    fn remote_key_refresh_retains_tombstoned_list_key_for_late_descendants() {
+        let list_id = Uuid::now_v7();
+        let merged = merge_remote_and_pending_local_keys(
+            LocalSyncKeys::default(),
+            LocalSyncKeys {
+                list_deks: vec![(list_id, [0x33; 32])],
+            },
+            &HashSet::new(),
+            &HashSet::from([list_id]),
+        )
+        .unwrap();
+        assert!(merged.contains_list(list_id));
     }
 
     #[test]
@@ -684,6 +732,7 @@ mod tests {
             initial_keys,
             restarted.sync_keys().clone(),
             &pending,
+            &HashSet::new(),
         )
         .unwrap();
         assert!(pending.contains(&created.id));

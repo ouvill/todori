@@ -205,6 +205,18 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
+    fn delete_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_outbox_head(collection.as_str(), record_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -315,6 +327,20 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
+    fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String> {
+        with_task_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_all_for_sync()
+                .map(|tasks| {
+                    tasks
+                        .into_iter()
+                        .filter(|task| task.list_id == list_id)
+                        .collect()
+                })
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
         with_task_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -422,6 +448,16 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
+    fn delete_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String> {
+        self.transaction
+            .delete_outbox_head(collection.as_str(), record_id)
+            .map_err(|error| error.to_string())
+    }
+
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String> {
         self.transaction
             .get_cursor(name)
@@ -505,6 +541,12 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
+    fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String> {
+        self.transaction
+            .list_tasks_by_list(list_id)
+            .map_err(|error| error.to_string())
+    }
+
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
         self.transaction
             .upsert_task_for_sync(task)
@@ -522,11 +564,12 @@ impl LocalSyncWriteTransaction for SqliteSyncWriteTx {
     fn start_full_resync(
         &mut self,
         generation_id: Uuid,
+        continuity_generation: i64,
         base_seq: i64,
         now_ms: i64,
     ) -> Result<LocalFullResyncProgress, String> {
         self.transaction
-            .start_full_resync(generation_id, base_seq, now_ms)
+            .start_full_resync(generation_id, continuity_generation, base_seq, now_ms)
             .map(storage_resync_to_local)
             .map_err(|error| error.to_string())
     }
@@ -611,6 +654,7 @@ impl LocalSyncWriteTransaction for SqliteSyncWriteTx {
 fn storage_resync_to_local(progress: FullResyncProgress) -> LocalFullResyncProgress {
     LocalFullResyncProgress {
         generation_id: progress.generation_id,
+        continuity_generation: progress.continuity_generation,
         phase: match progress.phase {
             FullResyncPhase::Base => LocalFullResyncPhase::Base,
             FullResyncPhase::Delta => LocalFullResyncPhase::Delta,
@@ -840,7 +884,10 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     use todori_domain::new_list;
-    use todori_storage::ListRepository;
+    use todori_storage::{
+        ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
+        PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
+    };
     use todori_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
 
     const DB_KEY: [u8; 32] = [0x51; 32];
@@ -855,6 +902,37 @@ mod tests {
             1,
         )
         .unwrap();
+        let tenant_id = Uuid::now_v7();
+        let mut crypto =
+            SqliteLocalCryptoRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        crypto
+            .bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id,
+                    user_id: Uuid::now_v7(),
+                    device_id: Uuid::now_v7(),
+                    bound_at: 1,
+                    updated_at: 1,
+                },
+                &[LocalListKeyBundle {
+                    tenant_id,
+                    list_id: list.id,
+                    wrapped_list_dek: vec![1],
+                    updated_at: 1,
+                }],
+            )
+            .unwrap();
+        let mut connection = open_encrypted(&db_path, &DB_KEY).unwrap();
+        let mut key_transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        key_transaction
+            .put_pending_list_key_bundle(PendingListKeyBundle {
+                tenant_id,
+                list_id: list.id,
+                wrapped_list_dek: vec![1],
+                created_at: 1,
+            })
+            .unwrap();
+        key_transaction.commit().unwrap();
         let mut repository = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
         repository.insert(list.clone()).unwrap();
         drop(repository);
@@ -895,7 +973,9 @@ mod tests {
 
         let generation_id = Uuid::now_v7();
         let mut transaction = store.begin_write_transaction().unwrap();
-        transaction.start_full_resync(generation_id, 0, 20).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 0, 20)
+            .unwrap();
         transaction
             .advance_full_resync_base(generation_id, None, true, 21)
             .unwrap();

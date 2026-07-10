@@ -11,7 +11,7 @@ use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskSt
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 15;
+pub const LATEST_SCHEMA_VERSION: i32 = 16;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -84,6 +84,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 15,
         name: "add_full_resync_state",
         apply: add_full_resync_state,
+    },
+    Migration {
+        target_version: 16,
+        name: "add_archive_first_rebase_state",
+        apply: add_archive_first_rebase_state,
     },
 ];
 
@@ -282,6 +287,7 @@ pub struct FullResyncStableCursor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullResyncProgress {
     pub generation_id: Uuid,
+    pub continuity_generation: i64,
     pub phase: FullResyncPhase,
     pub base_seq: i64,
     pub base_cursor: Option<FullResyncStableCursor>,
@@ -355,6 +361,7 @@ pub trait LocalCryptoRepository {
         bundles: &[LocalListKeyBundle],
     ) -> Result<(), StorageError>;
     fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError>;
+    fn delete_bundle(&mut self, tenant_id: Uuid, list_id: Uuid) -> Result<bool, StorageError>;
 }
 
 /// タスクの永続化を担うリポジトリ。
@@ -428,6 +435,11 @@ pub trait SyncStateRepository {
     fn list_outbox_heads(&self, limit: usize) -> Result<Vec<SyncOutboxEntry>, StorageError>;
     fn has_outbox_head(&self, collection: &str, record_id: Uuid) -> Result<bool, StorageError>;
     fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError>;
+    fn delete_outbox_head(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<bool, StorageError>;
     fn get_record_state(
         &self,
         collection: &str,
@@ -618,6 +630,14 @@ impl<'connection> SqliteWriteTx<'connection> {
         ack_outbox_op_on(&self.transaction, op_id)
     }
 
+    pub fn delete_outbox_head(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<bool, StorageError> {
+        delete_outbox_head_on(&self.transaction, collection, record_id)
+    }
+
     pub fn get_record_state(
         &self,
         collection: &str,
@@ -690,6 +710,14 @@ impl OwnedSqliteWriteTx {
         ack_outbox_op_on(self.connection(), op_id)
     }
 
+    pub fn delete_outbox_head(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<bool, StorageError> {
+        delete_outbox_head_on(self.connection(), collection, record_id)
+    }
+
     pub fn ack_pending_list_key_bundle(
         &mut self,
         tenant_id: Uuid,
@@ -755,10 +783,17 @@ impl OwnedSqliteWriteTx {
     pub fn start_full_resync(
         &mut self,
         generation_id: Uuid,
+        continuity_generation: i64,
         base_seq: i64,
         now_ms: i64,
     ) -> Result<FullResyncProgress, StorageError> {
-        start_full_resync_on(self.connection(), generation_id, base_seq, now_ms)
+        start_full_resync_on(
+            self.connection(),
+            generation_id,
+            continuity_generation,
+            base_seq,
+            now_ms,
+        )
     }
 
     pub fn mark_full_resync_record(
@@ -843,6 +878,10 @@ impl OwnedSqliteWriteTx {
 
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>, StorageError> {
         optional_not_found(get_task_on(self.connection(), id))
+    }
+
+    pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        list_active_tasks_by_list_on(self.connection(), list_id)
     }
 
     pub fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
@@ -1388,6 +1427,51 @@ fn add_full_resync_state(transaction: &Transaction<'_>) -> rusqlite::Result<()> 
          );
          CREATE INDEX idx_sync_full_resync_marks_record
              ON sync_full_resync_marks(generation_id, collection, record_id);",
+    )
+}
+
+fn add_archive_first_rebase_state(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE sync_record_origins (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             origin_kind TEXT NOT NULL CHECK (origin_kind IN ('never_synced', 'server_seen')),
+             updated_at INTEGER NOT NULL
+         );
+         INSERT INTO sync_record_origins (record_id, collection, origin_kind, updated_at)
+         SELECT record_id, collection,
+                CASE WHEN current_revision_hlc IS NULL THEN 'never_synced' ELSE 'server_seen' END,
+                updated_at
+         FROM sync_record_states;
+         ALTER TABLE sync_full_resync_state
+             ADD COLUMN continuity_generation INTEGER NOT NULL DEFAULT 0
+             CHECK (continuity_generation >= 0);
+
+         ALTER TABLE sync_quarantine RENAME TO sync_quarantine_v15;
+         CREATE TABLE sync_quarantine (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             seq INTEGER NOT NULL CHECK (seq > 0),
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             reason TEXT NOT NULL CHECK (reason IN (
+                 'missing_dek', 'no_matching_dek', 'authentication_failed',
+                 'corrupt_envelope', 'invalid_plaintext', 'missing_dependency'
+             )),
+             required_list_id TEXT,
+             first_failed_at INTEGER NOT NULL,
+             last_failed_at INTEGER NOT NULL,
+             attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
+             CHECK (
+                 (state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                 OR (state_kind = 'tombstone' AND blob IS NULL)
+             )
+         );
+         INSERT INTO sync_quarantine SELECT * FROM sync_quarantine_v15;
+         DROP TABLE sync_quarantine_v15;
+         CREATE INDEX idx_sync_quarantine_seq ON sync_quarantine(seq, record_id);",
     )
 }
 
@@ -2398,6 +2482,24 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         }
         load_local_list_key_bundles_on(&self.connection, tenant_id)
     }
+
+    fn delete_bundle(&mut self, tenant_id: Uuid, list_id: Uuid) -> Result<bool, StorageError> {
+        let binding = load_local_profile_binding_on(&self.connection)?.ok_or_else(|| {
+            StorageError::IncompatibleSchema("local profile binding is missing".to_string())
+        })?;
+        if binding.tenant_id != tenant_id {
+            return Err(StorageError::LocalProfileTenantMismatch {
+                bound_tenant_id: binding.tenant_id,
+                requested_tenant_id: tenant_id,
+            });
+        }
+        let changed = self.connection.execute(
+            "DELETE FROM local_list_key_bundles
+             WHERE tenant_id = ?1 AND list_id = ?2",
+            params![tenant_id.to_string(), list_id.to_string()],
+        )?;
+        Ok(changed == 1)
+    }
 }
 
 fn load_local_profile_binding_on(
@@ -2693,10 +2795,17 @@ impl SqliteSyncStateRepository {
     pub fn start_full_resync(
         &mut self,
         generation_id: Uuid,
+        continuity_generation: i64,
         base_seq: i64,
         now_ms: i64,
     ) -> Result<FullResyncProgress, StorageError> {
-        start_full_resync_on(&self.connection, generation_id, base_seq, now_ms)
+        start_full_resync_on(
+            &self.connection,
+            generation_id,
+            continuity_generation,
+            base_seq,
+            now_ms,
+        )
     }
 }
 
@@ -2855,6 +2964,14 @@ impl SyncStateRepository for SqliteSyncStateRepository {
         ack_outbox_op_on(&self.connection, op_id)
     }
 
+    fn delete_outbox_head(
+        &mut self,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<bool, StorageError> {
+        delete_outbox_head_on(&self.connection, collection, record_id)
+    }
+
     fn get_record_state(
         &self,
         collection: &str,
@@ -2905,7 +3022,7 @@ fn load_full_resync_on(
 ) -> Result<Option<FullResyncProgress>, StorageError> {
     let row = connection
         .query_row(
-            "SELECT generation_id, phase, base_seq,
+            "SELECT generation_id, continuity_generation, phase, base_seq,
                     base_cursor_collection, base_cursor_record_id,
                     delta_cursor, closure_high_water,
                     sweep_cursor_collection, sweep_cursor_record_id,
@@ -2916,22 +3033,24 @@ fn load_full_resync_on(
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
                     row.get::<_, Option<String>>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, Option<i64>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
                     row.get::<_, Option<String>>(8)?,
-                    row.get::<_, i64>(9)?,
+                    row.get::<_, Option<String>>(9)?,
                     row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
                 ))
             },
         )
         .optional()?;
     let Some((
         generation_id,
+        continuity_generation,
         phase,
         base_seq,
         base_cursor_collection,
@@ -2954,6 +3073,7 @@ fn load_full_resync_on(
     };
     Ok(Some(FullResyncProgress {
         generation_id: Uuid::parse_str(&generation_id)?,
+        continuity_generation,
         phase,
         base_seq,
         base_cursor: parse_full_resync_cursor(base_cursor_collection, base_cursor_record_id)?,
@@ -2987,10 +3107,11 @@ fn parse_full_resync_cursor(
 fn start_full_resync_on(
     connection: &Connection,
     generation_id: Uuid,
+    continuity_generation: i64,
     base_seq: i64,
     now_ms: i64,
 ) -> Result<FullResyncProgress, StorageError> {
-    if base_seq < 0 {
+    if base_seq < 0 || continuity_generation <= 0 {
         return Err(StorageError::IncompatibleSchema(
             "full resync base sequence is negative".to_string(),
         ));
@@ -3000,13 +3121,18 @@ fn start_full_resync_on(
     }
     connection.execute(
         "INSERT INTO sync_full_resync_state (
-             singleton, generation_id, phase, base_seq,
+             singleton, generation_id, continuity_generation, phase, base_seq,
              base_cursor_collection, base_cursor_record_id,
              delta_cursor, closure_high_water,
              sweep_cursor_collection, sweep_cursor_record_id,
              started_at, updated_at
-         ) VALUES (1, ?1, 'base', ?2, NULL, NULL, ?2, NULL, NULL, NULL, ?3, ?3)",
-        params![generation_id.to_string(), base_seq, now_ms],
+         ) VALUES (1, ?1, ?2, 'base', ?3, NULL, NULL, ?3, NULL, NULL, NULL, ?4, ?4)",
+        params![
+            generation_id.to_string(),
+            continuity_generation,
+            base_seq,
+            now_ms
+        ],
     )?;
     load_full_resync_on(connection)?.ok_or_else(|| {
         StorageError::IncompatibleSchema("full resync state was not persisted".to_string())
@@ -3189,34 +3315,19 @@ fn sweep_full_resync_batch_on(
         ..FullResyncSweepSummary::default()
     };
     for (collection, record_id) in &records {
-        let protected: bool = connection.query_row(
+        let marked: bool = connection.query_row(
             "SELECT EXISTS (
                  SELECT 1 FROM sync_full_resync_marks
                  WHERE generation_id = ?1 AND collection = ?2 AND record_id = ?3
-             ) OR EXISTS (
-                 SELECT 1 FROM sync_outbox WHERE collection = ?2 AND record_id = ?3
              )",
             params![generation_id.to_string(), collection, record_id],
             |row| row.get(0),
         )?;
-        if protected {
+        if marked || never_synced_record_is_valid(connection, generation_id, collection, record_id)?
+        {
             continue;
         }
         let record_uuid = Uuid::parse_str(record_id)?;
-        let has_dependent = match collection.as_str() {
-            // Parent links are not foreign keys. Delete this exact absent task;
-            // independently marked or outbox-protected children remain intact.
-            "tasks" => false,
-            "lists" => connection.query_row(
-                "SELECT EXISTS (SELECT 1 FROM tasks WHERE list_id = ?1)",
-                [record_id],
-                |row| row.get::<_, bool>(0),
-            )?,
-            other => return Err(StorageError::InvalidSyncCollection(other.to_string())),
-        };
-        if has_dependent {
-            continue;
-        }
         match collection.as_str() {
             "tasks" => {
                 connection.execute(
@@ -3228,14 +3339,47 @@ fn sweep_full_resync_batch_on(
                     connection.execute("DELETE FROM tasks WHERE id = ?1", [record_id])?;
             }
             "lists" => {
-                summary.swept_lists +=
-                    connection.execute("DELETE FROM lists WHERE id = ?1", [record_id])?;
+                connection.execute(
+                    "DELETE FROM sync_quarantine
+                     WHERE record_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+                    [record_id],
+                )?;
+                connection.execute(
+                    "DELETE FROM sync_outbox
+                     WHERE record_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+                    [record_id],
+                )?;
+                connection.execute(
+                    "DELETE FROM sync_record_origins
+                     WHERE record_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+                    [record_id],
+                )?;
+                summary.swept_record_states += connection.execute(
+                    "DELETE FROM sync_record_states
+                     WHERE record_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
+                    [record_id],
+                )?;
+                let list_existed: bool = connection.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM lists WHERE id = ?1)",
+                    [record_id],
+                    |row| row.get(0),
+                )?;
+                summary.swept_tasks += delete_list_with_tasks_for_sync_on(connection, record_uuid)?;
+                summary.swept_lists += usize::from(list_existed);
             }
-            _ => unreachable!(),
+            other => return Err(StorageError::InvalidSyncCollection(other.to_string())),
         }
         connection.execute(
             "DELETE FROM sync_quarantine WHERE record_id = ?1",
             [record_uuid.to_string()],
+        )?;
+        connection.execute(
+            "DELETE FROM sync_outbox WHERE collection = ?1 AND record_id = ?2",
+            params![collection, record_id],
+        )?;
+        connection.execute(
+            "DELETE FROM sync_record_origins WHERE record_id = ?1",
+            [record_id],
         )?;
         summary.swept_record_states += connection.execute(
             "DELETE FROM sync_record_states WHERE collection = ?1 AND record_id = ?2",
@@ -3251,6 +3395,95 @@ fn sweep_full_resync_batch_on(
         )?;
     }
     Ok(summary)
+}
+
+fn never_synced_record_is_valid(
+    connection: &Connection,
+    generation_id: Uuid,
+    collection: &str,
+    record_id: &str,
+) -> Result<bool, StorageError> {
+    match collection {
+        "lists" => connection
+            .query_row(
+                "SELECT EXISTS (
+                     SELECT 1 FROM sync_record_origins origin
+                     JOIN sync_outbox outbox ON outbox.record_id = origin.record_id
+                     JOIN local_list_key_bundles local_key ON local_key.list_id = origin.record_id
+                     JOIN pending_list_key_bundles pending ON pending.list_id = origin.record_id
+                     WHERE origin.record_id = ?1 AND origin.collection = 'lists'
+                       AND origin.origin_kind = 'never_synced'
+                 )",
+                [record_id],
+                |row| row.get(0),
+            )
+            .map_err(StorageError::from),
+        "tasks" => connection
+            .query_row(
+                "WITH RECURSIVE ancestors(id, parent_task_id, valid) AS (
+                     SELECT task.id, task.parent_task_id, 1
+                     FROM tasks task WHERE task.id = ?1
+                     UNION ALL
+                     SELECT parent.id, parent.parent_task_id,
+                            EXISTS (
+                                SELECT 1 FROM sync_record_origins parent_origin
+                                JOIN sync_outbox parent_outbox
+                                  ON parent_outbox.record_id = parent_origin.record_id
+                                WHERE parent_origin.record_id = parent.id
+                                  AND parent_origin.collection = 'tasks'
+                                  AND parent_origin.origin_kind = 'never_synced'
+                                UNION ALL
+                                SELECT 1 FROM sync_full_resync_marks parent_mark
+                                WHERE parent_mark.generation_id = ?2
+                                  AND parent_mark.collection = 'tasks'
+                                  AND parent_mark.record_id = parent.id
+                            )
+                     FROM tasks parent
+                     JOIN ancestors child ON child.parent_task_id = parent.id
+                 )
+                 SELECT EXISTS (
+                     SELECT 1 FROM tasks task
+                     JOIN sync_record_origins task_origin
+                       ON task_origin.record_id = task.id
+                      AND task_origin.collection = 'tasks'
+                      AND task_origin.origin_kind = 'never_synced'
+                     JOIN sync_outbox task_outbox ON task_outbox.record_id = task.id
+                     WHERE task.id = ?1
+                       AND EXISTS (
+                           SELECT 1 FROM sync_record_origins list_origin
+                           JOIN sync_outbox list_outbox
+                             ON list_outbox.record_id = list_origin.record_id
+                           JOIN local_list_key_bundles local_key
+                             ON local_key.list_id = list_origin.record_id
+                           JOIN pending_list_key_bundles pending
+                             ON pending.list_id = list_origin.record_id
+                           WHERE list_origin.record_id = task.list_id
+                             AND list_origin.collection = 'lists'
+                             AND list_origin.origin_kind = 'never_synced'
+                           UNION ALL
+                           SELECT 1 FROM sync_full_resync_marks list_mark
+                           JOIN local_list_key_bundles local_key
+                             ON local_key.list_id = list_mark.record_id
+                           WHERE list_mark.generation_id = ?2
+                             AND list_mark.collection = 'lists'
+                             AND list_mark.record_id = task.list_id
+                       )
+                       AND NOT EXISTS (SELECT 1 FROM ancestors WHERE valid = 0)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM ancestors child
+                           WHERE child.parent_task_id IS NOT NULL
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM ancestors parent
+                                 WHERE parent.id = child.parent_task_id
+                             )
+                       )
+                 )",
+                params![record_id, generation_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(StorageError::from),
+        other => Err(StorageError::InvalidSyncCollection(other.to_string())),
+    }
 }
 
 fn local_sweep_collection_order(collection: &str) -> Result<i64, StorageError> {
@@ -3375,6 +3608,10 @@ fn put_record_state_on(
 ) -> Result<(), StorageError> {
     validate_sync_collection(&state.collection)?;
     ensure_sync_collection_matches(connection, state.record_id, &state.collection)?;
+    let record_id = state.record_id.to_string();
+    let collection = state.collection.clone();
+    let current_revision_hlc = state.current_revision_hlc.clone();
+    let updated_at = state.updated_at;
     let (state_kind, semantic_hlc, plaintext_json) = match state.state {
         SyncRecordSemanticState::Live {
             mutation_hlc,
@@ -3397,14 +3634,31 @@ fn put_record_state_on(
              plaintext_json = excluded.plaintext_json,
              updated_at = excluded.updated_at",
         params![
-            state.record_id.to_string(),
-            state.collection,
-            state.current_revision_hlc,
+            record_id,
+            collection,
+            current_revision_hlc,
             state_kind,
             semantic_hlc,
             plaintext_json,
-            state.updated_at,
+            updated_at,
         ],
+    )?;
+    let origin_kind = if current_revision_hlc.is_some() {
+        "server_seen"
+    } else {
+        "never_synced"
+    };
+    connection.execute(
+        "INSERT INTO sync_record_origins (record_id, collection, origin_kind, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(record_id) DO UPDATE SET
+             collection = excluded.collection,
+             origin_kind = CASE
+                 WHEN sync_record_origins.origin_kind = 'server_seen' THEN 'server_seen'
+                 ELSE excluded.origin_kind
+             END,
+             updated_at = excluded.updated_at",
+        params![record_id, collection, origin_kind, updated_at],
     )?;
     Ok(())
 }
@@ -3415,6 +3669,9 @@ fn put_outbox_head_on(
 ) -> Result<SyncOutboxEntry, StorageError> {
     validate_sync_collection(&entry.collection)?;
     ensure_sync_collection_matches(connection, entry.record_id, &entry.collection)?;
+    let origin_record_id = entry.record_id.to_string();
+    let origin_collection = entry.collection.clone();
+    let origin_updated_at = entry.created_at;
     let (state_kind, semantic_hlc, blob) = match entry.state {
         SyncOutboxState::Live { mutation_hlc, blob } => ("live", mutation_hlc, Some(blob)),
         SyncOutboxState::Tombstone { delete_hlc } => ("tombstone", delete_hlc, None),
@@ -3447,6 +3704,12 @@ fn put_outbox_head_on(
             entry.created_at,
         ],
     )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO sync_record_origins
+             (record_id, collection, origin_kind, updated_at)
+         VALUES (?1, ?2, 'never_synced', ?3)",
+        params![origin_record_id, origin_collection, origin_updated_at],
+    )?;
     connection
         .query_row(
             "SELECT op_id, record_id, collection, base_revision_hlc,
@@ -3473,7 +3736,8 @@ fn list_outbox_heads_on(
              SELECT 1 FROM sync_quarantine AS quarantine
              WHERE quarantine.record_id = outbox.record_id
          )
-         ORDER BY created_at ASC, record_id ASC
+         ORDER BY CASE collection WHEN 'lists' THEN 0 ELSE 1 END ASC,
+                  created_at ASC, record_id ASC
          LIMIT ?1",
     )?;
     let entries = statement
@@ -3595,7 +3859,7 @@ fn list_replayable_quarantine_on(
         "SELECT record_id, collection, seq, revision_hlc, state_kind, semantic_hlc,
                 blob, reason, required_list_id, first_failed_at, last_failed_at, attempt_count
          FROM sync_quarantine
-         WHERE reason IN ('missing_dek', 'no_matching_dek')
+         WHERE reason IN ('missing_dek', 'no_matching_dek', 'missing_dependency')
            AND (?1 IS NULL OR seq > ?1 OR (seq = ?1 AND record_id > ?2))
          ORDER BY seq ASC, record_id ASC
          LIMIT ?3",
@@ -3684,9 +3948,40 @@ fn has_outbox_head_on(
 }
 
 fn ack_outbox_op_on(connection: &Connection, op_id: Uuid) -> Result<bool, StorageError> {
+    let acked: Option<(String, String)> = connection
+        .query_row(
+            "SELECT record_id, collection FROM sync_outbox WHERE op_id = ?1",
+            [op_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
     let changed = connection.execute(
         "DELETE FROM sync_outbox WHERE op_id = ?1",
         [op_id.to_string()],
+    )?;
+    if let Some((record_id, collection)) = acked {
+        connection.execute(
+            "INSERT INTO sync_record_origins (record_id, collection, origin_kind, updated_at)
+             VALUES (?1, ?2, 'server_seen', unixepoch('subsec') * 1000)
+             ON CONFLICT(record_id) DO UPDATE SET
+                 origin_kind = 'server_seen', collection = excluded.collection,
+                 updated_at = excluded.updated_at",
+            params![record_id, collection],
+        )?;
+    }
+    Ok(changed == 1)
+}
+
+fn delete_outbox_head_on(
+    connection: &Connection,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<bool, StorageError> {
+    validate_sync_collection(collection)?;
+    ensure_sync_collection_matches(connection, record_id, collection)?;
+    let changed = connection.execute(
+        "DELETE FROM sync_outbox WHERE collection = ?1 AND record_id = ?2",
+        params![collection, record_id.to_string()],
     )?;
     Ok(changed == 1)
 }
@@ -5086,6 +5381,9 @@ mod tests {
                 updated_at: 200,
             }]
         );
+        assert!(repository.delete_bundle(tenant_id, second_list_id).unwrap());
+        assert!(!repository.delete_bundle(tenant_id, second_list_id).unwrap());
+        assert!(repository.load_bundles(tenant_id).unwrap().is_empty());
     }
 
     #[test]
@@ -7799,7 +8097,7 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
         transaction
-            .start_full_resync(generation_id, 17, 100)
+            .start_full_resync(generation_id, 1, 17, 100)
             .unwrap();
         transaction.rollback().unwrap();
         let repository = SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
@@ -7809,7 +8107,7 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
         transaction
-            .start_full_resync(generation_id, 17, 100)
+            .start_full_resync(generation_id, 1, 17, 100)
             .unwrap();
         transaction.commit().unwrap();
 
@@ -7859,7 +8157,7 @@ mod tests {
     }
 
     #[test]
-    fn full_resync_sweep_is_bounded_and_preserves_marks_and_unacked_outbox() {
+    fn full_resync_sweep_preserves_marks_but_purges_server_seen_absent_outbox() {
         let file = NamedTempFile::new().unwrap();
         let list = sample_list("00000000000000010000000000000000");
         let mut remote_task = sample_task();
@@ -7915,7 +8213,9 @@ mod tests {
         let generation_id = Uuid::now_v7();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
-        transaction.start_full_resync(generation_id, 5, 10).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 5, 10)
+            .unwrap();
         transaction
             .mark_full_resync_record(generation_id, "lists", list.id)
             .unwrap();
@@ -7964,8 +8264,8 @@ mod tests {
             }
         }
         assert_eq!(total.scanned_records, 4);
-        assert_eq!(total.swept_tasks, 1);
-        assert_eq!(total.swept_record_states, 1);
+        assert_eq!(total.swept_tasks, 2);
+        assert_eq!(total.swept_record_states, 2);
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
@@ -7992,16 +8292,207 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         assert!(get_task_on(&connection, remote_task.id).is_ok());
-        assert!(get_task_on(&connection, pending_task.id).is_ok());
+        assert!(matches!(
+            get_task_on(&connection, pending_task.id),
+            Err(StorageError::NotFound(_))
+        ));
         assert!(matches!(
             get_task_on(&connection, absent_task.id),
             Err(StorageError::NotFound(_))
         ));
-        assert!(has_outbox_head_on(&connection, "tasks", pending_task.id).unwrap());
+        assert!(!has_outbox_head_on(&connection, "tasks", pending_task.id).unwrap());
         assert_eq!(
             get_cursor_on(&connection, "default").unwrap().unwrap().seq,
             5
         );
         assert_eq!(load_full_resync_on(&connection).unwrap(), None);
+    }
+
+    #[test]
+    fn full_resync_preserves_valid_never_synced_list_and_task_in_dependency_order() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let list = sample_list("00000000000000010000000000000000");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let mut local_crypto =
+            SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        local_crypto
+            .bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id,
+                    user_id: Uuid::now_v7(),
+                    device_id: Uuid::now_v7(),
+                    bound_at: 1,
+                    updated_at: 1,
+                },
+                &[],
+            )
+            .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction.insert_list(list.clone()).unwrap();
+        transaction.insert_task(task.clone()).unwrap();
+        transaction
+            .put_local_list_key_bundle(LocalListKeyBundle {
+                tenant_id,
+                list_id: list.id,
+                wrapped_list_dek: vec![1, 2, 3],
+                updated_at: 1,
+            })
+            .unwrap();
+        transaction
+            .put_pending_list_key_bundle(PendingListKeyBundle {
+                tenant_id,
+                list_id: list.id,
+                wrapped_list_dek: vec![1, 2, 3],
+                created_at: 1,
+            })
+            .unwrap();
+        for (id, collection) in [(list.id, "lists"), (task.id, "tasks")] {
+            transaction
+                .put_record_state(live_record_state(id, collection, None, "m1", "{}", 1))
+                .unwrap();
+            transaction
+                .put_outbox_head(new_live_outbox(
+                    id,
+                    collection,
+                    Uuid::now_v7(),
+                    None,
+                    "r1",
+                    "m1",
+                    vec![1],
+                ))
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+
+        let generation_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 0, 10)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 11)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 0, 12)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        loop {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            let batch = transaction
+                .sweep_full_resync_batch(generation_id, 10, 20)
+                .unwrap();
+            transaction.commit().unwrap();
+            if batch.scanned_records == 0 {
+                break;
+            }
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert!(get_list_on(&connection, list.id).is_ok());
+        assert!(get_task_on(&connection, task.id).is_ok());
+        let outbox = list_outbox_heads_on(&connection, 10).unwrap();
+        assert_eq!(outbox.len(), 2);
+        assert_eq!(outbox[0].collection, "lists");
+        assert_eq!(outbox[1].collection, "tasks");
+    }
+
+    #[test]
+    fn full_resync_preserves_never_synced_task_under_remote_current_list() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let list = sample_list("00000000000000010000000000000000");
+        let mut task = sample_task();
+        task.list_id = list.id;
+        task.parent_task_id = None;
+        let mut crypto =
+            SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        crypto
+            .bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id,
+                    user_id: Uuid::now_v7(),
+                    device_id: Uuid::now_v7(),
+                    bound_at: 1,
+                    updated_at: 1,
+                },
+                &[LocalListKeyBundle {
+                    tenant_id,
+                    list_id: list.id,
+                    wrapped_list_dek: vec![1],
+                    updated_at: 1,
+                }],
+            )
+            .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction.insert_list(list.clone()).unwrap();
+        transaction.insert_task(task.clone()).unwrap();
+        transaction
+            .put_record_state(live_record_state(
+                list.id,
+                "lists",
+                Some("r1"),
+                "m1",
+                "{}",
+                1,
+            ))
+            .unwrap();
+        transaction
+            .put_record_state(live_record_state(task.id, "tasks", None, "m1", "{}", 1))
+            .unwrap();
+        transaction
+            .put_outbox_head(new_live_outbox(
+                task.id,
+                "tasks",
+                Uuid::now_v7(),
+                None,
+                "r1",
+                "m1",
+                vec![1],
+            ))
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let generation_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 1, 10)
+            .unwrap();
+        transaction
+            .mark_full_resync_record(generation_id, "lists", list.id)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 11)
+            .unwrap();
+        transaction
+            .advance_full_resync_delta(generation_id, 1, 12)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 1, 13)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        loop {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            let batch = transaction
+                .sweep_full_resync_batch(generation_id, 10, 20)
+                .unwrap();
+            transaction.commit().unwrap();
+            if batch.scanned_records == 0 {
+                break;
+            }
+        }
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert!(get_task_on(&connection, task.id).is_ok());
+        assert!(has_outbox_head_on(&connection, "tasks", task.id).unwrap());
     }
 }

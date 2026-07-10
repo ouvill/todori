@@ -239,6 +239,10 @@ impl AccountClient {
                 self.base_url
             ))
             .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
             .json(&list_key)
             .send()
             .await?;
@@ -265,6 +269,34 @@ impl AccountClient {
             Some(session_token),
         )
         .await
+    }
+
+    pub async fn retire_list_key_bundle(
+        &self,
+        tenant_id: Uuid,
+        list_id: Uuid,
+        session_token: &str,
+    ) -> Result<bool, AccountClientError> {
+        let response = self
+            .http
+            .delete(format!(
+                "{}/v2/tenants/{tenant_id}/list-keys/{list_id}",
+                self.base_url
+            ))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Ok(false);
+        }
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server);
+        }
+        Ok(true)
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(

@@ -145,6 +145,7 @@ impl Fixture {
     }
 
     async fn push(&self, op: PushOp) -> todori_sync::protocol::PushResult {
+        self.close_continuity().await;
         sync::push(
             &self.pool,
             self.tenant_id,
@@ -156,6 +157,51 @@ impl Fixture {
         .results
         .pop()
         .unwrap()
+    }
+
+    async fn close_continuity(&self) {
+        query(
+            "UPDATE tenant_device_continuity
+             SET continuity_generation = required_generation, initialized = true
+             WHERE tenant_id = $1 AND device_id = $2",
+        )
+        .bind(self.tenant_id)
+        .bind(self.auth.device_id)
+        .execute(&self.admin_pool)
+        .await
+        .unwrap();
+        let since: i64 = query(
+            "SELECT coalesce((
+                 SELECT continuity_seq FROM tenant_device_continuity
+                 WHERE tenant_id = $1 AND device_id = $2
+             ), 0) AS continuity_seq",
+        )
+        .bind(self.tenant_id)
+        .bind(self.auth.device_id)
+        .fetch_one(&self.admin_pool)
+        .await
+        .unwrap()
+        .try_get("continuity_seq")
+        .unwrap();
+        let page = sync::pull(
+            &self.pool,
+            self.tenant_id,
+            self.auth.clone(),
+            since,
+            Some(100),
+            None,
+        )
+        .await
+        .unwrap();
+        let proof = page.closure_proof.unwrap();
+        sync::ack_continuity(
+            &self.pool,
+            self.tenant_id,
+            self.auth.clone(),
+            todori_sync::protocol::ContinuityAckRequest { proof },
+        )
+        .await
+        .unwrap();
     }
 
     async fn serve(&self) -> String {
@@ -463,6 +509,35 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             },
             fail: false,
         };
+        query(
+            "DELETE FROM continuity_closure_proofs
+             WHERE tenant_id = $1 AND device_id = $2",
+        )
+        .bind(fixture.tenant_id)
+        .bind(fixture.auth.device_id)
+        .execute(&fixture.admin_pool)
+        .await
+        .unwrap();
+        query(
+            "DELETE FROM device_resync_sessions
+             WHERE tenant_id = $1 AND device_id = $2",
+        )
+        .bind(fixture.tenant_id)
+        .bind(fixture.auth.device_id)
+        .execute(&fixture.admin_pool)
+        .await
+        .unwrap();
+        query(
+            "UPDATE tenant_device_continuity
+             SET initialized = false, continuity_seq = 0,
+                 required_generation = continuity_generation
+             WHERE tenant_id = $1 AND device_id = $2",
+        )
+        .bind(fixture.tenant_id)
+        .bind(fixture.auth.device_id)
+        .execute(&fixture.admin_pool)
+        .await
+        .unwrap();
         assert_eq!(
             run_sync_now_with_key_refresh(
                 ActiveSyncContext {
@@ -761,6 +836,10 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
                         protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                         envelope_version: todori_sync::ENVELOPE_VERSION,
                         gc_horizon_seq: 0,
+                        continuity_seq: 0,
+                        continuity_generation: 0,
+                        required_generation: 0,
+                        full_resync_required: false,
                     })
                 }
             }),
@@ -856,7 +935,16 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                         if query.since == 1 {
                             return (
                                 StatusCode::GONE,
-                                axum::Json(json!({"error": "full resync required"})),
+                                axum::Json(todori_sync::protocol::SyncCapabilities {
+                                    protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION
+                                        + 1,
+                                    envelope_version: todori_sync::ENVELOPE_VERSION,
+                                    gc_horizon_seq: 2,
+                                    continuity_seq: 1,
+                                    continuity_generation: 0,
+                                    required_generation: 1,
+                                    full_resync_required: true,
+                                }),
                             )
                                 .into_response();
                         }
@@ -864,6 +952,10 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                             protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                             envelope_version: todori_sync::ENVELOPE_VERSION,
                             gc_horizon_seq: 2,
+                            continuity_seq: 0,
+                            continuity_generation: 0,
+                            required_generation: 0,
+                            full_resync_required: false,
                         })
                         .into_response()
                     }
@@ -876,7 +968,10 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                 let counter = start_counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::ResyncStartResponse { base_seq: 2 })
+                    axum::Json(todori_sync::protocol::ResyncStartResponse {
+                        base_seq: 2,
+                        generation: 1,
+                    })
                 }
             }),
         );
@@ -908,7 +1003,7 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
         .await,
         Err("upgrade required".to_string())
     );
-    assert_eq!(preflight_count.load(Ordering::SeqCst), 2);
+    assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
     assert_eq!(start_count.load(Ordering::SeqCst), 0);
     assert!(store
         .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
@@ -926,15 +1021,24 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
     let closed_for_pull = resync_closed.clone();
     let closed_for_push = resync_closed.clone();
     let violation = push_before_closure.clone();
+    let proof_tenant_id = Uuid::now_v7();
+    let proof_device_id = Uuid::now_v7();
     let app = Router::new()
         .route(
             "/v2/tenants/{tenant_id}/preflight",
             axum::routing::get(|| async {
-                axum::Json(todori_sync::protocol::SyncCapabilities {
-                    protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
-                    envelope_version: todori_sync::ENVELOPE_VERSION,
-                    gc_horizon_seq: 2,
-                })
+                (
+                    StatusCode::GONE,
+                    axum::Json(todori_sync::protocol::SyncCapabilities {
+                        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+                        envelope_version: todori_sync::ENVELOPE_VERSION,
+                        gc_horizon_seq: 2,
+                        continuity_seq: 1,
+                        continuity_generation: 0,
+                        required_generation: 1,
+                        full_resync_required: true,
+                    }),
+                )
             }),
         )
         .route(
@@ -943,7 +1047,10 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
                 let counter = start_counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::ResyncStartResponse { base_seq: 2 })
+                    axum::Json(todori_sync::protocol::ResyncStartResponse {
+                        base_seq: 2,
+                        generation: 1,
+                    })
                 }
             }),
         )
@@ -968,6 +1075,13 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
                         next_since: 2,
                         has_more: false,
                         high_water: 2,
+                        closure_proof: Some(todori_sync::protocol::ClosureProof {
+                            proof_id: Uuid::now_v7(),
+                            tenant_id: proof_tenant_id,
+                            device_id: proof_device_id,
+                            high_water: 2,
+                            generation: 1,
+                        }),
                     })
                 }
             }),
@@ -999,6 +1113,15 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
                     }
                 },
             ),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/continuity/ack",
+            axum::routing::post(|| async {
+                axum::Json(todori_sync::protocol::ContinuityAckResponse {
+                    continuity_seq: 2,
+                    continuity_generation: 1,
+                })
+            }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -1060,6 +1183,154 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
     assert_eq!(start_count.load(Ordering::SeqCst), 1);
     assert!(resync_closed.load(Ordering::SeqCst));
     assert!(!push_before_closure.load(Ordering::SeqCst));
+    assert!(!store
+        .has_outbox_head(SyncCollection::Tasks, record_id)
+        .unwrap());
+}
+
+#[tokio::test]
+async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
+    const DB_KEY: [u8; 32] = [0xd6; 32];
+    let tenant_id = Uuid::now_v7();
+    let proof_device_id = Uuid::now_v7();
+    let ack_attempts = Arc::new(AtomicUsize::new(0));
+    let pushed = Arc::new(AtomicBool::new(false));
+    let ack_counter = ack_attempts.clone();
+    let pushed_flag = pushed.clone();
+    let app = Router::new()
+        .route(
+            "/v2/tenants/{tenant_id}/preflight",
+            axum::routing::get(|| async {
+                axum::Json(todori_sync::protocol::SyncCapabilities {
+                    protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+                    envelope_version: todori_sync::ENVELOPE_VERSION,
+                    gc_horizon_seq: 0,
+                    continuity_seq: 0,
+                    continuity_generation: 0,
+                    required_generation: 0,
+                    full_resync_required: false,
+                })
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/pull",
+            axum::routing::get(move || async move {
+                axum::Json(todori_sync::protocol::PullResponse {
+                    records: Vec::new(),
+                    next_since: 1,
+                    has_more: false,
+                    high_water: 1,
+                    closure_proof: Some(todori_sync::protocol::ClosureProof {
+                        proof_id: Uuid::now_v7(),
+                        tenant_id,
+                        device_id: proof_device_id,
+                        high_water: 1,
+                        generation: 0,
+                    }),
+                })
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/continuity/ack",
+            axum::routing::post(move || {
+                let counter = ack_counter.clone();
+                async move {
+                    if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "retry").into_response();
+                    }
+                    axum::Json(todori_sync::protocol::ContinuityAckResponse {
+                        continuity_seq: 1,
+                        continuity_generation: 0,
+                    })
+                    .into_response()
+                }
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/push",
+            axum::routing::post(
+                move |axum::Json(request): axum::Json<todori_sync::protocol::PushRequest>| {
+                    let pushed = pushed_flag.clone();
+                    async move {
+                        pushed.store(true, Ordering::SeqCst);
+                        axum::Json(todori_sync::protocol::PushResponse {
+                            results: request
+                                .ops
+                                .into_iter()
+                                .map(|op| todori_sync::protocol::PushResult {
+                                    op_id: op.op_id,
+                                    record_id: op.record_id,
+                                    collection: op.collection,
+                                    status: PushStatus::Accepted,
+                                    seq: Some(2),
+                                    current: None,
+                                })
+                                .collect(),
+                        })
+                    }
+                },
+            ),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("ack-crash.sqlite3");
+    let record_id = Uuid::now_v7();
+    let revision_hlc = hlc(-100, 0, "ack-crash-revision");
+    let mutation_hlc = hlc(-200, 0, "ack-crash-mutation");
+    let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    repository
+        .put_record_state(todori_storage::SyncRecordState {
+            record_id,
+            collection: "tasks".to_string(),
+            current_revision_hlc: None,
+            state: todori_storage::SyncRecordSemanticState::Live {
+                mutation_hlc: mutation_hlc.clone(),
+                plaintext_json: "{}".to_string(),
+            },
+            updated_at: 1,
+        })
+        .unwrap();
+    repository
+        .put_outbox_head(NewSyncOutboxEntry {
+            op_id: Uuid::now_v7(),
+            record_id,
+            collection: "tasks".to_string(),
+            base_revision_hlc: None,
+            revision_hlc,
+            state: SyncOutboxState::Live {
+                mutation_hlc,
+                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+            },
+            created_at: 1,
+        })
+        .unwrap();
+    drop(repository);
+    let context = ActiveSyncContext {
+        server_url: format!("http://{address}"),
+        tenant_id,
+        device_id: "ack-crash".to_string(),
+        session_token: "token".to_string(),
+        keys: LocalSyncKeys::default(),
+    };
+    let mut store = SqliteSyncStore::new(db_path, DB_KEY);
+    let mut now = || Ok(Utc::now().timestamp_millis());
+
+    assert_eq!(
+        run_sync_now(context.clone(), &mut store, &mut now).await,
+        Err("sync failed".to_string())
+    );
+    assert_eq!(store.get_cursor_seq(SYNC_CURSOR_NAME).unwrap(), Some(1));
+    assert!(store
+        .has_outbox_head(SyncCollection::Tasks, record_id)
+        .unwrap());
+    assert!(!pushed.load(Ordering::SeqCst));
+
+    run_sync_now(context, &mut store, &mut now).await.unwrap();
+    assert_eq!(ack_attempts.load(Ordering::SeqCst), 2);
+    assert!(pushed.load(Ordering::SeqCst));
     assert!(!store
         .has_outbox_head(SyncCollection::Tasks, record_id)
         .unwrap());
@@ -1275,6 +1546,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
 async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     const DB_KEY_A: [u8; 32] = [0xa1; 32];
     const DB_KEY_B: [u8; 32] = [0xb2; 32];
+    const MASTER_KEY: [u8; 32] = [0xa3; 32];
     let fixture = Fixture::setup().await;
     let server_url = fixture.serve().await;
     let temp = TempDir::new().unwrap();
@@ -1303,6 +1575,43 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
         device_id: "production-client-b".to_string(),
         keys: sync_a.keys.clone(),
     };
+    persist_local_crypto_context(
+        &path_a,
+        &DB_KEY_A,
+        LocalCryptoIdentity {
+            tenant_id: fixture.tenant_id,
+            user_id: fixture.auth.user_id,
+            device_id: fixture.auth.device_id,
+        },
+        &MASTER_KEY,
+        sync_a.keys.clone(),
+        now,
+    )
+    .unwrap();
+    open_encrypted(&path_a, &DB_KEY_A)
+        .unwrap()
+        .execute(
+            "INSERT INTO pending_list_key_bundles
+             (tenant_id, list_id, wrapped_list_dek, created_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                fixture.tenant_id.to_string(),
+                list.id.to_string(),
+                vec![1_u8],
+                now
+            ],
+        )
+        .unwrap();
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut seed_now = || Ok(now + 1);
+    todori_sync::enqueue_list_sync(
+        &mut store_a,
+        &sync_a.keys,
+        &sync_a.device_id,
+        &list,
+        false,
+        &mut seed_now,
+    )
+    .unwrap();
     let client_a = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
     let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let task = client_a
@@ -1330,7 +1639,6 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
         clock += 1;
         Ok(clock)
     };
-    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     run_sync_now(
         context("production-client-a", sync_a.keys.clone()),
         &mut store_a,
@@ -1397,7 +1705,8 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     )
     .await
     .unwrap();
-    assert_eq!(second.push_conflict_count, 1);
+    assert_eq!(second.push_conflict_count, 0);
+    assert!(second.repush_count >= 1);
     assert!(second.push_acked_count >= 1);
 
     let row = query(
@@ -1422,6 +1731,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
 async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconverges() {
     const DB_KEY_A: [u8; 32] = [0xc1; 32];
     const DB_KEY_B: [u8; 32] = [0xd2; 32];
+    const MASTER_KEY: [u8; 32] = [0xc3; 32];
     let fixture = Fixture::setup().await;
     let server_url = fixture.serve().await;
     let temp = TempDir::new().unwrap();
@@ -1450,6 +1760,43 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         device_id: "rank-client-b".to_string(),
         keys: sync_a.keys.clone(),
     };
+    persist_local_crypto_context(
+        &path_a,
+        &DB_KEY_A,
+        LocalCryptoIdentity {
+            tenant_id: fixture.tenant_id,
+            user_id: fixture.auth.user_id,
+            device_id: fixture.auth.device_id,
+        },
+        &MASTER_KEY,
+        sync_a.keys.clone(),
+        now,
+    )
+    .unwrap();
+    open_encrypted(&path_a, &DB_KEY_A)
+        .unwrap()
+        .execute(
+            "INSERT INTO pending_list_key_bundles
+             (tenant_id, list_id, wrapped_list_dek, created_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                fixture.tenant_id.to_string(),
+                list.id.to_string(),
+                vec![1_u8],
+                now
+            ],
+        )
+        .unwrap();
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut seed_now = || Ok(now + 1);
+    todori_sync::enqueue_list_sync(
+        &mut store_a,
+        &sync_a.keys,
+        &sync_a.device_id,
+        &list,
+        false,
+        &mut seed_now,
+    )
+    .unwrap();
     let client_a = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
     let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let target = client_a
@@ -1477,7 +1824,6 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         clock += 1;
         Ok(clock)
     };
-    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
     run_sync_now(
         context("rank-client-a", sync_a.keys.clone()),
@@ -1556,6 +1902,27 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
     } else {
         (concurrent_b.id, concurrent_a.id)
     };
+    let repository_a = SqliteTaskRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
+    assert!(
+        repository_a.get(target.id).is_ok(),
+        "target missing: {}",
+        target.id
+    );
+    assert!(
+        repository_a.get(concurrent_a.id).is_ok(),
+        "concurrent A missing: {}",
+        concurrent_a.id
+    );
+    assert!(
+        repository_a.get(concurrent_b.id).is_ok(),
+        "concurrent B missing: {}",
+        concurrent_b.id
+    );
+    assert!(
+        repository_a.get(previous).is_ok(),
+        "previous missing: {previous}"
+    );
+    assert!(repository_a.get(next).is_ok(), "next missing: {next}");
 
     client_a
         .reorder_task(
@@ -1601,6 +1968,119 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         .map(|task| task.sort_order)
         .collect::<Vec<_>>();
     assert!(ranks.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[tokio::test]
+async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombstone() {
+    const DB_KEY: [u8; 32] = [0xe1; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("deletion-cascade.sqlite3");
+    let now = Utc::now().timestamp_millis() - 10_000;
+    let list = todori_domain::new_list(
+        "Deleted remotely".to_string(),
+        "7fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    SqliteListRepository::new(open_encrypted(&path, &DB_KEY).unwrap())
+        .insert(list.clone())
+        .unwrap();
+    let keys = LocalSyncKeys {
+        list_deks: vec![(list.id, [0xe2; 32])],
+    };
+    let mutation = hlc(-4_000, 0, "list-live");
+    let live_revision = hlc(-3_900, 0, "list-live-revision");
+    assert_eq!(
+        fixture
+            .push(PushOp {
+                op_id: Uuid::now_v7(),
+                record_id: list.id,
+                collection: SyncCollection::Lists,
+                base_revision_hlc: None,
+                revision_hlc: live_revision.clone(),
+                state: SyncRecordState::Live {
+                    mutation_hlc: mutation,
+                    blob: STANDARD.encode(b"opaque-list"),
+                },
+            })
+            .await
+            .status,
+        PushStatus::Accepted
+    );
+    let delete_hlc = hlc(-3_000, 0, "list-delete");
+    let delete_revision = hlc(-2_900, 0, "list-delete-revision");
+    assert_eq!(
+        fixture
+            .push(PushOp {
+                op_id: Uuid::now_v7(),
+                record_id: list.id,
+                collection: SyncCollection::Lists,
+                base_revision_hlc: Some(live_revision),
+                revision_hlc: delete_revision,
+                state: SyncRecordState::Tombstone { delete_hlc },
+            })
+            .await
+            .status,
+        PushStatus::Accepted
+    );
+
+    let mutation_service = SqliteMutationService::new(path.clone(), DB_KEY);
+    let late_task = mutation_service
+        .create_task(
+            todori_client::test_support::CreateTaskInput {
+                list_id: list.id,
+                title: "offline late descendant".to_string(),
+                parent_task_id: None,
+                due_at: None,
+                note: None,
+                now_ms: now + 1,
+            },
+            &LocalMutationContext {
+                device_id: "offline-descendant".to_string(),
+                keys: keys.clone(),
+            },
+        )
+        .unwrap();
+    let mut store = SqliteSyncStore::new(path.clone(), DB_KEY);
+    let mut clock = now + 100;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    run_sync_now(
+        ActiveSyncContext {
+            server_url,
+            tenant_id: fixture.tenant_id,
+            device_id: "offline-descendant".to_string(),
+            session_token: fixture.token.clone(),
+            keys,
+        },
+        &mut store,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        SqliteTaskRepository::new(open_encrypted(&path, &DB_KEY).unwrap()).get(late_task.id),
+        Err(todori_storage::StorageError::NotFound(_))
+    ));
+    let row = query(
+        "SELECT delete_hlc, encrypted_blob FROM sync_records
+         WHERE tenant_id = $1 AND record_id = $2",
+    )
+    .bind(fixture.tenant_id)
+    .bind(late_task.id)
+    .fetch_one(&fixture.admin_pool)
+    .await
+    .unwrap();
+    assert!(row.try_get::<String, _>("delete_hlc").is_ok());
+    assert_eq!(
+        row.try_get::<Option<Vec<u8>>, _>("encrypted_blob").unwrap(),
+        None
+    );
 }
 
 fn hlc(delta: i64, counter: u32, device: &str) -> String {
@@ -1737,18 +2217,17 @@ async fn cas_retry_semantic_fences_and_pull_preserve_the_current_head() {
         SyncRecordState::Tombstone { .. }
     ));
 
-    let live_revision = hlc(-1_500, 0, "revision-live-new");
     let resurrected = fixture
         .push(live_op(
             record_id,
-            Some(delete_revision),
-            live_revision.clone(),
+            Some(delete_revision.clone()),
+            hlc(-1_500, 0, "revision-live-new"),
             hlc(-1_600, 0, "semantic-live-new"),
             b"cipher-resurrected",
         ))
         .await;
-    assert_eq!(resurrected.status, PushStatus::Accepted);
-    assert_eq!(resurrected.seq, Some(3));
+    assert_eq!(resurrected.status, PushStatus::Superseded);
+    assert_eq!(resurrected.seq, Some(2));
 
     let page = sync::pull(
         &fixture.pool,
@@ -1756,16 +2235,17 @@ async fn cas_retry_semantic_fences_and_pull_preserve_the_current_head() {
         fixture.auth.clone(),
         0,
         Some(100),
+        None,
     )
     .await
     .unwrap();
     assert_eq!(page.records.len(), 1);
-    assert_eq!(page.records[0].revision_hlc, live_revision);
+    assert_eq!(page.records[0].revision_hlc, delete_revision);
     assert!(matches!(
         &page.records[0].state,
-        SyncRecordState::Live { blob, .. } if blob == &STANDARD.encode(b"cipher-resurrected")
+        SyncRecordState::Tombstone { .. }
     ));
-    assert_eq!(page.next_since, 3);
+    assert_eq!(page.next_since, 2);
 
     let history_count: i64 = query(
         "SELECT count(*) AS count FROM sync_records_history
@@ -1778,12 +2258,316 @@ async fn cas_retry_semantic_fences_and_pull_preserve_the_current_head() {
     .unwrap()
     .try_get("count")
     .unwrap();
-    assert_eq!(history_count, 2);
+    assert_eq!(history_count, 0);
+}
+
+#[tokio::test]
+async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
+    let fixture = Fixture::setup().await;
+    let record_id = Uuid::now_v7();
+    let op = live_op(
+        record_id,
+        None,
+        hlc(-2_000, 0, "continuity-revision"),
+        hlc(-2_100, 0, "continuity-mutation"),
+        b"continuity",
+    );
+    assert!(sync::push(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        PushRequest {
+            ops: vec![op.clone()]
+        },
+    )
+    .await
+    .is_err());
+    assert!(sync::upsert_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::account::ListDekBundleDto {
+            list_id: Uuid::now_v7(),
+            wrapped_list_dek: STANDARD.encode([7_u8; 32]),
+        },
+    )
+    .await
+    .is_err());
+
+    let initial = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        0,
+        Some(100),
+        None,
+    )
+    .await
+    .unwrap();
+    let proof = initial.closure_proof.unwrap();
+    let initialized_before_ack: bool = query(
+        "SELECT initialized FROM tenant_device_continuity
+         WHERE tenant_id = $1 AND device_id = $2",
+    )
+    .bind(fixture.tenant_id)
+    .bind(fixture.auth.device_id)
+    .fetch_one(&fixture.admin_pool)
+    .await
+    .unwrap()
+    .try_get("initialized")
+    .unwrap();
+    assert!(!initialized_before_ack);
+
+    let mut wrong_tenant = proof.clone();
+    wrong_tenant.tenant_id = Uuid::now_v7();
+    assert!(sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: wrong_tenant
+        },
+    )
+    .await
+    .is_err());
+    let mut wrong_device = proof.clone();
+    wrong_device.device_id = Uuid::now_v7();
+    assert!(sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: wrong_device
+        },
+    )
+    .await
+    .is_err());
+    let first_ack = sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: proof.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    let retried_ack = sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: proof.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried_ack, first_ack);
+
+    assert_eq!(
+        sync::push(
+            &fixture.pool,
+            fixture.tenant_id,
+            fixture.auth.clone(),
+            PushRequest { ops: vec![op] },
+        )
+        .await
+        .unwrap()
+        .results[0]
+            .status,
+        PushStatus::Accepted
+    );
+    assert!(sync::upsert_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::account::ListDekBundleDto {
+            list_id: Uuid::now_v7(),
+            wrapped_list_dek: STANDARD.encode([8_u8; 32]),
+        },
+    )
+    .await
+    .is_err());
+
+    fixture.close_continuity().await;
+    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
+        .await
+        .unwrap();
+    assert!(sync::push(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        PushRequest { ops: Vec::new() },
+    )
+    .await
+    .is_err());
+    let base = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.generation,
+        None,
+        Some(100),
+    )
+    .await
+    .unwrap();
+    assert!(!base.has_more);
+    let closure = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.base_seq,
+        Some(100),
+        Some(start.generation),
+    )
+    .await
+    .unwrap();
+    let full_resync_proof = closure.closure_proof.unwrap();
+    assert!(sync::push(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        PushRequest { ops: Vec::new() },
+    )
+    .await
+    .is_err());
+    sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: full_resync_proof.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(sync::push(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        PushRequest { ops: Vec::new() },
+    )
+    .await
+    .is_ok());
+
+    let next = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
+        .await
+        .unwrap();
+    assert!(next.generation > start.generation);
+    assert!(sync::ack_continuity(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::protocol::ContinuityAckRequest {
+            proof: full_resync_proof,
+        },
+    )
+    .await
+    .is_err());
+}
+
+#[tokio::test]
+async fn list_key_retirement_waits_for_tombstone_gc_and_device_closure() {
+    let fixture = Fixture::setup().await;
+    fixture.close_continuity().await;
+    let list_id = Uuid::now_v7();
+    sync::upsert_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        todori_sync::account::ListDekBundleDto {
+            list_id,
+            wrapped_list_dek: STANDARD.encode([9_u8; 32]),
+        },
+    )
+    .await
+    .unwrap();
+    let live_revision = hlc(-4_000, 0, "retire-live-revision");
+    let mut live = live_op(
+        list_id,
+        None,
+        live_revision.clone(),
+        hlc(-4_100, 0, "retire-live-mutation"),
+        b"list-cipher",
+    );
+    live.collection = SyncCollection::Lists;
+    assert_eq!(fixture.push(live).await.status, PushStatus::Accepted);
+    assert!(sync::retire_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        list_id,
+    )
+    .await
+    .is_err());
+    let mut tombstone = tombstone_op(
+        list_id,
+        Some(live_revision),
+        hlc(-3_000, 0, "retire-delete-revision"),
+        hlc(-3_100, 0, "retire-delete"),
+    );
+    tombstone.collection = SyncCollection::Lists;
+    let deleted = fixture.push(tombstone).await;
+    assert_eq!(deleted.status, PushStatus::Accepted);
+    fixture.close_continuity().await;
+    assert!(sync::retire_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        list_id,
+    )
+    .await
+    .is_err());
+    query(
+        "UPDATE sync_records SET updated_at = $1
+         WHERE tenant_id = $2 AND record_id = $3",
+    )
+    .bind(Utc::now() - Duration::days(181))
+    .bind(fixture.tenant_id)
+    .bind(list_id)
+    .execute(&fixture.admin_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        gc_tombstones(&fixture.admin_pool, Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
+    sync::retire_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        list_id,
+    )
+    .await
+    .unwrap();
+    sync::retire_list_key_bundle(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        list_id,
+    )
+    .await
+    .unwrap();
+    let count: i64 = query(
+        "SELECT count(*) AS count FROM list_key_bundles
+         WHERE tenant_id = $1 AND list_id = $2",
+    )
+    .bind(fixture.tenant_id)
+    .bind(list_id)
+    .fetch_one(&fixture.admin_pool)
+    .await
+    .unwrap()
+    .try_get("count")
+    .unwrap();
+    assert_eq!(count, 0);
 }
 
 #[tokio::test]
 async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_changes() {
     let fixture = Fixture::setup().await;
+    fixture.close_continuity().await;
     let record_id = Uuid::now_v7();
     let revision = hlc(-1_000, 0, "route-revision");
     let mutation = hlc(-1_100, 0, "route-mutation");
@@ -1823,6 +2607,42 @@ async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_chan
         .await,
         StatusCode::UNAUTHORIZED
     );
+    let old_protocol_response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/v2/tenants/{}/push", fixture.tenant_id))
+                .header("authorization", format!("Bearer {}", fixture.token))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&valid_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_protocol_response.status(), StatusCode::CONFLICT);
+    let old_list_key_response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/v2/tenants/{}/list-keys", fixture.tenant_id))
+                .header("authorization", format!("Bearer {}", fixture.token))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "list_id": Uuid::now_v7(),
+                        "wrapped_list_dek": STANDARD.encode([1_u8; 32]),
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_list_key_response.status(), StatusCode::CONFLICT);
     assert_eq!(
         request_status(
             &fixture.app,
@@ -1834,6 +2654,7 @@ async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_chan
         .await,
         StatusCode::OK
     );
+    fixture.close_continuity().await;
 
     let unknown_collection = json!({
         "ops": [{
@@ -2002,10 +2823,11 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
             .collect();
     assert_eq!(remaining, vec![live_id]);
 
-    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, 0)
+    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, fixture.auth.clone(), 0)
         .await
         .unwrap();
     assert_eq!(preflight.gc_horizon_seq, 2);
+    assert!(preflight.full_resync_required);
     assert_eq!(
         request_status(
             &fixture.app,
@@ -2015,7 +2837,7 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
             None,
         )
         .await,
-        StatusCode::OK
+        StatusCode::GONE
     );
     assert_eq!(
         request_status(
@@ -2056,13 +2878,20 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
         ))
         .await;
 
-    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id)
+    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
         .await
         .unwrap();
     assert_eq!(start.base_seq, 2);
-    let first_page = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(1))
-        .await
-        .unwrap();
+    let first_page = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.generation,
+        None,
+        Some(1),
+    )
+    .await
+    .unwrap();
     assert_eq!(first_page.records[0].record_id, first);
     assert!(first_page.has_more);
 
@@ -2088,6 +2917,8 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
     let second_page = sync::scan_base(
         &fixture.pool,
         fixture.tenant_id,
+        fixture.auth.clone(),
+        start.generation,
         first_page.next_cursor,
         Some(1),
     )
@@ -2102,6 +2933,7 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
         fixture.auth.clone(),
         start.base_seq,
         Some(1),
+        Some(start.generation),
     )
     .await
     .unwrap();
@@ -2117,6 +2949,7 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
         fixture.auth.clone(),
         delta.next_since,
         Some(1),
+        Some(start.generation),
     )
     .await
     .unwrap();
@@ -2133,13 +2966,20 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
 #[tokio::test]
 async fn empty_resync_closes_and_base_scan_is_not_limited_to_start_seq() {
     let fixture = Fixture::setup().await;
-    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id)
+    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
         .await
         .unwrap();
     assert_eq!(start.base_seq, 0);
-    let empty_base = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(100))
-        .await
-        .unwrap();
+    let empty_base = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.generation,
+        None,
+        Some(100),
+    )
+    .await
+    .unwrap();
     assert!(empty_base.records.is_empty());
     assert!(!empty_base.has_more);
     let empty_delta = sync::pull(
@@ -2148,6 +2988,7 @@ async fn empty_resync_closes_and_base_scan_is_not_limited_to_start_seq() {
         fixture.auth.clone(),
         start.base_seq,
         Some(100),
+        Some(start.generation),
     )
     .await
     .unwrap();
@@ -2168,9 +3009,19 @@ async fn empty_resync_closes_and_base_scan_is_not_limited_to_start_seq() {
             b"created-after-start",
         ))
         .await;
-    let fuzzy_base = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(100))
+    let restarted = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
         .await
         .unwrap();
+    let fuzzy_base = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        restarted.generation,
+        None,
+        Some(100),
+    )
+    .await
+    .unwrap();
     assert_eq!(fuzzy_base.records.len(), 1);
     assert_eq!(fuzzy_base.records[0].record_id, created_after_start);
     assert!(fuzzy_base.records[0].seq > start.base_seq);
@@ -2225,7 +3076,7 @@ async fn gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water
     .unwrap()
     .try_get("max_seq")
     .unwrap();
-    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, 0)
+    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, fixture.auth.clone(), 0)
         .await
         .unwrap();
     assert_eq!(max_active, 1);
@@ -2237,6 +3088,7 @@ async fn gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water
         fixture.auth.clone(),
         1,
         Some(100),
+        None,
     )
     .await
     .unwrap();
@@ -2259,6 +3111,10 @@ async fn request_status(
     body: Option<Value>,
 ) -> StatusCode {
     let mut builder = Request::builder().method(method).uri(uri);
+    builder = builder.header(
+        todori_sync::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+        todori_sync::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+    );
     if let Some(token) = token {
         builder = builder.header("authorization", format!("Bearer {token}"));
     }

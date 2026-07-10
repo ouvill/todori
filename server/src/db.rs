@@ -35,6 +35,9 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
         "list_key_bundles",
         "sync_records",
         "sync_records_history",
+        "tenant_device_continuity",
+        "device_resync_sessions",
+        "continuity_closure_proofs",
     ])
     .fetch_one(&pool)
     .await?;
@@ -74,6 +77,11 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     raw_sql(include_str!("../migrations/202607110001_rls_hardening.sql"))
         .execute(pool)
         .await?;
+    raw_sql(include_str!(
+        "../migrations/202607110002_archive_first_deletion.sql"
+    ))
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

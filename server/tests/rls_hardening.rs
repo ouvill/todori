@@ -233,11 +233,14 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
         "list_key_bundles",
         "sync_records",
         "sync_records_history",
+        "tenant_device_continuity",
+        "device_resync_sessions",
+        "continuity_closure_proofs",
     ])
     .fetch_all(&fixture.admin_pool)
     .await
     .unwrap();
-    assert_eq!(protected_tables.len(), 7);
+    assert_eq!(protected_tables.len(), 10);
     assert!(protected_tables.iter().all(|row| {
         row.try_get::<bool, _>("relrowsecurity").unwrap()
             && row.try_get::<bool, _>("relforcerowsecurity").unwrap()

@@ -7,9 +7,9 @@ use sqlx_postgres::{PgPool, PgTransaction, Postgres};
 use todori_sync::{
     account::ListDekBundleDto,
     protocol::{
-        BaseScanResponse, PullResponse, PushOp, PushRequest, PushResponse, PushResult, PushStatus,
-        ResyncStartResponse, StableRecordCursor, SyncCapabilities, SyncCollection, SyncRecord,
-        SyncRecordState,
+        BaseScanResponse, ClosureProof, ContinuityAckRequest, ContinuityAckResponse, PullResponse,
+        PushOp, PushRequest, PushResponse, PushResult, PushStatus, ResyncStartResponse,
+        StableRecordCursor, SyncCapabilities, SyncCollection, SyncRecord, SyncRecordState,
     },
     Hlc, MAX_ENCRYPTED_BLOB_LEN,
 };
@@ -25,6 +25,9 @@ const ALLOWED_FUTURE_SKEW_MS: i64 = 5 * 60 * 1000;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct UpsertListKeyResponse {}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct RetireListKeyResponse {}
 
 struct ValidatedPushOp {
     op_id: Uuid,
@@ -57,58 +60,167 @@ struct StoredRecord {
 pub async fn preflight(
     pool: &PgPool,
     tenant_id: Uuid,
+    auth: AuthContext,
     since: i64,
 ) -> Result<SyncCapabilities, AppError> {
     if since < 0 {
         return Err(AppError::bad_request("invalid since"));
     }
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    ensure_device_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let row = query::<Postgres>(
-        "SELECT gc_horizon_seq
-         FROM tenant_seq
-         WHERE tenant_id = $1",
+        "SELECT seq.gc_horizon_seq, seq.last_seq,
+                continuity.continuity_seq, continuity.continuity_generation,
+                continuity.required_generation, continuity.initialized
+         FROM tenant_seq AS seq
+         JOIN tenant_device_continuity AS continuity
+           ON continuity.tenant_id = seq.tenant_id
+          AND continuity.device_id = $2
+         WHERE seq.tenant_id = $1",
     )
     .bind(tenant_id)
+    .bind(auth.device_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::forbidden)?;
     let gc_horizon_seq = row
         .try_get("gc_horizon_seq")
         .map_err(|_| AppError::internal())?;
-    if since > 0 && since < gc_horizon_seq {
-        return Err(AppError::gone("full resync required"));
-    }
+    let last_seq: i64 = row.try_get("last_seq").map_err(|_| AppError::internal())?;
+    let continuity_seq: i64 = row
+        .try_get("continuity_seq")
+        .map_err(|_| AppError::internal())?;
+    let continuity_generation: i64 = row
+        .try_get("continuity_generation")
+        .map_err(|_| AppError::internal())?;
+    let required_generation: i64 = row
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    let initialized: bool = row
+        .try_get("initialized")
+        .map_err(|_| AppError::internal())?;
+    let full_resync_required = (!initialized && last_seq > 0)
+        || continuity_seq < gc_horizon_seq
+        || continuity_generation != required_generation;
     tx.commit().await?;
     Ok(SyncCapabilities {
         protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
         envelope_version: todori_sync::ENVELOPE_VERSION,
         gc_horizon_seq,
+        continuity_seq,
+        continuity_generation,
+        required_generation,
+        full_resync_required,
     })
 }
 
 pub async fn begin_full_resync(
     pool: &PgPool,
     tenant_id: Uuid,
+    auth: AuthContext,
 ) -> Result<ResyncStartResponse, AppError> {
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
-    let row = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
-        .bind(tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(AppError::forbidden)?;
+    ensure_device_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let row = query::<Postgres>(
+        "SELECT seq.last_seq, continuity.required_generation
+         FROM tenant_seq AS seq
+         JOIN tenant_device_continuity AS continuity
+           ON continuity.tenant_id = seq.tenant_id
+          AND continuity.device_id = $2
+         WHERE seq.tenant_id = $1
+         FOR UPDATE OF seq, continuity",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
     let base_seq = row.try_get("last_seq").map_err(|_| AppError::internal())?;
+    let required_generation: i64 = row
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    let generation = required_generation
+        .checked_add(1)
+        .ok_or_else(AppError::internal)?;
+    query::<Postgres>(
+        "UPDATE tenant_device_continuity
+         SET required_generation = $3, updated_at = now()
+         WHERE tenant_id = $1 AND device_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .bind(generation)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "INSERT INTO device_resync_sessions
+         (tenant_id, device_id, generation, base_seq)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .bind(generation)
+    .bind(base_seq)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
-    Ok(ResyncStartResponse { base_seq })
+    Ok(ResyncStartResponse {
+        base_seq,
+        generation,
+    })
 }
 
 pub async fn scan_base(
     pool: &PgPool,
     tenant_id: Uuid,
+    auth: AuthContext,
+    generation: i64,
     cursor: Option<StableRecordCursor>,
     limit: Option<i64>,
 ) -> Result<BaseScanResponse, AppError> {
+    if generation <= 0 {
+        return Err(AppError::bad_request("invalid resync generation"));
+    }
     let limit = validated_page_limit(limit)?;
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    let session = query::<Postgres>(
+        "SELECT session.base_cursor_collection, session.base_cursor_record_id,
+                session.base_complete, continuity.required_generation
+         FROM device_resync_sessions AS session
+         JOIN tenant_device_continuity AS continuity
+           ON continuity.tenant_id = session.tenant_id
+          AND continuity.device_id = session.device_id
+         WHERE session.tenant_id = $1 AND session.device_id = $2
+           AND session.generation = $3
+         FOR UPDATE OF session, continuity",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .bind(generation)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::conflict("invalid resync generation"))?;
+    let expected_collection: Option<String> = session
+        .try_get("base_cursor_collection")
+        .map_err(|_| AppError::internal())?;
+    let expected_record_id: Option<Uuid> = session
+        .try_get("base_cursor_record_id")
+        .map_err(|_| AppError::internal())?;
+    let base_complete: bool = session
+        .try_get("base_complete")
+        .map_err(|_| AppError::internal())?;
+    let required_generation: i64 = session
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    let presented_cursor = cursor
+        .as_ref()
+        .map(|value| (value.collection.as_str().to_string(), value.record_id));
+    if base_complete
+        || required_generation != generation
+        || presented_cursor != expected_collection.zip(expected_record_id)
+    {
+        return Err(AppError::conflict("invalid resync cursor"));
+    }
     let rows = if let Some(cursor) = cursor {
         query::<Postgres>(
             "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
@@ -139,7 +251,6 @@ pub async fn scan_base(
         .fetch_all(&mut *tx)
         .await?
     };
-    tx.commit().await?;
     let has_more = rows.len() as i64 > limit;
     let records = rows
         .into_iter()
@@ -151,6 +262,23 @@ pub async fn scan_base(
         collection: record.collection,
         record_id: record.record_id,
     });
+    let next_collection = next_cursor.as_ref().map(|value| value.collection.as_str());
+    let next_record_id = next_cursor.as_ref().map(|value| value.record_id);
+    query::<Postgres>(
+        "UPDATE device_resync_sessions
+         SET base_cursor_collection = $4, base_cursor_record_id = $5,
+             base_complete = $6, updated_at = now()
+         WHERE tenant_id = $1 AND device_id = $2 AND generation = $3",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .bind(generation)
+    .bind(next_collection)
+    .bind(next_record_id)
+    .bind(!has_more)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(BaseScanResponse {
         records,
         next_cursor,
@@ -180,6 +308,7 @@ pub async fn push(
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let mut results = Vec::with_capacity(ops.len());
     for op in ops {
         results.push(apply_push_op(&mut tx, tenant_id, auth.user_id, op).await?);
@@ -194,6 +323,7 @@ pub async fn pull(
     auth: AuthContext,
     since: i64,
     limit: Option<i64>,
+    generation: Option<i64>,
 ) -> Result<PullResponse, AppError> {
     if since < 0 {
         return Err(AppError::bad_request("invalid since"));
@@ -201,6 +331,46 @@ pub async fn pull(
     let limit = validated_page_limit(limit)?;
 
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    ensure_device_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let continuity = query::<Postgres>(
+        "SELECT continuity_generation, required_generation
+         FROM tenant_device_continuity
+         WHERE tenant_id = $1 AND device_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let continuity_generation: i64 = continuity
+        .try_get("continuity_generation")
+        .map_err(|_| AppError::internal())?;
+    let required_generation: i64 = continuity
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    let proof_generation = if let Some(generation) = generation {
+        let base_complete: bool = query::<Postgres>(
+            "SELECT base_complete
+             FROM device_resync_sessions
+             WHERE tenant_id = $1 AND device_id = $2 AND generation = $3",
+        )
+        .bind(tenant_id)
+        .bind(auth.device_id)
+        .bind(generation)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::conflict("invalid resync generation"))?
+        .try_get("base_complete")
+        .map_err(|_| AppError::internal())?;
+        if generation != required_generation || !base_complete {
+            return Err(AppError::conflict("resync base is incomplete"));
+        }
+        generation
+    } else {
+        if continuity_generation != required_generation {
+            return Err(AppError::gone("full resync required"));
+        }
+        required_generation
+    };
     let high_water: i64 = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
         .bind(tenant_id)
         .fetch_optional(&mut *tx)
@@ -240,6 +410,39 @@ pub async fn pull(
         high_water
     };
 
+    let closure_proof = if !has_more && next_since == high_water {
+        query::<Postgres>(
+            "DELETE FROM continuity_closure_proofs
+             WHERE tenant_id = $1 AND device_id = $2 AND acknowledged_at IS NULL",
+        )
+        .bind(tenant_id)
+        .bind(auth.device_id)
+        .execute(&mut *tx)
+        .await?;
+        let proof = ClosureProof {
+            proof_id: Uuid::now_v7(),
+            tenant_id,
+            device_id: auth.device_id,
+            high_water,
+            generation: proof_generation,
+        };
+        query::<Postgres>(
+            "INSERT INTO continuity_closure_proofs
+             (proof_id, tenant_id, device_id, high_water, generation)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(proof.proof_id)
+        .bind(proof.tenant_id)
+        .bind(proof.device_id)
+        .bind(proof.high_water)
+        .bind(proof.generation)
+        .execute(&mut *tx)
+        .await?;
+        Some(proof)
+    } else {
+        None
+    };
+
     query::<Postgres>("UPDATE devices SET last_pull_at = now() WHERE id = $1 AND user_id = $2")
         .bind(auth.device_id)
         .bind(auth.user_id)
@@ -253,13 +456,14 @@ pub async fn pull(
         next_since,
         has_more,
         high_water,
+        closure_proof,
     })
 }
 
 pub async fn upsert_list_key_bundle(
     pool: &PgPool,
     tenant_id: Uuid,
-    _auth: AuthContext,
+    auth: AuthContext,
     bundle: ListDekBundleDto,
 ) -> Result<UpsertListKeyResponse, AppError> {
     let wrapped_list_dek = STANDARD
@@ -269,6 +473,7 @@ pub async fn upsert_list_key_bundle(
         return Err(AppError::bad_request("invalid list key bundle"));
     }
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let inserted = query::<Postgres>(
         "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
          VALUES ($1, $2, $3)
@@ -329,6 +534,171 @@ pub async fn list_key_bundles(
         .collect()
 }
 
+pub async fn retire_list_key_bundle(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    list_id: Uuid,
+) -> Result<RetireListKeyResponse, AppError> {
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let row = query::<Postgres>(
+        "SELECT bundle.deletion_seq, seq.gc_horizon_seq
+         FROM list_key_bundles AS bundle
+         JOIN tenant_seq AS seq ON seq.tenant_id = bundle.tenant_id
+         WHERE bundle.tenant_id = $1 AND bundle.list_id = $2
+         FOR UPDATE OF bundle, seq",
+    )
+    .bind(tenant_id)
+    .bind(list_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        tx.commit().await?;
+        return Ok(RetireListKeyResponse {});
+    };
+    let deletion_seq: Option<i64> = row
+        .try_get("deletion_seq")
+        .map_err(|_| AppError::internal())?;
+    let gc_horizon_seq: i64 = row
+        .try_get("gc_horizon_seq")
+        .map_err(|_| AppError::internal())?;
+    let Some(deletion_seq) = deletion_seq else {
+        return Err(AppError::conflict("list key retirement is not safe"));
+    };
+    let current_exists: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM sync_records
+             WHERE tenant_id = $1 AND record_id = $2
+         ) AS current_exists",
+    )
+    .bind(tenant_id)
+    .bind(list_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("current_exists")
+    .map_err(|_| AppError::internal())?;
+    let unsafe_device_exists: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM tenant_device_continuity
+             WHERE tenant_id = $1
+               AND continuity_seq < $2
+               AND required_generation <= continuity_generation
+         ) AS unsafe_device_exists",
+    )
+    .bind(tenant_id)
+    .bind(deletion_seq)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("unsafe_device_exists")
+    .map_err(|_| AppError::internal())?;
+    let unacknowledged_proof_exists: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM continuity_closure_proofs
+             WHERE tenant_id = $1 AND acknowledged_at IS NULL
+         ) AS unacknowledged_proof_exists",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("unacknowledged_proof_exists")
+    .map_err(|_| AppError::internal())?;
+    if current_exists
+        || deletion_seq > gc_horizon_seq
+        || unsafe_device_exists
+        || unacknowledged_proof_exists
+    {
+        return Err(AppError::conflict("list key retirement is not safe"));
+    }
+    query::<Postgres>(
+        "DELETE FROM list_key_bundles
+         WHERE tenant_id = $1 AND list_id = $2 AND deletion_seq = $3",
+    )
+    .bind(tenant_id)
+    .bind(list_id)
+    .bind(deletion_seq)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(RetireListKeyResponse {})
+}
+
+pub async fn ack_continuity(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    request: ContinuityAckRequest,
+) -> Result<ContinuityAckResponse, AppError> {
+    let proof = request.proof;
+    if proof.tenant_id != tenant_id || proof.device_id != auth.device_id {
+        return Err(AppError::forbidden());
+    }
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    ensure_device_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let row = query::<Postgres>(
+        "SELECT proof.high_water, proof.generation, proof.acknowledged_at,
+                continuity.continuity_seq, continuity.continuity_generation,
+                continuity.required_generation
+         FROM continuity_closure_proofs AS proof
+         JOIN tenant_device_continuity AS continuity
+           ON continuity.tenant_id = proof.tenant_id
+          AND continuity.device_id = proof.device_id
+         WHERE proof.proof_id = $1 AND proof.tenant_id = $2 AND proof.device_id = $3
+         FOR UPDATE OF proof, continuity",
+    )
+    .bind(proof.proof_id)
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
+    let stored_high_water: i64 = row
+        .try_get("high_water")
+        .map_err(|_| AppError::internal())?;
+    let stored_generation: i64 = row
+        .try_get("generation")
+        .map_err(|_| AppError::internal())?;
+    let required_generation: i64 = row
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    if stored_high_water != proof.high_water
+        || stored_generation != proof.generation
+        || proof.generation != required_generation
+    {
+        return Err(AppError::conflict("invalid continuity proof"));
+    }
+    query::<Postgres>(
+        "UPDATE tenant_device_continuity
+         SET continuity_seq = greatest(continuity_seq, $3),
+             continuity_generation = $4, initialized = true, updated_at = now()
+         WHERE tenant_id = $1 AND device_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(auth.device_id)
+    .bind(proof.high_water)
+    .bind(proof.generation)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "UPDATE continuity_closure_proofs
+         SET acknowledged_at = coalesce(acknowledged_at, now())
+         WHERE proof_id = $1",
+    )
+    .bind(proof.proof_id)
+    .execute(&mut *tx)
+    .await?;
+    let continuity_seq = std::cmp::max(
+        row.try_get("continuity_seq")
+            .map_err(|_| AppError::internal())?,
+        proof.high_water,
+    );
+    tx.commit().await?;
+    Ok(ContinuityAckResponse {
+        continuity_seq,
+        continuity_generation: proof.generation,
+    })
+}
+
 pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, AppError> {
     let row = query::<Postgres>(
         "WITH deleted AS (
@@ -345,6 +715,18 @@ pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, 
              FROM horizons
              WHERE target.tenant_id = horizons.tenant_id
              RETURNING target.tenant_id
+         ), expired AS (
+             UPDATE tenant_device_continuity AS continuity
+             SET required_generation = greatest(
+                     continuity.required_generation,
+                     continuity.continuity_generation + 1
+                 ),
+                 updated_at = now()
+             FROM tenant_seq AS seq, advanced
+             WHERE continuity.tenant_id = advanced.tenant_id
+               AND seq.tenant_id = continuity.tenant_id
+               AND continuity.continuity_seq < seq.gc_horizon_seq
+             RETURNING continuity.tenant_id
          )
          SELECT coalesce(sum(horizons.deleted_count), 0)::BIGINT AS deleted_count
          FROM horizons
@@ -365,6 +747,71 @@ fn validated_page_limit(limit: Option<i64>) -> Result<i64, AppError> {
         return Err(AppError::bad_request("invalid page limit"));
     }
     Ok(limit)
+}
+
+async fn ensure_device_continuity(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    device_id: Uuid,
+) -> Result<(), AppError> {
+    query::<Postgres>(
+        "INSERT INTO tenant_device_continuity (tenant_id, device_id)
+         VALUES ($1, $2)
+         ON CONFLICT (tenant_id, device_id) DO NOTHING",
+    )
+    .bind(tenant_id)
+    .bind(device_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn require_push_continuity(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    device_id: Uuid,
+) -> Result<(), AppError> {
+    ensure_device_continuity(tx, tenant_id, device_id).await?;
+    let row = query::<Postgres>(
+        "SELECT seq.last_seq, seq.gc_horizon_seq, continuity.continuity_seq,
+                continuity.continuity_generation, continuity.required_generation,
+                continuity.initialized
+         FROM tenant_seq AS seq
+         JOIN tenant_device_continuity AS continuity
+           ON continuity.tenant_id = seq.tenant_id
+          AND continuity.device_id = $2
+         WHERE seq.tenant_id = $1
+         FOR UPDATE OF seq, continuity",
+    )
+    .bind(tenant_id)
+    .bind(device_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
+    let last_seq: i64 = row.try_get("last_seq").map_err(|_| AppError::internal())?;
+    let gc_horizon_seq: i64 = row
+        .try_get("gc_horizon_seq")
+        .map_err(|_| AppError::internal())?;
+    let continuity_seq: i64 = row
+        .try_get("continuity_seq")
+        .map_err(|_| AppError::internal())?;
+    let continuity_generation: i64 = row
+        .try_get("continuity_generation")
+        .map_err(|_| AppError::internal())?;
+    let required_generation: i64 = row
+        .try_get("required_generation")
+        .map_err(|_| AppError::internal())?;
+    let initialized: bool = row
+        .try_get("initialized")
+        .map_err(|_| AppError::internal())?;
+    if !initialized
+        || continuity_seq < gc_horizon_seq
+        || continuity_seq != last_seq
+        || continuity_generation != required_generation
+    {
+        return Err(AppError::conflict("device continuity closure required"));
+    }
+    Ok(())
 }
 
 fn validate_push_op(op: PushOp) -> Result<ValidatedPushOp, AppError> {
@@ -434,8 +881,12 @@ async fn apply_push_op(
         if op.base_revision_hlc.is_some() {
             return Ok(op.result(PushStatus::Conflict, None));
         }
+        if matches!(op.state, StoredState::Tombstone { .. }) {
+            purge_record_history(tx, tenant_id, op.record_id).await?;
+        }
         let seq = next_tenant_seq(tx, tenant_id).await?;
         insert_record(tx, tenant_id, &op, seq).await?;
+        mark_list_key_deletion(tx, tenant_id, &op, seq).await?;
         return Ok(op.result(PushStatus::Accepted, Some((seq, None))));
     };
 
@@ -457,9 +908,14 @@ async fn apply_push_op(
         return Ok(op.result(PushStatus::Superseded, Some((seq, Some(stored)))));
     }
 
-    insert_history(tx, tenant_id, author_user_id, &stored).await?;
+    if matches!(op.state, StoredState::Tombstone { .. }) {
+        purge_record_history(tx, tenant_id, op.record_id).await?;
+    } else {
+        insert_history(tx, tenant_id, author_user_id, &stored).await?;
+    }
     let seq = next_tenant_seq(tx, tenant_id).await?;
     update_record(tx, tenant_id, &op, seq).await?;
+    mark_list_key_deletion(tx, tenant_id, &op, seq).await?;
     Ok(op.result(PushStatus::Accepted, Some((seq, None))))
 }
 
@@ -485,13 +941,10 @@ fn semantic_state_is_superseded(incoming: &StoredState, current: &StoredState) -
         ) => incoming <= current,
         (
             StoredState::Live {
-                mutation_hlc: incoming,
-                ..
+                mutation_hlc: _, ..
             },
-            StoredState::Tombstone {
-                delete_hlc: current,
-            },
-        ) => incoming <= current,
+            StoredState::Tombstone { delete_hlc: _ },
+        ) => true,
         (
             StoredState::Tombstone {
                 delete_hlc: incoming,
@@ -715,5 +1168,42 @@ async fn insert_history(
     .bind(author_user_id)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+async fn purge_record_history(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    record_id: Uuid,
+) -> Result<(), AppError> {
+    query::<Postgres>(
+        "DELETE FROM sync_records_history
+         WHERE tenant_id = $1 AND record_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(record_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn mark_list_key_deletion(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    op: &ValidatedPushOp,
+    seq: i64,
+) -> Result<(), AppError> {
+    if op.collection == SyncCollection::Lists && matches!(op.state, StoredState::Tombstone { .. }) {
+        query::<Postgres>(
+            "UPDATE list_key_bundles
+             SET deletion_seq = $3
+             WHERE tenant_id = $1 AND list_id = $2",
+        )
+        .bind(tenant_id)
+        .bind(op.record_id)
+        .bind(seq)
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }

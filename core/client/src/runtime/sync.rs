@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin};
 use todori_crypto::{load_account_secret, AccountSecretKind};
 use todori_storage::TaskRepository;
 use todori_sync::{
-    ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
+    account::AccountClient, ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
     LocalSyncWriteTransaction, SyncKeyRefresher, SyncRunSummary,
 };
 use zeroize::Zeroizing;
@@ -77,8 +77,8 @@ impl TodoriClient {
             self.run_initial_backfill_if_needed(store)
                 .map_err(|error| error.to_string())
         };
-        todori_sync::run_sync_now_with_key_refresh_and_pre_push(
-            context,
+        let summary = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
+            context.clone(),
             &mut store,
             &mut clock,
             &mut key_refresher,
@@ -91,7 +91,60 @@ impl TodoriClient {
             } else {
                 ClientError::SyncRun
             }
-        })
+        })?;
+        self.retire_safe_list_deks(&context).await?;
+        Ok(summary)
+    }
+
+    async fn retire_safe_list_deks(&self, context: &ActiveSyncContext) -> Result<(), ClientError> {
+        let candidates =
+            super::account::retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let client =
+            AccountClient::new(context.server_url.clone()).map_err(|_| ClientError::SyncRun)?;
+        let mut retired = Vec::new();
+        for list_id in candidates {
+            if client
+                .retire_list_key_bundle(context.tenant_id, list_id, &context.session_token)
+                .await
+                .map_err(|_| ClientError::SyncRun)?
+            {
+                retired.push(list_id);
+            }
+        }
+        if retired.is_empty() {
+            return Ok(());
+        }
+
+        let (identity, master_key, mut keys) = {
+            let account = self.account_state()?;
+            let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
+                return Err(ClientError::AccountBoundUnavailable);
+            };
+            (
+                crate::LocalCryptoIdentity {
+                    tenant_id: crypto.tenant_id(),
+                    user_id: crypto.user_id(),
+                    device_id: crypto.device_id(),
+                },
+                *crypto.master_key(),
+                crypto.sync_keys().clone(),
+            )
+        };
+        keys.list_deks
+            .retain(|(list_id, _)| !retired.contains(list_id));
+        let crypto = crate::persist_local_crypto_context(
+            &self.db_path,
+            &self.db_key(),
+            identity,
+            &master_key,
+            keys,
+            now_ms()?,
+        )?;
+        self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+        Ok(())
     }
 
     fn run_initial_backfill_if_needed(

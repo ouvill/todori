@@ -7,15 +7,14 @@
 ## 現在
 
 - 進行中: なし。
-- 最新の完了: **task-97 Archive-first削除同期の再裁定** — aggregate scope / epochを導入せず、bounded tombstone、terminal deletion、server-trusted device continuity、expired-device rebase、client-side late descendant cascadeをADR-016で確定した。独立検証でP1 / P2 / P3なし。
+- 最新の完了: **task-98 ADR-016 Archive-first削除同期実装** — terminal tombstone、history purge、pull-before-push、server-trusted continuity、expired-device rebase、late descendant cascade、List DEK retirementを実装した。独立検証でP1 / P2 / P3なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **ADR-016削除同期実装** — terminal tombstone、history purge、pull-before-push、server-trusted device continuity、expired-device rebase、late descendant cascade、List DEK retirementを実装する。出典: ADR-016 / task-97。
-2. **Canonical Inbox収束** — typed `is_default=true`候補を決定的に統合し、重複Inboxを冪等に解消する。出典: ADR-015 / task-79。
-3. **SQLCipherクロスビルドCI** — iOS / AndroidのSQLCipher build差分をCIで継続検証する。出典: Phase 1計画書§6 / task-91。
+1. **Canonical Inbox収束** — typed `is_default=true`候補を決定的に統合し、重複Inboxを冪等に解消する。出典: ADR-015 / task-79。
+2. **SQLCipherクロスビルドCI** — iOS / AndroidのSQLCipher build差分をCIで継続検証する。出典: Phase 1計画書§6 / task-91。
 
 着手を決めた候補だけをtaskへ昇格する。その他の未着手候補は [`BACKLOG.md`](./BACKLOG.md) を参照する。
 

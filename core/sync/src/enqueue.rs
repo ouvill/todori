@@ -54,6 +54,7 @@ pub enum PullFailureReason {
     AuthenticationFailed,
     CorruptEnvelope,
     InvalidPlaintext,
+    MissingDependency,
 }
 
 impl PullFailureReason {
@@ -64,6 +65,7 @@ impl PullFailureReason {
             Self::AuthenticationFailed => "authentication_failed",
             Self::CorruptEnvelope => "corrupt_envelope",
             Self::InvalidPlaintext => "invalid_plaintext",
+            Self::MissingDependency => "missing_dependency",
         }
     }
 }
@@ -78,6 +80,7 @@ impl std::str::FromStr for PullFailureReason {
             "authentication_failed" => Ok(Self::AuthenticationFailed),
             "corrupt_envelope" => Ok(Self::CorruptEnvelope),
             "invalid_plaintext" => Ok(Self::InvalidPlaintext),
+            "missing_dependency" => Ok(Self::MissingDependency),
             _ => Err("invalid quarantine reason".to_string()),
         }
     }
@@ -115,6 +118,7 @@ pub enum LocalFullResyncPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalFullResyncProgress {
     pub generation_id: Uuid,
+    pub continuity_generation: i64,
     pub phase: LocalFullResyncPhase,
     pub base_seq: i64,
     pub base_cursor: Option<crate::StableCursor>,
@@ -184,6 +188,11 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     }
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
     fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String>;
+    fn delete_outbox_head(
+        &mut self,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<bool, String>;
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String>;
     fn delete_cursor(&mut self, name: &str) -> Result<(), String>;
@@ -208,6 +217,7 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;
     fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
     fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String>;
+    fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String>;
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String>;
     fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String>;
 }
@@ -216,6 +226,7 @@ pub trait LocalSyncWriteTransaction: LocalSyncStore {
     fn start_full_resync(
         &mut self,
         _generation_id: Uuid,
+        _continuity_generation: i64,
         _base_seq: i64,
         _now_ms: i64,
     ) -> Result<LocalFullResyncProgress, String> {
@@ -452,7 +463,7 @@ pub(crate) struct RebaseTombstoneRequest<'a> {
     pub collection: SyncCollection,
     pub delete_hlc: &'a str,
     pub device_id: &'a str,
-    pub base_revision_hlc: &'a str,
+    pub base_revision_hlc: Option<&'a str>,
 }
 
 pub(crate) fn enqueue_rebased_tombstone<S, N>(
@@ -465,15 +476,15 @@ where
     N: FnMut() -> Result<i64, String>,
 {
     Hlc::decode(request.delete_hlc).map_err(|_| "sync failed".to_string())?;
-    let revision_hlc =
-        tick_local_hlc_after(store, request.device_id, request.base_revision_hlc, now_ms)?
-            .encode()
-            .map_err(|_| "sync failed".to_string())?;
+    let revision_base = request.base_revision_hlc.unwrap_or(request.delete_hlc);
+    let revision_hlc = tick_local_hlc_after(store, request.device_id, revision_base, now_ms)?
+        .encode()
+        .map_err(|_| "sync failed".to_string())?;
     store.put_outbox_head(NewLocalSyncOutboxEntry {
         op_id: Uuid::now_v7(),
         record_id: request.record_id,
         collection: request.collection,
-        base_revision_hlc: Some(request.base_revision_hlc.to_string()),
+        base_revision_hlc: request.base_revision_hlc.map(str::to_string),
         revision_hlc,
         state: EncryptedSyncState::Tombstone {
             delete_hlc: request.delete_hlc.to_string(),
@@ -484,7 +495,7 @@ where
         request.collection,
         request.record_id,
         LocalSyncRecordState {
-            current_revision_hlc: Some(request.base_revision_hlc.to_string()),
+            current_revision_hlc: request.base_revision_hlc.map(str::to_string),
             state: LocalSyncSemanticState::Tombstone {
                 delete_hlc: request.delete_hlc.to_string(),
             },

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub const SYNC_PROTOCOL_VERSION: u16 = 2;
+pub const SYNC_PROTOCOL_VERSION: u16 = 3;
+pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-todori-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,12 +13,40 @@ pub struct SyncCapabilities {
     pub protocol_version: u16,
     pub envelope_version: u8,
     pub gc_horizon_seq: i64,
+    pub continuity_seq: i64,
+    pub continuity_generation: i64,
+    pub required_generation: i64,
+    pub full_resync_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResyncStartResponse {
     pub base_seq: i64,
+    pub generation: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClosureProof {
+    pub proof_id: Uuid,
+    pub tenant_id: Uuid,
+    pub device_id: Uuid,
+    pub high_water: i64,
+    pub generation: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContinuityAckRequest {
+    pub proof: ClosureProof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContinuityAckResponse {
+    pub continuity_seq: i64,
+    pub continuity_generation: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -121,6 +150,7 @@ pub struct PullResponse {
     pub next_since: i64,
     pub has_more: bool,
     pub high_water: i64,
+    pub closure_proof: Option<ClosureProof>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

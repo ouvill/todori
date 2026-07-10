@@ -27,6 +27,7 @@ uuid.workspace = true
 [dev-dependencies]
 argon2.workspace = true
 http.workspace = true
+rusqlite.workspace = true
 testcontainers-modules.workspace = true
 tempfile.workspace = true
 todori-client = { workspace = true, features = ["test-support"] }
