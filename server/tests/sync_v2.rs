@@ -256,10 +256,14 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         clock += 1;
         Ok(clock)
     };
-    let summary =
-        run_sync_now_with_key_refresh(context, &mut store, &mut ticking_now, &mut key_refresher)
-            .await
-            .unwrap();
+    let summary = run_sync_now_with_key_refresh(
+        context.clone(),
+        &mut store,
+        &mut ticking_now,
+        &mut key_refresher,
+    )
+    .await
+    .unwrap();
     assert_eq!(key_refresher.calls, 1);
     assert_eq!(summary.applied_count, 1);
     assert_eq!(summary.missing_key_quarantined_count, 1);
@@ -288,6 +292,189 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             .name,
         "Recovered"
     );
+
+    let all_keys = LocalSyncKeys {
+        list_deks: vec![
+            (good.id, good_dek),
+            (missing.id, missing_dek),
+            (corrupt.id, corrupt_dek),
+        ],
+    };
+    let mut replay_refresher = TestKeyRefresher {
+        calls: 0,
+        keys: all_keys.clone(),
+        fail: false,
+    };
+    let replay_summary = run_sync_now_with_key_refresh(
+        ActiveSyncContext {
+            keys: all_keys.clone(),
+            ..context.clone()
+        },
+        &mut store,
+        &mut ticking_now,
+        &mut replay_refresher,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replay_refresher.calls, 1);
+    assert_eq!(replay_summary.resolved_quarantine_count, 1);
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    let rows = repository.list_quarantine(10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].record_id, corrupt.id);
+
+    let current_revision: String =
+        query("SELECT revision_hlc FROM sync_records WHERE tenant_id = $1 AND record_id = $2")
+            .bind(fixture.tenant_id)
+            .bind(corrupt.id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap()
+            .get("revision_hlc");
+    let mutation = Hlc {
+        wall_ms: now + 2_000,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let revision = Hlc {
+        wall_ms: now + 2_001,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let corrected = encrypt_plaintext(
+        &corrupt_dek,
+        "lists",
+        &corrupt.id.to_string(),
+        &SyncPlaintext::from_list(&corrupt, mutation.clone()).unwrap(),
+    )
+    .unwrap();
+    let replacement = fixture
+        .push(PushOp {
+            op_id: Uuid::now_v7(),
+            record_id: corrupt.id,
+            collection: SyncCollection::Lists,
+            base_revision_hlc: Some(current_revision),
+            revision_hlc: revision.encode().unwrap(),
+            state: SyncRecordState::Live {
+                mutation_hlc: mutation.encode().unwrap(),
+                blob: STANDARD.encode(corrected),
+            },
+        })
+        .await;
+    assert_eq!(replacement.status, PushStatus::Accepted);
+    let supersede_summary = run_sync_now(
+        ActiveSyncContext {
+            keys: all_keys,
+            ..context.clone()
+        },
+        &mut store,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(supersede_summary.resolved_quarantine_count, 1);
+    assert!(
+        SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .list_quarantine(10)
+            .unwrap()
+            .is_empty()
+    );
+
+    let failed_path = temp.path().join("refresh-failure.sqlite3");
+    let mut failed_store = BridgeSyncStore::new(failed_path.clone(), DB_KEY);
+    let mut failed_refresher = TestKeyRefresher {
+        calls: 0,
+        keys: LocalSyncKeys::default(),
+        fail: true,
+    };
+    assert_eq!(
+        run_sync_now_with_key_refresh(
+            context.clone(),
+            &mut failed_store,
+            &mut ticking_now,
+            &mut failed_refresher,
+        )
+        .await,
+        Err("refresh failed".to_string())
+    );
+    assert_eq!(failed_refresher.calls, 1);
+    assert!(failed_store
+        .get_cursor_seq(SYNC_CURSOR_NAME)
+        .unwrap()
+        .is_none());
+    assert!(failed_store.list_quarantine(10).unwrap().is_empty());
+
+    let unknown = todori_domain::new_list(
+        "Future".to_string(),
+        "dfffffffffffffffffffffffffffffff".to_string(),
+        now + 3,
+    )
+    .unwrap();
+    let unknown_dek = [0x34; 32];
+    let mutation = Hlc {
+        wall_ms: now + 3_000,
+        counter: 0,
+        device_id: "future".to_string(),
+    };
+    let revision = Hlc {
+        wall_ms: now + 3_001,
+        counter: 0,
+        device_id: "future".to_string(),
+    };
+    let mut unknown_blob = encrypt_plaintext(
+        &unknown_dek,
+        "lists",
+        &unknown.id.to_string(),
+        &SyncPlaintext::from_list(&unknown, mutation.clone()).unwrap(),
+    )
+    .unwrap();
+    unknown_blob[0] = todori_sync::ENVELOPE_VERSION + 1;
+    fixture
+        .push(PushOp {
+            op_id: Uuid::now_v7(),
+            record_id: unknown.id,
+            collection: SyncCollection::Lists,
+            base_revision_hlc: None,
+            revision_hlc: revision.encode().unwrap(),
+            state: SyncRecordState::Live {
+                mutation_hlc: mutation.encode().unwrap(),
+                blob: STANDARD.encode(unknown_blob),
+            },
+        })
+        .await;
+    let unknown_path = temp.path().join("unknown-envelope.sqlite3");
+    let mut unknown_store = BridgeSyncStore::new(unknown_path.clone(), DB_KEY);
+    let unknown_context = ActiveSyncContext {
+        device_id: "unknown-client".to_string(),
+        keys: LocalSyncKeys {
+            list_deks: vec![
+                (good.id, good_dek),
+                (missing.id, missing_dek),
+                (corrupt.id, corrupt_dek),
+                (unknown.id, unknown_dek),
+            ],
+        },
+        ..context
+    };
+    assert_eq!(
+        run_sync_now(unknown_context, &mut unknown_store, &mut ticking_now).await,
+        Err("upgrade required".to_string())
+    );
+    assert!(unknown_store
+        .get_cursor_seq(SYNC_CURSOR_NAME)
+        .unwrap()
+        .is_none());
+    assert!(unknown_store.list_quarantine(10).unwrap().is_empty());
+    assert!(
+        SqliteListRepository::new(open_encrypted(&unknown_path, &DB_KEY).unwrap())
+            .list_all()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(unknown_store
+        .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
+        .unwrap()
+        .is_some());
 }
 
 #[tokio::test]

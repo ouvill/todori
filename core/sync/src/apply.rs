@@ -102,6 +102,25 @@ where
         Err(_) => return Err("sync failed".to_string()),
     }
 
+    if store.list_quarantine(100)?.iter().any(|entry| {
+        matches!(
+            entry.reason,
+            PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+        )
+    }) {
+        context.keys = key_refresher.refresh().await?;
+    }
+    if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
+        if error == "upgrade required" {
+            store.set_setting(
+                SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                "unsupported_envelope",
+                now_ms()?,
+            )?;
+        }
+        return Err(error);
+    }
+
     for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
         let outbox = store.list_outbox_heads(PUSH_BATCH_LIMIT)?;
         if outbox.is_empty() {
@@ -182,25 +201,6 @@ where
                 }
             }
         }
-    }
-
-    if store.list_quarantine(100)?.iter().any(|entry| {
-        matches!(
-            entry.reason,
-            PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
-        )
-    }) {
-        context.keys = key_refresher.refresh().await?;
-    }
-    if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
-        if error == "upgrade required" {
-            store.set_setting(
-                SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                "unsupported_envelope",
-                now_ms()?,
-            )?;
-        }
-        return Err(error);
     }
 
     loop {
