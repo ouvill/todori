@@ -94,7 +94,7 @@ ADR-009は、完了済みtaskを振り返りのための記録資産とし、通
 - 作業日: 2026-07-11
 - 結果: 企画書へarchive-first / delete-exception原則を追記し、ADR-016でbounded tombstone、terminal deletion、server-trusted device continuity、expired-device rebase、client-side late descendant cascade、List DEK retirement条件を裁定した。ADR-010 / ADR-012 / ADR-014 / ADR-015と技術仕様の旧復活規約・push順・GC後rebaseを補正した。
 - 証拠: `git diff --check` 成功。差分は公開文書5ファイルのみで、Rust / Dart / Flutter / SQL migration / wire implementationの変更なし。
-- Commit: 未コミット
+- Commit: `69a6664`
 - 未解決: ADR-016の後続実装（terminal tombstone、history purge、pull-before-push、device continuity、expired rebase、late descendant cascade、List DEK retirement）。
 
 ### 独立検証
