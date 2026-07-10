@@ -7,13 +7,13 @@
 ## 現在
 
 - 進行中: なし。
-- 最新の完了: **task-96 同期server RLS hardening** — non-owner runtime login、transaction-local tenant/user context、7tableのRLS policy + `FORCE ROW LEVEL SECURITY`、cross-tenant read/write拒否を実装した。独立検証でP1 / P2 / P3なし。
+- 最新の完了: **task-97 Archive-first削除同期の再裁定** — aggregate scope / epochを導入せず、bounded tombstone、terminal deletion、server-trusted device continuity、expired-device rebase、client-side late descendant cascadeをADR-016で確定した。独立検証でP1 / P2 / P3なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **Aggregate削除scope / epoch設計** — 未知descendantを含む削除intent、復活規約、opaque scope metadata、tombstone GC、List DEK bundle保持条件を別ADRで裁定する。出典: ADR-009 / ADR-010 / ADR-012。
+1. **ADR-016削除同期実装** — terminal tombstone、history purge、pull-before-push、server-trusted device continuity、expired-device rebase、late descendant cascade、List DEK retirementを実装する。出典: ADR-016 / task-97。
 2. **Canonical Inbox収束** — typed `is_default=true`候補を決定的に統合し、重複Inboxを冪等に解消する。出典: ADR-015 / task-79。
 3. **SQLCipherクロスビルドCI** — iOS / AndroidのSQLCipher build差分をCIで継続検証する。出典: Phase 1計画書§6 / task-91。
 
