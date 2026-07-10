@@ -11,7 +11,7 @@ use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskSt
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 12;
+pub const LATEST_SCHEMA_VERSION: i32 = 13;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -69,6 +69,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 12,
         name: "normalize_fixed_width_ranks",
         apply: normalize_fixed_width_ranks,
+    },
+    Migration {
+        target_version: 13,
+        name: "add_sync_quarantine",
+        apply: add_sync_quarantine,
     },
 ];
 
@@ -248,6 +253,21 @@ pub struct SyncCursor {
     pub updated_at: i64,
 }
 
+/// An encrypted remote head that could not yet be safely applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncQuarantineEntry {
+    pub record_id: Uuid,
+    pub collection: String,
+    pub seq: i64,
+    pub revision_hlc: String,
+    pub state: SyncOutboxState,
+    pub reason: String,
+    pub required_list_id: Option<Uuid>,
+    pub first_failed_at: i64,
+    pub last_failed_at: i64,
+    pub attempt_count: i64,
+}
+
 /// SQLCipher内に保持するaccount-bound local profile identity。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalProfileBinding {
@@ -360,6 +380,9 @@ pub trait SyncStateRepository {
     fn get_cursor(&self, name: &str) -> Result<Option<SyncCursor>, StorageError>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), StorageError>;
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError>;
+    fn put_quarantine(&mut self, entry: SyncQuarantineEntry) -> Result<(), StorageError>;
+    fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError>;
+    fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError>;
 }
 
 /// A short-lived SQLite write transaction shared by domain and sync-state writes.
@@ -577,6 +600,18 @@ impl OwnedSqliteWriteTx {
 
     pub fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError> {
         delete_cursor_on(self.connection(), name)
+    }
+
+    pub fn put_quarantine(&mut self, entry: SyncQuarantineEntry) -> Result<(), StorageError> {
+        put_quarantine_on(self.connection(), entry)
+    }
+
+    pub fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_quarantine_on(self.connection(), limit)
+    }
+
+    pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
+        delete_quarantine_on(self.connection(), record_id)
     }
 
     pub fn default_list_id(&self) -> Result<Option<Uuid>, StorageError> {
@@ -1059,6 +1094,34 @@ fn normalize_fixed_width_ranks(transaction: &Transaction<'_>) -> rusqlite::Resul
          SET sort_order = (SELECT rank FROM ranked WHERE ranked.id = tasks.id);",
     )?;
     replace_sync_metadata_v2(transaction)
+}
+
+fn add_sync_quarantine(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE sync_quarantine (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             seq INTEGER NOT NULL CHECK (seq > 0),
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             reason TEXT NOT NULL CHECK (reason IN (
+                 'missing_dek', 'no_matching_dek', 'authentication_failed',
+                 'corrupt_envelope', 'invalid_plaintext'
+             )),
+             required_list_id TEXT,
+             first_failed_at INTEGER NOT NULL,
+             last_failed_at INTEGER NOT NULL,
+             attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
+             CHECK (
+                 (state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                 OR (state_kind = 'tombstone' AND blob IS NULL)
+             )
+         );
+         CREATE INDEX idx_sync_quarantine_seq
+             ON sync_quarantine(seq, record_id);",
+    )
 }
 
 const BASELINE_V1_COLUMNS: &[(&str, &[&str])] = &[
@@ -2315,6 +2378,18 @@ impl SqliteSyncStateRepository {
     pub fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
         put_record_state_on(&self.connection, state)
     }
+
+    pub fn put_quarantine(&mut self, entry: SyncQuarantineEntry) -> Result<(), StorageError> {
+        put_quarantine_on(&self.connection, entry)
+    }
+
+    pub fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_quarantine_on(&self.connection, limit)
+    }
+
+    pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
+        delete_quarantine_on(&self.connection, record_id)
+    }
 }
 
 impl SyncStateRepository for SqliteSyncStateRepository {
@@ -2359,6 +2434,18 @@ impl SyncStateRepository for SqliteSyncStateRepository {
 
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError> {
         delete_cursor_on(&self.connection, name)
+    }
+
+    fn put_quarantine(&mut self, entry: SyncQuarantineEntry) -> Result<(), StorageError> {
+        put_quarantine_on(&self.connection, entry)
+    }
+
+    fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_quarantine_on(&self.connection, limit)
+    }
+
+    fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
+        delete_quarantine_on(&self.connection, record_id)
     }
 }
 
@@ -2519,7 +2606,11 @@ fn list_outbox_heads_on(
     let mut statement = connection.prepare(
         "SELECT op_id, record_id, collection, base_revision_hlc,
                 revision_hlc, state_kind, semantic_hlc, blob, created_at
-         FROM sync_outbox
+         FROM sync_outbox AS outbox
+         WHERE NOT EXISTS (
+             SELECT 1 FROM sync_quarantine AS quarantine
+             WHERE quarantine.record_id = outbox.record_id
+         )
          ORDER BY created_at ASC, record_id ASC
          LIMIT ?1",
     )?;
@@ -2527,6 +2618,122 @@ fn list_outbox_heads_on(
         .query_map([limit], row_to_sync_outbox_entry)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     entries.into_iter().collect()
+}
+
+fn put_quarantine_on(
+    connection: &Connection,
+    entry: SyncQuarantineEntry,
+) -> Result<(), StorageError> {
+    validate_sync_collection(&entry.collection)?;
+    let (state_kind, semantic_hlc, blob) = match entry.state {
+        SyncOutboxState::Live { mutation_hlc, blob } => ("live", mutation_hlc, Some(blob)),
+        SyncOutboxState::Tombstone { delete_hlc } => ("tombstone", delete_hlc, None),
+    };
+    connection.execute(
+        "INSERT INTO sync_quarantine (
+             record_id, collection, seq, revision_hlc, state_kind, semantic_hlc,
+             blob, reason, required_list_id, first_failed_at, last_failed_at, attempt_count
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(record_id) DO UPDATE SET
+             collection = excluded.collection,
+             seq = excluded.seq,
+             revision_hlc = excluded.revision_hlc,
+             state_kind = excluded.state_kind,
+             semantic_hlc = excluded.semantic_hlc,
+             blob = excluded.blob,
+             reason = excluded.reason,
+             required_list_id = excluded.required_list_id,
+             first_failed_at = CASE
+                 WHEN excluded.revision_hlc = sync_quarantine.revision_hlc
+                 THEN sync_quarantine.first_failed_at ELSE excluded.first_failed_at END,
+             last_failed_at = excluded.last_failed_at,
+             attempt_count = CASE
+                 WHEN excluded.revision_hlc = sync_quarantine.revision_hlc
+                 THEN sync_quarantine.attempt_count + 1 ELSE 1 END",
+        params![
+            entry.record_id.to_string(),
+            entry.collection,
+            entry.seq,
+            entry.revision_hlc,
+            state_kind,
+            semantic_hlc,
+            blob,
+            entry.reason,
+            entry.required_list_id.map(|id| id.to_string()),
+            entry.first_failed_at,
+            entry.last_failed_at,
+            entry.attempt_count,
+        ],
+    )?;
+    Ok(())
+}
+
+fn list_quarantine_on(
+    connection: &Connection,
+    limit: usize,
+) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+    let limit = i64::try_from(limit)
+        .map_err(|_| StorageError::IncompatibleSchema("quarantine limit exceeded i64".into()))?;
+    let mut statement = connection.prepare(
+        "SELECT record_id, collection, seq, revision_hlc, state_kind, semantic_hlc,
+                blob, reason, required_list_id, first_failed_at, last_failed_at, attempt_count
+         FROM sync_quarantine ORDER BY seq ASC, record_id ASC LIMIT ?1",
+    )?;
+    let entries = statement
+        .query_map([limit], row_to_sync_quarantine)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .collect();
+    entries
+}
+
+fn delete_quarantine_on(connection: &Connection, record_id: Uuid) -> Result<bool, StorageError> {
+    Ok(connection.execute(
+        "DELETE FROM sync_quarantine WHERE record_id = ?1",
+        [record_id.to_string()],
+    )? == 1)
+}
+
+fn row_to_sync_quarantine(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<SyncQuarantineEntry, StorageError>> {
+    let record_id = match Uuid::parse_str(&row.get::<_, String>(0)?) {
+        Ok(value) => value,
+        Err(error) => return Ok(Err(StorageError::InvalidUuid(error))),
+    };
+    let collection: String = row.get(1)?;
+    let state_kind: String = row.get(4)?;
+    let semantic_hlc: String = row.get(5)?;
+    let blob: Option<Vec<u8>> = row.get(6)?;
+    let state = match (state_kind.as_str(), blob) {
+        ("live", Some(blob)) => SyncOutboxState::Live {
+            mutation_hlc: semantic_hlc,
+            blob,
+        },
+        ("tombstone", None) => SyncOutboxState::Tombstone {
+            delete_hlc: semantic_hlc,
+        },
+        _ => return Ok(Err(StorageError::InvalidSyncState(state_kind))),
+    };
+    let required_list_id = match row.get::<_, Option<String>>(8)? {
+        Some(value) => match Uuid::parse_str(&value) {
+            Ok(value) => Some(value),
+            Err(error) => return Ok(Err(StorageError::InvalidUuid(error))),
+        },
+        None => None,
+    };
+    Ok(Ok(SyncQuarantineEntry {
+        record_id,
+        collection,
+        seq: row.get(2)?,
+        revision_hlc: row.get(3)?,
+        state,
+        reason: row.get(7)?,
+        required_list_id,
+        first_failed_at: row.get(9)?,
+        last_failed_at: row.get(10)?,
+        attempt_count: row.get(11)?,
+    }))
 }
 
 fn has_outbox_head_on(
@@ -4533,6 +4740,62 @@ mod tests {
         assert!(repository.ack_outbox_op(second_op_id).unwrap());
         assert!(repository.list_outbox_heads(10).unwrap().is_empty());
         assert!(!repository.ack_outbox_op(second_op_id).unwrap());
+    }
+
+    #[test]
+    fn durable_quarantine_is_idempotent_and_blocks_only_its_record_outbox() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+        let blocked_id = Uuid::now_v7();
+        let unrelated_id = Uuid::now_v7();
+        for record_id in [blocked_id, unrelated_id] {
+            repository
+                .put_outbox_head(new_live_outbox(
+                    record_id,
+                    "tasks",
+                    Uuid::now_v7(),
+                    None,
+                    "revision-local",
+                    "mutation-local",
+                    vec![9],
+                ))
+                .unwrap();
+        }
+        let quarantined = SyncQuarantineEntry {
+            record_id: blocked_id,
+            collection: "tasks".to_string(),
+            seq: 7,
+            revision_hlc: "revision-remote".to_string(),
+            state: SyncOutboxState::Live {
+                mutation_hlc: "mutation-remote".to_string(),
+                blob: vec![1, 2, 3],
+            },
+            reason: "no_matching_dek".to_string(),
+            required_list_id: None,
+            first_failed_at: 10,
+            last_failed_at: 10,
+            attempt_count: 1,
+        };
+        repository.put_quarantine(quarantined.clone()).unwrap();
+        repository
+            .put_quarantine(SyncQuarantineEntry {
+                last_failed_at: 20,
+                ..quarantined
+            })
+            .unwrap();
+
+        let rows = repository.list_quarantine(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].attempt_count, 2);
+        assert_eq!(rows[0].first_failed_at, 10);
+        assert_eq!(rows[0].last_failed_at, 20);
+        let pushable = repository.list_outbox_heads(10).unwrap();
+        assert_eq!(pushable.len(), 1);
+        assert_eq!(pushable[0].record_id, unrelated_id);
+        assert!(repository.has_outbox_head("tasks", blocked_id).unwrap());
+        assert!(repository.delete_quarantine(blocked_id).unwrap());
+        assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 2);
     }
 
     #[test]

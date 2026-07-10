@@ -47,6 +47,56 @@ pub struct LocalSyncRecordState {
     pub state: LocalSyncSemanticState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullFailureReason {
+    MissingDek,
+    NoMatchingDek,
+    AuthenticationFailed,
+    CorruptEnvelope,
+    InvalidPlaintext,
+}
+
+impl PullFailureReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingDek => "missing_dek",
+            Self::NoMatchingDek => "no_matching_dek",
+            Self::AuthenticationFailed => "authentication_failed",
+            Self::CorruptEnvelope => "corrupt_envelope",
+            Self::InvalidPlaintext => "invalid_plaintext",
+        }
+    }
+}
+
+impl std::str::FromStr for PullFailureReason {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "missing_dek" => Ok(Self::MissingDek),
+            "no_matching_dek" => Ok(Self::NoMatchingDek),
+            "authentication_failed" => Ok(Self::AuthenticationFailed),
+            "corrupt_envelope" => Ok(Self::CorruptEnvelope),
+            "invalid_plaintext" => Ok(Self::InvalidPlaintext),
+            _ => Err("invalid quarantine reason".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSyncQuarantineEntry {
+    pub record_id: Uuid,
+    pub collection: SyncCollection,
+    pub seq: i64,
+    pub revision_hlc: String,
+    pub state: EncryptedSyncState,
+    pub reason: PullFailureReason,
+    pub required_list_id: Option<Uuid>,
+    pub first_failed_at: i64,
+    pub last_failed_at: i64,
+    pub attempt_count: i64,
+}
+
 /// The local persistence operations needed to prepare a domain mutation for sync.
 ///
 /// Implementations must arrange for these writes and the corresponding domain
@@ -85,6 +135,15 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;
     fn set_cursor(&mut self, name: &str, seq: i64, updated_at: i64) -> Result<(), String>;
     fn delete_cursor(&mut self, name: &str) -> Result<(), String>;
+    fn put_quarantine(&mut self, _entry: LocalSyncQuarantineEntry) -> Result<(), String> {
+        Err("durable quarantine is unavailable".to_string())
+    }
+    fn list_quarantine(&mut self, _limit: usize) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        Ok(Vec::new())
+    }
+    fn delete_quarantine(&mut self, _record_id: Uuid) -> Result<bool, String> {
+        Ok(false)
+    }
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String>;
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String>;
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;

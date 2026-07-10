@@ -4,13 +4,13 @@ use todori_domain::{List, Task, Uuid};
 use todori_storage::{
     open_encrypted, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx, SettingsRepository,
     SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
-    SqliteTaskRepository, StorageError, SyncOutboxState, SyncRecordSemanticState, SyncRecordState,
-    SyncStateRepository, TaskRepository,
+    SqliteTaskRepository, StorageError, SyncOutboxState, SyncQuarantineEntry,
+    SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
     EncryptedSyncState, LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry,
-    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
-    NewLocalSyncOutboxEntry, SyncCollection,
+    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason, SyncCollection,
 };
 
 pub struct BridgeSyncStore {
@@ -191,6 +191,31 @@ impl LocalSyncStore for BridgeSyncStore {
         })
     }
 
+    fn put_quarantine(&mut self, entry: LocalSyncQuarantineEntry) -> Result<(), String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .put_quarantine(local_quarantine_to_storage(entry))
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn list_quarantine(&mut self, limit: usize) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository.list_quarantine(limit).map_err(|e| e.to_string())
+        })?
+        .into_iter()
+        .map(storage_quarantine_to_local)
+        .collect()
+    }
+
+    fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_quarantine(record_id)
+                .map_err(|e| e.to_string())
+        })
+    }
+
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
         with_list_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -344,6 +369,27 @@ impl LocalSyncStore for BridgeSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
+    fn put_quarantine(&mut self, entry: LocalSyncQuarantineEntry) -> Result<(), String> {
+        self.transaction
+            .put_quarantine(local_quarantine_to_storage(entry))
+            .map_err(|e| e.to_string())
+    }
+
+    fn list_quarantine(&mut self, limit: usize) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        self.transaction
+            .list_quarantine(limit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(storage_quarantine_to_local)
+            .collect()
+    }
+
+    fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .delete_quarantine(record_id)
+            .map_err(|e| e.to_string())
+    }
+
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
         self.transaction
             .default_list_id()
@@ -436,6 +482,55 @@ fn storage_outbox_to_local(
             }
         },
         created_at: entry.created_at,
+    })
+}
+
+fn local_quarantine_to_storage(entry: LocalSyncQuarantineEntry) -> SyncQuarantineEntry {
+    SyncQuarantineEntry {
+        record_id: entry.record_id,
+        collection: entry.collection.to_string(),
+        seq: entry.seq,
+        revision_hlc: entry.revision_hlc,
+        state: match entry.state {
+            EncryptedSyncState::Live { mutation_hlc, blob } => {
+                SyncOutboxState::Live { mutation_hlc, blob }
+            }
+            EncryptedSyncState::Tombstone { delete_hlc } => {
+                SyncOutboxState::Tombstone { delete_hlc }
+            }
+        },
+        reason: entry.reason.as_str().to_string(),
+        required_list_id: entry.required_list_id,
+        first_failed_at: entry.first_failed_at,
+        last_failed_at: entry.last_failed_at,
+        attempt_count: entry.attempt_count,
+    }
+}
+
+fn storage_quarantine_to_local(
+    entry: SyncQuarantineEntry,
+) -> Result<LocalSyncQuarantineEntry, String> {
+    Ok(LocalSyncQuarantineEntry {
+        record_id: entry.record_id,
+        collection: entry
+            .collection
+            .parse::<SyncCollection>()
+            .map_err(|e| e.to_string())?,
+        seq: entry.seq,
+        revision_hlc: entry.revision_hlc,
+        state: match entry.state {
+            SyncOutboxState::Live { mutation_hlc, blob } => {
+                EncryptedSyncState::Live { mutation_hlc, blob }
+            }
+            SyncOutboxState::Tombstone { delete_hlc } => {
+                EncryptedSyncState::Tombstone { delete_hlc }
+            }
+        },
+        reason: entry.reason.parse::<PullFailureReason>()?,
+        required_list_id: entry.required_list_id,
+        first_failed_at: entry.first_failed_at,
+        last_failed_at: entry.last_failed_at,
+        attempt_count: entry.attempt_count,
     })
 }
 

@@ -22,8 +22,9 @@ pub use engine::{
 };
 pub use enqueue::{
     enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary,
-    LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
+    LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry,
+    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
+    NewLocalSyncOutboxEntry, PullFailureReason,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
