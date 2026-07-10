@@ -118,7 +118,7 @@ task-91はSQLite sync adapterを`todori-client`へ移し、frontend境界のCI g
 - Boundary: CI checkをlegacy exceptionなしへ更新し、下位crate/source参照0、manifest exact allowlist、dependency alias迂回、legacy module再作成、OnceLockの`profile_handle.rs`外配置を拒否する。negative fixture testでlower source、CLI lower dependency、hidden app alias、legacy source、bare `core`を個別注入し、すべて非0終了を確認する。
 - FRB / Flutter: FRB 2.12.0で再生成し、公開Dart APIはdoc comment/ignored-private-function一覧以外不変。Flutter UI/provider変更なし。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`（最終追加後client 33 + compile-fail doctest 2、storage 72成功/1 ignored、sync 50、server sync v2 9、bridge 2）、bridge release build、`flutter analyze`、`flutter test`（130 passed / visual QA harness 1 skipped）、hardcoded-string check、client boundary checkとnegative fixture、`git diff --check`が成功した。
-- Commit: 未コミット。
+- Commit: `310e818`。
 - 未解決: multiprocess DB-backed sync lease、Windows DPAPI / Linux Secret Service、Fuzzy-scan/GC horizon、aggregate削除scope/epochは別task。現在の境界のままFuzzy-scanへ着手可能。
 
 ### 独立検証
