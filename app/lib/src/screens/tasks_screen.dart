@@ -381,15 +381,22 @@ class _TasksBodyState extends State<_TasksBody> {
     final l10n = AppLocalizations.of(context)!;
     if (widget.isHome) {
       final closedRows = _buildHomeClosedRowData();
+      final homeSections = _buildHomeSections();
+      final hasVisibleHomeTasks = homeSections.any(
+        (section) => section.rows.isNotEmpty || section.count > 0,
+      );
+      final visibleHomeSections = hasVisibleHomeTasks || closedRows.isNotEmpty
+          ? homeSections
+          : const <_HomeSectionData>[];
       return SafeArea(
         top: true,
         child: CustomScrollView(
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.sm,
                 AppSpacing.md,
-                AppSpacing.sm,
+                12,
+                AppSpacing.md,
                 AppSpacing.xl * 3,
               ),
               sliver: SliverMainAxisGroup(
@@ -401,30 +408,33 @@ class _TasksBodyState extends State<_TasksBody> {
                     ),
                   ),
                   const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.md),
+                    child: SizedBox(height: AppSpacing.lg),
                   ),
-                  _HomeSectionsPanelSliver(
-                    sections: _buildHomeSections(),
-                    collapsedSections: _collapsedHomeSections,
-                    onToggleSection: (section) {
-                      setState(() {
-                        if (!_collapsedHomeSections.add(section)) {
-                          _collapsedHomeSections.remove(section);
-                        }
-                      });
-                    },
-                    rowBuilder: (context, row, section) => _buildHomeTaskRow(
-                      context,
-                      row.node,
-                      section,
-                      rootListId: row.rootListId,
-                      parentTaskName: row.parentTaskName,
-                      countsInSection: row.countsInSection,
-                      pendingExitPhase: row.pendingExitPhase,
-                      disableInteractions: row.disableInteractions,
-                      isPendingRoot: row.isPendingRoot,
+                  if (visibleHomeSections.isEmpty)
+                    SliverToBoxAdapter(child: _HomeClearState(l10n: l10n))
+                  else
+                    _HomeSectionsPanelSliver(
+                      sections: visibleHomeSections,
+                      collapsedSections: _collapsedHomeSections,
+                      onToggleSection: (section) {
+                        setState(() {
+                          if (!_collapsedHomeSections.add(section)) {
+                            _collapsedHomeSections.remove(section);
+                          }
+                        });
+                      },
+                      rowBuilder: (context, row, section) => _buildHomeTaskRow(
+                        context,
+                        row.node,
+                        section,
+                        rootListId: row.rootListId,
+                        parentTaskName: row.parentTaskName,
+                        countsInSection: row.countsInSection,
+                        pendingExitPhase: row.pendingExitPhase,
+                        disableInteractions: row.disableInteractions,
+                        isPendingRoot: row.isPendingRoot,
+                      ),
                     ),
-                  ),
                   if (closedRows.isNotEmpty) ...[
                     const SliverToBoxAdapter(
                       child: SizedBox(height: AppSpacing.lg),
@@ -1485,29 +1495,98 @@ class _HomeTasksHeader extends StatelessWidget {
       children: [
         Row(
           children: [
-            IconButton.filledTonal(
+            IconButton(
               icon: const Icon(LucideIcons.menu300),
               tooltip: l10n.homeListMenuTooltip,
               onPressed: () => context.push('/lists'),
+              style: IconButton.styleFrom(
+                backgroundColor: colorScheme.surface,
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
             ),
             const Spacer(),
             ?listActionsMenu,
             sortMenu,
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: AppSpacing.lg),
         Text(
           today,
-          // Derive from displayMedium so the Newsreader family and Japanese
-          // serif fallback from the theme stay attached to the Home heading.
-          style: theme.textTheme.displayMedium?.copyWith(
-            color: colorScheme.primary,
-            fontSize: 30,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
             fontWeight: FontWeight.w600,
-            height: 0.95,
+            letterSpacing: 0.9,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          l10n.homeTitle,
+          style: theme.textTheme.displayMedium?.copyWith(
+            color: colorScheme.onSurface,
+            fontSize: 42,
+            fontWeight: FontWeight.w600,
+            height: 1.02,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _HomeClearState extends StatelessWidget {
+  const _HomeClearState({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Icon(
+                  LucideIcons.sprout300,
+                  size: 24,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              l10n.homeClearTitle,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontFamily: 'Newsreader',
+                fontFamilyFallback:
+                    theme.textTheme.displayMedium?.fontFamilyFallback,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              l10n.homeClearBody,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1639,35 +1718,19 @@ class _HomeSectionsPanelSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return DecoratedSliver(
-      decoration: BoxDecoration(
-        color: colorScheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      sliver: SliverPadding(
-        padding: const EdgeInsets.all(AppSpacing.sm),
-        sliver: SliverMainAxisGroup(
-          slivers: [
-            for (var index = 0; index < sections.length; index += 1) ...[
-              _HomeSectionSliver(
-                data: sections[index],
-                isExpanded: !collapsedSections.contains(sections[index].kind),
-                onToggle: () => onToggleSection(sections[index].kind),
-                rowBuilder: rowBuilder,
-              ),
-              if (index < sections.length - 1)
-                SliverToBoxAdapter(
-                  child: Divider(
-                    height: AppSpacing.md,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.6),
-                  ),
-                ),
-            ],
-          ],
-        ),
-      ),
+    return SliverMainAxisGroup(
+      slivers: [
+        for (var index = 0; index < sections.length; index += 1) ...[
+          _HomeSectionSliver(
+            data: sections[index],
+            isExpanded: !collapsedSections.contains(sections[index].kind),
+            onToggle: () => onToggleSection(sections[index].kind),
+            rowBuilder: rowBuilder,
+          ),
+          if (index < sections.length - 1)
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        ],
+      ],
     );
   }
 }
@@ -1702,18 +1765,17 @@ class _HomeSectionSliver extends StatelessWidget {
           ),
         ),
         if (isExpanded && data.rows.isNotEmpty)
-          SliverList.builder(
-            itemCount: data.rows.length * 2 - 1,
-            itemBuilder: (context, index) {
-              if (index.isOdd) {
-                final colorScheme = Theme.of(context).colorScheme;
-                return Divider(
-                  height: AppSpacing.sm,
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-                );
-              }
-              return rowBuilder(context, data.rows[index ~/ 2], data.kind);
-            },
+          SliverPadding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            sliver: SliverList.builder(
+              itemCount: data.rows.length * 2 - 1,
+              itemBuilder: (context, index) {
+                if (index.isOdd) {
+                  return const SizedBox(height: AppSpacing.xs);
+                }
+                return rowBuilder(context, data.rows[index ~/ 2], data.kind);
+              },
+            ),
           ),
       ],
     );
@@ -1746,23 +1808,31 @@ class _HomeSectionHeader extends StatelessWidget {
         button: true,
         label: tooltip,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: onToggle,
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xs,
-              vertical: AppSpacing.xs,
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
+                Container(
+                  width: 3,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: data.kind == _HomeSectionKind.overdue
+                        ? const Color(0xFFE8755A)
+                        : colorScheme.primary,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
                     title,
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: data.kind == _HomeSectionKind.overdue
                           ? const Color(0xFFE8755A)
-                          : colorScheme.primary,
-                      fontWeight: FontWeight.w700,
+                          : colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1772,13 +1842,14 @@ class _HomeSectionHeader extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.xs),
                 SizedBox(
-                  width: 48,
-                  height: 48,
+                  width: 40,
+                  height: 40,
                   child: Center(
                     child: Icon(
                       isExpanded
                           ? LucideIcons.chevronUp300
                           : LucideIcons.chevronDown300,
+                      size: 18,
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),

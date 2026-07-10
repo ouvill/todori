@@ -91,7 +91,12 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
     final colorScheme = theme.colorScheme;
 
     return ListView(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        12,
+        AppSpacing.md,
+        AppSpacing.xl,
+      ),
       children: [
         Row(
           children: [
@@ -125,19 +130,21 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: AppSpacing.lg),
         Text(
           l10n.appTitle,
-          style: theme.textTheme.displaySmall?.copyWith(
-            color: colorScheme.primary,
-            fontWeight: FontWeight.w700,
+          style: theme.textTheme.displayMedium?.copyWith(
+            color: colorScheme.onSurface,
+            fontSize: 42,
+            fontWeight: FontWeight.w600,
+            height: 1.02,
           ),
         ),
-        const SizedBox(height: AppSpacing.xl),
+        const SizedBox(height: AppSpacing.lg),
         DecoratedBox(
           decoration: BoxDecoration(
             color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             border: Border.all(color: colorScheme.outlineVariant),
           ),
           child: Column(
@@ -153,9 +160,9 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
               Divider(color: colorScheme.outlineVariant),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
+                  AppSpacing.md,
                   AppSpacing.sm,
-                  AppSpacing.lg,
+                  AppSpacing.md,
                   AppSpacing.sm,
                 ),
                 child: _SectionLabel(label: l10n.listsSectionTitle),
@@ -228,8 +235,8 @@ class _SectionLabel extends StatelessWidget {
       label.toUpperCase(),
       style: theme.textTheme.labelLarge?.copyWith(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.8,
       ),
     );
   }
@@ -327,24 +334,24 @@ class _ListManagementRow extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 48,
-              height: 48,
+              width: 42,
+              height: 42,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-                child: Icon(icon, color: color, size: 22),
+                child: Icon(icon, color: color, size: 20),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 softWrap: true,
-                style: theme.textTheme.titleLarge?.copyWith(
+                style: theme.textTheme.titleMedium?.copyWith(
                   color: colorScheme.onSurface,
                   fontWeight: FontWeight.w600,
                 ),

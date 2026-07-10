@@ -92,113 +92,151 @@ class TaskDetailScreen extends ConsumerWidget {
           final remindersAsync = ref.watch(taskRemindersProvider(task.id));
           final reminder = remindersAsync.asData?.value.firstOrNull;
           return ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.md,
+              AppSpacing.xl,
+            ),
             children: [
-              // Plain title block directly on the screen background
-              // (task-30): no bordered card, and no persistent
-              // Local-protection/lock chip (see `docs/design/
-              // visual-direction.md` Security Signal section).
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (parentTask != null) ...[
-                    _ParentTaskLink(
-                      parentTask: parentTask,
-                      tooltip: l10n.parentTaskLinkTooltip(parentTask.title),
-                      semanticLabel: l10n.parentTaskLinkSemantics(
-                        parentTask.title,
-                      ),
-                      onTap: () =>
-                          context.push('/lists/$listId/tasks/${parentTask.id}'),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                  ],
-                  Row(
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.xs),
-                        child: AppTaskCheckbox(
-                          checkboxKey: ValueKey('task-detail-done-${task.id}'),
-                          isDone: isTaskClosed(task),
-                          tooltip: isTaskClosed(task)
-                              ? l10n.reopenTaskTooltip
-                              : l10n.completeTaskTooltip,
-                          onToggleDone: () {
-                            unawaited(
-                              isTaskClosed(task)
-                                  ? _setTaskStatus(context, ref, task, 'todo')
-                                  : _setTaskStatus(context, ref, task, 'done'),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Expanded(
-                        child: _InlineTitleEditor(
-                          key: ValueKey('task-title-editor-${task.id}'),
-                          title: task.title,
-                          isClosed: isTaskClosed(task),
-                          semanticLabel: l10n.editTaskTitleSemantics,
-                          onSave: (title) => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            title: title,
+                      if (parentTask != null) ...[
+                        _ParentTaskLink(
+                          parentTask: parentTask,
+                          tooltip: l10n.parentTaskLinkTooltip(parentTask.title),
+                          semanticLabel: l10n.parentTaskLinkSemantics(
+                            parentTask.title,
                           ),
+                          onTap: () => context.push(
+                            '/lists/$listId/tasks/${parentTask.id}',
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                      ],
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppSpacing.xs),
+                            child: AppTaskCheckbox(
+                              checkboxKey: ValueKey(
+                                'task-detail-done-${task.id}',
+                              ),
+                              isDone: isTaskClosed(task),
+                              tooltip: isTaskClosed(task)
+                                  ? l10n.reopenTaskTooltip
+                                  : l10n.completeTaskTooltip,
+                              onToggleDone: () {
+                                unawaited(
+                                  isTaskClosed(task)
+                                      ? _setTaskStatus(
+                                          context,
+                                          ref,
+                                          task,
+                                          'todo',
+                                        )
+                                      : _setTaskStatus(
+                                          context,
+                                          ref,
+                                          task,
+                                          'done',
+                                        ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.xs),
+                          Expanded(
+                            child: _InlineTitleEditor(
+                              key: ValueKey('task-title-editor-${task.id}'),
+                              title: task.title,
+                              isClosed: isTaskClosed(task),
+                              semanticLabel: l10n.editTaskTitleSemantics,
+                              onSave: (title) => _updateTaskFields(
+                                context,
+                                ref,
+                                task,
+                                title: title,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _InlineNoteEditor(
+                        key: ValueKey('task-note-editor-${task.id}'),
+                        note: task.note,
+                        placeholder: l10n.addNotePlaceholder,
+                        semanticLabel: l10n.editTaskNoteSemantics,
+                        onSave: (note) =>
+                            _updateTaskFields(context, ref, task, note: note),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _EditableTaskMetadata(
+                        task: task,
+                        reminder: reminder,
+                        stats: stats,
+                        locale: locale,
+                        onSelectDueDate: () =>
+                            _selectDueDate(context, ref, task),
+                        onClearDueDate: task.dueAt == null
+                            ? null
+                            : () => _updateTaskFields(
+                                context,
+                                ref,
+                                task,
+                                dueAt: null,
+                              ),
+                        onPrioritySelected: (priority) => _updateTaskFields(
+                          context,
+                          ref,
+                          task,
+                          priority: priority,
+                        ),
+                        onSelectReminder: () =>
+                            _selectReminder(context, ref, task, reminder),
+                        onClearReminder: reminder == null
+                            ? null
+                            : () => _clearReminder(context, ref, task),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        l10n.taskCreatedAt(
+                          formatAbsoluteDate(locale, task.createdAt),
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  _InlineNoteEditor(
-                    key: ValueKey('task-note-editor-${task.id}'),
-                    note: task.note,
-                    placeholder: l10n.addNotePlaceholder,
-                    semanticLabel: l10n.editTaskNoteSemantics,
-                    onSave: (note) =>
-                        _updateTaskFields(context, ref, task, note: note),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _EditableTaskMetadata(
-                    task: task,
-                    reminder: reminder,
-                    stats: stats,
-                    locale: locale,
-                    onSelectDueDate: () => _selectDueDate(context, ref, task),
-                    onClearDueDate: task.dueAt == null
-                        ? null
-                        : () => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            dueAt: null,
-                          ),
-                    onPrioritySelected: (priority) => _updateTaskFields(
-                      context,
-                      ref,
-                      task,
-                      priority: priority,
-                    ),
-                    onSelectReminder: () =>
-                        _selectReminder(context, ref, task, reminder),
-                    onClearReminder: reminder == null
-                        ? null
-                        : () => _clearReminder(context, ref, task),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    l10n.taskCreatedAt(
-                      formatAbsoluteDate(locale, task.createdAt),
-                    ),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
+              Row(
+                children: [
+                  Container(
+                    width: 3,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
+                ],
+              ),
               const SizedBox(height: AppSpacing.sm),
               if (subtaskNodes.isEmpty)
                 AppEmptyState(

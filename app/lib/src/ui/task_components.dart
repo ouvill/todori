@@ -15,7 +15,7 @@ import 'package:todori/src/ui/theme.dart';
 const _priorityHighCoral = Color(0xFFE8755A);
 const _priorityMediumAmber = Color(0xFFEDB73E);
 const _priorityLowSoftSage = Color(0xFFA8BEA8);
-const _homeTaskRowRootLeadingStart = AppSpacing.xs;
+const _homeTaskRowRootLeadingStart = 11.0;
 const _taskRowRootLeadingStart = 12.0;
 const _taskRowDepthIndent = AppSpacing.lg;
 const _taskCheckboxTapSize = 48.0;
@@ -135,15 +135,25 @@ class _QuickAddBarState extends State<QuickAddBar> {
       padding: EdgeInsets.only(bottom: viewInsets.bottom),
       child: SafeArea(
         top: false,
-        child: ColoredBox(
-          color: colorScheme.surfaceContainer,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.sm,
-              AppSpacing.md,
-              AppSpacing.sm,
-            ),
+        minimum: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             child: Tooltip(
               message: l10n.quickAddOpenTooltip,
               child: Semantics(
@@ -152,22 +162,26 @@ class _QuickAddBarState extends State<QuickAddBar> {
                 label: l10n.quickAddOpenSemantics,
                 child: Material(
                   color: colorScheme.surface,
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                   child: InkWell(
                     key: const ValueKey('quick-add-open'),
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
                     onTap: enabled ? _openSheet : null,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: colorScheme.outlineVariant),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                        border: Border.all(
+                          color: colorScheme.outlineVariant.withValues(
+                            alpha: 0.9,
+                          ),
+                        ),
                       ),
                       child: Padding(
                         padding: const EdgeInsetsDirectional.fromSTEB(
                           AppSpacing.md,
-                          AppSpacing.sm,
-                          AppSpacing.md,
-                          AppSpacing.sm,
+                          12,
+                          12,
+                          12,
                         ),
                         child: Row(
                           children: [
@@ -194,7 +208,9 @@ class _QuickAddBarState extends State<QuickAddBar> {
                             Icon(
                               LucideIcons.chevronUp300,
                               size: 18,
-                              color: colorScheme.onSurfaceVariant,
+                              color: colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.7,
+                              ),
                             ),
                           ],
                         ),
@@ -976,7 +992,11 @@ class AppHomeTaskRow extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final effectiveDepth = math.min(depth, 4);
     return Material(
-      color: Colors.transparent,
+      color: colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
       child: Stack(
         children: [
           if (effectiveDepth > 0)
@@ -994,7 +1014,7 @@ class AppHomeTaskRow extends StatelessWidget {
             button: true,
             label: semanticLabel,
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.md),
               onTap: onTap,
               child: Padding(
                 padding: EdgeInsetsDirectional.only(
@@ -1236,17 +1256,15 @@ class _HomeDueDatePill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Padding(
-        padding: const EdgeInsetsDirectional.fromSTEB(
-          AppSpacing.sm,
-          AppSpacing.xs,
-          AppSpacing.sm,
-          AppSpacing.xs,
-        ),
+        padding: const EdgeInsetsDirectional.fromSTEB(7, 2, 7, 2),
         child: Text(
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.labelMedium?.copyWith(color: foreground),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: foreground,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
