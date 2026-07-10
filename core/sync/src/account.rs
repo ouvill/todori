@@ -38,6 +38,8 @@ pub enum AccountClientError {
     KeyHierarchy(#[from] KeyHierarchyError),
     #[error("invalid list ID")]
     InvalidListId,
+    #[error("list key bundle conflicts with the immutable server value")]
+    KeyBundleConflict,
 }
 
 pub struct AccountClient {
@@ -230,12 +232,26 @@ impl AccountClient {
         session_token: &str,
         list_key: ListDekBundleDto,
     ) -> Result<(), AccountClientError> {
-        self.post_json::<UpsertListKeyResponse>(
-            &format!("/v2/tenants/{tenant_id}/list-keys"),
-            &list_key,
-            Some(session_token),
-        )
-        .await?;
+        let response = self
+            .http
+            .post(format!(
+                "{}/v2/tenants/{tenant_id}/list-keys",
+                self.base_url
+            ))
+            .bearer_auth(session_token)
+            .json(&list_key)
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            return Err(AccountClientError::KeyBundleConflict);
+        }
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server);
+        }
+        response
+            .json::<UpsertListKeyResponse>()
+            .await
+            .map_err(AccountClientError::Http)?;
         Ok(())
     }
 

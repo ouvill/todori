@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     future::Future,
     path::PathBuf,
     pin::Pin,
@@ -18,13 +19,13 @@ use todori_domain::Uuid;
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
     SqliteListRepository, SqliteLocalCryptoRepository, SqliteReminderRepository,
-    SqliteSettingsRepository, SqliteTaskRepository, TaskRepository,
+    SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository, TaskRepository,
 };
 use todori_sync::{
-    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial},
+    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
     ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncKeyRefresher, SyncRunSummary,
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     api::{AccountAuthResultDto, AccountSessionStateDto, SyncStatusDto},
@@ -280,6 +281,37 @@ pub(crate) fn ensure_list_dek_for_list(list_id: Uuid) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn create_account_bound_list(
+    name: String,
+    now_ms: i64,
+) -> Result<todori_domain::List, String> {
+    ensure_account_runtime_restored()?;
+    let state = core_state()?;
+    let (tenant_id, master_key, mutation) = {
+        let account = account_runtime_state();
+        let crypto = account
+            .crypto
+            .as_ref()
+            .ok_or_else(|| "account-bound local sync keys are unavailable".to_string())?;
+        (
+            crypto.tenant_id(),
+            Zeroizing::new(*crypto.master_key()),
+            crypto.mutation_context(),
+        )
+    };
+    let client = todori_client::Client::new(state.db_path.clone(), state.db_key);
+    let list = client
+        .create_list(name, now_ms, tenant_id, &master_key, &mutation)
+        .map_err(|error| error.to_string())?;
+    let refreshed = load_local_crypto_context(&state.db_path, &state.db_key, Some(*master_key))
+        .map_err(|error| error.to_string())?;
+    let LocalCryptoAvailability::Ready(crypto) = refreshed else {
+        return Err("account-bound local sync keys are unavailable".to_string());
+    };
+    account_runtime_state().crypto = Some(crypto);
+    Ok(list)
+}
+
 pub(crate) fn enqueue_task_sync(task: &todori_domain::Task, deleted: bool) -> Result<(), String> {
     let context = match local_mutation_state()? {
         LocalMutationState::Anonymous => return Ok(()),
@@ -488,17 +520,18 @@ fn account_auth(
 
 fn run_sync_now() -> Result<SyncRunSummary, String> {
     ensure_account_runtime_restored()?;
-    run_initial_backfill_if_needed()?;
     let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
     let state = core_state()?;
     let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
     let mut now = now_ms;
     let mut key_refresher = ProductionKeyRefresher;
-    run_async(todori_sync::run_sync_now_with_key_refresh(
+    let mut pre_push = |store: &mut BridgeSyncStore| run_initial_backfill_if_needed(store);
+    run_async(todori_sync::run_sync_now_with_key_refresh_and_pre_push(
         context,
         &mut store,
         &mut now,
         &mut key_refresher,
+        &mut pre_push,
     ))
 }
 
@@ -512,12 +545,10 @@ impl SyncKeyRefresher for ProductionKeyRefresher {
     }
 }
 
-fn run_initial_backfill_if_needed() -> Result<(), String> {
+fn run_initial_backfill_if_needed(store: &mut BridgeSyncStore) -> Result<(), String> {
     if active_sync_context().is_none() {
         return Ok(());
     }
-    let state = core_state()?;
-    let mut store = BridgeSyncStore::new(state.db_path.clone(), state.db_key);
     if store
         .get_cursor_seq(INITIAL_BACKFILL_CURSOR_NAME)?
         .is_some()
@@ -537,7 +568,7 @@ fn run_initial_backfill_if_needed() -> Result<(), String> {
     let context = active_sync_context().ok_or_else(|| "not logged in".to_string())?;
     let mut now = now_ms;
     todori_sync::enqueue_backfill(
-        &mut store,
+        store,
         &context.keys,
         &context.device_id,
         &lists,
@@ -702,12 +733,24 @@ async fn refresh_list_deks_for_sync() -> Result<LocalSyncKeys, String> {
         .map_err(|_| "list key refresh failed".to_string())?;
     let materials = unwrap_list_dek_bundles(&bundles, &master_key)
         .map_err(|_| "list key refresh failed".to_string())?;
-    let sync_keys = LocalSyncKeys {
+    let remote_keys = LocalSyncKeys {
         list_deks: materials
             .into_iter()
             .map(|material| Ok((parse_uuid(&material.list_id)?, *material.dek)))
             .collect::<Result<Vec<_>, String>>()?,
     };
+    let local_keys = {
+        let account = account_runtime_state();
+        account
+            .crypto
+            .as_ref()
+            .ok_or_else(|| "list key refresh failed".to_string())?
+            .sync_keys()
+            .clone()
+    };
+    let pending = pending_list_key_ids(tenant_id)?;
+    let sync_keys = merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending)
+        .map_err(|_| "list key refresh failed".to_string())?;
     let crypto = persist_local_crypto_context(
         &state.db_path,
         &state.db_key,
@@ -738,6 +781,30 @@ fn ensure_key_material_covers_local_lists(
     session_token: &str,
     keys: &mut AccountKeyMaterial,
 ) -> Result<(), String> {
+    let state = core_state()?;
+    match load_local_crypto_context(&state.db_path, &state.db_key, Some(*keys.master_key))
+        .map_err(|error| error.to_string())?
+    {
+        LocalCryptoAvailability::Ready(local) => {
+            let pending = pending_list_key_ids(tenant_id)?;
+            let remote = LocalSyncKeys::from_account_keys(keys);
+            let merged =
+                merge_remote_and_pending_local_keys(remote, local.sync_keys().clone(), &pending)?;
+            keys.list_deks = merged
+                .list_deks
+                .into_iter()
+                .map(|(list_id, dek)| AccountListDekMaterial {
+                    list_id: list_id.to_string(),
+                    dek: Zeroizing::new(dek),
+                })
+                .collect();
+            return Ok(());
+        }
+        LocalCryptoAvailability::AccountBoundUnavailable(_) => {
+            return Err("local account key cache is unavailable".to_string());
+        }
+        LocalCryptoAvailability::Anonymous => {}
+    }
     for list_id in local_list_ids_for_registration()? {
         let existing_list_ids = keys
             .list_deks
@@ -756,6 +823,48 @@ fn ensure_key_material_covers_local_lists(
         }
     }
     Ok(())
+}
+
+fn pending_list_key_ids(tenant_id: Uuid) -> Result<HashSet<Uuid>, String> {
+    let state = core_state()?;
+    pending_list_key_ids_on(&state.db_path, &state.db_key, tenant_id)
+}
+
+fn pending_list_key_ids_on(
+    db_path: &std::path::Path,
+    db_key: &[u8; 32],
+    tenant_id: Uuid,
+) -> Result<HashSet<Uuid>, String> {
+    let connection = open_encrypted(db_path, db_key).map_err(|e| e.to_string())?;
+    SqliteSyncStateRepository::new(connection)
+        .list_pending_list_key_bundles(tenant_id, usize::MAX)
+        .map_err(|error| error.to_string())
+        .map(|rows| rows.into_iter().map(|row| row.list_id).collect())
+}
+
+fn merge_remote_and_pending_local_keys(
+    mut remote: LocalSyncKeys,
+    local: LocalSyncKeys,
+    pending: &HashSet<Uuid>,
+) -> Result<LocalSyncKeys, String> {
+    for (list_id, local_dek) in local.list_deks {
+        if let Some((_, remote_dek)) = remote
+            .list_deks
+            .iter()
+            .find(|(remote_id, _)| *remote_id == list_id)
+        {
+            if remote_dek != &local_dek {
+                return Err("list key bundle conflict".to_string());
+            }
+        } else if pending.contains(&list_id) {
+            remote.list_deks.push((list_id, local_dek));
+        } else {
+            return Err("local list key is missing from the server".to_string());
+        }
+    }
+    remote.list_deks.sort_by_key(|(list_id, _)| *list_id);
+    remote.list_deks.dedup_by_key(|(list_id, _)| *list_id);
+    Ok(remote)
 }
 
 fn ensure_profile_is_unbound_for_registration() -> Result<(), String> {
@@ -1021,4 +1130,114 @@ fn usize_to_i32(value: usize) -> i32 {
 
 fn parse_uuid(value: &str) -> Result<Uuid, String> {
     value.parse::<Uuid>().map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use todori_client::{persist_local_crypto_context, Client, LocalCryptoIdentity};
+    use todori_domain::new_list;
+    use todori_storage::{ListRepository, SqliteListRepository};
+
+    #[test]
+    fn remote_key_refresh_preserves_only_verified_pending_local_keys() {
+        let remote_id = Uuid::now_v7();
+        let pending_id = Uuid::now_v7();
+        let remote = LocalSyncKeys {
+            list_deks: vec![(remote_id, [0x11; 32])],
+        };
+        let local = LocalSyncKeys {
+            list_deks: vec![(remote_id, [0x11; 32]), (pending_id, [0x22; 32])],
+        };
+        let merged =
+            merge_remote_and_pending_local_keys(remote, local, &HashSet::from([pending_id]))
+                .unwrap();
+        assert!(merged.contains_list(remote_id));
+        assert!(merged.contains_list(pending_id));
+    }
+
+    #[test]
+    fn remote_key_refresh_rejects_mismatch_and_unqueued_local_only_keys() {
+        let list_id = Uuid::now_v7();
+        assert!(merge_remote_and_pending_local_keys(
+            LocalSyncKeys {
+                list_deks: vec![(list_id, [0x11; 32])],
+            },
+            LocalSyncKeys {
+                list_deks: vec![(list_id, [0x22; 32])],
+            },
+            &HashSet::new(),
+        )
+        .is_err());
+        assert!(merge_remote_and_pending_local_keys(
+            LocalSyncKeys::default(),
+            LocalSyncKeys {
+                list_deks: vec![(list_id, [0x22; 32])],
+            },
+            &HashSet::new(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn logout_restart_relogin_reconciliation_keeps_the_durable_pending_list_key() {
+        const DB_KEY: [u8; 32] = [0x91; 32];
+        const MASTER_KEY: [u8; 32] = [0x92; 32];
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("relogin.sqlite3");
+        let tenant_id = Uuid::now_v7();
+        let initial = new_list(
+            "Initial".to_string(),
+            "3fffffffffffffffffffffffffffffff".to_string(),
+            10,
+        )
+        .unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(initial.clone())
+            .unwrap();
+        let initial_keys = LocalSyncKeys {
+            list_deks: vec![(initial.id, [0x93; 32])],
+        };
+        persist_local_crypto_context(
+            &db_path,
+            &DB_KEY,
+            LocalCryptoIdentity {
+                tenant_id,
+                user_id: Uuid::now_v7(),
+                device_id: Uuid::now_v7(),
+            },
+            &MASTER_KEY,
+            initial_keys.clone(),
+            10,
+        )
+        .unwrap();
+        let created = Client::new(db_path.clone(), DB_KEY)
+            .create_list(
+                "Offline after logout".to_string(),
+                11,
+                tenant_id,
+                &MASTER_KEY,
+                &todori_client::LocalMutationContext {
+                    device_id: "device".to_string(),
+                    keys: initial_keys.clone(),
+                },
+            )
+            .unwrap();
+
+        let LocalCryptoAvailability::Ready(restarted) =
+            load_local_crypto_context(&db_path, &DB_KEY, Some(MASTER_KEY)).unwrap()
+        else {
+            panic!("restarted local crypto context");
+        };
+        let pending = pending_list_key_ids_on(&db_path, &DB_KEY, tenant_id).unwrap();
+        let merged = merge_remote_and_pending_local_keys(
+            initial_keys,
+            restarted.sync_keys().clone(),
+            &pending,
+        )
+        .unwrap();
+        assert!(pending.contains(&created.id));
+        assert!(merged.contains_list(created.id));
+    }
 }

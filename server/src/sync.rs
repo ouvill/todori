@@ -146,18 +146,31 @@ pub async fn upsert_list_key_bundle(
     if wrapped_list_dek.is_empty() {
         return Err(AppError::bad_request("invalid list key bundle"));
     }
-    query::<Postgres>(
+    let inserted = query::<Postgres>(
         "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
          VALUES ($1, $2, $3)
-         ON CONFLICT (tenant_id, list_id) DO UPDATE
-         SET wrapped_list_dek = EXCLUDED.wrapped_list_dek,
-             updated_at = now()",
+         ON CONFLICT (tenant_id, list_id) DO NOTHING",
     )
     .bind(tenant_id)
     .bind(bundle.list_id)
-    .bind(wrapped_list_dek)
+    .bind(&wrapped_list_dek)
     .execute(pool)
     .await?;
+    if inserted.rows_affected() == 0 {
+        let existing = query::<Postgres>(
+            "SELECT wrapped_list_dek
+             FROM list_key_bundles
+             WHERE tenant_id = $1 AND list_id = $2",
+        )
+        .bind(tenant_id)
+        .bind(bundle.list_id)
+        .fetch_one(pool)
+        .await?
+        .try_get::<Vec<u8>, _>("wrapped_list_dek")?;
+        if existing != wrapped_list_dek {
+            return Err(AppError::conflict("list key bundle conflict"));
+        }
+    }
     Ok(UpsertListKeyResponse {})
 }
 

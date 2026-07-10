@@ -1,8 +1,10 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use todori_domain::{List, Task, Uuid};
 
 use crate::{
+    account::{AccountClient, ListDekBundleDto},
     decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc, PullRecord, PushOp,
     PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext, SyncRunSummary,
     LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
@@ -19,6 +21,7 @@ use crate::keys::{dek_for_list, LocalSyncKeys};
 const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
 const QUARANTINE_REPLAY_BATCH_LIMIT: usize = 100;
+const KEY_BUNDLE_UPLOAD_BATCH_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ApplyDisposition {
@@ -66,7 +69,7 @@ where
 }
 
 pub async fn run_sync_now_with_key_refresh<S, N, R>(
-    mut context: ActiveSyncContext,
+    context: ActiveSyncContext,
     store: &mut S,
     now_ms: &mut N,
     key_refresher: &mut R,
@@ -75,6 +78,30 @@ where
     S: LocalSyncAtomicStore,
     N: FnMut() -> Result<i64, String>,
     R: SyncKeyRefresher,
+{
+    let mut no_pre_push = |_store: &mut S| Ok(());
+    run_sync_now_with_key_refresh_and_pre_push(
+        context,
+        store,
+        now_ms,
+        key_refresher,
+        &mut no_pre_push,
+    )
+    .await
+}
+
+pub async fn run_sync_now_with_key_refresh_and_pre_push<S, N, R, P>(
+    mut context: ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    key_refresher: &mut R,
+    pre_push: &mut P,
+) -> Result<SyncRunSummary, String>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+    R: SyncKeyRefresher,
+    P: FnMut(&mut S) -> Result<(), String>,
 {
     let engine = SyncEngine::new(
         context.server_url.clone(),
@@ -110,6 +137,40 @@ where
         }
         Err(_) => return Err("sync failed".to_string()),
     }
+
+    loop {
+        let pending = store
+            .list_pending_list_key_bundles(context.tenant_id, KEY_BUNDLE_UPLOAD_BATCH_LIMIT)?;
+        if pending.is_empty() {
+            break;
+        }
+        let client = AccountClient::new(context.server_url.clone())
+            .map_err(|_| "sync failed".to_string())?;
+        for bundle in pending {
+            client
+                .upsert_list_key_bundle(
+                    context.tenant_id,
+                    &context.session_token,
+                    ListDekBundleDto {
+                        list_id: bundle.list_id,
+                        wrapped_list_dek: STANDARD.encode(&bundle.wrapped_list_dek),
+                    },
+                )
+                .await
+                .map_err(|_| "sync failed".to_string())?;
+            let mut transaction = store.begin_write_transaction()?;
+            if !transaction.ack_pending_list_key_bundle(
+                bundle.tenant_id,
+                bundle.list_id,
+                &bundle.wrapped_list_dek,
+            )? {
+                return Err("sync failed".to_string());
+            }
+            transaction.commit()?;
+        }
+    }
+
+    pre_push(store)?;
 
     if !store.list_replayable_quarantine(None, 1)?.is_empty() {
         context.keys = key_refresher.refresh().await?;

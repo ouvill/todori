@@ -15,16 +15,13 @@ Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md
 
 | 候補 | 内容 | 出典・依存 |
 |---|---|---|
-| Fuzzy-scan full resync / GC horizon | stable-key current-state scan、`base_seq` 後delta、page transactionのhigh-water closure、outbox除外付きmark-and-sweep、push前preflightを実装する | ADR-010 / ADR-012。transactional client、field clock / placement、typed pull / quarantineの完了後 |
 | Aggregate削除scope / epoch設計 | 別端末の未知descendantも含むlist/subtree削除intent、復活規約、opaque scope metadata、tombstone GC、List DEK bundle保持/削除条件を別ADRで裁定する | ADR-009 / ADR-010 / ADR-012。裁定まではList DEK bundleを削除しない |
-| 同期server RLS hardening | non-owner application role、実際のRLS policy、必要なFORCE RLS、cross-tenant testを実装する | ADR-012。protocol v2 CAS / collection immutabilityはtask-86で完了 |
 | Canonical Inbox収束 | typed `is_default=true`候補のUUID最小をcanonicalとし、alias配下taskをatomicに移動、重複Inboxを非表示にして冪等収束させる | ADR-015 / task-79。offline list key-bundle queueとfuzzy full resyncの後続 |
 | Windows / Linux本番Device Key Store | Windows current-user DPAPI、Linux Secret Serviceを実装し、平文 `device.key` / account secret fileを本番経路から除外する | ADR-011 / task-81。新規依存は人間承認が必要 |
 | CLI実接続 | 共通client/profile層からFlutter desktopと同じSQLCipher DBを開き、CRUD・検索・同期を提供する。macOSは同一Team / Keychain access groupで署名する | ADR-011。共通client/profileとOS secret storeに依存 |
 | MCPサーバー実接続 | CLIと同じ共通client/profile層からタスクCRUD・検索・同期をstdio MCPとして公開する | FTS5 task-62、sync task-72、ADR-011に依存 |
 | サーバーのデバイス行重複排除 | 同一インストールからの再ログインで既存device rowを再利用する | 2026-07-10実機同期確認 |
 | Android Keystore DeviceKeyStore | Androidの開発用 `FileDeviceKeyStore` を本番用Android Keystore実装へ置き換える | 技術仕様§4.3 / task-74 |
-| SQLCipherクロスビルドCI | iOS / AndroidのSQLCipherビルド差分をCIで継続検証する | Phase 1計画書§6 |
 | Phase 1リリース前のlight固定 | ダークモード正式対応まで `themeMode` をlight固定する | 2026-07-06人間裁定 |
 | iOSリリース準備 | release build、署名、ストア提出前コンプライアンスを確認する | M5-01。人間作業を含む |
 | macOS dogfooding配布 | macOS desktop buildを配布し、既知差分をリリースノートへ記録する | M5-02。人間判断を含む |

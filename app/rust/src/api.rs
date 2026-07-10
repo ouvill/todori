@@ -16,7 +16,7 @@ use todori_storage::{
 };
 
 use crate::support::{
-    core_state, enqueue_list_sync, enqueue_task_sync, ensure_list_dek_for_list,
+    core_state, create_account_bound_list, enqueue_list_sync, enqueue_task_sync,
     local_mutation_state, now_ms, preflight_sync_mutation, with_list_repository,
     with_reminder_repository, with_settings_repository, with_task_repository, LocalMutationState,
 };
@@ -219,28 +219,13 @@ pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> 
     preflight_sync_mutation()?;
     let _legacy_caller_rank = sort_order;
     let now_ms = now_ms()?;
-    if account_bound_client()?.is_none() {
-        return create_anonymous_list(name, now_ms).map(list_to_dto);
+    match local_mutation_state()? {
+        LocalMutationState::Anonymous => create_anonymous_list(name, now_ms).map(list_to_dto),
+        LocalMutationState::Ready(_) => create_account_bound_list(name, now_ms).map(list_to_dto),
+        LocalMutationState::AccountBoundUnavailable => {
+            Err("account-bound local sync keys are unavailable".to_string())
+        }
     }
-    let last_rank = with_list_repository(|repository| {
-        let mut lists = repository.list_all().map_err(|error| error.to_string())?;
-        lists.extend(
-            repository
-                .list_archived()
-                .map_err(|error| error.to_string())?,
-        );
-        Ok(lists.into_iter().map(|list| list.sort_order).max())
-    })?;
-    let rank = fractional_index_after(last_rank.as_deref()).map_err(|error| error.to_string())?;
-    let list = new_list(name, rank, now_ms).map_err(|error| error.to_string())?;
-    ensure_list_dek_for_list(list.id)?;
-    with_list_repository(|repository| {
-        repository
-            .insert(list.clone())
-            .map_err(|error| error.to_string())?;
-        enqueue_list_sync(&list, false)?;
-        Ok(list_to_dto(list))
-    })
 }
 
 pub fn get_lists() -> Result<Vec<ListDto>, String> {

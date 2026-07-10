@@ -2,15 +2,16 @@ use std::path::{Path, PathBuf};
 
 use todori_domain::{List, Task, Uuid};
 use todori_storage::{
-    open_encrypted, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx, SettingsRepository,
-    SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
+    open_encrypted, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx, PendingListKeyBundle,
+    SettingsRepository, SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
     SqliteTaskRepository, StorageError, SyncOutboxState, SyncQuarantineEntry,
     SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
-    EncryptedSyncState, LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry,
-    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason, SyncCollection,
+    EncryptedSyncState, LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore,
+    LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
+    SyncCollection,
 };
 
 pub struct BridgeSyncStore {
@@ -124,6 +125,32 @@ impl LocalMutationSyncStore for BridgeSyncStore {
 }
 
 impl LocalSyncStore for BridgeSyncStore {
+    fn list_pending_list_key_bundles(
+        &mut self,
+        tenant_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<LocalPendingListKeyBundle>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_pending_list_key_bundles(tenant_id, limit)
+                .map_err(|error| error.to_string())
+        })
+        .map(|entries| entries.into_iter().map(storage_pending_to_local).collect())
+    }
+
+    fn ack_pending_list_key_bundle(
+        &mut self,
+        tenant_id: Uuid,
+        list_id: Uuid,
+        wrapped_list_dek: &[u8],
+    ) -> Result<bool, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .ack_pending_list_key_bundle(tenant_id, list_id, wrapped_list_dek)
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -350,6 +377,17 @@ impl LocalMutationSyncStore for BridgeSyncWriteTx {
 }
 
 impl LocalSyncStore for BridgeSyncWriteTx {
+    fn ack_pending_list_key_bundle(
+        &mut self,
+        tenant_id: Uuid,
+        list_id: Uuid,
+        wrapped_list_dek: &[u8],
+    ) -> Result<bool, String> {
+        self.transaction
+            .ack_pending_list_key_bundle(tenant_id, list_id, wrapped_list_dek)
+            .map_err(|error| error.to_string())
+    }
+
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
         self.transaction
             .list_outbox_heads(limit)
@@ -485,6 +523,15 @@ fn local_outbox_to_storage(entry: NewLocalSyncOutboxEntry) -> NewSyncOutboxEntry
                 SyncOutboxState::Tombstone { delete_hlc }
             }
         },
+        created_at: entry.created_at,
+    }
+}
+
+fn storage_pending_to_local(entry: PendingListKeyBundle) -> LocalPendingListKeyBundle {
+    LocalPendingListKeyBundle {
+        tenant_id: entry.tenant_id,
+        list_id: entry.list_id,
+        wrapped_list_dek: entry.wrapped_list_dek,
         created_at: entry.created_at,
     }
 }

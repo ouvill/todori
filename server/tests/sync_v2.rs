@@ -24,7 +24,10 @@ use testcontainers_modules::{
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
 use todori_app_bridge::BridgeSyncStore;
-use todori_client::{Client, LocalMutationContext, UpdateTaskInput};
+use todori_client::{
+    persist_local_crypto_context, Client, LocalCryptoIdentity, LocalMutationContext,
+    UpdateTaskInput,
+};
 use todori_server::{
     auth::AuthContext,
     build_router, db,
@@ -37,10 +40,12 @@ use todori_storage::{
     SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
+    account::{unwrap_list_dek_bundles, AccountClient},
     decrypt_plaintext, encrypt_plaintext,
     protocol::{PushOp, PushRequest, PushStatus, SyncCollection, SyncRecordState},
-    run_sync_now, run_sync_now_with_key_refresh, ActiveSyncContext, Hlc, LocalMutationSyncStore,
-    LocalSyncKeys, LocalSyncStore, SyncKeyRefresher, SyncPlaintext, SYNC_CURSOR_NAME,
+    run_sync_now, run_sync_now_with_key_refresh, run_sync_now_with_key_refresh_and_pre_push,
+    ActiveSyncContext, Hlc, LocalMutationSyncStore, LocalSyncKeys, LocalSyncStore,
+    SyncKeyRefresher, SyncPlaintext, SYNC_CURSOR_NAME,
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -756,6 +761,204 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
     );
     assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
     assert_eq!(push_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decrypts() {
+    const DB_KEY_A: [u8; 32] = [0xe1; 32];
+    const DB_KEY_B: [u8; 32] = [0xe2; 32];
+    const MASTER_KEY: [u8; 32] = [0xe3; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let path_a = temp.path().join("offline-list-a.sqlite3");
+    let path_b = temp.path().join("offline-list-b.sqlite3");
+    let now = Utc::now().timestamp_millis() - 10_000;
+    let initial = todori_domain::new_list(
+        "Initial".to_string(),
+        "3fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    SqliteListRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap())
+        .insert(initial.clone())
+        .unwrap();
+    let initial_keys = LocalSyncKeys {
+        list_deks: vec![(initial.id, [0xe4; 32])],
+    };
+    persist_local_crypto_context(
+        &path_a,
+        &DB_KEY_A,
+        LocalCryptoIdentity {
+            tenant_id: fixture.tenant_id,
+            user_id: fixture.auth.user_id,
+            device_id: fixture.auth.device_id,
+        },
+        &MASTER_KEY,
+        initial_keys.clone(),
+        now,
+    )
+    .unwrap();
+    let client = Client::new(path_a.clone(), DB_KEY_A);
+    let created = client
+        .create_list(
+            "Created offline".to_string(),
+            now + 1,
+            fixture.tenant_id,
+            &MASTER_KEY,
+            &LocalMutationContext {
+                device_id: "offline-client-a".to_string(),
+                keys: initial_keys,
+            },
+        )
+        .unwrap();
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
+    assert_eq!(
+        repository
+            .list_pending_list_key_bundles(fixture.tenant_id, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
+
+    let local_context =
+        todori_client::load_local_crypto_context(&path_a, &DB_KEY_A, Some(MASTER_KEY)).unwrap();
+    let todori_client::LocalCryptoAvailability::Ready(local_context) = local_context else {
+        panic!("local crypto context");
+    };
+    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut clock = now + 100;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    let context_a = ActiveSyncContext {
+        server_url: server_url.clone(),
+        tenant_id: fixture.tenant_id,
+        device_id: "offline-client-a".to_string(),
+        session_token: fixture.token.clone(),
+        keys: local_context.sync_keys().clone(),
+    };
+    let pre_push_calls = Arc::new(AtomicUsize::new(0));
+    let pre_push_counter = pre_push_calls.clone();
+    let mut pre_push = |store: &mut BridgeSyncStore| {
+        assert!(store
+            .list_pending_list_key_bundles(fixture.tenant_id, 10)?
+            .is_empty());
+        assert_eq!(store.list_outbox_heads(10)?.len(), 1);
+        pre_push_counter.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    };
+    let mut no_refresh = TestKeyRefresher {
+        calls: 0,
+        keys: local_context.sync_keys().clone(),
+        fail: false,
+    };
+    open_encrypted(&path_a, &DB_KEY_A)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER fail_key_bundle_ack BEFORE DELETE ON pending_list_key_bundles
+             BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+        )
+        .unwrap();
+    assert!(run_sync_now_with_key_refresh_and_pre_push(
+        context_a.clone(),
+        &mut store_a,
+        &mut ticking_now,
+        &mut no_refresh,
+        &mut pre_push,
+    )
+    .await
+    .is_err());
+    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 0);
+    let failed_counts = query(
+        "SELECT
+             (SELECT count(*) FROM list_key_bundles WHERE tenant_id = $1 AND list_id = $2) AS keys,
+             (SELECT count(*) FROM sync_records WHERE tenant_id = $1 AND record_id = $2) AS records",
+    )
+    .bind(fixture.tenant_id)
+    .bind(created.id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(failed_counts.try_get::<i64, _>("keys").unwrap(), 1);
+    assert_eq!(failed_counts.try_get::<i64, _>("records").unwrap(), 0);
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
+    assert_eq!(
+        repository
+            .list_pending_list_key_bundles(fixture.tenant_id, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
+    open_encrypted(&path_a, &DB_KEY_A)
+        .unwrap()
+        .execute_batch("DROP TRIGGER fail_key_bundle_ack;")
+        .unwrap();
+    run_sync_now_with_key_refresh_and_pre_push(
+        context_a,
+        &mut store_a,
+        &mut ticking_now,
+        &mut no_refresh,
+        &mut pre_push,
+    )
+    .await
+    .unwrap();
+    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 1);
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
+    assert!(repository
+        .list_pending_list_key_bundles(fixture.tenant_id, 10)
+        .unwrap()
+        .is_empty());
+    assert!(repository.list_outbox_heads(10).unwrap().is_empty());
+    let server_counts = query(
+        "SELECT
+             (SELECT count(*) FROM list_key_bundles WHERE tenant_id = $1 AND list_id = $2) AS keys,
+             (SELECT count(*) FROM sync_records WHERE tenant_id = $1 AND record_id = $2) AS records",
+    )
+    .bind(fixture.tenant_id)
+    .bind(created.id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(server_counts.try_get::<i64, _>("keys").unwrap(), 1);
+    assert_eq!(server_counts.try_get::<i64, _>("records").unwrap(), 1);
+
+    let account = AccountClient::new(&server_url).unwrap();
+    let bundles = account
+        .list_key_bundles(fixture.tenant_id, &fixture.token)
+        .await
+        .unwrap();
+    let materials = unwrap_list_dek_bundles(&bundles, &MASTER_KEY).unwrap();
+    let keys_b = LocalSyncKeys {
+        list_deks: materials
+            .into_iter()
+            .map(|material| (Uuid::parse_str(&material.list_id).unwrap(), *material.dek))
+            .collect(),
+    };
+    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    run_sync_now(
+        ActiveSyncContext {
+            server_url,
+            tenant_id: fixture.tenant_id,
+            device_id: "offline-client-b".to_string(),
+            session_token: fixture.token.clone(),
+            keys: keys_b,
+        },
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        SqliteListRepository::new(open_encrypted(&path_b, &DB_KEY_B).unwrap())
+            .get(created.id)
+            .unwrap()
+            .name,
+        "Created offline"
+    );
 }
 
 #[tokio::test]

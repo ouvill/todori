@@ -97,6 +97,14 @@ pub struct LocalSyncQuarantineEntry {
     pub attempt_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPendingListKeyBundle {
+    pub tenant_id: Uuid,
+    pub list_id: Uuid,
+    pub wrapped_list_dek: Vec<u8>,
+    pub created_at: i64,
+}
+
 /// The local persistence operations needed to prepare a domain mutation for sync.
 ///
 /// Implementations must arrange for these writes and the corresponding domain
@@ -130,6 +138,21 @@ pub trait LocalMutationSyncStore {
 /// and domain row application. Mutation-only callers should depend on
 /// [`LocalMutationSyncStore`] instead.
 pub trait LocalSyncStore: LocalMutationSyncStore {
+    fn list_pending_list_key_bundles(
+        &mut self,
+        _tenant_id: Uuid,
+        _limit: usize,
+    ) -> Result<Vec<LocalPendingListKeyBundle>, String> {
+        Ok(Vec::new())
+    }
+    fn ack_pending_list_key_bundle(
+        &mut self,
+        _tenant_id: Uuid,
+        _list_id: Uuid,
+        _wrapped_list_dek: &[u8],
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
     fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String>;
     fn get_cursor_seq(&mut self, name: &str) -> Result<Option<i64>, String>;

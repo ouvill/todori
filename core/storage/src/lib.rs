@@ -11,7 +11,7 @@ use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskSt
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 13;
+pub const LATEST_SCHEMA_VERSION: i32 = 14;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -74,6 +74,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 13,
         name: "add_sync_quarantine",
         apply: add_sync_quarantine,
+    },
+    Migration {
+        target_version: 14,
+        name: "add_pending_list_key_bundles",
+        apply: add_pending_list_key_bundles,
     },
 ];
 
@@ -289,6 +294,15 @@ pub struct LocalListKeyBundle {
     pub updated_at: i64,
 }
 
+/// Server upload待ちのopaqueなMK-wrapped List DEK bundle。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingListKeyBundle {
+    pub tenant_id: Uuid,
+    pub list_id: Uuid,
+    pub wrapped_list_dek: Vec<u8>,
+    pub created_at: i64,
+}
+
 /// account bindingとMK-wrapped List DEK cacheの永続化を担うリポジトリ。
 pub trait LocalCryptoRepository {
     fn load_binding(&self) -> Result<Option<LocalProfileBinding>, StorageError>;
@@ -438,6 +452,20 @@ impl<'connection> SqliteWriteTx<'connection> {
         insert_list_on(&self.transaction, &list)
     }
 
+    pub fn put_local_list_key_bundle(
+        &mut self,
+        bundle: LocalListKeyBundle,
+    ) -> Result<(), StorageError> {
+        put_local_list_key_bundle_on(&self.transaction, &bundle)
+    }
+
+    pub fn put_pending_list_key_bundle(
+        &mut self,
+        bundle: PendingListKeyBundle,
+    ) -> Result<(), StorageError> {
+        put_pending_list_key_bundle_on(&self.transaction, &bundle)
+    }
+
     pub fn update_task(&mut self, task: Task) -> Result<(), StorageError> {
         update_task_on(&self.transaction, &task)
     }
@@ -576,6 +604,15 @@ impl OwnedSqliteWriteTx {
 
     pub fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, StorageError> {
         ack_outbox_op_on(self.connection(), op_id)
+    }
+
+    pub fn ack_pending_list_key_bundle(
+        &mut self,
+        tenant_id: Uuid,
+        list_id: Uuid,
+        wrapped_list_dek: &[u8],
+    ) -> Result<bool, StorageError> {
+        ack_pending_list_key_bundle_on(self.connection(), tenant_id, list_id, wrapped_list_dek)
     }
 
     pub fn get_record_state(
@@ -1134,6 +1171,20 @@ fn add_sync_quarantine(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
          );
          CREATE INDEX idx_sync_quarantine_seq
              ON sync_quarantine(seq, record_id);",
+    )
+}
+
+fn add_pending_list_key_bundles(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE pending_list_key_bundles (
+             tenant_id TEXT NOT NULL,
+             list_id TEXT NOT NULL,
+             wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
+             created_at INTEGER NOT NULL,
+             PRIMARY KEY (tenant_id, list_id)
+         );
+         CREATE INDEX idx_pending_list_key_bundles_created
+             ON pending_list_key_bundles(created_at, list_id);",
     )
 }
 
@@ -2411,6 +2462,158 @@ impl SqliteSyncStateRepository {
     pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
         delete_quarantine_on(&self.connection, record_id)
     }
+
+    pub fn list_pending_list_key_bundles(
+        &self,
+        tenant_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<PendingListKeyBundle>, StorageError> {
+        list_pending_list_key_bundles_on(&self.connection, tenant_id, limit)
+    }
+
+    pub fn ack_pending_list_key_bundle(
+        &mut self,
+        tenant_id: Uuid,
+        list_id: Uuid,
+        wrapped_list_dek: &[u8],
+    ) -> Result<bool, StorageError> {
+        ack_pending_list_key_bundle_on(&self.connection, tenant_id, list_id, wrapped_list_dek)
+    }
+}
+
+fn put_local_list_key_bundle_on(
+    connection: &Connection,
+    bundle: &LocalListKeyBundle,
+) -> Result<(), StorageError> {
+    let binding = load_local_profile_binding_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema("local profile binding is missing".to_string())
+    })?;
+    if binding.tenant_id != bundle.tenant_id {
+        return Err(StorageError::LocalProfileTenantMismatch {
+            bound_tenant_id: binding.tenant_id,
+            requested_tenant_id: bundle.tenant_id,
+        });
+    }
+    let existing = connection
+        .query_row(
+            "SELECT wrapped_list_dek FROM local_list_key_bundles
+             WHERE tenant_id = ?1 AND list_id = ?2",
+            params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        return if existing == bundle.wrapped_list_dek {
+            Ok(())
+        } else {
+            Err(StorageError::IncompatibleSchema(
+                "local list key bundle is immutable".to_string(),
+            ))
+        };
+    }
+    connection.execute(
+        "INSERT INTO local_list_key_bundles (
+             tenant_id, list_id, wrapped_list_dek, updated_at
+         ) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            bundle.tenant_id.to_string(),
+            bundle.list_id.to_string(),
+            bundle.wrapped_list_dek,
+            bundle.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn put_pending_list_key_bundle_on(
+    connection: &Connection,
+    bundle: &PendingListKeyBundle,
+) -> Result<(), StorageError> {
+    let binding = load_local_profile_binding_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema("local profile binding is missing".to_string())
+    })?;
+    if binding.tenant_id != bundle.tenant_id {
+        return Err(StorageError::LocalProfileTenantMismatch {
+            bound_tenant_id: binding.tenant_id,
+            requested_tenant_id: bundle.tenant_id,
+        });
+    }
+    let existing = connection
+        .query_row(
+            "SELECT wrapped_list_dek FROM pending_list_key_bundles
+             WHERE tenant_id = ?1 AND list_id = ?2",
+            params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        return if existing == bundle.wrapped_list_dek {
+            Ok(())
+        } else {
+            Err(StorageError::IncompatibleSchema(
+                "pending list key bundle is immutable".to_string(),
+            ))
+        };
+    }
+    connection.execute(
+        "INSERT INTO pending_list_key_bundles (
+             tenant_id, list_id, wrapped_list_dek, created_at
+         ) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            bundle.tenant_id.to_string(),
+            bundle.list_id.to_string(),
+            bundle.wrapped_list_dek,
+            bundle.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn list_pending_list_key_bundles_on(
+    connection: &Connection,
+    tenant_id: Uuid,
+    limit: usize,
+) -> Result<Vec<PendingListKeyBundle>, StorageError> {
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut statement = connection.prepare(
+        "SELECT list_id, wrapped_list_dek, created_at
+         FROM pending_list_key_bundles
+         WHERE tenant_id = ?1
+         ORDER BY created_at ASC, list_id ASC
+         LIMIT ?2",
+    )?;
+    let rows = statement
+        .query_map(params![tenant_id.to_string(), limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(list_id, wrapped_list_dek, created_at)| {
+            Ok(PendingListKeyBundle {
+                tenant_id,
+                list_id: Uuid::parse_str(&list_id)?,
+                wrapped_list_dek,
+                created_at,
+            })
+        })
+        .collect()
+}
+
+fn ack_pending_list_key_bundle_on(
+    connection: &Connection,
+    tenant_id: Uuid,
+    list_id: Uuid,
+    wrapped_list_dek: &[u8],
+) -> Result<bool, StorageError> {
+    Ok(connection.execute(
+        "DELETE FROM pending_list_key_bundles
+         WHERE tenant_id = ?1 AND list_id = ?2 AND wrapped_list_dek = ?3",
+        params![tenant_id.to_string(), list_id.to_string(), wrapped_list_dek],
+    )? != 0)
 }
 
 impl SyncStateRepository for SqliteSyncStateRepository {
@@ -6730,5 +6933,65 @@ mod tests {
             Err(rusqlite::Error::SqliteFailure(error, _))
                 if error.code == rusqlite::ErrorCode::DatabaseBusy
         ));
+    }
+
+    #[test]
+    fn pending_list_key_bundle_is_immutable_and_compare_acknowledged() {
+        let file = NamedTempFile::new().unwrap();
+        let tenant_id = Uuid::now_v7();
+        let list_id = Uuid::now_v7();
+        let bundle = PendingListKeyBundle {
+            tenant_id,
+            list_id,
+            wrapped_list_dek: vec![1, 2, 3],
+            created_at: 10,
+        };
+        let mut local_crypto =
+            SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        local_crypto
+            .bind_and_replace_bundles(
+                LocalProfileBinding {
+                    tenant_id,
+                    user_id: Uuid::now_v7(),
+                    device_id: Uuid::now_v7(),
+                    bound_at: 1,
+                    updated_at: 1,
+                },
+                &[],
+            )
+            .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction
+            .put_pending_list_key_bundle(bundle.clone())
+            .unwrap();
+        transaction
+            .put_pending_list_key_bundle(bundle.clone())
+            .unwrap();
+        let mut conflicting = bundle.clone();
+        conflicting.wrapped_list_dek = vec![4, 5, 6];
+        assert!(transaction
+            .put_pending_list_key_bundle(conflicting)
+            .is_err());
+        transaction.commit().unwrap();
+
+        let mut repository =
+            SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(
+            repository
+                .list_pending_list_key_bundles(tenant_id, 10)
+                .unwrap(),
+            vec![bundle.clone()]
+        );
+        assert!(!repository
+            .ack_pending_list_key_bundle(tenant_id, list_id, &[9])
+            .unwrap());
+        assert!(repository
+            .ack_pending_list_key_bundle(tenant_id, list_id, &bundle.wrapped_list_dek,)
+            .unwrap());
+        assert!(repository
+            .list_pending_list_key_bundles(tenant_id, 10)
+            .unwrap()
+            .is_empty());
     }
 }

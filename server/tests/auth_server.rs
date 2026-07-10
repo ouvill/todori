@@ -13,8 +13,8 @@ use testcontainers_modules::{
 };
 use todori_server::{build_router, db, AppState};
 use todori_sync::account::{
-    unwrap_login_key_bundle, wrap_list_dek_bundle, AccountClient, AccountKeyBundleDto,
-    ListDekBundleDto,
+    unwrap_login_key_bundle, wrap_list_dek_bundle, AccountClient, AccountClientError,
+    AccountKeyBundleDto, ListDekBundleDto,
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -121,20 +121,41 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
 
     let added_list_id = Uuid::now_v7();
     let added_list_dek = [0x7a; 32];
+    let added_bundle =
+        wrap_list_dek_bundle(added_list_id, &added_list_dek, &logged_in.keys.master_key).unwrap();
     client
         .upsert_list_key_bundle(
             tenant_id,
             &logged_in.session.session_token,
-            wrap_list_dek_bundle(added_list_id, &added_list_dek, &logged_in.keys.master_key)
-                .unwrap(),
+            added_bundle.clone(),
         )
         .await
         .unwrap();
+    client
+        .upsert_list_key_bundle(
+            tenant_id,
+            &logged_in.session.session_token,
+            added_bundle.clone(),
+        )
+        .await
+        .unwrap();
+    let conflicting =
+        wrap_list_dek_bundle(added_list_id, &[0x7b; 32], &logged_in.keys.master_key).unwrap();
+    assert!(matches!(
+        client
+            .upsert_list_key_bundle(tenant_id, &logged_in.session.session_token, conflicting,)
+            .await,
+        Err(AccountClientError::KeyBundleConflict)
+    ));
     let listed = client
         .list_key_bundles(tenant_id, &logged_in.session.session_token)
         .await
         .unwrap();
     assert!(listed.iter().any(|bundle| bundle.list_id == added_list_id));
+    assert_eq!(
+        listed.iter().find(|bundle| bundle.list_id == added_list_id),
+        Some(&added_bundle)
+    );
 
     client
         .logout(&logged_in.session.session_token)

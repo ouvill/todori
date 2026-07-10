@@ -15,16 +15,19 @@ pub mod keys;
 pub mod merge;
 pub mod protocol;
 
-pub use apply::{run_sync_now, run_sync_now_with_key_refresh, ActiveSyncContext, SyncKeyRefresher};
+pub use apply::{
+    run_sync_now, run_sync_now_with_key_refresh, run_sync_now_with_key_refresh_and_pre_push,
+    ActiveSyncContext, SyncKeyRefresher,
+};
 pub use engine::{
     EncryptedSyncState, PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus,
     SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
     enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary,
-    LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry,
-    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
-    NewLocalSyncOutboxEntry, PullFailureReason,
+    LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore, LocalSyncOutboxEntry,
+    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,

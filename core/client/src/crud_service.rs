@@ -1,10 +1,17 @@
+use todori_crypto::key_hierarchy::{
+    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key, KEY_LEN,
+};
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
-    new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
+    new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
     unarchive_list as domain_unarchive_list, update_due_at, update_note, validate_parent_for, List,
     Task, TaskStatus, Uuid,
 };
-use todori_storage::{open_encrypted, SqliteWriteTx, StorageError, TaskUndoOperation};
+use todori_storage::{
+    open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
+    TaskUndoOperation,
+};
+use zeroize::Zeroizing;
 
 use crate::task_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
 use crate::{Client, ClientError, LocalMutationContext};
@@ -36,6 +43,62 @@ pub struct ReorderTaskInput {
 }
 
 impl Client {
+    pub fn create_list(
+        &self,
+        name: String,
+        now_ms: i64,
+        tenant_id: Uuid,
+        master_key: &[u8; KEY_LEN],
+        sync: &LocalMutationContext,
+    ) -> Result<List, ClientError> {
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let mut lists = transaction.list_lists_including_archived()?;
+        lists.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+        let rank = match fractional_index_after(lists.last().map(|list| list.sort_order.as_str())) {
+            Ok(rank) => rank,
+            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+                let ranks = rebalance_ranks(lists.len() + 1)?;
+                for (mut list, rank) in lists.into_iter().zip(ranks.iter()) {
+                    if list.sort_order != *rank {
+                        list.sort_order.clone_from(rank);
+                        list.updated_at = now_ms;
+                        transaction.update_list(list.clone())?;
+                        enqueue_list_in_transaction(&mut transaction, sync, &list, false, now_ms)?;
+                    }
+                }
+                ranks.last().cloned().ok_or(ClientError::Sync)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let list = new_list(name, rank, now_ms)?;
+        let list_dek = Zeroizing::new(generate_list_dek());
+        let local_wrapped =
+            wrap_local_list_dek_with_master_key(&list.id.to_string(), &list_dek, master_key)
+                .map_err(|_| ClientError::Sync)?;
+        let server_wrapped =
+            wrap_list_dek_with_master_key(&list_dek, master_key).map_err(|_| ClientError::Sync)?;
+        let mut create_sync = sync.clone();
+        create_sync.keys.list_deks.push((list.id, *list_dek));
+
+        transaction.put_local_list_key_bundle(LocalListKeyBundle {
+            tenant_id,
+            list_id: list.id,
+            wrapped_list_dek: local_wrapped,
+            updated_at: now_ms,
+        })?;
+        transaction.insert_list(list.clone())?;
+        enqueue_list_in_transaction(&mut transaction, &create_sync, &list, false, now_ms)?;
+        transaction.put_pending_list_key_bundle(PendingListKeyBundle {
+            tenant_id,
+            list_id: list.id,
+            wrapped_list_dek: server_wrapped,
+            created_at: now_ms,
+        })?;
+        transaction.commit()?;
+        Ok(list)
+    }
+
     pub fn reorder_task(
         &self,
         input: ReorderTaskInput,
@@ -357,8 +420,13 @@ mod tests {
     };
 
     use super::*;
+    use crate::{
+        load_local_crypto_context, persist_local_crypto_context, LocalCryptoAvailability,
+        LocalCryptoIdentity,
+    };
 
     const DB_KEY: [u8; 32] = [0x85; 32];
+    const MASTER_KEY: [u8; 32] = [0x86; 32];
     const BASE_MS: i64 = 1_799_100_000_000;
 
     struct Fixture {
@@ -947,6 +1015,122 @@ mod tests {
             .list_outbox_heads(10)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn account_bound_list_create_commits_key_cache_domain_sync_and_queue_atomically() {
+        let fixture = fixture();
+        let tenant_id = Uuid::now_v7();
+        let identity = LocalCryptoIdentity {
+            tenant_id,
+            user_id: Uuid::now_v7(),
+            device_id: Uuid::now_v7(),
+        };
+        persist_local_crypto_context(
+            fixture.client.db_path(),
+            &DB_KEY,
+            identity,
+            &MASTER_KEY,
+            fixture.sync.keys.clone(),
+            BASE_MS,
+        )
+        .unwrap();
+
+        let created = fixture
+            .client
+            .create_list(
+                "Offline".to_string(),
+                BASE_MS + 1,
+                tenant_id,
+                &MASTER_KEY,
+                &fixture.sync,
+            )
+            .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        assert_eq!(
+            SqliteListRepository::new(connection)
+                .get(created.id)
+                .unwrap()
+                .name,
+            "Offline"
+        );
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let sync = SqliteSyncStateRepository::new(connection);
+        let pending = sync.list_pending_list_key_bundles(tenant_id, 10).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].list_id, created.id);
+        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
+        assert!(sync
+            .get_record_state(LISTS_COLLECTION, created.id)
+            .unwrap()
+            .is_some());
+        assert!(matches!(
+            load_local_crypto_context(fixture.client.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
+            LocalCryptoAvailability::Ready(context) if context.sync_keys().contains_list(created.id)
+        ));
+    }
+
+    #[test]
+    fn account_bound_list_create_rolls_back_at_every_local_write_boundary() {
+        for trigger in [
+            "CREATE TRIGGER fail_cache BEFORE INSERT ON local_list_key_bundles BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            "CREATE TRIGGER fail_list BEFORE INSERT ON lists BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            "CREATE TRIGGER fail_hlc BEFORE UPDATE ON settings WHEN OLD.key = 'sync_local_hlc' BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            "CREATE TRIGGER fail_state BEFORE INSERT ON sync_record_states BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            "CREATE TRIGGER fail_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+            "CREATE TRIGGER fail_pending BEFORE INSERT ON pending_list_key_bundles BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+        ] {
+            let fixture = fixture();
+            let tenant_id = Uuid::now_v7();
+            persist_local_crypto_context(
+                fixture.client.db_path(),
+                &DB_KEY,
+                LocalCryptoIdentity {
+                    tenant_id,
+                    user_id: Uuid::now_v7(),
+                    device_id: Uuid::now_v7(),
+                },
+                &MASTER_KEY,
+                fixture.sync.keys.clone(),
+                BASE_MS,
+            )
+            .unwrap();
+            install_trigger(&fixture, trigger);
+
+            assert!(fixture
+                .client
+                .create_list(
+                    "Rollback".to_string(),
+                    BASE_MS + 1,
+                    tenant_id,
+                    &MASTER_KEY,
+                    &fixture.sync,
+                )
+                .is_err());
+            let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+            assert_eq!(
+                SqliteListRepository::new(connection)
+                    .list_all()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+            let sync = SqliteSyncStateRepository::new(connection);
+            assert!(sync
+                .list_pending_list_key_bundles(tenant_id, 10)
+                .unwrap()
+                .is_empty());
+            assert!(sync.list_outbox_heads(10).unwrap().is_empty());
+            assert!(sync
+                .get_record_state(LISTS_COLLECTION, fixture.list.id)
+                .unwrap()
+                .is_none());
+            assert!(matches!(
+                load_local_crypto_context(fixture.client.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
+                LocalCryptoAvailability::Ready(context) if context.sync_keys().list_deks.len() == 1
+            ));
+        }
     }
 
     fn install_trigger(fixture: &Fixture, sql: &str) {
