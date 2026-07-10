@@ -1,167 +1,99 @@
-//! Deterministic fractional sort-order generation.
-//!
-//! Values use only ASCII alphanumerics ordered as
-//! `0-9A-Za-z`, so Rust `String`, Dart `String.compareTo`, and SQLite `TEXT`
-//! binary ordering agree for generated values.
+//! Fixed-width 128-bit rank generation.
 
 use crate::usecases::DomainError;
 
-const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const MIN_DIGIT: i32 = -1;
-const MAX_DIGIT: i32 = ALPHABET.len() as i32;
+pub const MIN_RANK: &str = "00000000000000000000000000000000";
+pub const MAX_RANK: &str = "ffffffffffffffffffffffffffffffff";
 
-/// Generates a sort order strictly between `previous` and `next`.
-///
-/// At least one valid value must exist between the two boundaries. Existing
-/// boundaries must be non-empty, contain only [`ALPHABET`] characters, and be
-/// ordered as `previous < next` when both are present.
 pub fn fractional_index_between(
     previous: Option<&str>,
     next: Option<&str>,
 ) -> Result<String, DomainError> {
-    if let Some(value) = previous {
-        validate_sort_order(value)?;
+    let lower = previous.map(parse_rank).transpose()?.unwrap_or(0);
+    let upper = next.map(parse_rank).transpose()?.unwrap_or(u128::MAX);
+    if previous.is_some() && next.is_some() && lower >= upper {
+        return Err(DomainError::InvalidSortOrderBoundary);
     }
-    if let Some(value) = next {
-        validate_sort_order(value)?;
+    if upper.saturating_sub(lower) <= 1 {
+        return Err(DomainError::SortOrderSpaceExhausted);
     }
-    if let (Some(previous), Some(next)) = (previous, next) {
-        if previous >= next {
-            return Err(DomainError::InvalidSortOrderBoundary);
-        }
-    }
-
-    let previous_bytes = previous.unwrap_or_default().as_bytes();
-    let next_bytes = next.unwrap_or_default().as_bytes();
-    let mut prefix = Vec::new();
-    let mut index = 0;
-
-    loop {
-        let previous_digit = digit_at(previous_bytes, index, previous.is_some(), true)?;
-        let next_digit = digit_at(next_bytes, index, next.is_some(), false)?;
-
-        if next_digit - previous_digit > 1 {
-            let digit = previous_digit + ((next_digit - previous_digit) / 2);
-            prefix.push(ALPHABET[digit as usize]);
-            return String::from_utf8(prefix).map_err(|_| DomainError::InvalidSortOrder);
-        }
-
-        if previous_digit < 0 {
-            if next.is_some() && index + 1 < next_bytes.len() {
-                prefix.push(ALPHABET[next_digit as usize]);
-                return String::from_utf8(prefix).map_err(|_| DomainError::InvalidSortOrder);
-            }
-            return Err(DomainError::SortOrderSpaceExhausted);
-        }
-
-        prefix.push(ALPHABET[previous_digit as usize]);
-        index += 1;
-    }
+    Ok(format_rank(lower + (upper - lower) / 2))
 }
 
-/// Generates a sort order after the current last value.
 pub fn fractional_index_after(last: Option<&str>) -> Result<String, DomainError> {
     fractional_index_between(last, None)
 }
 
-fn validate_sort_order(value: &str) -> Result<(), DomainError> {
-    if value.is_empty() || !value.bytes().all(|byte| ALPHABET.contains(&byte)) {
-        return Err(DomainError::InvalidSortOrder);
+pub fn rebalance_ranks(count: usize) -> Result<Vec<String>, DomainError> {
+    if count == 0 {
+        return Ok(Vec::new());
     }
-    Ok(())
+    let divisor = u128::try_from(count)
+        .map_err(|_| DomainError::SortOrderSpaceExhausted)?
+        .checked_add(1)
+        .ok_or(DomainError::SortOrderSpaceExhausted)?;
+    let step = u128::MAX / divisor;
+    if step == 0 {
+        return Err(DomainError::SortOrderSpaceExhausted);
+    }
+    Ok((1..=count)
+        .map(|index| format_rank(step * index as u128))
+        .collect())
 }
 
-fn digit_at(
-    bytes: &[u8],
-    index: usize,
-    has_boundary: bool,
-    is_previous: bool,
-) -> Result<i32, DomainError> {
-    match bytes.get(index) {
-        Some(byte) => ALPHABET
-            .iter()
-            .position(|candidate| candidate == byte)
-            .map(|position| position as i32)
-            .ok_or(DomainError::InvalidSortOrder),
-        None if !has_boundary => Ok(if is_previous { MIN_DIGIT } else { MAX_DIGIT }),
-        None if is_previous => Ok(MIN_DIGIT),
-        None => Ok(MAX_DIGIT),
+pub fn validate_sort_order(value: &str) -> Result<(), DomainError> {
+    parse_rank(value).map(|_| ())
+}
+
+fn parse_rank(value: &str) -> Result<u128, DomainError> {
+    if value.len() != 32
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(DomainError::InvalidSortOrder);
     }
+    u128::from_str_radix(value, 16).map_err(|_| DomainError::InvalidSortOrder)
+}
+
+fn format_rank(value: u128) -> String {
+    format!("{value:032x}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn generates_initial_value() {
-        assert_eq!(fractional_index_between(None, None).unwrap(), "U");
+    fn fixed_width_midpoints_sort_lexically_like_u128() {
+        let initial = fractional_index_between(None, None).unwrap();
+        assert_eq!(initial, "7fffffffffffffffffffffffffffffff");
+        let after = fractional_index_after(Some(&initial)).unwrap();
+        assert_eq!(after.len(), 32);
+        assert!(initial < after);
+        let before = fractional_index_between(None, Some(&initial)).unwrap();
+        assert!(before < initial);
     }
-
     #[test]
-    fn generates_before_existing_value() {
-        let generated = fractional_index_between(None, Some("a0")).unwrap();
-
-        assert!(generated.as_str() < "a0");
-    }
-
-    #[test]
-    fn generates_before_prefixed_low_value() {
-        let generated = fractional_index_between(None, Some("0U")).unwrap();
-
-        assert_eq!(generated, "0");
-        assert!(generated.as_str() < "0U");
-    }
-
-    #[test]
-    fn generates_after_existing_value() {
-        let generated = fractional_index_after(Some("a0")).unwrap();
-
-        assert!("a0" < generated.as_str());
-    }
-
-    #[test]
-    fn generates_between_two_values() {
-        let generated = fractional_index_between(Some("a0"), Some("a1")).unwrap();
-
-        assert!("a0" < generated.as_str());
-        assert!(generated.as_str() < "a1");
-    }
-
-    #[test]
-    fn supports_repeated_insertions_between_values() {
-        let upper = "a1".to_string();
-        let mut lower = "a0".to_string();
-
-        for _ in 0..16 {
-            let generated = fractional_index_between(Some(&lower), Some(&upper)).unwrap();
-            assert!(lower < generated);
-            assert!(generated < upper);
-            lower = generated;
-        }
-    }
-
-    #[test]
-    fn rejects_invalid_values() {
+    fn adjacent_space_exhaustion_and_strict_codec() {
         assert_eq!(
-            fractional_index_between(Some(""), None),
+            fractional_index_between(Some(MIN_RANK), Some("00000000000000000000000000000001")),
+            Err(DomainError::SortOrderSpaceExhausted)
+        );
+        assert_eq!(
+            validate_sort_order("A0000000000000000000000000000000"),
             Err(DomainError::InvalidSortOrder)
         );
         assert_eq!(
-            fractional_index_between(Some("a_0"), None),
+            validate_sort_order("a0"),
             Err(DomainError::InvalidSortOrder)
         );
     }
-
     #[test]
-    fn rejects_invalid_boundaries() {
-        assert_eq!(
-            fractional_index_between(Some("a1"), Some("a0")),
-            Err(DomainError::InvalidSortOrderBoundary)
-        );
-        assert_eq!(
-            fractional_index_between(Some("a0"), Some("a0")),
-            Err(DomainError::InvalidSortOrderBoundary)
-        );
+    fn rebalance_is_even_and_stable() {
+        let ranks = rebalance_ranks(3).unwrap();
+        assert_eq!(ranks.len(), 3);
+        assert!(ranks[0] < ranks[1] && ranks[1] < ranks[2]);
+        assert!(MIN_RANK < ranks[0].as_str());
+        assert!(ranks[2].as_str() < MAX_RANK);
     }
 }

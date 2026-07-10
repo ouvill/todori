@@ -30,6 +30,9 @@ pub fn encrypt_plaintext(
     record_id: &str,
     plaintext: &SyncPlaintext,
 ) -> Result<Vec<u8>, EnvelopeError> {
+    plaintext
+        .validate_for_collection(collection)
+        .map_err(|_| EnvelopeError::Serialization)?;
     let plaintext_json = serde_json::to_vec(plaintext).map_err(|_| EnvelopeError::Serialization)?;
     let inner = encrypt(dek, &plaintext_json, &aad(collection, record_id))?;
     let mut out = Vec::with_capacity(1 + inner.len());
@@ -57,7 +60,12 @@ pub fn decrypt_plaintext(
         return Err(EnvelopeError::UnsupportedVersion);
     }
     let plaintext_json = decrypt(dek, &blob[1..], &aad(collection, record_id))?;
-    serde_json::from_slice(&plaintext_json).map_err(|_| EnvelopeError::Deserialization)
+    let plaintext: SyncPlaintext =
+        serde_json::from_slice(&plaintext_json).map_err(|_| EnvelopeError::Deserialization)?;
+    plaintext
+        .validate_for_collection(collection)
+        .map_err(|_| EnvelopeError::Deserialization)?;
+    Ok(plaintext)
 }
 
 fn aad(collection: &str, record_id: &str) -> Vec<u8> {
@@ -66,12 +74,9 @@ fn aad(collection: &str, record_id: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use serde_json::json;
-
     use super::*;
     use crate::hlc::Hlc;
+    use todori_domain::{new_list, List};
 
     fn key(byte: u8) -> [u8; 32] {
         [byte; 32]
@@ -83,21 +88,18 @@ mod tests {
             counter: 1,
             device_id: "device-a".to_string(),
         };
-        SyncPlaintext::from_single_hlc(
-            BTreeMap::from([
-                ("title".to_string(), json!("Buy milk")),
-                ("priority".to_string(), json!(2)),
-            ]),
-            hlc,
-        )
-        .unwrap()
+        SyncPlaintext::from_list(&sample_list(), hlc).unwrap()
+    }
+
+    fn sample_list() -> List {
+        new_list("Inbox".into(), "7fffffffffffffffffffffffffffffff".into(), 1).unwrap()
     }
 
     #[test]
     fn envelope_roundtrips_plaintext() {
-        let blob = encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext()).unwrap();
+        let blob = encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext()).unwrap();
 
-        let decrypted = decrypt_plaintext(&key(0x42), "tasks", "record-1", &blob).unwrap();
+        let decrypted = decrypt_plaintext(&key(0x42), "lists", "record-1", &blob).unwrap();
 
         assert_eq!(decrypted, plaintext());
         assert_eq!(blob[0], ENVELOPE_VERSION);
@@ -105,47 +107,47 @@ mod tests {
 
     #[test]
     fn envelope_rejects_wrong_dek() {
-        let blob = encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext()).unwrap();
+        let blob = encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext()).unwrap();
 
         assert_eq!(
-            decrypt_plaintext(&key(0x24), "tasks", "record-1", &blob),
+            decrypt_plaintext(&key(0x24), "lists", "record-1", &blob),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         );
     }
 
     #[test]
     fn envelope_rejects_record_id_or_collection_swap() {
-        let blob = encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext()).unwrap();
+        let blob = encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext()).unwrap();
 
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "lists", "record-1", &blob),
+            decrypt_plaintext(&key(0x42), "tasks", "record-1", &blob),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         );
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "tasks", "record-2", &blob),
+            decrypt_plaintext(&key(0x42), "lists", "record-2", &blob),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         );
     }
 
     #[test]
     fn envelope_rejects_tampering() {
-        let mut blob = encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext()).unwrap();
+        let mut blob = encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext()).unwrap();
         let last = blob.len() - 1;
         blob[last] ^= 0xff;
 
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "tasks", "record-1", &blob),
+            decrypt_plaintext(&key(0x42), "lists", "record-1", &blob),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         );
     }
 
     #[test]
     fn envelope_rejects_unknown_version() {
-        let mut blob = encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext()).unwrap();
+        let mut blob = encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext()).unwrap();
         blob[0] = ENVELOPE_VERSION + 1;
 
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "tasks", "record-1", &blob),
+            decrypt_plaintext(&key(0x42), "lists", "record-1", &blob),
             Err(EnvelopeError::UnsupportedVersion)
         );
     }
@@ -167,17 +169,12 @@ mod tests {
             counter: 1,
             device_id: "device-a".to_string(),
         };
-        let plaintext = SyncPlaintext::from_single_hlc(
-            BTreeMap::from([(
-                "note".to_string(),
-                json!("x".repeat(MAX_ENCRYPTED_BLOB_LEN)),
-            )]),
-            hlc,
-        )
-        .unwrap();
+        let mut list = sample_list();
+        list.name = "x".repeat(MAX_ENCRYPTED_BLOB_LEN);
+        let plaintext = SyncPlaintext::from_list(&list, hlc).unwrap();
 
         assert_eq!(
-            encrypt_plaintext(&key(0x42), "tasks", "record-1", &plaintext),
+            encrypt_plaintext(&key(0x42), "lists", "record-1", &plaintext),
             Err(EnvelopeError::BlobTooLarge)
         );
     }

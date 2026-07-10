@@ -1,7 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use serde_json::Value;
-use todori_domain::{List, Task, TaskStatus, Uuid};
+use todori_domain::{List, Task, Uuid};
 
 use crate::{
     decrypt_plaintext, merge_lww, EncryptedSyncState, Hlc, PullRecord, PushOp, PushStatus,
@@ -11,9 +10,8 @@ use crate::{
 
 use crate::enqueue::{
     enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, observe_remote_hlc,
-    parse_status, task_plaintext, LocalSyncAtomicStore, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, RebasePlaintextRequest,
-    RebaseTombstoneRequest,
+    task_plaintext, LocalSyncAtomicStore, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -402,12 +400,10 @@ where
                 if compare_encoded_hlc(mutation_hlc, delete_hlc)? == std::cmp::Ordering::Greater {
                     let plaintext: SyncPlaintext = serde_json::from_str(plaintext_json)
                         .map_err(|_| "sync failed".to_string())?;
-                    let list_id = plaintext
-                        .fields
-                        .get("list_id")
-                        .and_then(Value::as_str)
-                        .and_then(|value| value.parse::<Uuid>().ok())
-                        .ok_or_else(|| "sync failed".to_string())?;
+                    let SyncPlaintext::Task(task) = &plaintext else {
+                        return Err("sync failed".to_string());
+                    };
+                    let list_id = task.placement.value.list_id;
                     let dek = dek_for_list(&context.keys, list_id)
                         .ok_or_else(|| "sync failed".to_string())?;
                     enqueue_merged_plaintext(
@@ -473,13 +469,11 @@ where
             return Ok(ApplyDisposition::Deferred);
         }
     };
-    let dek = if let Some(incoming_dek) = incoming
-        .fields
-        .get("list_id")
-        .and_then(Value::as_str)
-        .and_then(|list_id| list_id.parse::<Uuid>().ok())
-        .and_then(|list_id| dek_for_list(&context.keys, list_id))
-    {
+    let incoming_list_id = match &incoming {
+        SyncPlaintext::Task(task) => task.placement.value.list_id,
+        SyncPlaintext::List(_) => return Err("sync failed".to_string()),
+    };
+    let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
         incoming_dek
     } else {
         summary.decrypt_failed_count += 1;
@@ -573,7 +567,6 @@ where
     let plaintext_json = serde_json::to_string(plaintext).map_err(|_| "sync failed".to_string())?;
     let merged_mutation_hlc = plaintext
         .record_hlc()
-        .ok_or_else(|| "sync failed".to_string())?
         .encode()
         .map_err(|_| "sync failed".to_string())?;
     let mutation_hlc = if compare_encoded_hlc(&merged_mutation_hlc, incoming_mutation_hlc)?
@@ -628,138 +621,66 @@ fn decrypt_task_plaintext(
 }
 
 fn record_hlc_or_initial(plaintext: &SyncPlaintext) -> Hlc {
-    plaintext
-        .record_hlc()
-        .cloned()
-        .unwrap_or_else(|| Hlc::new("sync"))
+    plaintext.record_hlc().clone()
 }
 
 fn task_from_plaintext<N>(
     id: Uuid,
-    existing: Option<&Task>,
+    _existing: Option<&Task>,
     plaintext: &SyncPlaintext,
-    now_ms: &mut N,
+    _now_ms: &mut N,
 ) -> Result<Task, String>
 where
     N: FnMut() -> Result<i64, String>,
 {
-    let fields = &plaintext.fields;
-    let existing = existing.cloned();
+    let SyncPlaintext::Task(fields) = plaintext else {
+        return Err("sync failed".to_string());
+    };
     Ok(Task {
         id,
-        list_id: value_uuid(fields, "list_id")?
-            .or_else(|| existing.as_ref().map(|task| task.list_id))
-            .ok_or_else(|| "sync failed".to_string())?,
-        parent_task_id: value_uuid(fields, "parent_task_id")?
-            .or_else(|| existing.as_ref().and_then(|task| task.parent_task_id)),
-        title: value_string(fields, "title")
-            .or_else(|| existing.as_ref().map(|task| task.title.clone()))
-            .unwrap_or_default(),
-        note: value_string(fields, "note")
-            .or_else(|| existing.as_ref().map(|task| task.note.clone()))
-            .unwrap_or_default(),
-        status: value_string(fields, "status")
-            .as_deref()
-            .map(parse_status)
-            .transpose()?
-            .or_else(|| existing.as_ref().map(|task| task.status))
-            .unwrap_or(TaskStatus::Todo),
-        priority: value_i64(fields, "priority")
-            .map(|value| value as i32)
-            .or_else(|| existing.as_ref().map(|task| task.priority))
-            .unwrap_or(0),
-        due_at: value_i64(fields, "due_at")
-            .or_else(|| existing.as_ref().and_then(|task| task.due_at)),
-        scheduled_at: value_i64(fields, "scheduled_at")
-            .or_else(|| existing.as_ref().and_then(|task| task.scheduled_at)),
-        estimated_minutes: value_i64(fields, "estimated_minutes")
-            .map(|value| value as i32)
-            .or_else(|| existing.as_ref().and_then(|task| task.estimated_minutes)),
-        sort_order: existing
-            .as_ref()
-            .map(|task| task.sort_order.clone())
-            .unwrap_or_else(|| "a0".to_string()),
-        completed_at: value_i64(fields, "completed_at")
-            .or_else(|| existing.as_ref().and_then(|task| task.completed_at)),
-        closed_reason: value_string(fields, "closed_reason").or_else(|| {
-            existing
-                .as_ref()
-                .and_then(|task| task.closed_reason.clone())
-        }),
-        deleted_at: value_i64(fields, "deleted_at")
-            .or_else(|| existing.as_ref().and_then(|task| task.deleted_at)),
-        assignee: value_uuid(fields, "assignee")?
-            .or_else(|| existing.as_ref().and_then(|task| task.assignee)),
-        created_at: value_i64(fields, "created_at")
-            .or_else(|| existing.as_ref().map(|task| task.created_at))
-            .unwrap_or_else(|| now_ms().unwrap_or(0)),
-        updated_at: value_i64(fields, "updated_at")
-            .or_else(|| existing.as_ref().map(|task| task.updated_at))
-            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+        list_id: fields.placement.value.list_id,
+        parent_task_id: fields.placement.value.parent_task_id,
+        title: fields.title.value.clone(),
+        note: fields.note.value.clone(),
+        status: fields.completion.value.status,
+        priority: fields.priority.value,
+        due_at: fields.due_at.value,
+        scheduled_at: fields.scheduled_at.value,
+        estimated_minutes: fields.estimated_minutes.value,
+        sort_order: fields.placement.value.rank.clone(),
+        completed_at: fields.completion.value.completed_at,
+        closed_reason: fields.completion.value.closed_reason.clone(),
+        deleted_at: None,
+        assignee: fields.assignee.value,
+        created_at: fields.created_at.value,
+        updated_at: fields.updated_at.value,
     })
 }
 
 fn list_from_plaintext<N>(
     id: Uuid,
-    existing: Option<&List>,
+    _existing: Option<&List>,
     plaintext: &SyncPlaintext,
-    now_ms: &mut N,
+    _now_ms: &mut N,
 ) -> Result<List, String>
 where
     N: FnMut() -> Result<i64, String>,
 {
-    let fields = &plaintext.fields;
-    let existing = existing.cloned();
+    let SyncPlaintext::List(fields) = plaintext else {
+        return Err("sync failed".to_string());
+    };
     Ok(List {
         id,
-        name: value_string(fields, "name")
-            .or_else(|| existing.as_ref().map(|list| list.name.clone()))
-            .unwrap_or_default(),
-        color: value_string(fields, "color")
-            .or_else(|| existing.as_ref().map(|list| list.color.clone()))
-            .unwrap_or_default(),
-        icon: value_string(fields, "icon")
-            .or_else(|| existing.as_ref().map(|list| list.icon.clone()))
-            .unwrap_or_default(),
-        org_id: value_uuid(fields, "org_id")?
-            .or_else(|| existing.as_ref().and_then(|list| list.org_id)),
-        sort_order: existing
-            .as_ref()
-            .map(|list| list.sort_order.clone())
-            .unwrap_or_else(|| "a0".to_string()),
-        is_default: value_bool(fields, "is_default")
-            .or_else(|| existing.as_ref().map(|list| list.is_default))
-            .unwrap_or(false),
-        archived_at: value_i64(fields, "archived_at")
-            .or_else(|| existing.as_ref().and_then(|list| list.archived_at)),
-        created_at: value_i64(fields, "created_at")
-            .or_else(|| existing.as_ref().map(|list| list.created_at))
-            .unwrap_or_else(|| now_ms().unwrap_or(0)),
-        updated_at: value_i64(fields, "updated_at")
-            .or_else(|| existing.as_ref().map(|list| list.updated_at))
-            .unwrap_or_else(|| now_ms().unwrap_or(0)),
+        name: fields.name.value.clone(),
+        color: fields.color.value.clone(),
+        icon: fields.icon.value.clone(),
+        org_id: fields.org_id.value,
+        sort_order: fields.placement.value.rank.clone(),
+        is_default: fields.is_default.value,
+        archived_at: fields.archived_at.value,
+        created_at: fields.created_at.value,
+        updated_at: fields.updated_at.value,
     })
-}
-
-fn value_string(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
-    fields.get(key)?.as_str().map(ToOwned::to_owned)
-}
-
-fn value_i64(fields: &BTreeMap<String, Value>, key: &str) -> Option<i64> {
-    fields.get(key)?.as_i64()
-}
-
-fn value_bool(fields: &BTreeMap<String, Value>, key: &str) -> Option<bool> {
-    fields.get(key)?.as_bool()
-}
-
-fn value_uuid(fields: &BTreeMap<String, Value>, key: &str) -> Result<Option<Uuid>, String> {
-    fields
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::parse::<Uuid>)
-        .transpose()
-        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -922,14 +843,10 @@ mod tests {
         assert!(!store.lists.get(&incoming_list.id).unwrap().is_default);
         let stored_plaintext =
             stored_sync_plaintext(&mut store, SyncCollection::Lists, incoming_list.id).unwrap();
-        assert_eq!(
-            stored_plaintext
-                .unwrap()
-                .fields
-                .get("is_default")
-                .and_then(Value::as_bool),
-            Some(true)
-        );
+        let SyncPlaintext::List(stored) = stored_plaintext.unwrap() else {
+            panic!("list");
+        };
+        assert!(stored.is_default.value);
         assert_eq!(store.outbox.len(), 0);
         assert_eq!(summary.applied_count, 1);
         assert_eq!(summary.repush_count, 0);
@@ -979,20 +896,16 @@ mod tests {
         .encode()
         .unwrap();
         let base_list = sample_list(list_id, false);
-        let mut local_plaintext = list_plaintext(&base_list, base_clock.clone());
-        local_plaintext
-            .fields
-            .insert("color".to_string(), Value::String("#00ff00".to_string()));
-        local_plaintext
-            .field_hlcs
-            .insert("color".to_string(), local_clock.clone());
-        let mut remote_plaintext = list_plaintext(&base_list, base_clock);
-        remote_plaintext
-            .fields
-            .insert("name".to_string(), Value::String("Remote name".to_string()));
-        remote_plaintext
-            .field_hlcs
-            .insert("name".to_string(), remote_clock.clone());
+        let mut local_list_for_plaintext = base_list.clone();
+        local_list_for_plaintext.color = "#00ff00".to_string();
+        let local_plaintext = list_plaintext(&base_list, base_clock.clone())
+            .stamp_list_changes(&local_list_for_plaintext, local_clock.clone())
+            .unwrap();
+        let mut remote_list_for_plaintext = base_list.clone();
+        remote_list_for_plaintext.name = "Remote name".to_string();
+        let remote_plaintext = list_plaintext(&base_list, base_clock)
+            .stamp_list_changes(&remote_list_for_plaintext, remote_clock.clone())
+            .unwrap();
 
         let blob = encrypt_plaintext(
             &dek,
@@ -1053,14 +966,11 @@ mod tests {
         };
         let rebased =
             decrypt_plaintext(&dek, LISTS_COLLECTION, &list_id.to_string(), blob).unwrap();
-        assert_eq!(
-            rebased.fields["name"],
-            Value::String("Remote name".to_string())
-        );
-        assert_eq!(
-            rebased.fields["color"],
-            Value::String("#00ff00".to_string())
-        );
+        let SyncPlaintext::List(rebased) = rebased else {
+            panic!("list");
+        };
+        assert_eq!(rebased.name.value, "Remote name");
+        assert_eq!(rebased.color.value, "#00ff00");
     }
 
     #[test]
@@ -1224,7 +1134,7 @@ mod tests {
             color: "#ffffff".to_string(),
             icon: "list".to_string(),
             org_id: None,
-            sort_order: "a0".to_string(),
+            sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             is_default,
             archived_at: None,
             created_at: 1_799_000_000_000,

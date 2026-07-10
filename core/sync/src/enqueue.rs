@@ -1,8 +1,5 @@
-use std::collections::BTreeMap;
-
-use serde_json::{json, Value};
 use todori_crypto::key_hierarchy::KEY_LEN;
-use todori_domain::{List, Task, TaskStatus, Uuid};
+use todori_domain::{List, Task, Uuid};
 
 use crate::{
     encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
@@ -174,12 +171,13 @@ where
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
-    let base_revision_hlc = store
-        .get_record_state(SyncCollection::Tasks, task.id)?
-        .and_then(|state| state.current_revision_hlc);
+    let previous_state = store.get_record_state(SyncCollection::Tasks, task.id)?;
+    let base_revision_hlc = previous_state
+        .as_ref()
+        .and_then(|state| state.current_revision_hlc.clone());
     let dek = dek_for_list(keys, task.list_id)
         .ok_or_else(|| "missing list key for task sync".to_string())?;
-    let plaintext = task_plaintext(task, hlc.clone());
+    let plaintext = changed_task_plaintext(previous_state.as_ref(), task, hlc.clone())?;
     enqueue_plaintext(
         store,
         EnqueuePlaintextRequest {
@@ -210,12 +208,13 @@ where
 {
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
-    let base_revision_hlc = store
-        .get_record_state(SyncCollection::Lists, list.id)?
-        .and_then(|state| state.current_revision_hlc);
+    let previous_state = store.get_record_state(SyncCollection::Lists, list.id)?;
+    let base_revision_hlc = previous_state
+        .as_ref()
+        .and_then(|state| state.current_revision_hlc.clone());
     let dek =
         dek_for_list(keys, list.id).ok_or_else(|| "missing list key for list sync".to_string())?;
-    let plaintext = list_plaintext(list, hlc.clone());
+    let plaintext = changed_list_plaintext(previous_state.as_ref(), list, hlc.clone())?;
     enqueue_plaintext(
         store,
         EnqueuePlaintextRequest {
@@ -255,7 +254,6 @@ where
     let mutation_hlc = request
         .plaintext
         .record_hlc()
-        .ok_or_else(|| "sync failed".to_string())?
         .encode()
         .map_err(|_| "sync failed".to_string())?;
     enqueue_plaintext(
@@ -465,98 +463,45 @@ where
 }
 
 pub(crate) fn task_plaintext(task: &Task, hlc: Hlc) -> SyncPlaintext {
-    SyncPlaintext::from_single_hlc(
-        BTreeMap::from([
-            ("list_id".to_string(), json!(task.list_id.to_string())),
-            (
-                "parent_task_id".to_string(),
-                option_uuid_value(task.parent_task_id),
-            ),
-            ("title".to_string(), json!(task.title)),
-            ("note".to_string(), json!(task.note)),
-            ("status".to_string(), json!(status_to_string(task.status))),
-            ("priority".to_string(), json!(task.priority)),
-            ("due_at".to_string(), option_i64_value(task.due_at)),
-            (
-                "scheduled_at".to_string(),
-                option_i64_value(task.scheduled_at),
-            ),
-            (
-                "estimated_minutes".to_string(),
-                option_i32_value(task.estimated_minutes),
-            ),
-            (
-                "completed_at".to_string(),
-                option_i64_value(task.completed_at),
-            ),
-            (
-                "closed_reason".to_string(),
-                option_string_value(task.closed_reason.clone()),
-            ),
-            ("deleted_at".to_string(), option_i64_value(task.deleted_at)),
-            ("assignee".to_string(), option_uuid_value(task.assignee)),
-            ("created_at".to_string(), json!(task.created_at)),
-            ("updated_at".to_string(), json!(task.updated_at)),
-        ]),
-        hlc,
-    )
-    .expect("task sync plaintext excludes sort_order and has matching HLC keys")
+    SyncPlaintext::from_task(task, hlc).expect("domain task has a valid fixed-width rank")
 }
 
 pub(crate) fn list_plaintext(list: &List, hlc: Hlc) -> SyncPlaintext {
-    SyncPlaintext::from_single_hlc(
-        BTreeMap::from([
-            ("name".to_string(), json!(list.name)),
-            ("color".to_string(), json!(list.color)),
-            ("icon".to_string(), json!(list.icon)),
-            ("org_id".to_string(), option_uuid_value(list.org_id)),
-            ("is_default".to_string(), json!(list.is_default)),
-            (
-                "archived_at".to_string(),
-                option_i64_value(list.archived_at),
-            ),
-            ("created_at".to_string(), json!(list.created_at)),
-            ("updated_at".to_string(), json!(list.updated_at)),
-        ]),
-        hlc,
-    )
-    .expect("list sync plaintext excludes sort_order and has matching HLC keys")
+    SyncPlaintext::from_list(list, hlc).expect("domain list has a valid fixed-width rank")
 }
 
-pub(crate) fn status_to_string(status: TaskStatus) -> String {
-    match status {
-        TaskStatus::Todo => "todo",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Done => "done",
-        TaskStatus::WontDo => "wont_do",
-    }
-    .to_string()
-}
-
-pub(crate) fn parse_status(value: &str) -> Result<TaskStatus, String> {
-    match value {
-        "todo" => Ok(TaskStatus::Todo),
-        "in_progress" => Ok(TaskStatus::InProgress),
-        "done" => Ok(TaskStatus::Done),
-        "wont_do" => Ok(TaskStatus::WontDo),
-        other => Err(format!("invalid task status: {other}")),
+fn changed_task_plaintext(
+    previous: Option<&LocalSyncRecordState>,
+    task: &Task,
+    hlc: Hlc,
+) -> Result<SyncPlaintext, String> {
+    match previous.map(|state| &state.state) {
+        Some(LocalSyncSemanticState::Live { plaintext_json, .. }) => {
+            let previous: SyncPlaintext =
+                serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
+            previous
+                .stamp_task_changes(task, hlc)
+                .map_err(|_| "sync failed".to_string())
+        }
+        _ => SyncPlaintext::from_task(task, hlc).map_err(|_| "sync failed".to_string()),
     }
 }
 
-pub(crate) fn option_uuid_value(value: Option<Uuid>) -> Value {
-    value.map(|id| json!(id.to_string())).unwrap_or(Value::Null)
-}
-
-fn option_i64_value(value: Option<i64>) -> Value {
-    value.map(Value::from).unwrap_or(Value::Null)
-}
-
-fn option_i32_value(value: Option<i32>) -> Value {
-    value.map(Value::from).unwrap_or(Value::Null)
-}
-
-fn option_string_value(value: Option<String>) -> Value {
-    value.map(Value::from).unwrap_or(Value::Null)
+fn changed_list_plaintext(
+    previous: Option<&LocalSyncRecordState>,
+    list: &List,
+    hlc: Hlc,
+) -> Result<SyncPlaintext, String> {
+    match previous.map(|state| &state.state) {
+        Some(LocalSyncSemanticState::Live { plaintext_json, .. }) => {
+            let previous: SyncPlaintext =
+                serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
+            previous
+                .stamp_list_changes(list, hlc)
+                .map_err(|_| "sync failed".to_string())
+        }
+        _ => SyncPlaintext::from_list(list, hlc).map_err(|_| "sync failed".to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -564,6 +509,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use todori_domain::TaskStatus;
 
     #[derive(Default)]
     struct FakeStore {
@@ -774,7 +720,7 @@ mod tests {
             color: "#ffffff".to_string(),
             icon: "list".to_string(),
             org_id: None,
-            sort_order: "a0".to_string(),
+            sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             is_default: false,
             archived_at: None,
             created_at,
@@ -794,7 +740,7 @@ mod tests {
             due_at: None,
             scheduled_at: None,
             estimated_minutes: None,
-            sort_order: "a0".to_string(),
+            sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             completed_at: None,
             closed_reason: None,
             deleted_at: None,
