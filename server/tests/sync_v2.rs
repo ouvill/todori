@@ -17,7 +17,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx_core::{query::query, row::Row};
+use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::PgPool;
 use tempfile::TempDir;
 use testcontainers_modules::{
@@ -53,6 +53,7 @@ use uuid::Uuid;
 struct Fixture {
     app: Router,
     pool: PgPool,
+    admin_pool: PgPool,
     tenant_id: Uuid,
     auth: AuthContext,
     token: String,
@@ -67,6 +68,17 @@ impl Fixture {
         let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
         let pool = db::connect(&database_url).await.unwrap();
         db::run_migrations(&pool).await.unwrap();
+        raw_sql(
+            "CREATE ROLE todori_runtime_test LOGIN PASSWORD 'todori-runtime-test'
+             NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        raw_sql("GRANT todori_app TO todori_runtime_test")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let user_id = Uuid::now_v7();
         let tenant_id = Uuid::now_v7();
@@ -115,10 +127,16 @@ impl Fixture {
         .await
         .unwrap();
 
-        let app = build_router(AppState { pool: pool.clone() });
+        let application_url =
+            format!("postgres://todori_runtime_test:todori-runtime-test@{host}:{port}/postgres");
+        let application_pool = db::connect_application(&application_url).await.unwrap();
+        let app = build_router(AppState {
+            pool: application_pool.clone(),
+        });
         Self {
             app,
-            pool,
+            pool: application_pool,
+            admin_pool: pool,
             tenant_id,
             auth: AuthContext { user_id, device_id },
             token,
@@ -332,7 +350,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         query("SELECT revision_hlc FROM sync_records WHERE tenant_id = $1 AND record_id = $2")
             .bind(fixture.tenant_id)
             .bind(corrupt.id)
-            .fetch_one(&fixture.pool)
+            .fetch_one(&fixture.admin_pool)
             .await
             .unwrap()
             .get("revision_hlc");
@@ -494,7 +512,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             .unwrap();
             let high_water: i64 = query("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
                 .bind(fixture.tenant_id)
-                .fetch_one(&fixture.pool)
+                .fetch_one(&fixture.admin_pool)
                 .await
                 .unwrap()
                 .try_get("last_seq")
@@ -1171,7 +1189,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     )
     .bind(fixture.tenant_id)
     .bind(created.id)
-    .fetch_one(&fixture.pool)
+    .fetch_one(&fixture.admin_pool)
     .await
     .unwrap();
     assert_eq!(failed_counts.try_get::<i64, _>("keys").unwrap(), 1);
@@ -1212,7 +1230,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     )
     .bind(fixture.tenant_id)
     .bind(created.id)
-    .fetch_one(&fixture.pool)
+    .fetch_one(&fixture.admin_pool)
     .await
     .unwrap();
     assert_eq!(server_counts.try_get::<i64, _>("keys").unwrap(), 1);
@@ -1388,7 +1406,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     )
     .bind(fixture.tenant_id)
     .bind(task.id)
-    .fetch_one(&fixture.pool)
+    .fetch_one(&fixture.admin_pool)
     .await
     .unwrap();
     let blob: Vec<u8> = row.get("encrypted_blob");
@@ -1755,7 +1773,7 @@ async fn cas_retry_semantic_fences_and_pull_preserve_the_current_head() {
     )
     .bind(fixture.tenant_id)
     .bind(record_id)
-    .fetch_one(&fixture.pool)
+    .fetch_one(&fixture.admin_pool)
     .await
     .unwrap()
     .try_get("count")
@@ -1927,7 +1945,7 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
     .bind(fixture.tenant_id)
     .bind(Uuid::now_v7())
     .bind(vec![1_u8])
-    .execute(&fixture.pool)
+    .execute(&fixture.admin_pool)
     .await;
     assert!(invalid.is_err());
 
@@ -1950,11 +1968,11 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
             hlc(-950, 0, "gc-delete"),
         ))
         .await;
-    db::run_migrations(&fixture.pool).await.unwrap();
+    db::run_migrations(&fixture.admin_pool).await.unwrap();
     let preserved_after_rerun: i64 =
         query("SELECT count(*) AS count FROM sync_records WHERE tenant_id = $1")
             .bind(fixture.tenant_id)
-            .fetch_one(&fixture.pool)
+            .fetch_one(&fixture.admin_pool)
             .await
             .unwrap()
             .try_get("count")
@@ -1963,15 +1981,20 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
     query("UPDATE sync_records SET updated_at = $1 WHERE tenant_id = $2")
         .bind(Utc::now() - Duration::days(181))
         .bind(fixture.tenant_id)
-        .execute(&fixture.pool)
+        .execute(&fixture.admin_pool)
         .await
         .unwrap();
 
-    assert_eq!(gc_tombstones(&fixture.pool, Utc::now()).await.unwrap(), 1);
+    assert_eq!(
+        gc_tombstones(&fixture.admin_pool, Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
     let remaining: Vec<Uuid> =
         query("SELECT record_id FROM sync_records WHERE tenant_id = $1 ORDER BY record_id")
             .bind(fixture.tenant_id)
-            .fetch_all(&fixture.pool)
+            .fetch_all(&fixture.admin_pool)
             .await
             .unwrap()
             .into_iter()
@@ -2182,17 +2205,22 @@ async fn gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water
     .bind(Utc::now() - Duration::days(181))
     .bind(fixture.tenant_id)
     .bind(tombstone_id)
-    .execute(&fixture.pool)
+    .execute(&fixture.admin_pool)
     .await
     .unwrap();
-    assert_eq!(gc_tombstones(&fixture.pool, Utc::now()).await.unwrap(), 1);
+    assert_eq!(
+        gc_tombstones(&fixture.admin_pool, Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
 
     let max_active: i64 = query(
         "SELECT coalesce(max(seq), 0)::BIGINT AS max_seq
          FROM sync_records WHERE tenant_id = $1",
     )
     .bind(fixture.tenant_id)
-    .fetch_one(&fixture.pool)
+    .fetch_one(&fixture.admin_pool)
     .await
     .unwrap()
     .try_get("max_seq")

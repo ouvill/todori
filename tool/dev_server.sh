@@ -7,7 +7,7 @@ set -euo pipefail
 #   1. Reuses or creates Docker container "todori-dev-postgres".
 #   2. Publishes Postgres on the first free localhost port from 5432 upward.
 #   3. Applies server/migrations/*.sql before starting the Rust server.
-#   4. Runs `cargo run -p todori-server` with DATABASE_URL and PORT=8080.
+#   4. Runs `cargo run -p todori-server` with local migration/runtime URLs.
 #
 # Stop the Rust server with Ctrl-C.
 # Keep the database for the next run, or stop it explicitly with:
@@ -21,6 +21,8 @@ POSTGRES_IMAGE="${TODORI_DEV_POSTGRES_IMAGE:-postgres:16-alpine}"
 POSTGRES_USER="${TODORI_DEV_POSTGRES_USER:-todori}"
 POSTGRES_PASSWORD="${TODORI_DEV_POSTGRES_PASSWORD:-todori}"
 POSTGRES_DB="${TODORI_DEV_POSTGRES_DB:-todori_dev}"
+RUNTIME_USER="todori_runtime"
+RUNTIME_PASSWORD="todori_runtime"
 SERVER_PORT="${PORT:-8080}"
 
 cd "$ROOT_DIR"
@@ -102,15 +104,30 @@ for migration in server/migrations/*.sql; do
     < "$migration" >/dev/null
 done
 
+if ! docker exec "$CONTAINER_NAME" \
+  psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${RUNTIME_USER}'" \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" | grep -qx 1; then
+  docker exec "$CONTAINER_NAME" \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -c "CREATE ROLE ${RUNTIME_USER} LOGIN PASSWORD '${RUNTIME_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS" \
+    >/dev/null
+fi
+docker exec "$CONTAINER_NAME" \
+  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "ALTER ROLE ${RUNTIME_USER} LOGIN PASSWORD '${RUNTIME_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS; GRANT todori_app TO ${RUNTIME_USER}" \
+  >/dev/null
+
 if port_in_use "$SERVER_PORT"; then
   echo "Port $SERVER_PORT is already in use. Stop that process before starting todori-server." >&2
   exit 1
 fi
 
-export DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+export DATABASE_MIGRATION_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+export DATABASE_URL="postgres://${RUNTIME_USER}:${RUNTIME_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 export PORT="$SERVER_PORT"
 export RUST_LOG="${RUST_LOG:-info,todori_server=debug}"
 
 echo "Starting todori-server on http://localhost:${PORT}"
-echo "DATABASE_URL=postgres://${POSTGRES_USER}:<redacted>@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+echo "DATABASE_URL=postgres://${RUNTIME_USER}:<redacted>@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
+echo "DATABASE_MIGRATION_URL=postgres://${POSTGRES_USER}:<redacted>@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 exec cargo run -p todori-server

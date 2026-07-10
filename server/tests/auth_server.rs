@@ -5,7 +5,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::Value;
-use sqlx_core::{query::query, row::Row};
+use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::{PgPool, Postgres};
 use testcontainers_modules::{
     postgres,
@@ -32,7 +32,23 @@ async fn setup() -> TestApp {
     let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
     let pool = db::connect(&database_url).await.unwrap();
     db::run_migrations(&pool).await.unwrap();
-    let app = build_router(AppState { pool: pool.clone() });
+    raw_sql(
+        "CREATE ROLE todori_runtime_test LOGIN PASSWORD 'todori-runtime-test'
+         NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    raw_sql("GRANT todori_app TO todori_runtime_test")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let application_url =
+        format!("postgres://todori_runtime_test:todori-runtime-test@{host}:{port}/postgres");
+    let application_pool = db::connect_application(&application_url).await.unwrap();
+    let app = build_router(AppState {
+        pool: application_pool,
+    });
     TestApp {
         app,
         pool,

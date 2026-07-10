@@ -63,15 +63,29 @@ curl -i http://localhost:8080/health
 
 ## 6. Neon適用手順
 
-実Neon connection stringは `<NEON_DATABASE_URL>` として扱い、private側または人間管理に置く。public repo、public issue、完了報告、CIログに実値を書かない。
+実Neonのdirect owner connection stringは `<NEON_MIGRATION_DATABASE_URL>` として扱い、private側または人間管理に置く。public repo、public issue、完了報告、CIログに実値を書かない。
 
 事前にローカルリハーサルを通す。次に、Neonのbranch機能が利用できる場合は本番branchから検証branchを作成し、同じSQLを適用して確認する。
 
 ```sh
-psql "<NEON_DATABASE_URL>" -v ON_ERROR_STOP=1 -f server/migrations/<MIGRATION_FILE>.sql
+psql "<NEON_MIGRATION_DATABASE_URL>" -v ON_ERROR_STOP=1 -f server/migrations/<MIGRATION_FILE>.sql
 ```
 
-アプリ起動時にも `run_migrations` が走るため、SQLは再実行で壊れない設計にする。
+アプリ起動時にも `DATABASE_MIGRATION_URL` のowner接続で `run_migrations` が走るため、SQLは再実行で壊れない設計にする。通常query用の `DATABASE_URL` は別のruntime loginを使用し、migrationが作成するNOLOGIN group role `todori_app`のmemberにする。
+
+```sql
+-- role名とpasswordは運用環境で管理する。実値をpublic repoへ記録しない。
+CREATE ROLE <RUNTIME_LOGIN> LOGIN PASSWORD '<SECRET>'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+GRANT todori_app TO <RUNTIME_LOGIN>;
+```
+
+本番・共有環境では次を分離する。
+
+- `DATABASE_MIGRATION_URL`: schema owner / migration専用。通常server requestへ渡さない。
+- `DATABASE_URL`: pooled endpointを使うnon-owner runtime login。`INHERIT`付きで`todori_app`のmemberにし、serverは接続時にLOGIN / non-owner / NOSUPERUSER / NOBYPASSRLS / 権限継承を検証する。transaction poolで保持されないsession-level `SET ROLE`には依存しない。
+
+ローカルの `tool/dev_server.sh` もowner接続と`todori_runtime` loginを分離する。
 
 ## 7. 検証
 
@@ -89,6 +103,9 @@ APIレベルの検証:
 - OPAQUE登録/ログインが成功する。
 - push/pullがtenant分離、batch上限、blob上限、未来HLC拒否を維持している。
 - 削除tombstoneの空blob方針が維持されている。
+- application poolの `current_user` がnon-owner runtime loginで、`rolsuper = false`、`rolbypassrls = false`、`rolinherit = true`、`pg_has_role(current_user, 'todori_app', 'USAGE') = true`である。
+- `tenants`、`tenant_members`、`tenant_seq`、tenant/list key bundle、sync record/historyでRLSと`FORCE ROW LEVEL SECURITY`が有効である。
+- tenant contextなしでは0行、tenant contextありでは当該tenantだけが見え、別tenantへのinsert/update/deleteが拒否または0件になる。
 
 ## 8. ロールバック方針
 

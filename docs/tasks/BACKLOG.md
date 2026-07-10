@@ -15,9 +15,6 @@ Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md
 
 | 候補 | 内容 | 出典・依存 |
 |---|---|---|
-| SQLCipherクロスビルドCI | iOS / AndroidのSQLCipher build差分をCIで継続検証する | Phase 1計画書§6。task-91着手時にSTATUS Nextから移動 |
-| Aggregate削除scope / epoch設計 | 別端末の未知descendantも含むlist/subtree削除intent、復活規約、opaque scope metadata、tombstone GC、List DEK bundle保持/削除条件を別ADRで裁定する | ADR-009 / ADR-010 / ADR-012。裁定まではList DEK bundleを削除しない |
-| Canonical Inbox収束 | typed `is_default=true`候補のUUID最小をcanonicalとし、alias配下taskをatomicに移動、重複Inboxを非表示にして冪等収束させる | ADR-015 / task-79。offline list key-bundle queueとfuzzy full resyncの後続 |
 | Windows / Linux本番Device Key Store | Windows current-user DPAPI、Linux Secret Serviceを実装し、平文 `device.key` / account secret fileを本番経路から除外する | ADR-011 / task-81。新規依存は人間承認が必要 |
 | CLI実接続 | 共通client/profile層からFlutter desktopと同じSQLCipher DBを開き、CRUD・検索・同期を提供する。macOSは同一Team / Keychain access groupで署名する | ADR-011。共通client/profileとOS secret storeに依存 |
 | MCPサーバー実接続 | CLIと同じ共通client/profile層からタスクCRUD・検索・同期をstdio MCPとして公開する | FTS5 task-62、sync task-72、ADR-011に依存 |

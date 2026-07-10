@@ -1,19 +1,21 @@
 # Todori 開発ステータス
 
-> 更新日: 2026-07-10
+> 更新日: 2026-07-11
 
 日常の作業開始地点である。完了履歴は各 `task-*.md` とgit、長期計画はPhase計画書、設計判断はADRを参照する。このファイルには現在と直近候補だけを置く。
 
 ## 現在
 
 - 進行中: なし。
-- 最新の完了: **task-95 Fuzzy-scan full resync / GC horizon** — server強制GC continuity、stable-key base scan、`base_seq`後delta、高水位closure、crash-safe mark-and-sweep、seed-before-sweepを`TodoriClient::sync_now`へ統合した。独立検証でP1 / P2 / P3なし。
+- 最新の完了: **task-96 同期server RLS hardening** — non-owner runtime login、transaction-local tenant/user context、7tableのRLS policy + `FORCE ROW LEVEL SECURITY`、cross-tenant read/write拒否を実装した。独立検証でP1 / P2 / P3なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **同期server RLS hardening** — non-owner application role、RLS policy、必要な`FORCE RLS`、cross-tenant testを実装する。出典: ADR-012 / task-86。
+1. **Aggregate削除scope / epoch設計** — 未知descendantを含む削除intent、復活規約、opaque scope metadata、tombstone GC、List DEK bundle保持条件を別ADRで裁定する。出典: ADR-009 / ADR-010 / ADR-012。
+2. **Canonical Inbox収束** — typed `is_default=true`候補を決定的に統合し、重複Inboxを冪等に解消する。出典: ADR-015 / task-79。
+3. **SQLCipherクロスビルドCI** — iOS / AndroidのSQLCipher build差分をCIで継続検証する。出典: Phase 1計画書§6 / task-91。
 
 着手を決めた候補だけをtaskへ昇格する。その他の未着手候補は [`BACKLOG.md`](./BACKLOG.md) を参照する。
 

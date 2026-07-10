@@ -20,7 +20,8 @@
 | `<AWS_REGION>` | 初期想定は `eu-central-1` |
 | `<ECR_REPOSITORY>` | todori-serverイメージ保管先 |
 | `<LAMBDA_FUNCTION>` | 更新対象Lambda関数 |
-| `<NEON_DATABASE_URL>` | Neon pooled connection string |
+| `<NEON_RUNTIME_DATABASE_URL>` | Neon pooled connection string。non-owner runtime loginを使用 |
+| `<NEON_MIGRATION_DATABASE_URL>` | Neon direct connection string。schema owner / migration専用 |
 | `<PUBLIC_API_BASE_URL>` | クライアントに設定する公開API URL |
 | `<WAF_OR_API_GATEWAY_CONFIG>` | 前段の制限設定。private側/人間判断 |
 
@@ -80,9 +81,11 @@ docker push <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>
 
 ### 4.4 Neon DB準備
 
-Neon project / database / pooled endpointを作成する。作成操作とconnection stringはprivate側または人間管理で扱う。
+Neon project / database、runtime用pooled endpoint、migration用direct endpointを用意する。作成操作とconnection stringはprivate側または人間管理で扱う。
 
 初回migrationは [`docs/ops/runbook-db-migration.md`](./runbook-db-migration.md) に従い、ローカルでリハーサルしてから適用する。
+
+runtime loginはschema ownerと分離し、LOGIN / NOSUPERUSER / NOCREATEDB / NOCREATEROLE / INHERIT / NOBYPASSRLSとする。migration適用後に`todori_app` membershipを付与する。通常Lambda requestにはruntime用pooled URLだけを使い、transaction poolで保持されないsession-level `SET ROLE`へ依存しない。
 
 ### 4.5 Lambda作成または更新
 
@@ -96,11 +99,11 @@ aws lambda update-function-code \
 
 aws lambda update-function-configuration \
   --function-name <LAMBDA_FUNCTION> \
-  --environment "Variables={DATABASE_URL=<NEON_DATABASE_URL>,RUST_LOG=info,todori_server=info}" \
+  --environment "Variables={DATABASE_URL=<NEON_RUNTIME_DATABASE_URL>,DATABASE_MIGRATION_URL=<NEON_MIGRATION_DATABASE_URL>,RUST_LOG=info,todori_server=info}" \
   --region <AWS_REGION>
 ```
 
-`DATABASE_URL` は秘密情報である。実値をpublic repo、public CI logs、issue、PR、完了報告へ貼らない。
+`DATABASE_URL`と`DATABASE_MIGRATION_URL`は秘密情報である。実値をpublic repo、public CI logs、issue、PR、完了報告へ貼らない。migration URLを通常request handlerやクライアントへ渡さない。
 
 ## 5. 更新デプロイ手順
 

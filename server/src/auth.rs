@@ -13,7 +13,7 @@ use todori_crypto::TodoriCipherSuite;
 use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto};
 use uuid::Uuid;
 
-use crate::AppError;
+use crate::{db, AppError};
 
 const OPAQUE_STATE_TTL_MINUTES: i64 = 10;
 const SESSION_TTL_DAYS: i64 = 30;
@@ -143,6 +143,9 @@ pub async fn register_finish(
         .await
         .map_err(map_insert_user_error)?;
 
+    db::set_user_context(&mut tx, user_id).await?;
+    db::set_tenant_context(&mut tx, tenant_id).await?;
+
     query::<Postgres>("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
         .bind(tenant_id)
         .bind(user_id)
@@ -253,6 +256,8 @@ pub async fn login_finish(
         .finish(credential_finalization)
         .map_err(|_| AppError::unauthorized())?;
 
+    db::set_user_context(&mut tx, state.user_id).await?;
+
     let tenant_id: Uuid = query::<Postgres>(
         "SELECT tenant_id FROM tenant_members WHERE user_id = $1 ORDER BY joined_at ASC LIMIT 1",
     )
@@ -261,6 +266,7 @@ pub async fn login_finish(
     .await?
     .try_get("tenant_id")
     .map_err(|_| AppError::internal())?;
+    db::set_tenant_context(&mut tx, tenant_id).await?;
     let key_bundle = load_account_key_bundle(&mut tx, state.user_id, tenant_id).await?;
     let device_id = Uuid::now_v7();
     insert_device(
@@ -309,29 +315,42 @@ pub async fn authenticate(
     tenant_id: Uuid,
 ) -> Result<AuthContext, AppError> {
     let token_hash = hash_token(bearer_token);
+    let mut tx = pool.begin().await?;
     let row = query::<Postgres>(
         "SELECT s.user_id, s.device_id
          FROM sessions s
          JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
-         JOIN tenant_members tm ON tm.user_id = s.user_id
          WHERE s.token_hash = $1
            AND s.expires_at > now()
            AND s.revoked_at IS NULL
-           AND d.revoked_at IS NULL
-           AND tm.tenant_id = $2",
+           AND d.revoked_at IS NULL",
     )
     .bind(token_hash.as_slice())
-    .bind(tenant_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::unauthorized)?;
 
     let user_id = row.try_get("user_id").map_err(|_| AppError::internal())?;
     let device_id = row.try_get("device_id").map_err(|_| AppError::internal())?;
+    db::set_user_context(&mut tx, user_id).await?;
+    let membership = query::<Postgres>(
+        "SELECT 1
+         FROM tenant_members
+         WHERE tenant_id = $1 AND user_id = $2",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if membership.is_none() {
+        return Err(AppError::unauthorized());
+    }
+    db::set_tenant_context(&mut tx, tenant_id).await?;
     query::<Postgres>("UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1")
         .bind(token_hash.as_slice())
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
 
     Ok(AuthContext { user_id, device_id })
 }

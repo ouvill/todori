@@ -15,7 +15,7 @@ use todori_sync::{
 };
 use uuid::Uuid;
 
-use crate::{auth::AuthContext, AppError};
+use crate::{auth::AuthContext, db, AppError};
 
 pub const MAX_PUSH_OPS: usize = 100;
 pub const MAX_PULL_LIMIT: i64 = 100;
@@ -62,13 +62,14 @@ pub async fn preflight(
     if since < 0 {
         return Err(AppError::bad_request("invalid since"));
     }
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let row = query::<Postgres>(
         "SELECT gc_horizon_seq
          FROM tenant_seq
          WHERE tenant_id = $1",
     )
     .bind(tenant_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::forbidden)?;
     let gc_horizon_seq = row
@@ -77,6 +78,7 @@ pub async fn preflight(
     if since > 0 && since < gc_horizon_seq {
         return Err(AppError::gone("full resync required"));
     }
+    tx.commit().await?;
     Ok(SyncCapabilities {
         protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
         envelope_version: todori_sync::ENVELOPE_VERSION,
@@ -88,7 +90,7 @@ pub async fn begin_full_resync(
     pool: &PgPool,
     tenant_id: Uuid,
 ) -> Result<ResyncStartResponse, AppError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let row = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
         .bind(tenant_id)
         .fetch_optional(&mut *tx)
@@ -106,6 +108,7 @@ pub async fn scan_base(
     limit: Option<i64>,
 ) -> Result<BaseScanResponse, AppError> {
     let limit = validated_page_limit(limit)?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let rows = if let Some(cursor) = cursor {
         query::<Postgres>(
             "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
@@ -120,7 +123,7 @@ pub async fn scan_base(
         .bind(cursor.collection.as_str())
         .bind(cursor.record_id)
         .bind(limit + 1)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await?
     } else {
         query::<Postgres>(
@@ -133,9 +136,10 @@ pub async fn scan_base(
         )
         .bind(tenant_id)
         .bind(limit + 1)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await?
     };
+    tx.commit().await?;
     let has_more = rows.len() as i64 > limit;
     let records = rows
         .into_iter()
@@ -175,7 +179,7 @@ pub async fn push(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut tx = pool.begin().await?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let mut results = Vec::with_capacity(ops.len());
     for op in ops {
         results.push(apply_push_op(&mut tx, tenant_id, auth.user_id, op).await?);
@@ -196,7 +200,7 @@ pub async fn pull(
     }
     let limit = validated_page_limit(limit)?;
 
-    let mut tx = pool.begin().await?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let high_water: i64 = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
         .bind(tenant_id)
         .fetch_optional(&mut *tx)
@@ -264,6 +268,7 @@ pub async fn upsert_list_key_bundle(
     if wrapped_list_dek.is_empty() {
         return Err(AppError::bad_request("invalid list key bundle"));
     }
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let inserted = query::<Postgres>(
         "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
          VALUES ($1, $2, $3)
@@ -272,7 +277,7 @@ pub async fn upsert_list_key_bundle(
     .bind(tenant_id)
     .bind(bundle.list_id)
     .bind(&wrapped_list_dek)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
         let existing = query::<Postgres>(
@@ -282,13 +287,14 @@ pub async fn upsert_list_key_bundle(
         )
         .bind(tenant_id)
         .bind(bundle.list_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await?
         .try_get::<Vec<u8>, _>("wrapped_list_dek")?;
         if existing != wrapped_list_dek {
             return Err(AppError::conflict("list key bundle conflict"));
         }
     }
+    tx.commit().await?;
     Ok(UpsertListKeyResponse {})
 }
 
@@ -297,6 +303,7 @@ pub async fn list_key_bundles(
     tenant_id: Uuid,
     _auth: AuthContext,
 ) -> Result<Vec<ListDekBundleDto>, AppError> {
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let rows = query::<Postgres>(
         "SELECT list_id, wrapped_list_dek
          FROM list_key_bundles
@@ -304,8 +311,9 @@ pub async fn list_key_bundles(
          ORDER BY created_at ASC, list_id ASC",
     )
     .bind(tenant_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     rows.into_iter()
         .map(|row| {

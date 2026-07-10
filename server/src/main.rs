@@ -12,12 +12,18 @@ async fn main() {
 
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL is required for todori-server");
-    let pool = db::connect(&database_url)
+    let migration_database_url = std::env::var("DATABASE_MIGRATION_URL")
+        .expect("DATABASE_MIGRATION_URL is required for todori-server");
+    let migration_pool = db::connect(&migration_database_url)
         .await
-        .expect("failed to connect to database");
-    db::run_migrations(&pool)
+        .expect("failed to connect to migration database");
+    db::run_migrations(&migration_pool)
         .await
         .expect("failed to run migrations");
+    migration_pool.close().await;
+    let pool = db::connect_application(&database_url)
+        .await
+        .expect("failed to connect with todori_app role");
 
     let app = build_router(AppState { pool });
     let port: u16 = std::env::var("PORT")
