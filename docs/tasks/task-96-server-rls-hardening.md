@@ -108,7 +108,7 @@
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`、bridge release build、`flutter analyze`、`flutter test`（130成功、visual QA harness 1 skip）、hardcoded string check、client boundary check / negative test、`bash -n tool/dev_server.sh`、`git diff --check`が成功した。Rustの既存Keychain実物test 1件と手動performance test 1件はignoredである。
 - 環境: sandbox内の初回Docker testはcontainer接続`Operation not permitted`、Flutter analyzeはSDK cache更新`Operation not permitted`で失敗した。いずれも承認付き実行へ切り替え、同じゲートの成功を確認した。
 - Docs: DB migration / server deploy runbook、運用ガイド、local dev server scriptをowner direct URLとruntime pooled URLの分離へ更新した。実Neon role作成・migration・デプロイは人間作業として未実施である。
-- Commit: 未コミット。
+- Commit: `dfd35a3`（`feat(server): RLSによるtenant分離を強化`）。
 - 未解決: 実Neon / AWS環境への適用と本番接続確認は人間作業。コード上の未解決事項はなし。
 
 ### 独立検証
