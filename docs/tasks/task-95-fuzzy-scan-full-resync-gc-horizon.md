@@ -1,6 +1,6 @@
 # task-95: Fuzzy-scan full resync / GC horizon
 
-> ステータス: 進行中（server/protocol・storage/client実装）
+> ステータス: 完了（fuzzy scan・GC horizon・crash-safe mark-and-sweep・独立検証合格）
 > 作業日: 2026-07-10
 
 ## 1. 背景とコンテキスト
@@ -65,24 +65,24 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 
 ## 6. 受け入れ基準
 
-- [ ] 空serverからのfull resyncがclosureし、最終cursorをclosure時high-waterへ設定する。
-- [ ] `since=0`はGC horizonが存在しても拒否されずfull resyncへ進み、非zero cursorだけが`0 < since < gc_horizon_seq`でcontinuity lossとなる。
-- [ ] `0 < since < gc_horizon_seq`ではlocal key bundle/entity outbox pushより前にfull resyncへ遷移する。
-- [ ] 最大active record seqがhorizon未満でもserver preflight / full resyncが正しく動作する。
-- [ ] base開始時にserver transaction内で`base_seq`を取得し、current stateを更新で移動しないstable keyでpage走査し、baseを`seq <= base_seq`へ限定しない。
-- [ ] page境界付近の同時作成・更新を欠落せず、base scan中に取り逃した変更を`seq > base_seq`のdeltaで回収する。
-- [ ] delta page rowsと同じserver transactionで`high_water`を取得し、`has_more=false`だけ、またはhigh-water未到達ではclosure扱いしない。
-- [ ] clientがresync generationを作成/再開し、base/deltaで確認したrecordをmarkする。
-- [ ] closure後、未ACK outboxを持つlocal recordはsweepせず、serverに存在せずmarkされなかった安全なlocal recordだけをsweepする。
-- [ ] base scan、delta、mark、sweep、cursor確定の各crash windowから再試行して同じ最終状態へ収束する。
-- [ ] 既存local dataの新規tenant登録でseed-before-sweepを守り、未push dataを失わない。
-- [ ] 2-client production経路がfull resync中の同時更新を含め最終的に収束する。
-- [ ] `TodoriClient::sync_now`が高水準入口のままで、Flutter/FRB公開call surfaceとbridge boundaryが不変である。
-- [ ] strict snapshot、長時間DB lock、互換shim、dual形式、旧fallbackを追加していない。
-- [ ] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`が成功する。
-- [ ] `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`、`cd app && flutter analyze`、`cd app && flutter test`が成功する。
-- [ ] hardcoded strings、client boundaries、boundary negative test、`git diff --check`が成功する。
-- [ ] 独立検証でP1 / P2 / P3指摘がない。
+- [x] 空serverからのfull resyncがclosureし、最終cursorをclosure時high-waterへ設定する。
+- [x] `since=0`はGC horizonが存在しても拒否されずfull resyncへ進み、非zero cursorだけが`0 < since < gc_horizon_seq`でcontinuity lossとなる。
+- [x] `0 < since < gc_horizon_seq`ではlocal key bundle/entity outbox pushより前にfull resyncへ遷移する。
+- [x] 最大active record seqがhorizon未満でもserver preflight / full resyncが正しく動作する。
+- [x] base開始時にserver transaction内で`base_seq`を取得し、current stateを更新で移動しないstable keyでpage走査し、baseを`seq <= base_seq`へ限定しない。
+- [x] page境界付近の同時作成・更新を欠落せず、base scan中に取り逃した変更を`seq > base_seq`のdeltaで回収する。
+- [x] delta page rowsと同じserver transactionで`high_water`を取得し、`has_more=false`だけ、またはhigh-water未到達ではclosure扱いしない。
+- [x] clientがresync generationを作成/再開し、base/deltaで確認したrecordをmarkする。
+- [x] closure後、未ACK outboxを持つlocal recordはsweepせず、serverに存在せずmarkされなかった安全なlocal recordだけをsweepする。
+- [x] base scan、delta、mark、sweep、cursor確定の各crash windowから再試行して同じ最終状態へ収束する。
+- [x] 既存local dataの新規tenant登録でseed-before-sweepを守り、未push dataを失わない。
+- [x] 2-client production経路がfull resync中の同時更新を含め最終的に収束する。
+- [x] `TodoriClient::sync_now`が高水準入口のままで、Flutter/FRB公開call surfaceとbridge boundaryが不変である。
+- [x] strict snapshot、長時間DB lock、互換shim、dual形式、旧fallbackを追加していない。
+- [x] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`が成功する。
+- [x] `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`、`cd app && flutter analyze`、`cd app && flutter test`が成功する。
+- [x] hardcoded strings、client boundaries、boundary negative test、`git diff --check`が成功する。
+- [x] 独立検証でP1 / P2 / P3指摘がない。
 
 ## 7. 制約・注意事項
 
@@ -104,3 +104,27 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 - 必須test名、2-client production test、全品質ゲートの実測結果。
 - Flutter/FRB公開call surface不変とclient boundary維持の根拠。
 - 独立検証の判定とP1 / P2 / P3、commit hash、未解決事項。
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-10
+- 結果: `TodoriClient::sync_now`配下へ、server強制continuity preflight、stable-key current-state base scan、`base_seq`後delta、高水位closure、durable generation/mark、outbox保護付きbounded sweep、crash recovery、seed-before-sweepを統合した。同期中の別端末pushはbase scan全体を覆うlockなしで継続できる。
+- Server schema: migration `202607100002_fuzzy_resync.sql`で`tenant_seq.gc_horizon_seq BIGINT NOT NULL DEFAULT 0`を追加した。tombstone GCは削除行のtenant別最大seqでhorizonを同一statement内に単調前進する。
+- Local schema: schema versionをv14からv15へ上げ、singletonの`sync_full_resync_state`とgeneration別`sync_full_resync_marks`、stable base/sweep cursor、`base_seq`、delta cursor、closure high-waterを追加した。
+- Protocol/API: preflightへ`since`を必須化し、`since=0`はcapabilitiesを返し、`0 < since < gc_horizon_seq`は410を返す。410後も`since=0`でprotocol/envelope versionを再検証する。`POST /resync/start`、`GET /resync/base`、`PullResponse.high_water`、`StableRecordCursor`、`BaseScanResponse`を追加し、delta closureを`has_more=false && next_since==high_water`へ固定した。
+- Client transaction: `preflight → transactional seed → full resync → pending key bundle push → entity outbox push → normal pull`の順とした。base/deltaのapply・quarantine・存在mark・進捗、bounded sweep、最終cursor+generation cleanupはそれぞれ短いSQLite transactionで確定する。復号不能recordもserver存在としてmarkし、未ACK outbox recordと依存taskが残るlistをsweepしない。
+- Crash recovery: generation開始、base apply/mark/progress、delta/closure、sweep batch、final cursorの各rollback後にdurable phaseから再試行するtestを追加した。新規tenant seedはoutboxとinitial-backfill cursorを単一transactionで確定し、seed commit前停止とsweep前保護を検証した。
+- 証拠: `empty_resync_closes_and_base_scan_is_not_limited_to_start_seq`、`fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes`、`gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water`、`gc_horizon_full_resync_closes_before_local_outbox_push`、`continuity_410_still_enforces_protocol_upgrade_before_resync`、`full_resync_progress_and_marks_roll_back_together`、`full_resync_sweep_is_bounded_and_preserves_marks_and_unacked_outbox`、`transactional_seed_rolls_back_and_committed_seed_survives_absence_sweep`、production 2-client統合testが成功した。
+- 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker統合14件を含む`cargo test --workspace`、bridge release build、`flutter analyze`、`flutter test`（130成功、visual QA harness 1 skip）、hardcoded string check、client boundary check / negative test、`git diff --check`が成功した。Rustでは既存のmacOS Keychain実物test 1件とtask-67手動performance test 1件がignoredである。
+- 環境: sandbox内の初回Docker testはcontainer接続`Operation not permitted`、Flutter commandsはSDK cache更新`Operation not permitted`で失敗した。いずれもコード失敗ではなく、承認付き実行へ切り替えて同一ゲートの成功を確認した。
+- Flutter/FRB: `app/`とFRB生成物は変更していない。bridgeの39公開関数signature test、release build、Flutter全test、境界guardが成功した。
+- Commit: `3403b46`（`feat(sync): fuzzy-scan full resyncを実装`）
+- 未解決: なし。aggregate削除scope / epoch、Canonical Inbox、RLS hardeningは契約どおり本task外である。
+
+### 独立検証
+
+- 判定: 合格（P1 / P2 / P3なし）
+- 根拠: 実装非担当エージェントがADR-010 / ADR-012と全diffを照合し、stable-key base、delta/high-water、410後version再検証、push前遷移、quarantine mark、outbox保護、exact sweep、全crash window、seed-before-sweep、`TodoriClient` / FRB境界を確認した。検証中のP2 2件（server側410判定不足、410時のversion検証迂回）は修正し、追加testと全品質ゲートを再実行後に最終合格した。
+- 検証者: 実装を担当していないエージェント（independent_verifier）

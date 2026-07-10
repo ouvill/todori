@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 進行中: **task-95 Fuzzy-scan full resync / GC horizon** — stable-key current-state scan、`base_seq`後delta、high-water closure、outbox保護付きmark-and-sweepを実装中。
-- 最新の完了: **task-94 Rust client境界の命名整理** — 高水準入口を`TodoriClient`、起動設定を`LocalProfileConfig`、低水準transactional型を`SqliteMutationService`へ整理した。Flutter/Dart公開call surface不変を確認し、独立検証でP1 / P2 / P3なし。
+- 進行中: なし。
+- 最新の完了: **task-95 Fuzzy-scan full resync / GC horizon** — server強制GC continuity、stable-key base scan、`base_seq`後delta、高水位closure、crash-safe mark-and-sweep、seed-before-sweepを`TodoriClient::sync_now`へ統合した。独立検証でP1 / P2 / P3なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
