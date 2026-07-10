@@ -109,7 +109,7 @@ ADR-013は、offline list作成時にList DEK生成、MK-wrap local cache、list
 - Login / refresh: remote bundleとlocal cacheの同一list IDは復号済みDEK一致を必須とし、remoteにないlocal keyはpending queueがある場合だけ保持する。mismatch、またはpendingでないlocal-only keyはfail closedし、別DEK自動生成やremote集合によるpending cache消失を行わない。
 - 証拠: `account_bound_list_create_commits_key_cache_domain_sync_and_queue_atomically`とcache/list/HLC/record-state/outbox/pendingの6 write境界failure matrix、queue immutable/compare-ACK test、server same-bundle retry/different-bundle conflict testが成功した。実SQLCipher restart/relogin reconciliation testはremoteにないlocal keyをpending rowがある場合だけ保持する。`offline_list_bundle_upload_precedes_entity_push_and_second_client_decrypts`はSQLCipher/common-client create、real Axum HTTP、Docker/Postgresを通し、local ACK failure時にserver key=1/entity record=0/queue=1/outbox=1/pre-push hook=0、retry時にpending=0/outbox=1でhook=1、完了後queue/outbox=0、別clientで`Created offline`を復号・materializeすることを確認した。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`（server sync v2 9件、client 24件、storage 69件成功/1件ignored、sync 50件、bridge 5件を含む）、bridge release build、`flutter analyze`、`flutter test`（130 passed / visual QA harness 1 skipped）、hardcoded-string check、`git diff --check`が成功した。Rust/FRB公開関数signatureは変更していないためcodegenは不要。
-- Commit: 未コミット。
+- Commit: `eccc29e`。
 - 未解決: List DEK rotation / sharing、aggregate削除scope / epoch、fuzzy full resync / GC horizon、RLS hardeningは本task外。`LocalSyncKeys` drop時zeroizeも後続のまま残す。
 
 ### 独立検証
