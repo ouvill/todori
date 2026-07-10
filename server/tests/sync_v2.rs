@@ -9,19 +9,26 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::PgPool;
+use tempfile::TempDir;
 use testcontainers_modules::{
     postgres,
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
+use todori_app_bridge::BridgeSyncStore;
+use todori_client::{Client, LocalMutationContext, UpdateTaskInput};
 use todori_server::{
     auth::AuthContext,
     build_router, db,
     sync::{self, gc_tombstones},
     AppState,
 };
+use todori_storage::{
+    open_encrypted, ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
+};
 use todori_sync::{
+    decrypt_plaintext,
     protocol::{PushOp, PushRequest, PushStatus, SyncCollection, SyncRecordState},
-    Hlc,
+    run_sync_now, ActiveSyncContext, Hlc, LocalSyncKeys, SyncPlaintext,
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -115,6 +122,161 @@ impl Fixture {
         .pop()
         .unwrap()
     }
+
+    async fn serve(&self) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = self.app.clone();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{address}")
+    }
+}
+
+#[tokio::test]
+async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
+    const DB_KEY_A: [u8; 32] = [0xa1; 32];
+    const DB_KEY_B: [u8; 32] = [0xb2; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let path_a = temp.path().join("client-a.sqlite3");
+    let path_b = temp.path().join("client-b.sqlite3");
+    let now = Utc::now().timestamp_millis() - 10_000;
+    let list = todori_domain::new_list(
+        "Shared".to_string(),
+        "7fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    for (path, key) in [(&path_a, &DB_KEY_A), (&path_b, &DB_KEY_B)] {
+        SqliteListRepository::new(open_encrypted(path, key).unwrap())
+            .insert(list.clone())
+            .unwrap();
+    }
+    let list_dek = [0x5a; 32];
+    let sync_a = LocalMutationContext {
+        device_id: "production-client-a".to_string(),
+        keys: LocalSyncKeys {
+            list_deks: vec![(list.id, list_dek)],
+        },
+    };
+    let sync_b = LocalMutationContext {
+        device_id: "production-client-b".to_string(),
+        keys: sync_a.keys.clone(),
+    };
+    let client_a = Client::new(path_a.clone(), DB_KEY_A);
+    let client_b = Client::new(path_b.clone(), DB_KEY_B);
+    let task = client_a
+        .create_task(
+            todori_client::CreateTaskInput {
+                list_id: list.id,
+                title: "Base title".to_string(),
+                parent_task_id: None,
+                due_at: None,
+                note: Some("Base note".to_string()),
+                now_ms: now + 1,
+            },
+            &sync_a,
+        )
+        .unwrap();
+    let context = |device_id: &str, keys: LocalSyncKeys| ActiveSyncContext {
+        server_url: server_url.clone(),
+        tenant_id: fixture.tenant_id,
+        device_id: device_id.to_string(),
+        session_token: fixture.token.clone(),
+        keys,
+    };
+    let mut clock = now + 100;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
+    run_sync_now(
+        context("production-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    run_sync_now(
+        context("production-client-b", sync_b.keys.clone()),
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        SqliteTaskRepository::new(open_encrypted(&path_b, &DB_KEY_B).unwrap())
+            .get(task.id)
+            .unwrap()
+            .title,
+        "Base title"
+    );
+
+    client_a
+        .update_task(
+            UpdateTaskInput {
+                task_id: task.id,
+                title: "Title from A".to_string(),
+                note: "Base note".to_string(),
+                priority: 0,
+                due_at: None,
+                now_ms: now + 200,
+            },
+            &sync_a,
+        )
+        .unwrap();
+    client_b
+        .update_task(
+            UpdateTaskInput {
+                task_id: task.id,
+                title: "Base title".to_string(),
+                note: "Note from B".to_string(),
+                priority: 0,
+                due_at: None,
+                now_ms: now + 201,
+            },
+            &sync_b,
+        )
+        .unwrap();
+
+    let first = run_sync_now(
+        context("production-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.push_acked_count, 1);
+    drop(store_a);
+    let second = run_sync_now(
+        context("production-client-b", sync_b.keys.clone()),
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.push_conflict_count, 1);
+    assert!(second.push_acked_count >= 1);
+
+    let row = query(
+        "SELECT encrypted_blob FROM sync_records
+         WHERE tenant_id = $1 AND collection = 'tasks' AND record_id = $2",
+    )
+    .bind(fixture.tenant_id)
+    .bind(task.id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let blob: Vec<u8> = row.get("encrypted_blob");
+    let plaintext = decrypt_plaintext(&list_dek, "tasks", &task.id.to_string(), &blob).unwrap();
+    let SyncPlaintext::Task(plaintext) = plaintext else {
+        panic!("task plaintext");
+    };
+    assert_eq!(plaintext.title.value, "Title from A");
+    assert_eq!(plaintext.note.value, "Note from B");
 }
 
 fn hlc(delta: i64, counter: u32, device: &str) -> String {

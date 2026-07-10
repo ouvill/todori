@@ -5155,6 +5155,33 @@ mod tests {
     }
 
     #[test]
+    fn equal_task_ranks_use_record_id_as_stable_tie_break() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTaskRepository::new(connection);
+        let list_id = Uuid::from_u128(10);
+        let mut later_id = sample_task();
+        later_id.id = Uuid::from_u128(12);
+        later_id.list_id = list_id;
+        later_id.parent_task_id = None;
+        later_id.sort_order = "7fffffffffffffffffffffffffffffff".to_string();
+        let mut earlier_id = later_id.clone();
+        earlier_id.id = Uuid::from_u128(11);
+        repository.insert(later_id.clone()).unwrap();
+        repository.insert(earlier_id.clone()).unwrap();
+
+        assert_eq!(
+            repository
+                .list_active_by_list(list_id)
+                .unwrap()
+                .into_iter()
+                .map(|task| task.id)
+                .collect::<Vec<_>>(),
+            vec![earlier_id.id, later_id.id]
+        );
+    }
+
+    #[test]
     fn sqlite_list_repository_roundtrips_and_lists_by_sort_order() {
         let file = NamedTempFile::new().unwrap();
         let connection = open_encrypted(file.path(), &KEY).unwrap();

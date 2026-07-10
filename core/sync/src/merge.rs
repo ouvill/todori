@@ -224,4 +224,60 @@ mod tests {
         assert_eq!(value.completion.value.status, TaskStatus::Done);
         assert_eq!(value.completion.value.completed_at, Some(9));
     }
+
+    #[test]
+    fn same_field_later_clock_wins_independent_of_argument_order() {
+        let mut task = new_task(
+            Uuid::now_v7(),
+            None,
+            "base".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
+        task.title = "older".into();
+        let older = base.stamp_task_changes(&task, h(1, "a")).unwrap();
+        task.title = "newer".into();
+        let newer = base.stamp_task_changes(&task, h(2, "b")).unwrap();
+        let ab = merge_lww(&older, &newer).unwrap().plaintext;
+        let ba = merge_lww(&newer, &older).unwrap().plaintext;
+        assert_eq!(ab, ba);
+        let SyncPlaintext::Task(value) = ab else {
+            unreachable!()
+        };
+        assert_eq!(value.title.value, "newer");
+    }
+
+    #[test]
+    fn placement_and_note_merge_without_partial_placement() {
+        let list_id = Uuid::now_v7();
+        let mut task = new_task(
+            list_id,
+            None,
+            "base".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
+        task.parent_task_id = Some(Uuid::now_v7());
+        task.sort_order = "bfffffffffffffffffffffffffffffff".into();
+        let placed = base.stamp_task_changes(&task, h(1, "a")).unwrap();
+        task.parent_task_id = None;
+        task.sort_order = "7fffffffffffffffffffffffffffffff".into();
+        task.note = "remote note".into();
+        let noted = base.stamp_task_changes(&task, h(1, "b")).unwrap();
+        let merged = merge_lww(&placed, &noted).unwrap().plaintext;
+        let SyncPlaintext::Task(value) = merged else {
+            unreachable!()
+        };
+        assert_eq!(value.note.value, "remote note");
+        assert_eq!(value.placement.value.list_id, list_id);
+        assert!(value.placement.value.parent_task_id.is_some());
+        assert_eq!(
+            value.placement.value.rank,
+            "bfffffffffffffffffffffffffffffff"
+        );
+    }
 }

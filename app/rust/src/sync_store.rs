@@ -13,17 +13,17 @@ use todori_sync::{
     NewLocalSyncOutboxEntry, SyncCollection,
 };
 
-pub(crate) struct BridgeSyncStore {
+pub struct BridgeSyncStore {
     db_path: PathBuf,
     db_key: [u8; 32],
 }
 
-pub(crate) struct BridgeSyncWriteTx {
+pub struct BridgeSyncWriteTx {
     transaction: OwnedSqliteWriteTx,
 }
 
 impl BridgeSyncStore {
-    pub(crate) fn new(db_path: PathBuf, db_key: [u8; 32]) -> Self {
+    pub fn new(db_path: PathBuf, db_key: [u8; 32]) -> Self {
         Self { db_path, db_key }
     }
 }

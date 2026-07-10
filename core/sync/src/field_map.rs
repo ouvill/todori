@@ -107,7 +107,12 @@ pub struct ListPlaintext {
 /// The `kind` tag is authenticated inside the envelope and is checked against
 /// the wire collection before a value is accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "fields", rename_all = "snake_case")]
+#[serde(
+    tag = "kind",
+    content = "fields",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum SyncPlaintext {
     Task(TaskPlaintext),
     List(ListPlaintext),
