@@ -11,9 +11,9 @@ fail() {
 
 for relative_manifest in cli/Cargo.toml mcp-server/Cargo.toml; do
   manifest="$root/$relative_manifest"
-  if rg '^[[:space:]]*todori-' "$manifest" |
-    rg -v '^[[:space:]]*todori-client([.]workspace)?[[:space:]]*=' >/dev/null ||
-    rg -n 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|path[[:space:]]*=[[:space:]]*"[^"]*core/(crypto|domain|storage|sync)"' "$manifest" >/dev/null; then
+  if grep -E '^[[:space:]]*todori-' "$manifest" |
+    grep -Ev '^[[:space:]]*todori-client([.]workspace)?[[:space:]]*=' >/dev/null ||
+    grep -En 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|path[[:space:]]*=[[:space:]]*"[^"]*core/(crypto|domain|storage|sync)"' "$manifest" >/dev/null; then
     fail "$manifest: frontend adapter must depend on todori-client, not lower Todori crates"
   fi
 done
@@ -32,7 +32,7 @@ app_dependencies="$(
 if [ "$app_dependencies" != "$(printf '%s\n' flutter_rust_bridge todori-client | sort)" ]; then
   fail 'app/rust/Cargo.toml: only flutter_rust_bridge and todori-client are allowed dependencies'
 fi
-if rg -n 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|path[[:space:]]*=[[:space:]]*"[^"]*core/(crypto|domain|storage|sync)"' "$root/app/rust/Cargo.toml" >/dev/null; then
+if grep -En 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|path[[:space:]]*=[[:space:]]*"[^"]*core/(crypto|domain|storage|sync)"' "$root/app/rust/Cargo.toml" >/dev/null; then
   fail 'app/rust/Cargo.toml: lower Todori crates must not be hidden behind dependency aliases'
 fi
 
@@ -43,24 +43,26 @@ for legacy_source in "$root/app/rust/src/support.rs" "$root/app/rust/src/sync_st
   fi
 done
 
-if rg -n 'todori_(crypto|domain|storage|sync)|open_encrypted|Sqlite[A-Za-z0-9_]*|[A-Za-z0-9_]*Repository|AccountClient|LocalSyncStore|LocalMutationContext|load_or_create_device_key|tokio|zeroize' \
-  "$root/app/rust/src" \
-  -g '*.rs' \
-  -g '!frb_generated.rs' >/dev/null; then
+if find "$root/app/rust/src" -type f -name '*.rs' ! -name 'frb_generated.rs' \
+  -exec grep -En 'todori_(crypto|domain|storage|sync)|open_encrypted|Sqlite[A-Za-z0-9_]*|[A-Za-z0-9_]*Repository|AccountClient|LocalSyncStore|LocalMutationContext|load_or_create_device_key|tokio|zeroize' {} + \
+  >/dev/null; then
   fail 'app/rust/src: handwritten bridge code must not reference lower-layer implementation'
 fi
 
-if rg -n 'OnceLock' "$root/app/rust/src" -g '*.rs' -g '!frb_generated.rs' -g '!client_handle.rs' >/dev/null; then
+if find "$root/app/rust/src" -type f -name '*.rs' ! -name 'frb_generated.rs' ! -name 'client_handle.rs' \
+  -exec grep -En 'OnceLock' {} + >/dev/null; then
   fail 'app/rust/src: process-global TodoriClient handle is only allowed in client_handle.rs'
 fi
 
-if rg -n '^name[[:space:]]*=[[:space:]]*"core"' \
-  -g 'Cargo.toml' "$root" >/dev/null; then
+if find "$root" -type d \( -name .git -o -name target -o -name build \) -prune -o \
+  -type f -name 'Cargo.toml' -exec grep -En '^name[[:space:]]*=[[:space:]]*"core"' {} + \
+  >/dev/null; then
   fail 'Cargo manifest: bare core package/lib name is forbidden'
 fi
 
-if rg -n '^[[:space:]]*core([.]workspace)?[[:space:]]*=' \
-  -g 'Cargo.toml' "$root" >/dev/null; then
+if find "$root" -type d \( -name .git -o -name target -o -name build \) -prune -o \
+  -type f -name 'Cargo.toml' -exec grep -En '^[[:space:]]*core([.]workspace)?[[:space:]]*=' {} + \
+  >/dev/null; then
   fail 'Cargo manifest: core dependency alias is forbidden'
 fi
 
