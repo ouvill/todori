@@ -33,8 +33,8 @@ use todori_server::{
 };
 use todori_storage::{
     open_encrypted, ListRepository, NewSyncOutboxEntry, SqliteListRepository,
-    SqliteSyncStateRepository, SqliteTaskRepository, SyncOutboxState, SyncStateRepository,
-    TaskRepository,
+    SqliteSyncStateRepository, SqliteTaskRepository, SyncOutboxState, SyncQuarantineEntry,
+    SyncStateRepository, TaskRepository,
 };
 use todori_sync::{
     decrypt_plaintext, encrypt_plaintext,
@@ -551,6 +551,122 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
         .unwrap()
         .is_some());
+}
+
+#[tokio::test]
+async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() {
+    const DB_KEY: [u8; 32] = [0xc4; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("quarantine-starvation.sqlite3");
+    let now = Utc::now().timestamp_millis() - 10_000;
+    let waiting = todori_domain::new_list(
+        "Recovered after corrupt rows".to_string(),
+        "7fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    let waiting_dek = [0x41; 32];
+    let mutation = Hlc {
+        wall_ms: now + 1,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let revision = Hlc {
+        wall_ms: now + 2,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let waiting_blob = encrypt_plaintext(
+        &waiting_dek,
+        "lists",
+        &waiting.id.to_string(),
+        &SyncPlaintext::from_list(&waiting, mutation.clone()).unwrap(),
+    )
+    .unwrap();
+    let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    for seq in 1..=100 {
+        repository
+            .put_quarantine(SyncQuarantineEntry {
+                record_id: Uuid::now_v7(),
+                collection: "lists".to_string(),
+                seq,
+                revision_hlc: format!("corrupt-{seq}"),
+                state: SyncOutboxState::Live {
+                    mutation_hlc: format!("corrupt-mutation-{seq}"),
+                    blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+                },
+                reason: "authentication_failed".to_string(),
+                required_list_id: None,
+                first_failed_at: now,
+                last_failed_at: now,
+                attempt_count: 1,
+            })
+            .unwrap();
+    }
+    repository
+        .put_quarantine(SyncQuarantineEntry {
+            record_id: waiting.id,
+            collection: "lists".to_string(),
+            seq: 101,
+            revision_hlc: revision.encode().unwrap(),
+            state: SyncOutboxState::Live {
+                mutation_hlc: mutation.encode().unwrap(),
+                blob: waiting_blob,
+            },
+            reason: "missing_dek".to_string(),
+            required_list_id: Some(waiting.id),
+            first_failed_at: now,
+            last_failed_at: now,
+            attempt_count: 1,
+        })
+        .unwrap();
+    drop(repository);
+
+    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut refresher = TestKeyRefresher {
+        calls: 0,
+        keys: LocalSyncKeys {
+            list_deks: vec![(waiting.id, waiting_dek)],
+        },
+        fail: false,
+    };
+    let mut clock = now + 100;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    let summary = run_sync_now_with_key_refresh(
+        ActiveSyncContext {
+            server_url,
+            tenant_id: fixture.tenant_id,
+            device_id: "starvation-client".to_string(),
+            session_token: fixture.token,
+            keys: LocalSyncKeys::default(),
+        },
+        &mut store,
+        &mut ticking_now,
+        &mut refresher,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(refresher.calls, 1);
+    assert_eq!(summary.resolved_quarantine_count, 1);
+    let repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    let remaining = repository.list_quarantine(200).unwrap();
+    assert_eq!(remaining.len(), 100);
+    assert!(remaining
+        .iter()
+        .all(|row| { row.reason == "authentication_failed" && row.attempt_count == 1 }));
+    assert_eq!(
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .get(waiting.id)
+            .unwrap()
+            .name,
+        "Recovered after corrupt rows"
+    );
 }
 
 #[tokio::test]

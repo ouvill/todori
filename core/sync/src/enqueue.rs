@@ -141,6 +141,13 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn list_quarantine(&mut self, _limit: usize) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
         Ok(Vec::new())
     }
+    fn list_replayable_quarantine(
+        &mut self,
+        _after: Option<(i64, Uuid)>,
+        _limit: usize,
+    ) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        Err("replayable durable quarantine is unavailable".to_string())
+    }
     fn delete_quarantine(&mut self, _record_id: Uuid) -> Result<bool, String> {
         Ok(false)
     }

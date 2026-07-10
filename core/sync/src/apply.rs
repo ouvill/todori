@@ -18,6 +18,7 @@ use crate::keys::{dek_for_list, LocalSyncKeys};
 
 const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
+const QUARANTINE_REPLAY_BATCH_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ApplyDisposition {
@@ -110,12 +111,7 @@ where
         Err(_) => return Err("sync failed".to_string()),
     }
 
-    if store.list_quarantine(100)?.iter().any(|entry| {
-        matches!(
-            entry.reason,
-            PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
-        )
-    }) {
+    if !store.list_replayable_quarantine(None, 1)?.is_empty() {
         context.keys = key_refresher.refresh().await?;
     }
     if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
@@ -376,49 +372,60 @@ where
     S: LocalSyncAtomicStore,
     N: FnMut() -> Result<i64, String>,
 {
-    let entries = store.list_quarantine(100)?;
-    for entry in entries {
-        let record = PullRecord {
-            record_id: entry.record_id,
-            collection: entry.collection,
-            seq: entry.seq,
-            revision_hlc: entry.revision_hlc,
-            state: entry.state,
-        };
-        let mut transaction = store.begin_write_transaction()?;
-        let mut replay_summary = SyncRunSummary::default();
-        match apply_pull_record(
-            &record,
-            context,
-            &mut transaction,
-            now_ms,
-            &mut replay_summary,
-        )? {
-            ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => {
-                transaction.delete_quarantine(record.record_id)?;
-                transaction.commit()?;
-                replay_summary.resolved_quarantine_count += 1;
-                merge_summary(summary, replay_summary);
+    let mut after = None;
+    loop {
+        let entries = store.list_replayable_quarantine(after, QUARANTINE_REPLAY_BATCH_LIMIT)?;
+        if entries.is_empty() {
+            break;
+        }
+        let page_len = entries.len();
+        for entry in entries {
+            after = Some((entry.seq, entry.record_id));
+            let record = PullRecord {
+                record_id: entry.record_id,
+                collection: entry.collection,
+                seq: entry.seq,
+                revision_hlc: entry.revision_hlc,
+                state: entry.state,
+            };
+            let mut transaction = store.begin_write_transaction()?;
+            let mut replay_summary = SyncRunSummary::default();
+            match apply_pull_record(
+                &record,
+                context,
+                &mut transaction,
+                now_ms,
+                &mut replay_summary,
+            )? {
+                ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => {
+                    transaction.delete_quarantine(record.record_id)?;
+                    transaction.commit()?;
+                    replay_summary.resolved_quarantine_count += 1;
+                    merge_summary(summary, replay_summary);
+                }
+                ApplyDisposition::Deferred(reason, required_list_id) => {
+                    let failed_at = now_ms()?;
+                    transaction.put_quarantine(LocalSyncQuarantineEntry {
+                        record_id: record.record_id,
+                        collection: record.collection,
+                        seq: record.seq,
+                        revision_hlc: record.revision_hlc,
+                        state: record.state,
+                        reason,
+                        required_list_id,
+                        first_failed_at: failed_at,
+                        last_failed_at: failed_at,
+                        attempt_count: 1,
+                    })?;
+                    transaction.commit()?;
+                }
+                ApplyDisposition::UpgradeRequired(version) => {
+                    return Err(format!("upgrade required:{version}"));
+                }
             }
-            ApplyDisposition::Deferred(reason, required_list_id) => {
-                let failed_at = now_ms()?;
-                transaction.put_quarantine(LocalSyncQuarantineEntry {
-                    record_id: record.record_id,
-                    collection: record.collection,
-                    seq: record.seq,
-                    revision_hlc: record.revision_hlc,
-                    state: record.state,
-                    reason,
-                    required_list_id,
-                    first_failed_at: failed_at,
-                    last_failed_at: failed_at,
-                    attempt_count: 1,
-                })?;
-                transaction.commit()?;
-            }
-            ApplyDisposition::UpgradeRequired(version) => {
-                return Err(format!("upgrade required:{version}"));
-            }
+        }
+        if page_len < QUARANTINE_REPLAY_BATCH_LIMIT {
+            break;
         }
     }
     Ok(())
@@ -900,31 +907,44 @@ fn decrypt_task_plaintext(
     }
     let mut candidates = Vec::new();
     let mut expected_list_id = None;
+    let mut expected_dek_available = false;
     if let Some(task) = existing {
         expected_list_id = Some(task.list_id);
-        let Some(dek) = dek_for_list(keys, task.list_id) else {
-            return Err(ApplyDisposition::Deferred(
-                PullFailureReason::MissingDek,
-                Some(task.list_id),
-            ));
-        };
-        candidates.push(dek);
+        if let Some(dek) = dek_for_list(keys, task.list_id) {
+            expected_dek_available = true;
+            candidates.push((task.list_id, dek));
+        }
     }
-    for (_, dek) in &keys.list_deks {
-        if !candidates.iter().any(|candidate| candidate == dek) {
-            candidates.push(*dek);
+    for (list_id, dek) in &keys.list_deks {
+        if !candidates
+            .iter()
+            .any(|(candidate_list_id, _)| candidate_list_id == list_id)
+        {
+            candidates.push((*list_id, *dek));
         }
     }
     if candidates.is_empty() {
         return Err(ApplyDisposition::Deferred(
-            PullFailureReason::NoMatchingDek,
-            None,
+            if expected_list_id.is_some() {
+                PullFailureReason::MissingDek
+            } else {
+                PullFailureReason::NoMatchingDek
+            },
+            expected_list_id,
         ));
     }
     let mut invalid_plaintext = false;
-    for dek in candidates {
+    for (candidate_list_id, dek) in candidates {
         match decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
-            Ok(plaintext) => return Ok(plaintext),
+            Ok(plaintext) => {
+                let SyncPlaintext::Task(task) = &plaintext else {
+                    invalid_plaintext = true;
+                    continue;
+                };
+                if task.placement.value.list_id == candidate_list_id {
+                    return Ok(plaintext);
+                }
+            }
             Err(EnvelopeError::UnsupportedVersion) => {
                 return Err(ApplyDisposition::UpgradeRequired(blob[0]))
             }
@@ -934,7 +954,12 @@ fn decrypt_task_plaintext(
             Err(_) => {}
         }
     }
-    if invalid_plaintext {
+    if !expected_dek_available && expected_list_id.is_some() {
+        Err(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDek,
+            expected_list_id,
+        ))
+    } else if invalid_plaintext {
         Err(ApplyDisposition::Deferred(
             PullFailureReason::InvalidPlaintext,
             expected_list_id,
@@ -1075,6 +1100,7 @@ mod tests {
     #[derive(Default)]
     struct FakeStore {
         lists: HashMap<Uuid, List>,
+        tasks: HashMap<Uuid, Task>,
         record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
         outbox: Vec<LocalSyncOutboxEntry>,
     }
@@ -1191,11 +1217,12 @@ mod tests {
             Ok(0)
         }
 
-        fn get_task(&mut self, _id: Uuid) -> Result<Option<Task>, String> {
-            Ok(None)
+        fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String> {
+            Ok(self.tasks.get(&id).cloned())
         }
 
-        fn upsert_task_for_sync(&mut self, _task: Task) -> Result<(), String> {
+        fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
+            self.tasks.insert(task.id, task);
             Ok(())
         }
 
@@ -1473,6 +1500,78 @@ mod tests {
     }
 
     #[test]
+    fn task_decryption_binds_the_authenticated_dek_to_plaintext_placement() {
+        let list_a = uuid(60);
+        let list_b = uuid(61);
+        let list_c = uuid(62);
+        let record_id = uuid(63);
+        let dek_a = [0x60; KEY_LEN];
+        let dek_b = [0x61; KEY_LEN];
+        let mut existing = new_task(
+            list_a,
+            None,
+            "move".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1,
+        )
+        .unwrap();
+        existing.id = record_id;
+        let clock = Hlc {
+            wall_ms: 1_799_000_000_060,
+            counter: 0,
+            device_id: "remote".to_string(),
+        };
+
+        let mut moved = existing.clone();
+        moved.list_id = list_b;
+        let moved_plaintext = SyncPlaintext::from_task(&moved, clock.clone()).unwrap();
+        let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
+        let moved_keys = LocalSyncKeys {
+            list_deks: vec![(list_b, dek_b)],
+        };
+        let SyncPlaintext::Task(decrypted_move) =
+            decrypt_task_plaintext(&moved_record, Some(&existing), &moved_keys).unwrap()
+        else {
+            panic!("task");
+        };
+        assert_eq!(decrypted_move.placement.value.list_id, list_b);
+
+        let mut mismatched = existing.clone();
+        mismatched.list_id = list_c;
+        let mismatched_plaintext = SyncPlaintext::from_task(&mismatched, clock.clone()).unwrap();
+        let mismatched_record =
+            encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
+        let all_keys = LocalSyncKeys {
+            list_deks: vec![(list_a, dek_a), (list_b, dek_b)],
+        };
+        assert_eq!(
+            decrypt_task_plaintext(&mismatched_record, Some(&existing), &all_keys),
+            Err(ApplyDisposition::Deferred(
+                PullFailureReason::AuthenticationFailed,
+                Some(list_a)
+            ))
+        );
+        assert_eq!(
+            decrypt_task_plaintext(&mismatched_record, None, &all_keys),
+            Err(ApplyDisposition::Deferred(
+                PullFailureReason::NoMatchingDek,
+                None
+            ))
+        );
+
+        let no_matching_key = LocalSyncKeys {
+            list_deks: vec![(list_b, [0x62; KEY_LEN])],
+        };
+        assert_eq!(
+            decrypt_task_plaintext(&moved_record, Some(&existing), &no_matching_key),
+            Err(ApplyDisposition::Deferred(
+                PullFailureReason::MissingDek,
+                Some(list_a)
+            ))
+        );
+    }
+
+    #[test]
     fn stale_response_does_not_apply_after_a_newer_local_head_replaces_its_op() {
         let list_id = uuid(6);
         let dek = [0x6e; KEY_LEN];
@@ -1548,6 +1647,25 @@ mod tests {
             state: EncryptedSyncState::Live {
                 mutation_hlc: hlc.encode().unwrap(),
                 blob,
+            },
+        }
+    }
+
+    fn encrypted_task_record(
+        record_id: Uuid,
+        plaintext: &SyncPlaintext,
+        dek: &[u8; KEY_LEN],
+        hlc: &Hlc,
+    ) -> PullRecord {
+        PullRecord {
+            record_id,
+            collection: SyncCollection::Tasks,
+            seq: 1,
+            revision_hlc: hlc.encode().unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: hlc.encode().unwrap(),
+                blob: encrypt_plaintext(dek, TASKS_COLLECTION, &record_id.to_string(), plaintext)
+                    .unwrap(),
             },
         }
     }

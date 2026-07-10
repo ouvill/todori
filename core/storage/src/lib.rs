@@ -382,6 +382,11 @@ pub trait SyncStateRepository {
     fn delete_cursor(&mut self, name: &str) -> Result<(), StorageError>;
     fn put_quarantine(&mut self, entry: SyncQuarantineEntry) -> Result<(), StorageError>;
     fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError>;
+    fn list_replayable_quarantine(
+        &self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<SyncQuarantineEntry>, StorageError>;
     fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError>;
 }
 
@@ -608,6 +613,14 @@ impl OwnedSqliteWriteTx {
 
     pub fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
         list_quarantine_on(self.connection(), limit)
+    }
+
+    pub fn list_replayable_quarantine(
+        &self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_replayable_quarantine_on(self.connection(), after, limit)
     }
 
     pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
@@ -2387,6 +2400,14 @@ impl SqliteSyncStateRepository {
         list_quarantine_on(&self.connection, limit)
     }
 
+    pub fn list_replayable_quarantine(
+        &self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_replayable_quarantine_on(&self.connection, after, limit)
+    }
+
     pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
         delete_quarantine_on(&self.connection, record_id)
     }
@@ -2442,6 +2463,14 @@ impl SyncStateRepository for SqliteSyncStateRepository {
 
     fn list_quarantine(&self, limit: usize) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
         list_quarantine_on(&self.connection, limit)
+    }
+
+    fn list_replayable_quarantine(
+        &self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+        list_replayable_quarantine_on(&self.connection, after, limit)
     }
 
     fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
@@ -2625,6 +2654,41 @@ fn put_quarantine_on(
     entry: SyncQuarantineEntry,
 ) -> Result<(), StorageError> {
     validate_sync_collection(&entry.collection)?;
+    ensure_sync_collection_matches(connection, entry.record_id, &entry.collection)?;
+    let existing = connection
+        .query_row(
+            "SELECT seq, revision_hlc FROM sync_quarantine WHERE record_id = ?1",
+            [entry.record_id.to_string()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((existing_seq, existing_revision_hlc)) = existing {
+        if entry.seq < existing_seq {
+            return Ok(());
+        }
+        if entry.seq == existing_seq {
+            if entry.revision_hlc != existing_revision_hlc {
+                return Err(StorageError::IncompatibleSchema(
+                    "quarantine revision changed at the same server sequence".to_string(),
+                ));
+            }
+            connection.execute(
+                "UPDATE sync_quarantine
+                 SET reason = ?2,
+                     required_list_id = ?3,
+                     last_failed_at = ?4,
+                     attempt_count = attempt_count + 1
+                 WHERE record_id = ?1",
+                params![
+                    entry.record_id.to_string(),
+                    entry.reason,
+                    entry.required_list_id.map(|id| id.to_string()),
+                    entry.last_failed_at,
+                ],
+            )?;
+            return Ok(());
+        }
+    }
     let (state_kind, semantic_hlc, blob) = match entry.state {
         SyncOutboxState::Live { mutation_hlc, blob } => ("live", mutation_hlc, Some(blob)),
         SyncOutboxState::Tombstone { delete_hlc } => ("tombstone", delete_hlc, None),
@@ -2643,13 +2707,9 @@ fn put_quarantine_on(
              blob = excluded.blob,
              reason = excluded.reason,
              required_list_id = excluded.required_list_id,
-             first_failed_at = CASE
-                 WHEN excluded.revision_hlc = sync_quarantine.revision_hlc
-                 THEN sync_quarantine.first_failed_at ELSE excluded.first_failed_at END,
+             first_failed_at = excluded.first_failed_at,
              last_failed_at = excluded.last_failed_at,
-             attempt_count = CASE
-                 WHEN excluded.revision_hlc = sync_quarantine.revision_hlc
-                 THEN sync_quarantine.attempt_count + 1 ELSE 1 END",
+             attempt_count = excluded.attempt_count",
         params![
             entry.record_id.to_string(),
             entry.collection,
@@ -2681,6 +2741,37 @@ fn list_quarantine_on(
     )?;
     let entries = statement
         .query_map([limit], row_to_sync_quarantine)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .collect();
+    entries
+}
+
+fn list_replayable_quarantine_on(
+    connection: &Connection,
+    after: Option<(i64, Uuid)>,
+    limit: usize,
+) -> Result<Vec<SyncQuarantineEntry>, StorageError> {
+    let limit = i64::try_from(limit).map_err(|_| {
+        StorageError::IncompatibleSchema("quarantine replay limit exceeded i64".into())
+    })?;
+    let (after_seq, after_record_id) = after
+        .map(|(seq, record_id)| (Some(seq), Some(record_id.to_string())))
+        .unwrap_or((None, None));
+    let mut statement = connection.prepare(
+        "SELECT record_id, collection, seq, revision_hlc, state_kind, semantic_hlc,
+                blob, reason, required_list_id, first_failed_at, last_failed_at, attempt_count
+         FROM sync_quarantine
+         WHERE reason IN ('missing_dek', 'no_matching_dek')
+           AND (?1 IS NULL OR seq > ?1 OR (seq = ?1 AND record_id > ?2))
+         ORDER BY seq ASC, record_id ASC
+         LIMIT ?3",
+    )?;
+    let entries = statement
+        .query_map(
+            params![after_seq, after_record_id, limit],
+            row_to_sync_quarantine,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?
         .into_iter()
         .collect();
@@ -2784,6 +2875,8 @@ fn ensure_sync_collection_matches(
             "SELECT collection FROM sync_record_states WHERE record_id = ?1
              UNION ALL
              SELECT collection FROM sync_outbox WHERE record_id = ?1
+             UNION ALL
+             SELECT collection FROM sync_quarantine WHERE record_id = ?1
              LIMIT 1",
             [record_id.to_string()],
             |row| row.get::<_, String>(0),
@@ -4780,8 +4873,12 @@ mod tests {
         repository.put_quarantine(quarantined.clone()).unwrap();
         repository
             .put_quarantine(SyncQuarantineEntry {
+                state: SyncOutboxState::Tombstone {
+                    delete_hlc: "must-not-replace".to_string(),
+                },
+                reason: "authentication_failed".to_string(),
                 last_failed_at: 20,
-                ..quarantined
+                ..quarantined.clone()
             })
             .unwrap();
 
@@ -4790,12 +4887,128 @@ mod tests {
         assert_eq!(rows[0].attempt_count, 2);
         assert_eq!(rows[0].first_failed_at, 10);
         assert_eq!(rows[0].last_failed_at, 20);
+        assert_eq!(rows[0].reason, "authentication_failed");
+        assert_eq!(
+            rows[0].state,
+            SyncOutboxState::Live {
+                mutation_hlc: "mutation-remote".to_string(),
+                blob: vec![1, 2, 3]
+            }
+        );
+
+        repository
+            .put_quarantine(SyncQuarantineEntry {
+                seq: 6,
+                revision_hlc: "older-revision".to_string(),
+                last_failed_at: 30,
+                ..quarantined.clone()
+            })
+            .unwrap();
+        let rows = repository.list_quarantine(10).unwrap();
+        assert_eq!(rows[0].seq, 7);
+        assert_eq!(rows[0].revision_hlc, "revision-remote");
+        assert_eq!(rows[0].attempt_count, 2);
+        assert!(matches!(
+            repository.put_quarantine(SyncQuarantineEntry {
+                revision_hlc: "different-at-same-seq".to_string(),
+                ..quarantined.clone()
+            }),
+            Err(StorageError::IncompatibleSchema(_))
+        ));
+        assert!(matches!(
+            repository.put_quarantine(SyncQuarantineEntry {
+                collection: "lists".to_string(),
+                ..quarantined.clone()
+            }),
+            Err(StorageError::SyncCollectionMismatch { .. })
+        ));
+        assert!(matches!(
+            repository.put_record_state(SyncRecordState {
+                record_id: blocked_id,
+                collection: "lists".to_string(),
+                current_revision_hlc: None,
+                state: SyncRecordSemanticState::Tombstone {
+                    delete_hlc: "delete".to_string(),
+                },
+                updated_at: 30,
+            }),
+            Err(StorageError::SyncCollectionMismatch { .. })
+        ));
+
+        repository
+            .put_quarantine(SyncQuarantineEntry {
+                seq: 8,
+                revision_hlc: "newer-revision".to_string(),
+                state: SyncOutboxState::Tombstone {
+                    delete_hlc: "newer-delete".to_string(),
+                },
+                reason: "corrupt_envelope".to_string(),
+                first_failed_at: 40,
+                last_failed_at: 40,
+                ..quarantined
+            })
+            .unwrap();
+        let rows = repository.list_quarantine(10).unwrap();
+        assert_eq!(rows[0].seq, 8);
+        assert_eq!(rows[0].revision_hlc, "newer-revision");
+        assert_eq!(rows[0].attempt_count, 1);
+        assert_eq!(rows[0].first_failed_at, 40);
+        assert!(matches!(rows[0].state, SyncOutboxState::Tombstone { .. }));
         let pushable = repository.list_outbox_heads(10).unwrap();
         assert_eq!(pushable.len(), 1);
         assert_eq!(pushable[0].record_id, unrelated_id);
         assert!(repository.has_outbox_head("tasks", blocked_id).unwrap());
         assert!(repository.delete_quarantine(blocked_id).unwrap());
         assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn replayable_quarantine_query_skips_corruption_without_head_of_line_blocking() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteSyncStateRepository::new(connection);
+        for seq in 1..=100 {
+            repository
+                .put_quarantine(SyncQuarantineEntry {
+                    record_id: Uuid::now_v7(),
+                    collection: "lists".to_string(),
+                    seq,
+                    revision_hlc: format!("corrupt-{seq}"),
+                    state: SyncOutboxState::Live {
+                        mutation_hlc: format!("mutation-{seq}"),
+                        blob: vec![1],
+                    },
+                    reason: "corrupt_envelope".to_string(),
+                    required_list_id: None,
+                    first_failed_at: 10,
+                    last_failed_at: 10,
+                    attempt_count: 1,
+                })
+                .unwrap();
+        }
+        let waiting_id = Uuid::now_v7();
+        repository
+            .put_quarantine(SyncQuarantineEntry {
+                record_id: waiting_id,
+                collection: "lists".to_string(),
+                seq: 101,
+                revision_hlc: "waiting".to_string(),
+                state: SyncOutboxState::Live {
+                    mutation_hlc: "waiting-mutation".to_string(),
+                    blob: vec![1],
+                },
+                reason: "missing_dek".to_string(),
+                required_list_id: Some(waiting_id),
+                first_failed_at: 10,
+                last_failed_at: 10,
+                attempt_count: 1,
+            })
+            .unwrap();
+
+        let replayable = repository.list_replayable_quarantine(None, 100).unwrap();
+        assert_eq!(replayable.len(), 1);
+        assert_eq!(replayable[0].record_id, waiting_id);
+        assert_eq!(repository.list_quarantine(100).unwrap().len(), 100);
     }
 
     #[test]

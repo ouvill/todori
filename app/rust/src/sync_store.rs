@@ -208,6 +208,21 @@ impl LocalSyncStore for BridgeSyncStore {
         .collect()
     }
 
+    fn list_replayable_quarantine(
+        &mut self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_replayable_quarantine(after, limit)
+                .map_err(|e| e.to_string())
+        })?
+        .into_iter()
+        .map(storage_quarantine_to_local)
+        .collect()
+    }
+
     fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, String> {
         with_sync_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -378,6 +393,19 @@ impl LocalSyncStore for BridgeSyncWriteTx {
     fn list_quarantine(&mut self, limit: usize) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
         self.transaction
             .list_quarantine(limit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(storage_quarantine_to_local)
+            .collect()
+    }
+
+    fn list_replayable_quarantine(
+        &mut self,
+        after: Option<(i64, Uuid)>,
+        limit: usize,
+    ) -> Result<Vec<LocalSyncQuarantineEntry>, String> {
+        self.transaction
+            .list_replayable_quarantine(after, limit)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(storage_quarantine_to_local)

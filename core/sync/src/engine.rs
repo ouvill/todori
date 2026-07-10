@@ -107,7 +107,6 @@ pub struct SyncRunSummary {
     pub missing_key_quarantined_count: usize,
     pub corruption_quarantined_count: usize,
     pub resolved_quarantine_count: usize,
-    pub upgrade_required: bool,
 }
 
 impl SyncEngine {
