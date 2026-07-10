@@ -6,6 +6,18 @@
 
 Todoriは E2EE（エンドツーエンド暗号化）Todoアプリである。UIはFlutter、コアロジックはRustで実装し、両者を `flutter_rust_bridge`（バージョン `2.12.0` 固定）で接続する。
 
+## リリース状態と互換性
+
+Todoriは現在、一般リリース前である。
+
+プロダクトオーナーがこの状態を変更するまで、既存client、wire protocol、API、local DB schema、server schema、開発データとの後方互換性は要件としない。
+
+correctness・security・設計の一貫性を優先し、必要ならbreaking change、破壊的migration、開発データの再作成を行ってよい。互換レイヤ、dual read/write、旧形式fallbackは、taskで明示的に要求されない限り追加しない。
+
+局所的な互換修正を積み重ねるより、正しい最終設計へ直接置き換える。重要な設計変更はtaskまたはADRへ記録する。
+
+最初の外部配布を開始する前に、本節と `docs/09_運用ガイド.md` の互換性方針を更新する。
+
 ドキュメント地図（読む順の目安）:
 
 - `docs/01_企画書.md` ── プロダクト企画・ロードマップ
