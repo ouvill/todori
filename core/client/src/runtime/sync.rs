@@ -3,7 +3,8 @@ use std::{future::Future, pin::Pin};
 use todori_crypto::{load_account_secret, AccountSecretKind};
 use todori_storage::TaskRepository;
 use todori_sync::{
-    ActiveSyncContext, LocalSyncKeys, LocalSyncStore, SyncKeyRefresher, SyncRunSummary,
+    ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
+    LocalSyncWriteTransaction, SyncKeyRefresher, SyncRunSummary,
 };
 use zeroize::Zeroizing;
 
@@ -120,8 +121,11 @@ impl TodoriClient {
             return Err(ClientError::AccountBoundUnavailable);
         }
         let mut clock = || now_ms().map_err(|error| error.to_string());
+        let mut transaction = store
+            .begin_write_transaction()
+            .map_err(|_| ClientError::SyncRun)?;
         todori_sync::enqueue_backfill(
-            store,
+            &mut transaction,
             &context.keys,
             &context.device_id,
             &lists,
@@ -129,9 +133,10 @@ impl TodoriClient {
             &mut clock,
         )
         .map_err(|_| ClientError::SyncRun)?;
-        store
+        transaction
             .set_cursor(INITIAL_BACKFILL_CURSOR_NAME, 1, now_ms()?)
-            .map_err(|_| ClientError::SyncRun)
+            .map_err(|_| ClientError::SyncRun)?;
+        transaction.commit().map_err(|_| ClientError::SyncRun)
     }
 
     fn active_sync_context(&self) -> Option<ActiveSyncContext> {

@@ -105,6 +105,32 @@ pub struct LocalPendingListKeyBundle {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalFullResyncPhase {
+    Base,
+    Delta,
+    Sweep,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFullResyncProgress {
+    pub generation_id: Uuid,
+    pub phase: LocalFullResyncPhase,
+    pub base_seq: i64,
+    pub base_cursor: Option<crate::StableCursor>,
+    pub delta_cursor: i64,
+    pub closure_high_water: Option<i64>,
+    pub sweep_cursor: Option<crate::StableCursor>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LocalFullResyncSweepSummary {
+    pub scanned_records: usize,
+    pub swept_lists: usize,
+    pub swept_tasks: usize,
+    pub swept_record_states: usize,
+}
+
 /// The local persistence operations needed to prepare a domain mutation for sync.
 ///
 /// Implementations must arrange for these writes and the corresponding domain
@@ -138,6 +164,9 @@ pub trait LocalMutationSyncStore {
 /// and domain row application. Mutation-only callers should depend on
 /// [`LocalMutationSyncStore`] instead.
 pub trait LocalSyncStore: LocalMutationSyncStore {
+    fn load_full_resync(&mut self) -> Result<Option<LocalFullResyncProgress>, String> {
+        Ok(None)
+    }
     fn list_pending_list_key_bundles(
         &mut self,
         _tenant_id: Uuid,
@@ -184,6 +213,63 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
 }
 
 pub trait LocalSyncWriteTransaction: LocalSyncStore {
+    fn start_full_resync(
+        &mut self,
+        _generation_id: Uuid,
+        _base_seq: i64,
+        _now_ms: i64,
+    ) -> Result<LocalFullResyncProgress, String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn mark_full_resync_record(
+        &mut self,
+        _generation_id: Uuid,
+        _collection: SyncCollection,
+        _record_id: Uuid,
+    ) -> Result<(), String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn advance_full_resync_base(
+        &mut self,
+        _generation_id: Uuid,
+        _next_cursor: Option<&crate::StableCursor>,
+        _base_complete: bool,
+        _now_ms: i64,
+    ) -> Result<(), String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn advance_full_resync_delta(
+        &mut self,
+        _generation_id: Uuid,
+        _delta_cursor: i64,
+        _now_ms: i64,
+    ) -> Result<(), String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn enter_full_resync_sweep(
+        &mut self,
+        _generation_id: Uuid,
+        _closure_high_water: i64,
+        _now_ms: i64,
+    ) -> Result<(), String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn sweep_full_resync_batch(
+        &mut self,
+        _generation_id: Uuid,
+        _limit: usize,
+        _now_ms: i64,
+    ) -> Result<LocalFullResyncSweepSummary, String> {
+        Err("durable full resync is unavailable".to_string())
+    }
+    fn finalize_full_resync(
+        &mut self,
+        _generation_id: Uuid,
+        _cursor_name: &str,
+        _now_ms: i64,
+    ) -> Result<i64, String> {
+        Err("durable full resync is unavailable".to_string())
+    }
     fn commit(self) -> Result<(), String>;
 }
 

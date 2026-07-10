@@ -7,8 +7,9 @@ use sqlx_postgres::{PgPool, PgTransaction, Postgres};
 use todori_sync::{
     account::ListDekBundleDto,
     protocol::{
-        PullResponse, PushOp, PushRequest, PushResponse, PushResult, PushStatus, SyncCollection,
-        SyncRecord, SyncRecordState,
+        BaseScanResponse, PullResponse, PushOp, PushRequest, PushResponse, PushResult, PushStatus,
+        ResyncStartResponse, StableRecordCursor, SyncCapabilities, SyncCollection, SyncRecord,
+        SyncRecordState,
     },
     Hlc, MAX_ENCRYPTED_BLOB_LEN,
 };
@@ -53,6 +54,106 @@ struct StoredRecord {
     state: StoredState,
 }
 
+pub async fn preflight(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    since: i64,
+) -> Result<SyncCapabilities, AppError> {
+    if since < 0 {
+        return Err(AppError::bad_request("invalid since"));
+    }
+    let row = query::<Postgres>(
+        "SELECT gc_horizon_seq
+         FROM tenant_seq
+         WHERE tenant_id = $1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
+    let gc_horizon_seq = row
+        .try_get("gc_horizon_seq")
+        .map_err(|_| AppError::internal())?;
+    if since > 0 && since < gc_horizon_seq {
+        return Err(AppError::gone("full resync required"));
+    }
+    Ok(SyncCapabilities {
+        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+        envelope_version: todori_sync::ENVELOPE_VERSION,
+        gc_horizon_seq,
+    })
+}
+
+pub async fn begin_full_resync(
+    pool: &PgPool,
+    tenant_id: Uuid,
+) -> Result<ResyncStartResponse, AppError> {
+    let mut tx = pool.begin().await?;
+    let row = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
+        .bind(tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(AppError::forbidden)?;
+    let base_seq = row.try_get("last_seq").map_err(|_| AppError::internal())?;
+    tx.commit().await?;
+    Ok(ResyncStartResponse { base_seq })
+}
+
+pub async fn scan_base(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    cursor: Option<StableRecordCursor>,
+    limit: Option<i64>,
+) -> Result<BaseScanResponse, AppError> {
+    let limit = validated_page_limit(limit)?;
+    let rows = if let Some(cursor) = cursor {
+        query::<Postgres>(
+            "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
+                    delete_hlc, encrypted_blob
+             FROM sync_records
+             WHERE tenant_id = $1
+               AND (collection, record_id) > ($2, $3)
+             ORDER BY collection ASC, record_id ASC
+             LIMIT $4",
+        )
+        .bind(tenant_id)
+        .bind(cursor.collection.as_str())
+        .bind(cursor.record_id)
+        .bind(limit + 1)
+        .fetch_all(pool)
+        .await?
+    } else {
+        query::<Postgres>(
+            "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
+                    delete_hlc, encrypted_blob
+             FROM sync_records
+             WHERE tenant_id = $1
+             ORDER BY collection ASC, record_id ASC
+             LIMIT $2",
+        )
+        .bind(tenant_id)
+        .bind(limit + 1)
+        .fetch_all(pool)
+        .await?
+    };
+    let has_more = rows.len() as i64 > limit;
+    let records = rows
+        .into_iter()
+        .take(limit as usize)
+        .map(stored_record_from_row)
+        .map(|record| record.map(StoredRecord::into_wire))
+        .collect::<Result<Vec<_>, _>>()?;
+    let next_cursor = records.last().map(|record| StableRecordCursor {
+        collection: record.collection,
+        record_id: record.record_id,
+    });
+    Ok(BaseScanResponse {
+        records,
+        next_cursor,
+        has_more,
+    })
+}
+
 pub async fn push(
     pool: &PgPool,
     tenant_id: Uuid,
@@ -93,23 +194,33 @@ pub async fn pull(
     if since < 0 {
         return Err(AppError::bad_request("invalid since"));
     }
-    let limit = limit.unwrap_or(DEFAULT_PULL_LIMIT);
-    if !(1..=MAX_PULL_LIMIT).contains(&limit) {
-        return Err(AppError::bad_request("invalid pull limit"));
+    let limit = validated_page_limit(limit)?;
+
+    let mut tx = pool.begin().await?;
+    let high_water: i64 = query::<Postgres>("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
+        .bind(tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(AppError::forbidden)?
+        .try_get("last_seq")
+        .map_err(|_| AppError::internal())?;
+    if since > high_water {
+        return Err(AppError::bad_request("invalid since"));
     }
 
     let rows = query::<Postgres>(
         "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
                 delete_hlc, encrypted_blob
          FROM sync_records
-         WHERE tenant_id = $1 AND seq > $2
+         WHERE tenant_id = $1 AND seq > $2 AND seq <= $3
          ORDER BY seq ASC
-         LIMIT $3",
+         LIMIT $4",
     )
     .bind(tenant_id)
     .bind(since)
+    .bind(high_water)
     .bind(limit + 1)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
 
     let has_more = rows.len() as i64 > limit;
@@ -119,18 +230,25 @@ pub async fn pull(
         .map(stored_record_from_row)
         .map(|record| record.map(StoredRecord::into_wire))
         .collect::<Result<Vec<_>, _>>()?;
-    let next_since = records.last().map(|record| record.seq).unwrap_or(since);
+    let next_since = if has_more {
+        records.last().map(|record| record.seq).unwrap_or(since)
+    } else {
+        high_water
+    };
 
     query::<Postgres>("UPDATE devices SET last_pull_at = now() WHERE id = $1 AND user_id = $2")
         .bind(auth.device_id)
         .bind(auth.user_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
 
     Ok(PullResponse {
         records,
         next_since,
         has_more,
+        high_water,
     })
 }
 
@@ -204,14 +322,41 @@ pub async fn list_key_bundles(
 }
 
 pub async fn gc_tombstones(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, AppError> {
-    let result = query::<Postgres>(
-        "DELETE FROM sync_records
-         WHERE delete_hlc IS NOT NULL AND updated_at < $1",
+    let row = query::<Postgres>(
+        "WITH deleted AS (
+             DELETE FROM sync_records
+             WHERE delete_hlc IS NOT NULL AND updated_at < $1
+             RETURNING tenant_id, seq
+         ), horizons AS (
+             SELECT tenant_id, max(seq) AS gc_horizon_seq, count(*) AS deleted_count
+             FROM deleted
+             GROUP BY tenant_id
+         ), advanced AS (
+             UPDATE tenant_seq AS target
+             SET gc_horizon_seq = greatest(target.gc_horizon_seq, horizons.gc_horizon_seq)
+             FROM horizons
+             WHERE target.tenant_id = horizons.tenant_id
+             RETURNING target.tenant_id
+         )
+         SELECT coalesce(sum(horizons.deleted_count), 0)::BIGINT AS deleted_count
+         FROM horizons
+         JOIN advanced USING (tenant_id)",
     )
     .bind(cutoff)
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
-    Ok(result.rows_affected())
+    let deleted: i64 = row
+        .try_get("deleted_count")
+        .map_err(|_| AppError::internal())?;
+    u64::try_from(deleted).map_err(|_| AppError::internal())
+}
+
+fn validated_page_limit(limit: Option<i64>) -> Result<i64, AppError> {
+    let limit = limit.unwrap_or(DEFAULT_PULL_LIMIT);
+    if !(1..=MAX_PULL_LIMIT).contains(&limit) {
+        return Err(AppError::bad_request("invalid page limit"));
+    }
+    Ok(limit)
 }
 
 fn validate_push_op(op: PushOp) -> Result<ValidatedPushOp, AppError> {

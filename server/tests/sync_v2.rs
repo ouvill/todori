@@ -2,7 +2,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -10,6 +10,7 @@ use std::{
 use axum::{
     body::{to_bytes, Body},
     http::{Method, Request, StatusCode},
+    response::IntoResponse,
     Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -460,6 +461,57 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         );
         assert_eq!(matrix_refresher.calls, 1, "failure stage {name}");
         let connection = open_encrypted(&matrix_path, &DB_KEY).unwrap();
+        if name == "cursor" {
+            let phase: String = connection
+                .query_row(
+                    "SELECT phase FROM sync_full_resync_state WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(phase, "sweep");
+            assert!(matrix_store
+                .get_cursor_seq(SYNC_CURSOR_NAME)
+                .unwrap()
+                .is_none());
+            drop(connection);
+            open_encrypted(&matrix_path, &DB_KEY)
+                .unwrap()
+                .execute_batch("DROP TRIGGER fail_page_cursor;")
+                .unwrap();
+            run_sync_now_with_key_refresh(
+                ActiveSyncContext {
+                    keys: LocalSyncKeys {
+                        list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+                    },
+                    ..context.clone()
+                },
+                &mut matrix_store,
+                &mut ticking_now,
+                &mut matrix_refresher,
+            )
+            .await
+            .unwrap();
+            let high_water: i64 = query("SELECT last_seq FROM tenant_seq WHERE tenant_id = $1")
+                .bind(fixture.tenant_id)
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap()
+                .try_get("last_seq")
+                .unwrap();
+            assert_eq!(
+                matrix_store.get_cursor_seq(SYNC_CURSOR_NAME).unwrap(),
+                Some(high_water)
+            );
+            let connection = open_encrypted(&matrix_path, &DB_KEY).unwrap();
+            let generation_count: i64 = connection
+                .query_row("SELECT count(*) FROM sync_full_resync_state", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(generation_count, 0);
+            continue;
+        }
         for table in [
             "lists",
             "sync_record_states",
@@ -690,6 +742,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
                     axum::Json(todori_sync::protocol::SyncCapabilities {
                         protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                         envelope_version: todori_sync::ENVELOPE_VERSION,
+                        gc_horizon_seq: 0,
                     })
                 }
             }),
@@ -760,6 +813,238 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
     );
     assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
     assert_eq!(push_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
+    const DB_KEY: [u8; 32] = [0xd6; 32];
+    #[derive(serde::Deserialize)]
+    struct SinceQuery {
+        since: i64,
+    }
+
+    let preflight_count = Arc::new(AtomicUsize::new(0));
+    let start_count = Arc::new(AtomicUsize::new(0));
+    let preflight_counter = preflight_count.clone();
+    let start_counter = start_count.clone();
+    let app = Router::new()
+        .route(
+            "/v2/tenants/{tenant_id}/preflight",
+            axum::routing::get(
+                move |axum::extract::Query(query): axum::extract::Query<SinceQuery>| {
+                    let counter = preflight_counter.clone();
+                    async move {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        if query.since == 1 {
+                            return (
+                                StatusCode::GONE,
+                                axum::Json(json!({"error": "full resync required"})),
+                            )
+                                .into_response();
+                        }
+                        axum::Json(todori_sync::protocol::SyncCapabilities {
+                            protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
+                            envelope_version: todori_sync::ENVELOPE_VERSION,
+                            gc_horizon_seq: 2,
+                        })
+                        .into_response()
+                    }
+                },
+            ),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/resync/start",
+            axum::routing::post(move || {
+                let counter = start_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(todori_sync::protocol::ResyncStartResponse { base_seq: 2 })
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("continuity-upgrade.sqlite3");
+    let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    repository
+        .set_cursor(SYNC_CURSOR_NAME, 1, Utc::now().timestamp_millis())
+        .unwrap();
+    drop(repository);
+    let mut store = SqliteSyncStore::new(db_path, DB_KEY);
+    let mut now = || Ok(Utc::now().timestamp_millis());
+    assert_eq!(
+        run_sync_now(
+            ActiveSyncContext {
+                server_url: format!("http://{address}"),
+                tenant_id: Uuid::now_v7(),
+                device_id: "continuity-upgrade-client".to_string(),
+                session_token: "token".to_string(),
+                keys: LocalSyncKeys::default(),
+            },
+            &mut store,
+            &mut now,
+        )
+        .await,
+        Err("upgrade required".to_string())
+    );
+    assert_eq!(preflight_count.load(Ordering::SeqCst), 2);
+    assert_eq!(start_count.load(Ordering::SeqCst), 0);
+    assert!(store
+        .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
+async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
+    const DB_KEY: [u8; 32] = [0xd5; 32];
+    let resync_closed = Arc::new(AtomicBool::new(false));
+    let push_before_closure = Arc::new(AtomicBool::new(false));
+    let start_count = Arc::new(AtomicUsize::new(0));
+    let start_counter = start_count.clone();
+    let closed_for_pull = resync_closed.clone();
+    let closed_for_push = resync_closed.clone();
+    let violation = push_before_closure.clone();
+    let app = Router::new()
+        .route(
+            "/v2/tenants/{tenant_id}/preflight",
+            axum::routing::get(|| async {
+                axum::Json(todori_sync::protocol::SyncCapabilities {
+                    protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+                    envelope_version: todori_sync::ENVELOPE_VERSION,
+                    gc_horizon_seq: 2,
+                })
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/resync/start",
+            axum::routing::post(move || {
+                let counter = start_counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(todori_sync::protocol::ResyncStartResponse { base_seq: 2 })
+                }
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/resync/base",
+            axum::routing::get(|| async {
+                axum::Json(todori_sync::protocol::BaseScanResponse {
+                    records: Vec::new(),
+                    next_cursor: None,
+                    has_more: false,
+                })
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/pull",
+            axum::routing::get(move || {
+                let closed = closed_for_pull.clone();
+                async move {
+                    closed.store(true, Ordering::SeqCst);
+                    axum::Json(todori_sync::protocol::PullResponse {
+                        records: Vec::new(),
+                        next_since: 2,
+                        has_more: false,
+                        high_water: 2,
+                    })
+                }
+            }),
+        )
+        .route(
+            "/v2/tenants/{tenant_id}/push",
+            axum::routing::post(
+                move |axum::Json(request): axum::Json<todori_sync::protocol::PushRequest>| {
+                    let closed = closed_for_push.clone();
+                    let violation = violation.clone();
+                    async move {
+                        if !closed.load(Ordering::SeqCst) {
+                            violation.store(true, Ordering::SeqCst);
+                        }
+                        axum::Json(todori_sync::protocol::PushResponse {
+                            results: request
+                                .ops
+                                .into_iter()
+                                .map(|op| todori_sync::protocol::PushResult {
+                                    op_id: op.op_id,
+                                    record_id: op.record_id,
+                                    collection: op.collection,
+                                    status: PushStatus::Accepted,
+                                    seq: Some(3),
+                                    current: None,
+                                })
+                                .collect(),
+                        })
+                    }
+                },
+            ),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("horizon-before-push.sqlite3");
+    let record_id = Uuid::now_v7();
+    let revision_hlc = hlc(-100, 0, "horizon-local-revision");
+    let mutation_hlc = hlc(-200, 0, "horizon-local-mutation");
+    let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+    repository
+        .set_cursor(SYNC_CURSOR_NAME, 1, Utc::now().timestamp_millis())
+        .unwrap();
+    repository
+        .put_outbox_head(NewSyncOutboxEntry {
+            op_id: Uuid::now_v7(),
+            record_id,
+            collection: "tasks".to_string(),
+            base_revision_hlc: None,
+            revision_hlc: revision_hlc.clone(),
+            state: SyncOutboxState::Live {
+                mutation_hlc: mutation_hlc.clone(),
+                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+            },
+            created_at: Utc::now().timestamp_millis(),
+        })
+        .unwrap();
+    repository
+        .put_record_state(todori_storage::SyncRecordState {
+            record_id,
+            collection: "tasks".to_string(),
+            current_revision_hlc: None,
+            state: todori_storage::SyncRecordSemanticState::Live {
+                mutation_hlc,
+                plaintext_json: "{}".to_string(),
+            },
+            updated_at: Utc::now().timestamp_millis(),
+        })
+        .unwrap();
+    drop(repository);
+
+    let mut store = SqliteSyncStore::new(db_path, DB_KEY);
+    let mut now = || Ok(Utc::now().timestamp_millis());
+    run_sync_now(
+        ActiveSyncContext {
+            server_url: format!("http://{address}"),
+            tenant_id: Uuid::now_v7(),
+            device_id: "horizon-client".to_string(),
+            session_token: "token".to_string(),
+            keys: LocalSyncKeys::default(),
+        },
+        &mut store,
+        &mut now,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 1);
+    assert!(resync_closed.load(Ordering::SeqCst));
+    assert!(!push_before_closure.load(Ordering::SeqCst));
+    assert!(!store
+        .has_outbox_head(SyncCollection::Tasks, record_id)
+        .unwrap());
 }
 
 #[tokio::test]
@@ -847,9 +1132,12 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     let pre_push_calls = Arc::new(AtomicUsize::new(0));
     let pre_push_counter = pre_push_calls.clone();
     let mut pre_push = |store: &mut SqliteSyncStore| {
-        assert!(store
-            .list_pending_list_key_bundles(fixture.tenant_id, 10)?
-            .is_empty());
+        assert_eq!(
+            store
+                .list_pending_list_key_bundles(fixture.tenant_id, 10)?
+                .len(),
+            1
+        );
         assert_eq!(store.list_outbox_heads(10)?.len(), 1);
         pre_push_counter.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -875,7 +1163,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     )
     .await
     .is_err());
-    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 1);
     let failed_counts = query(
         "SELECT
              (SELECT count(*) FROM list_key_bundles WHERE tenant_id = $1 AND list_id = $2) AS keys,
@@ -910,7 +1198,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     )
     .await
     .unwrap();
-    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 2);
     let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
     assert!(repository
         .list_pending_list_key_bundles(fixture.tenant_id, 10)
@@ -1690,6 +1978,249 @@ async fn v2_schema_enforces_tagged_state_and_gc_only_removes_tombstones() {
             .map(|row| row.try_get("record_id").unwrap())
             .collect();
     assert_eq!(remaining, vec![live_id]);
+
+    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, 0)
+        .await
+        .unwrap();
+    assert_eq!(preflight.gc_horizon_seq, 2);
+    assert_eq!(
+        request_status(
+            &fixture.app,
+            Method::GET,
+            format!("/v2/tenants/{}/preflight?since=0", fixture.tenant_id),
+            Some(&fixture.token),
+            None,
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request_status(
+            &fixture.app,
+            Method::GET,
+            format!("/v2/tenants/{}/preflight?since=1", fixture.tenant_id),
+            Some(&fixture.token),
+            None,
+        )
+        .await,
+        StatusCode::GONE
+    );
+}
+
+#[tokio::test]
+async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() {
+    let fixture = Fixture::setup().await;
+    let behind_cursor = Uuid::from_u128(5);
+    let first = Uuid::from_u128(10);
+    let last = Uuid::from_u128(30);
+    let first_revision = hlc(-5_000, 0, "stable-first");
+    fixture
+        .push(live_op(
+            first,
+            None,
+            first_revision.clone(),
+            hlc(-5_100, 0, "stable-first-mutation"),
+            b"first-v1",
+        ))
+        .await;
+    fixture
+        .push(live_op(
+            last,
+            None,
+            hlc(-4_900, 0, "stable-last"),
+            hlc(-5_000, 0, "stable-last-mutation"),
+            b"last",
+        ))
+        .await;
+
+    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(start.base_seq, 2);
+    let first_page = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(1))
+        .await
+        .unwrap();
+    assert_eq!(first_page.records[0].record_id, first);
+    assert!(first_page.has_more);
+
+    fixture
+        .push(live_op(
+            first,
+            Some(first_revision),
+            hlc(-4_000, 0, "stable-first-update"),
+            hlc(-4_100, 0, "stable-first-update-mutation"),
+            b"first-v2",
+        ))
+        .await;
+    fixture
+        .push(live_op(
+            behind_cursor,
+            None,
+            hlc(-3_900, 0, "stable-behind"),
+            hlc(-4_000, 0, "stable-behind-mutation"),
+            b"behind",
+        ))
+        .await;
+
+    let second_page = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        first_page.next_cursor,
+        Some(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(second_page.records[0].record_id, last);
+    assert!(!second_page.has_more);
+
+    let delta = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.base_seq,
+        Some(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(delta.records.len(), 1);
+    assert_eq!(delta.records[0].record_id, first);
+    assert!(delta.has_more);
+    assert_eq!(delta.high_water, 4);
+    assert_eq!(delta.next_since, 3);
+
+    let closure = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        delta.next_since,
+        Some(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(closure.records[0].record_id, behind_cursor);
+    assert!(!closure.has_more);
+    assert_eq!(closure.next_since, closure.high_water);
+    assert!(todori_sync::delta_reached_closure(
+        closure.next_since,
+        closure.has_more,
+        closure.high_water
+    ));
+}
+
+#[tokio::test]
+async fn empty_resync_closes_and_base_scan_is_not_limited_to_start_seq() {
+    let fixture = Fixture::setup().await;
+    let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(start.base_seq, 0);
+    let empty_base = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(100))
+        .await
+        .unwrap();
+    assert!(empty_base.records.is_empty());
+    assert!(!empty_base.has_more);
+    let empty_delta = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        start.base_seq,
+        Some(100),
+    )
+    .await
+    .unwrap();
+    assert!(empty_delta.records.is_empty());
+    assert!(todori_sync::delta_reached_closure(
+        empty_delta.next_since,
+        empty_delta.has_more,
+        empty_delta.high_water
+    ));
+
+    let created_after_start = Uuid::from_u128(42);
+    fixture
+        .push(live_op(
+            created_after_start,
+            None,
+            hlc(-2_000, 0, "after-start"),
+            hlc(-2_100, 0, "after-start-mutation"),
+            b"created-after-start",
+        ))
+        .await;
+    let fuzzy_base = sync::scan_base(&fixture.pool, fixture.tenant_id, None, Some(100))
+        .await
+        .unwrap();
+    assert_eq!(fuzzy_base.records.len(), 1);
+    assert_eq!(fuzzy_base.records[0].record_id, created_after_start);
+    assert!(fuzzy_base.records[0].seq > start.base_seq);
+}
+
+#[tokio::test]
+async fn gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water() {
+    let fixture = Fixture::setup().await;
+    let live_id = Uuid::from_u128(100);
+    let tombstone_id = Uuid::from_u128(200);
+    fixture
+        .push(live_op(
+            live_id,
+            None,
+            hlc(-5_000, 0, "horizon-live"),
+            hlc(-5_100, 0, "horizon-live-mutation"),
+            b"live",
+        ))
+        .await;
+    fixture
+        .push(tombstone_op(
+            tombstone_id,
+            None,
+            hlc(-4_000, 0, "horizon-delete"),
+            hlc(-4_100, 0, "horizon-delete-semantic"),
+        ))
+        .await;
+    query(
+        "UPDATE sync_records SET updated_at = $1
+         WHERE tenant_id = $2 AND record_id = $3",
+    )
+    .bind(Utc::now() - Duration::days(181))
+    .bind(fixture.tenant_id)
+    .bind(tombstone_id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(gc_tombstones(&fixture.pool, Utc::now()).await.unwrap(), 1);
+
+    let max_active: i64 = query(
+        "SELECT coalesce(max(seq), 0)::BIGINT AS max_seq
+         FROM sync_records WHERE tenant_id = $1",
+    )
+    .bind(fixture.tenant_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap()
+    .try_get("max_seq")
+    .unwrap();
+    let preflight = sync::preflight(&fixture.pool, fixture.tenant_id, 0)
+        .await
+        .unwrap();
+    assert_eq!(max_active, 1);
+    assert_eq!(preflight.gc_horizon_seq, 2);
+
+    let page = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        1,
+        Some(100),
+    )
+    .await
+    .unwrap();
+    assert!(page.records.is_empty());
+    assert_eq!(page.next_since, 2);
+    assert_eq!(page.high_water, 2);
+    assert!(!page.has_more);
+    assert!(todori_sync::delta_reached_closure(
+        page.next_since,
+        page.has_more,
+        page.high_water
+    ));
 }
 
 async fn request_status(

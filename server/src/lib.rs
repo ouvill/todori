@@ -66,6 +66,13 @@ impl AppError {
         }
     }
 
+    pub fn gone(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::GONE,
+            message,
+        }
+    }
+
     pub fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

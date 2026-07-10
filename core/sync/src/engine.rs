@@ -10,7 +10,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     protocol::{
-        self, PullResponse, PushRequest, SyncCollection, SyncRecordState as WireRecordState,
+        self, BaseScanResponse, PullResponse, PushRequest, SyncCollection,
+        SyncRecordState as WireRecordState,
     },
     Hlc,
 };
@@ -31,6 +32,8 @@ pub enum SyncEngineError {
     InvalidPushResponse,
     #[error("invalid pull response")]
     InvalidPullResponse,
+    #[error("invalid preflight response")]
+    InvalidPreflightResponse,
     #[error("sync client upgrade required")]
     UpgradeRequired {
         protocol_version: u16,
@@ -78,10 +81,36 @@ pub struct PushOpOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PullPage {
+pub struct PreflightResult {
+    pub gc_horizon_seq: i64,
+    pub full_resync_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StableCursor {
+    pub collection: SyncCollection,
+    pub record_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BasePage {
+    pub records: Vec<PullRecord>,
+    pub next_cursor: Option<StableCursor>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaPage {
     pub records: Vec<PullRecord>,
     pub next_since: i64,
     pub has_more: bool,
+    pub high_water: i64,
+}
+
+impl DeltaPage {
+    pub const fn reached_closure(&self) -> bool {
+        crate::delta_reached_closure(self.next_since, self.has_more, self.high_water)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,16 +156,18 @@ impl SyncEngine {
         })
     }
 
-    pub async fn preflight(&self) -> Result<(), SyncEngineError> {
-        let response = self
-            .http
-            .get(format!(
-                "{}/v2/tenants/{}/preflight",
-                self.base_url, self.tenant_id
-            ))
-            .bearer_auth(self.session_token.as_str())
-            .send()
-            .await?;
+    pub async fn preflight(&self, since: i64) -> Result<PreflightResult, SyncEngineError> {
+        if since < 0 {
+            return Err(SyncEngineError::InvalidRequest);
+        }
+        let mut response = self.request_preflight(since).await?;
+        let full_resync_required = response.status() == StatusCode::GONE;
+        if full_resync_required {
+            // A continuity response carries no capabilities body. Re-check as
+            // a new profile before fetching any payload so an old client
+            // cannot bypass protocol/envelope upgrade enforcement.
+            response = self.request_preflight(0).await?;
+        }
         if !response.status().is_success() {
             return Err(SyncEngineError::Server(response.status()));
         }
@@ -149,7 +180,26 @@ impl SyncEngine {
                 envelope_version: capabilities.envelope_version,
             });
         }
-        Ok(())
+        if capabilities.gc_horizon_seq < 0 {
+            return Err(SyncEngineError::InvalidPreflightResponse);
+        }
+        Ok(PreflightResult {
+            gc_horizon_seq: capabilities.gc_horizon_seq,
+            full_resync_required,
+        })
+    }
+
+    async fn request_preflight(&self, since: i64) -> Result<reqwest::Response, SyncEngineError> {
+        self.http
+            .get(format!(
+                "{}/v2/tenants/{}/preflight",
+                self.base_url, self.tenant_id
+            ))
+            .bearer_auth(self.session_token.as_str())
+            .query(&[("since", since)])
+            .send()
+            .await
+            .map_err(SyncEngineError::from)
     }
 
     pub async fn push_batch(&self, ops: Vec<PushOp>) -> Result<PushBatchOutcome, SyncEngineError> {
@@ -179,7 +229,54 @@ impl SyncEngine {
         validate_push_response(&ops, response)
     }
 
-    pub async fn pull_page(&self, since: i64, limit: i64) -> Result<PullPage, SyncEngineError> {
+    pub async fn begin_full_resync(&self) -> Result<i64, SyncEngineError> {
+        let response = self
+            .http
+            .post(format!(
+                "{}/v2/tenants/{}/resync/start",
+                self.base_url, self.tenant_id
+            ))
+            .bearer_auth(self.session_token.as_str())
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(SyncEngineError::Server(response.status()));
+        }
+        let response = response.json::<protocol::ResyncStartResponse>().await?;
+        if response.base_seq < 0 {
+            return Err(SyncEngineError::InvalidPullResponse);
+        }
+        Ok(response.base_seq)
+    }
+
+    pub async fn scan_base_page(
+        &self,
+        cursor: Option<&StableCursor>,
+        limit: i64,
+    ) -> Result<BasePage, SyncEngineError> {
+        let mut request = self
+            .http
+            .get(format!(
+                "{}/v2/tenants/{}/resync/base",
+                self.base_url, self.tenant_id
+            ))
+            .bearer_auth(self.session_token.as_str())
+            .query(&[("limit", limit)]);
+        if let Some(cursor) = cursor {
+            request = request.query(&[
+                ("after_collection", cursor.collection.as_str().to_string()),
+                ("after_record_id", cursor.record_id.to_string()),
+            ]);
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            return Err(SyncEngineError::Server(response.status()));
+        }
+        let response = response.json::<BaseScanResponse>().await?;
+        validate_base_response(cursor, response)
+    }
+
+    pub async fn pull_page(&self, since: i64, limit: i64) -> Result<DeltaPage, SyncEngineError> {
         let response = self
             .http
             .get(format!(
@@ -325,8 +422,16 @@ fn validate_push_response(
     Ok(PushBatchOutcome { outcomes })
 }
 
-fn validate_pull_response(since: i64, response: PullResponse) -> Result<PullPage, SyncEngineError> {
-    if response.next_since < since {
+fn validate_pull_response(
+    since: i64,
+    response: PullResponse,
+) -> Result<DeltaPage, SyncEngineError> {
+    if response.next_since < since
+        || response.high_water < since
+        || response.next_since > response.high_water
+        || (response.has_more && response.next_since >= response.high_water)
+        || (!response.has_more && response.next_since != response.high_water)
+    {
         return Err(SyncEngineError::InvalidPullResponse);
     }
     let mut previous_seq = since;
@@ -339,17 +444,64 @@ fn validate_pull_response(since: i64, response: PullResponse) -> Result<PullPage
         previous_seq = record.seq;
         records.push(record);
     }
-    if records
-        .last()
-        .is_some_and(|record| record.seq != response.next_since)
+    if response.has_more
+        && records
+            .last()
+            .is_none_or(|record| record.seq != response.next_since)
     {
         return Err(SyncEngineError::InvalidPullResponse);
     }
-    Ok(PullPage {
+    Ok(DeltaPage {
         records,
         next_since: response.next_since,
         has_more: response.has_more,
+        high_water: response.high_water,
     })
+}
+
+fn validate_base_response(
+    cursor: Option<&StableCursor>,
+    response: BaseScanResponse,
+) -> Result<BasePage, SyncEngineError> {
+    let mut previous = cursor.cloned();
+    let mut records = Vec::with_capacity(response.records.len());
+    for record in response.records {
+        let stable = StableCursor {
+            collection: record.collection,
+            record_id: record.record_id,
+        };
+        if previous
+            .as_ref()
+            .is_some_and(|previous| stable_key(&stable) <= stable_key(previous))
+        {
+            return Err(SyncEngineError::InvalidPullResponse);
+        }
+        previous = Some(stable);
+        records.push(decode_record(record)?);
+    }
+    let next_cursor = response.next_cursor.map(|cursor| StableCursor {
+        collection: cursor.collection,
+        record_id: cursor.record_id,
+    });
+    if records
+        .last()
+        .map(|record| (record.collection, record.record_id))
+        != next_cursor
+            .as_ref()
+            .map(|cursor| (cursor.collection, cursor.record_id))
+        || (response.has_more && records.is_empty())
+    {
+        return Err(SyncEngineError::InvalidPullResponse);
+    }
+    Ok(BasePage {
+        records,
+        next_cursor,
+        has_more: response.has_more,
+    })
+}
+
+fn stable_key(cursor: &StableCursor) -> (&'static str, Uuid) {
+    (cursor.collection.as_str(), cursor.record_id)
 }
 
 fn decode_record(record: protocol::SyncRecord) -> Result<PullRecord, SyncEngineError> {
@@ -538,6 +690,7 @@ mod tests {
             }],
             next_since: 1,
             has_more: false,
+            high_water: 1,
         };
         assert!(matches!(
             validate_pull_response(0, response),
@@ -556,6 +709,7 @@ mod tests {
             }],
             next_since: 1,
             has_more: false,
+            high_water: 1,
         };
         assert!(matches!(
             validate_pull_response(0, response),
@@ -574,10 +728,50 @@ mod tests {
             }],
             next_since: 1,
             has_more: false,
+            high_water: 1,
         };
         assert!(matches!(
             validate_pull_response(0, response),
             Err(SyncEngineError::InvalidPullResponse)
         ));
+    }
+
+    #[test]
+    fn delta_closure_requires_cursor_to_equal_page_high_water() {
+        let open = PullResponse {
+            records: vec![protocol::SyncRecord {
+                record_id: Uuid::now_v7(),
+                collection: SyncCollection::Tasks,
+                seq: 1,
+                revision_hlc: clock("remote", 1),
+                state: WireRecordState::Tombstone {
+                    delete_hlc: clock("remote", 1),
+                },
+            }],
+            next_since: 1,
+            has_more: true,
+            high_water: 2,
+        };
+        let open = validate_pull_response(0, open).unwrap();
+        assert!(!open.reached_closure());
+
+        let premature = PullResponse {
+            records: Vec::new(),
+            next_since: 1,
+            has_more: false,
+            high_water: 2,
+        };
+        assert!(matches!(
+            validate_pull_response(1, premature),
+            Err(SyncEngineError::InvalidPullResponse)
+        ));
+
+        let closed = PullResponse {
+            records: Vec::new(),
+            next_since: 2,
+            has_more: false,
+            high_water: 2,
+        };
+        assert!(validate_pull_response(1, closed).unwrap().reached_closure());
     }
 }

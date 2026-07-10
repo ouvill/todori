@@ -11,7 +11,7 @@ use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskSt
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 14;
+pub const LATEST_SCHEMA_VERSION: i32 = 15;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -79,6 +79,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 14,
         name: "add_pending_list_key_bundles",
         apply: add_pending_list_key_bundles,
+    },
+    Migration {
+        target_version: 15,
+        name: "add_full_resync_state",
+        apply: add_full_resync_state,
     },
 ];
 
@@ -256,6 +261,44 @@ pub struct SyncCursor {
     pub name: String,
     pub seq: i64,
     pub updated_at: i64,
+}
+
+/// Durable phase of a fuzzy-scan full resync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullResyncPhase {
+    Base,
+    Delta,
+    Sweep,
+}
+
+/// Stable-key cursor used by the current-state base scan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullResyncStableCursor {
+    pub collection: String,
+    pub record_id: Uuid,
+}
+
+/// Crash-recoverable progress for the one active full resync generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FullResyncProgress {
+    pub generation_id: Uuid,
+    pub phase: FullResyncPhase,
+    pub base_seq: i64,
+    pub base_cursor: Option<FullResyncStableCursor>,
+    pub delta_cursor: i64,
+    pub closure_high_water: Option<i64>,
+    pub sweep_cursor: Option<FullResyncStableCursor>,
+    pub started_at: i64,
+    pub updated_at: i64,
+}
+
+/// Rows removed when a closed generation is finalized.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FullResyncSweepSummary {
+    pub scanned_records: usize,
+    pub swept_lists: usize,
+    pub swept_tasks: usize,
+    pub swept_record_states: usize,
 }
 
 /// An encrypted remote head that could not yet be safely applied.
@@ -703,6 +746,80 @@ impl OwnedSqliteWriteTx {
 
     pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
         delete_quarantine_on(self.connection(), record_id)
+    }
+
+    pub fn load_full_resync(&self) -> Result<Option<FullResyncProgress>, StorageError> {
+        load_full_resync_on(self.connection())
+    }
+
+    pub fn start_full_resync(
+        &mut self,
+        generation_id: Uuid,
+        base_seq: i64,
+        now_ms: i64,
+    ) -> Result<FullResyncProgress, StorageError> {
+        start_full_resync_on(self.connection(), generation_id, base_seq, now_ms)
+    }
+
+    pub fn mark_full_resync_record(
+        &mut self,
+        generation_id: Uuid,
+        collection: &str,
+        record_id: Uuid,
+    ) -> Result<(), StorageError> {
+        mark_full_resync_record_on(self.connection(), generation_id, collection, record_id)
+    }
+
+    pub fn advance_full_resync_base(
+        &mut self,
+        generation_id: Uuid,
+        next_cursor: Option<&FullResyncStableCursor>,
+        base_complete: bool,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        advance_full_resync_base_on(
+            self.connection(),
+            generation_id,
+            next_cursor,
+            base_complete,
+            now_ms,
+        )
+    }
+
+    pub fn advance_full_resync_delta(
+        &mut self,
+        generation_id: Uuid,
+        delta_cursor: i64,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        advance_full_resync_delta_on(self.connection(), generation_id, delta_cursor, now_ms)
+    }
+
+    pub fn enter_full_resync_sweep(
+        &mut self,
+        generation_id: Uuid,
+        closure_high_water: i64,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        enter_full_resync_sweep_on(self.connection(), generation_id, closure_high_water, now_ms)
+    }
+
+    pub fn sweep_full_resync_batch(
+        &mut self,
+        generation_id: Uuid,
+        limit: usize,
+        now_ms: i64,
+    ) -> Result<FullResyncSweepSummary, StorageError> {
+        sweep_full_resync_batch_on(self.connection(), generation_id, limit, now_ms)
+    }
+
+    pub fn finalize_full_resync(
+        &mut self,
+        generation_id: Uuid,
+        cursor_name: &str,
+        now_ms: i64,
+    ) -> Result<i64, StorageError> {
+        finalize_full_resync_on(self.connection(), generation_id, cursor_name, now_ms)
     }
 
     pub fn default_list_id(&self) -> Result<Option<Uuid>, StorageError> {
@@ -1226,6 +1343,51 @@ fn add_pending_list_key_bundles(transaction: &Transaction<'_>) -> rusqlite::Resu
          );
          CREATE INDEX idx_pending_list_key_bundles_created
              ON pending_list_key_bundles(created_at, list_id);",
+    )
+}
+
+fn add_full_resync_state(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE sync_full_resync_state (
+             singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+             generation_id TEXT NOT NULL,
+             phase TEXT NOT NULL CHECK (phase IN ('base', 'delta', 'sweep')),
+             base_seq INTEGER NOT NULL CHECK (base_seq >= 0),
+             base_cursor_collection TEXT CHECK (
+                 base_cursor_collection IS NULL
+                 OR base_cursor_collection IN ('lists', 'tasks')
+             ),
+             base_cursor_record_id TEXT,
+             delta_cursor INTEGER NOT NULL CHECK (delta_cursor >= 0),
+             closure_high_water INTEGER CHECK (closure_high_water >= 0),
+             sweep_cursor_collection TEXT CHECK (
+                 sweep_cursor_collection IS NULL
+                 OR sweep_cursor_collection IN ('lists', 'tasks')
+             ),
+             sweep_cursor_record_id TEXT,
+             started_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL,
+             CHECK (
+                 (base_cursor_collection IS NULL AND base_cursor_record_id IS NULL)
+                 OR (base_cursor_collection IS NOT NULL AND base_cursor_record_id IS NOT NULL)
+             ),
+             CHECK (
+                 (sweep_cursor_collection IS NULL AND sweep_cursor_record_id IS NULL)
+                 OR (sweep_cursor_collection IS NOT NULL AND sweep_cursor_record_id IS NOT NULL)
+             ),
+             CHECK (
+                 (phase = 'sweep' AND closure_high_water IS NOT NULL)
+                 OR (phase <> 'sweep' AND closure_high_water IS NULL)
+             )
+         );
+         CREATE TABLE sync_full_resync_marks (
+             generation_id TEXT NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks')),
+             record_id TEXT NOT NULL,
+             PRIMARY KEY (generation_id, collection, record_id)
+         );
+         CREATE INDEX idx_sync_full_resync_marks_record
+             ON sync_full_resync_marks(generation_id, collection, record_id);",
     )
 }
 
@@ -2523,6 +2685,19 @@ impl SqliteSyncStateRepository {
     ) -> Result<bool, StorageError> {
         ack_pending_list_key_bundle_on(&self.connection, tenant_id, list_id, wrapped_list_dek)
     }
+
+    pub fn load_full_resync(&self) -> Result<Option<FullResyncProgress>, StorageError> {
+        load_full_resync_on(&self.connection)
+    }
+
+    pub fn start_full_resync(
+        &mut self,
+        generation_id: Uuid,
+        base_seq: i64,
+        now_ms: i64,
+    ) -> Result<FullResyncProgress, StorageError> {
+        start_full_resync_on(&self.connection, generation_id, base_seq, now_ms)
+    }
 }
 
 fn put_local_list_key_bundle_on(
@@ -2723,6 +2898,417 @@ impl SyncStateRepository for SqliteSyncStateRepository {
     fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
         delete_quarantine_on(&self.connection, record_id)
     }
+}
+
+fn load_full_resync_on(
+    connection: &Connection,
+) -> Result<Option<FullResyncProgress>, StorageError> {
+    let row = connection
+        .query_row(
+            "SELECT generation_id, phase, base_seq,
+                    base_cursor_collection, base_cursor_record_id,
+                    delta_cursor, closure_high_water,
+                    sweep_cursor_collection, sweep_cursor_record_id,
+                    started_at, updated_at
+             FROM sync_full_resync_state
+             WHERE singleton = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        generation_id,
+        phase,
+        base_seq,
+        base_cursor_collection,
+        base_cursor_record_id,
+        delta_cursor,
+        closure_high_water,
+        sweep_cursor_collection,
+        sweep_cursor_record_id,
+        started_at,
+        updated_at,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    let phase = match phase.as_str() {
+        "base" => FullResyncPhase::Base,
+        "delta" => FullResyncPhase::Delta,
+        "sweep" => FullResyncPhase::Sweep,
+        _ => return Err(StorageError::InvalidSyncState(phase)),
+    };
+    Ok(Some(FullResyncProgress {
+        generation_id: Uuid::parse_str(&generation_id)?,
+        phase,
+        base_seq,
+        base_cursor: parse_full_resync_cursor(base_cursor_collection, base_cursor_record_id)?,
+        delta_cursor,
+        closure_high_water,
+        sweep_cursor: parse_full_resync_cursor(sweep_cursor_collection, sweep_cursor_record_id)?,
+        started_at,
+        updated_at,
+    }))
+}
+
+fn parse_full_resync_cursor(
+    collection: Option<String>,
+    record_id: Option<String>,
+) -> Result<Option<FullResyncStableCursor>, StorageError> {
+    match (collection, record_id) {
+        (None, None) => Ok(None),
+        (Some(collection), Some(record_id)) => {
+            validate_sync_collection(&collection)?;
+            Ok(Some(FullResyncStableCursor {
+                collection,
+                record_id: Uuid::parse_str(&record_id)?,
+            }))
+        }
+        _ => Err(StorageError::IncompatibleSchema(
+            "full resync cursor is incomplete".to_string(),
+        )),
+    }
+}
+
+fn start_full_resync_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    base_seq: i64,
+    now_ms: i64,
+) -> Result<FullResyncProgress, StorageError> {
+    if base_seq < 0 {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync base sequence is negative".to_string(),
+        ));
+    }
+    if let Some(progress) = load_full_resync_on(connection)? {
+        return Ok(progress);
+    }
+    connection.execute(
+        "INSERT INTO sync_full_resync_state (
+             singleton, generation_id, phase, base_seq,
+             base_cursor_collection, base_cursor_record_id,
+             delta_cursor, closure_high_water,
+             sweep_cursor_collection, sweep_cursor_record_id,
+             started_at, updated_at
+         ) VALUES (1, ?1, 'base', ?2, NULL, NULL, ?2, NULL, NULL, NULL, ?3, ?3)",
+        params![generation_id.to_string(), base_seq, now_ms],
+    )?;
+    load_full_resync_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema("full resync state was not persisted".to_string())
+    })
+}
+
+fn require_full_resync(
+    connection: &Connection,
+    generation_id: Uuid,
+    expected_phase: FullResyncPhase,
+) -> Result<FullResyncProgress, StorageError> {
+    let progress = load_full_resync_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema("full resync state is missing".to_string())
+    })?;
+    if progress.generation_id != generation_id || progress.phase != expected_phase {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync generation or phase mismatch".to_string(),
+        ));
+    }
+    Ok(progress)
+}
+
+fn mark_full_resync_record_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<(), StorageError> {
+    validate_sync_collection(collection)?;
+    let progress = load_full_resync_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema("full resync state is missing".to_string())
+    })?;
+    if progress.generation_id != generation_id || progress.phase == FullResyncPhase::Sweep {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync mark does not belong to an active scan".to_string(),
+        ));
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO sync_full_resync_marks (
+             generation_id, collection, record_id
+         ) VALUES (?1, ?2, ?3)",
+        params![generation_id.to_string(), collection, record_id.to_string()],
+    )?;
+    Ok(())
+}
+
+fn advance_full_resync_base_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    next_cursor: Option<&FullResyncStableCursor>,
+    base_complete: bool,
+    now_ms: i64,
+) -> Result<(), StorageError> {
+    require_full_resync(connection, generation_id, FullResyncPhase::Base)?;
+    if let Some(cursor) = next_cursor {
+        validate_sync_collection(&cursor.collection)?;
+    }
+    if !base_complete && next_cursor.is_none() {
+        return Err(StorageError::IncompatibleSchema(
+            "incomplete base page has no continuation cursor".to_string(),
+        ));
+    }
+    let (collection, record_id) = next_cursor
+        .map(|cursor| {
+            (
+                Some(cursor.collection.as_str()),
+                Some(cursor.record_id.to_string()),
+            )
+        })
+        .unwrap_or((None, None));
+    let phase = if base_complete { "delta" } else { "base" };
+    connection.execute(
+        "UPDATE sync_full_resync_state
+         SET phase = ?2,
+             base_cursor_collection = ?3,
+             base_cursor_record_id = ?4,
+             updated_at = ?5
+         WHERE singleton = 1 AND generation_id = ?1",
+        params![
+            generation_id.to_string(),
+            phase,
+            collection,
+            record_id,
+            now_ms
+        ],
+    )?;
+    Ok(())
+}
+
+fn advance_full_resync_delta_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    delta_cursor: i64,
+    now_ms: i64,
+) -> Result<(), StorageError> {
+    let progress = require_full_resync(connection, generation_id, FullResyncPhase::Delta)?;
+    if delta_cursor < progress.delta_cursor {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync delta cursor moved backwards".to_string(),
+        ));
+    }
+    connection.execute(
+        "UPDATE sync_full_resync_state
+         SET delta_cursor = ?2, updated_at = ?3
+         WHERE singleton = 1 AND generation_id = ?1",
+        params![generation_id.to_string(), delta_cursor, now_ms],
+    )?;
+    Ok(())
+}
+
+fn enter_full_resync_sweep_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    closure_high_water: i64,
+    now_ms: i64,
+) -> Result<(), StorageError> {
+    let progress = require_full_resync(connection, generation_id, FullResyncPhase::Delta)?;
+    if closure_high_water < 0 || progress.delta_cursor != closure_high_water {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync delta has not reached closure high-water".to_string(),
+        ));
+    }
+    connection.execute(
+        "UPDATE sync_full_resync_state
+         SET phase = 'sweep', closure_high_water = ?2,
+             sweep_cursor_collection = NULL, sweep_cursor_record_id = NULL,
+             updated_at = ?3
+         WHERE singleton = 1 AND generation_id = ?1",
+        params![generation_id.to_string(), closure_high_water, now_ms],
+    )?;
+    Ok(())
+}
+
+fn sweep_full_resync_batch_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    limit: usize,
+    now_ms: i64,
+) -> Result<FullResyncSweepSummary, StorageError> {
+    if limit == 0 {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync sweep batch limit is zero".to_string(),
+        ));
+    }
+    let progress = require_full_resync(connection, generation_id, FullResyncPhase::Sweep)?;
+    let (after_order, after_record_id) = progress
+        .sweep_cursor
+        .as_ref()
+        .map(|cursor| {
+            Ok::<_, StorageError>((
+                Some(local_sweep_collection_order(&cursor.collection)?),
+                Some(cursor.record_id.to_string()),
+            ))
+        })
+        .transpose()?
+        .unwrap_or((None, None));
+    let limit = i64::try_from(limit)
+        .map_err(|_| StorageError::IncompatibleSchema("sweep limit exceeded i64".into()))?;
+    let mut statement = connection.prepare(
+        "SELECT collection, record_id
+         FROM sync_record_states
+         WHERE ?1 IS NULL
+            OR CASE collection WHEN 'tasks' THEN 0 ELSE 1 END > ?1
+            OR (
+                CASE collection WHEN 'tasks' THEN 0 ELSE 1 END = ?1
+                AND record_id > ?2
+            )
+         ORDER BY CASE collection WHEN 'tasks' THEN 0 ELSE 1 END ASC, record_id ASC
+         LIMIT ?3",
+    )?;
+    let records = statement
+        .query_map(params![after_order, after_record_id, limit], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+
+    let mut summary = FullResyncSweepSummary {
+        scanned_records: records.len(),
+        ..FullResyncSweepSummary::default()
+    };
+    for (collection, record_id) in &records {
+        let protected: bool = connection.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM sync_full_resync_marks
+                 WHERE generation_id = ?1 AND collection = ?2 AND record_id = ?3
+             ) OR EXISTS (
+                 SELECT 1 FROM sync_outbox WHERE collection = ?2 AND record_id = ?3
+             )",
+            params![generation_id.to_string(), collection, record_id],
+            |row| row.get(0),
+        )?;
+        if protected {
+            continue;
+        }
+        let record_uuid = Uuid::parse_str(record_id)?;
+        let has_dependent = match collection.as_str() {
+            // Parent links are not foreign keys. Delete this exact absent task;
+            // independently marked or outbox-protected children remain intact.
+            "tasks" => false,
+            "lists" => connection.query_row(
+                "SELECT EXISTS (SELECT 1 FROM tasks WHERE list_id = ?1)",
+                [record_id],
+                |row| row.get::<_, bool>(0),
+            )?,
+            other => return Err(StorageError::InvalidSyncCollection(other.to_string())),
+        };
+        if has_dependent {
+            continue;
+        }
+        match collection.as_str() {
+            "tasks" => {
+                connection.execute(
+                    "DELETE FROM task_undo_entries WHERE task_id = ?1",
+                    [record_id],
+                )?;
+                connection.execute("DELETE FROM reminders WHERE task_id = ?1", [record_id])?;
+                summary.swept_tasks +=
+                    connection.execute("DELETE FROM tasks WHERE id = ?1", [record_id])?;
+            }
+            "lists" => {
+                summary.swept_lists +=
+                    connection.execute("DELETE FROM lists WHERE id = ?1", [record_id])?;
+            }
+            _ => unreachable!(),
+        }
+        connection.execute(
+            "DELETE FROM sync_quarantine WHERE record_id = ?1",
+            [record_uuid.to_string()],
+        )?;
+        summary.swept_record_states += connection.execute(
+            "DELETE FROM sync_record_states WHERE collection = ?1 AND record_id = ?2",
+            params![collection, record_id],
+        )?;
+    }
+    if let Some((collection, record_id)) = records.last() {
+        connection.execute(
+            "UPDATE sync_full_resync_state
+             SET sweep_cursor_collection = ?2, sweep_cursor_record_id = ?3, updated_at = ?4
+             WHERE singleton = 1 AND generation_id = ?1",
+            params![generation_id.to_string(), collection, record_id, now_ms],
+        )?;
+    }
+    Ok(summary)
+}
+
+fn local_sweep_collection_order(collection: &str) -> Result<i64, StorageError> {
+    match collection {
+        "tasks" => Ok(0),
+        "lists" => Ok(1),
+        other => Err(StorageError::InvalidSyncCollection(other.to_string())),
+    }
+}
+
+fn finalize_full_resync_on(
+    connection: &Connection,
+    generation_id: Uuid,
+    cursor_name: &str,
+    now_ms: i64,
+) -> Result<i64, StorageError> {
+    let progress = require_full_resync(connection, generation_id, FullResyncPhase::Sweep)?;
+    let high_water = progress.closure_high_water.ok_or_else(|| {
+        StorageError::IncompatibleSchema("full resync closure high-water is missing".to_string())
+    })?;
+    let (after_order, after_record_id) = progress
+        .sweep_cursor
+        .as_ref()
+        .map(|cursor| {
+            Ok::<_, StorageError>((
+                local_sweep_collection_order(&cursor.collection)?,
+                cursor.record_id.to_string(),
+            ))
+        })
+        .transpose()?
+        .unwrap_or((-1, String::new()));
+    let has_more: bool = connection.query_row(
+        "SELECT EXISTS (
+             SELECT 1 FROM sync_record_states
+             WHERE CASE collection WHEN 'tasks' THEN 0 ELSE 1 END > ?1
+                OR (
+                    CASE collection WHEN 'tasks' THEN 0 ELSE 1 END = ?1
+                    AND record_id > ?2
+                )
+         )",
+        params![after_order, after_record_id],
+        |row| row.get(0),
+    )?;
+    if has_more {
+        return Err(StorageError::IncompatibleSchema(
+            "full resync sweep is incomplete".to_string(),
+        ));
+    }
+    set_cursor_on(connection, cursor_name, high_water, now_ms)?;
+    connection.execute(
+        "DELETE FROM sync_full_resync_marks WHERE generation_id = ?1",
+        [generation_id.to_string()],
+    )?;
+    connection.execute(
+        "DELETE FROM sync_full_resync_state WHERE singleton = 1 AND generation_id = ?1",
+        [generation_id.to_string()],
+    )?;
+    Ok(high_water)
 }
 
 fn get_cursor_on(connection: &Connection, name: &str) -> Result<Option<SyncCursor>, StorageError> {
@@ -7202,5 +7788,220 @@ mod tests {
             .list_pending_list_key_bundles(tenant_id, 10)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn full_resync_progress_and_marks_roll_back_together() {
+        let file = NamedTempFile::new().unwrap();
+        let generation_id = Uuid::now_v7();
+        let record_id = Uuid::now_v7();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 17, 100)
+            .unwrap();
+        transaction.rollback().unwrap();
+        let repository = SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(repository.load_full_resync().unwrap(), None);
+        drop(repository);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 17, 100)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .mark_full_resync_record(generation_id, "tasks", record_id)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 110)
+            .unwrap();
+        transaction.rollback().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let progress = load_full_resync_on(&connection).unwrap().unwrap();
+        assert_eq!(progress.phase, FullResyncPhase::Base);
+        let mark_count: i64 = connection
+            .query_row("SELECT count(*) FROM sync_full_resync_marks", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(mark_count, 0);
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 120)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .advance_full_resync_delta(generation_id, 18, 130)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 18, 131)
+            .unwrap();
+        transaction.rollback().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let progress = load_full_resync_on(&connection).unwrap().unwrap();
+        assert_eq!(progress.phase, FullResyncPhase::Delta);
+        assert_eq!(progress.delta_cursor, 17);
+        assert_eq!(progress.closure_high_water, None);
+    }
+
+    #[test]
+    fn full_resync_sweep_is_bounded_and_preserves_marks_and_unacked_outbox() {
+        let file = NamedTempFile::new().unwrap();
+        let list = sample_list("00000000000000010000000000000000");
+        let mut remote_task = sample_task();
+        remote_task.id = Uuid::now_v7();
+        remote_task.list_id = list.id;
+        remote_task.parent_task_id = None;
+        let mut pending_task = remote_task.clone();
+        pending_task.id = Uuid::now_v7();
+        let mut absent_task = remote_task.clone();
+        absent_task.id = Uuid::now_v7();
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        {
+            let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+            transaction.insert_list(list.clone()).unwrap();
+            for task in [&remote_task, &pending_task, &absent_task] {
+                transaction.insert_task(task.clone()).unwrap();
+                transaction
+                    .put_record_state(live_record_state(
+                        task.id,
+                        "tasks",
+                        Some("r1"),
+                        "m1",
+                        "{}",
+                        1,
+                    ))
+                    .unwrap();
+            }
+            transaction
+                .put_record_state(live_record_state(
+                    list.id,
+                    "lists",
+                    Some("r1"),
+                    "m1",
+                    "{}",
+                    1,
+                ))
+                .unwrap();
+            transaction
+                .put_outbox_head(new_live_outbox(
+                    pending_task.id,
+                    "tasks",
+                    Uuid::now_v7(),
+                    Some("r1"),
+                    "r2",
+                    "m2",
+                    vec![1],
+                ))
+                .unwrap();
+            transaction.commit().unwrap();
+        }
+
+        let generation_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction.start_full_resync(generation_id, 5, 10).unwrap();
+        transaction
+            .mark_full_resync_record(generation_id, "lists", list.id)
+            .unwrap();
+        transaction
+            .mark_full_resync_record(generation_id, "tasks", remote_task.id)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 11)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 5, 12)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        let rolled_back = transaction
+            .sweep_full_resync_batch(generation_id, 1, 19)
+            .unwrap();
+        assert_eq!(rolled_back.scanned_records, 1);
+        transaction.rollback().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let progress = load_full_resync_on(&connection).unwrap().unwrap();
+        assert_eq!(progress.sweep_cursor, None);
+        let state_count: i64 = connection
+            .query_row("SELECT count(*) FROM sync_record_states", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(state_count, 4);
+
+        let mut total = FullResyncSweepSummary::default();
+        for now in 20..30 {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            let batch = transaction
+                .sweep_full_resync_batch(generation_id, 1, now)
+                .unwrap();
+            transaction.commit().unwrap();
+            total.scanned_records += batch.scanned_records;
+            total.swept_lists += batch.swept_lists;
+            total.swept_tasks += batch.swept_tasks;
+            total.swept_record_states += batch.swept_record_states;
+            if batch.scanned_records == 0 {
+                break;
+            }
+        }
+        assert_eq!(total.scanned_records, 4);
+        assert_eq!(total.swept_tasks, 1);
+        assert_eq!(total.swept_record_states, 1);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        assert_eq!(
+            transaction
+                .finalize_full_resync(generation_id, "default", 30)
+                .unwrap(),
+            5
+        );
+        transaction.rollback().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(get_cursor_on(&connection, "default").unwrap(), None);
+        assert!(load_full_resync_on(&connection).unwrap().is_some());
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        assert_eq!(
+            transaction
+                .finalize_full_resync(generation_id, "default", 31)
+                .unwrap(),
+            5
+        );
+        transaction.commit().unwrap();
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert!(get_task_on(&connection, remote_task.id).is_ok());
+        assert!(get_task_on(&connection, pending_task.id).is_ok());
+        assert!(matches!(
+            get_task_on(&connection, absent_task.id),
+            Err(StorageError::NotFound(_))
+        ));
+        assert!(has_outbox_head_on(&connection, "tasks", pending_task.id).unwrap());
+        assert_eq!(
+            get_cursor_on(&connection, "default").unwrap().unwrap().seq,
+            5
+        );
+        assert_eq!(load_full_resync_on(&connection).unwrap(), None);
     }
 }

@@ -5,16 +5,17 @@ use todori_domain::{List, Task, Uuid};
 
 use crate::{
     account::{AccountClient, ListDekBundleDto},
-    decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc, PullRecord, PushOp,
-    PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext, SyncRunSummary,
-    LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
+    decrypt_plaintext, full_resync_reason, merge_lww, EncryptedSyncState, EnvelopeError, Hlc,
+    PullRecord, PushOp, PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext,
+    SyncRunSummary, LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+    TASKS_COLLECTION,
 };
 
 use crate::enqueue::{
     enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, observe_remote_hlc,
-    task_plaintext, LocalSyncAtomicStore, LocalSyncQuarantineEntry, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, PullFailureReason,
-    RebasePlaintextRequest, RebaseTombstoneRequest,
+    task_plaintext, LocalFullResyncPhase, LocalSyncAtomicStore, LocalSyncQuarantineEntry,
+    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
+    PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -22,6 +23,8 @@ const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
 const QUARANTINE_REPLAY_BATCH_LIMIT: usize = 100;
 const KEY_BUNDLE_UPLOAD_BATCH_LIMIT: usize = 100;
+const FULL_RESYNC_PAGE_LIMIT: i64 = 100;
+const FULL_RESYNC_SWEEP_BATCH_LIMIT: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ApplyDisposition {
@@ -118,11 +121,13 @@ where
     {
         return Err("upgrade required".to_string());
     }
-    match engine.preflight().await {
-        Ok(()) => {
+    let since = store.get_cursor_seq(SYNC_CURSOR_NAME)?.unwrap_or(0);
+    let preflight = match engine.preflight(since).await {
+        Ok(preflight) => {
             if durable_upgrade_block.is_some() {
                 store.set_setting(SYNC_UPGRADE_REQUIRED_SETTING_KEY, "0:0", now_ms()?)?;
             }
+            preflight
         }
         Err(SyncEngineError::UpgradeRequired {
             protocol_version,
@@ -136,7 +141,28 @@ where
             return Err("upgrade required".to_string());
         }
         Err(_) => return Err("sync failed".to_string()),
-    }
+    };
+    // Initial local rows must have durable outbox protection before any remote
+    // absence sweep. This hook is intentionally before key-bundle/entity push.
+    pre_push(store)?;
+
+    let replayable_before_resync = !store.list_replayable_quarantine(None, 1)?.is_empty();
+    let ran_full_resync = store.load_full_resync()?.is_some()
+        || preflight.full_resync_required
+        || full_resync_reason(since, preflight.gc_horizon_seq).is_some();
+    let refreshed_in_full_resync = if ran_full_resync {
+        run_full_resync(
+            &engine,
+            &mut context,
+            store,
+            now_ms,
+            key_refresher,
+            &mut summary,
+        )
+        .await?
+    } else {
+        false
+    };
 
     loop {
         let pending = store
@@ -170,21 +196,24 @@ where
         }
     }
 
-    pre_push(store)?;
-
-    if !store.list_replayable_quarantine(None, 1)?.is_empty() {
-        context.keys = key_refresher.refresh().await?;
-    }
-    if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
-        if let Some(envelope_version) = replay_upgrade_version(&error) {
-            store.set_setting(
-                SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
-                now_ms()?,
-            )?;
-            return Err("upgrade required".to_string());
+    // A full resync already retried missing-key records once and classified
+    // the remaining failures durably. Replaying them immediately would issue
+    // the same key refresh twice in one run without any new server state.
+    if !ran_full_resync || replayable_before_resync {
+        if !refreshed_in_full_resync && !store.list_replayable_quarantine(None, 1)?.is_empty() {
+            context.keys = key_refresher.refresh().await?;
         }
-        return Err(error);
+        if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
+            if let Some(envelope_version) = replay_upgrade_version(&error) {
+                store.set_setting(
+                    SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                    &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
+                    now_ms()?,
+                )?;
+                return Err("upgrade required".to_string());
+            }
+            return Err(error);
+        }
     }
 
     for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
@@ -275,9 +304,6 @@ where
             .pull_page(since, 100)
             .await
             .map_err(|_| "sync failed".to_string())?;
-        if page.records.is_empty() {
-            break;
-        }
         match apply_pull_page(&page, &context, store, now_ms, false) {
             Ok(page_summary) => merge_summary(&mut summary, page_summary),
             Err(PageApplyError::MissingKey) => {
@@ -318,6 +344,311 @@ where
     Ok(summary)
 }
 
+async fn run_full_resync<S, N, R>(
+    engine: &SyncEngine,
+    context: &mut ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    key_refresher: &mut R,
+    summary: &mut SyncRunSummary,
+) -> Result<bool, String>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+    R: SyncKeyRefresher,
+{
+    let mut refreshed_keys = false;
+    if store
+        .load_full_resync()
+        .map_err(|_| "sync failed".to_string())?
+        .is_none()
+    {
+        let base_seq = engine
+            .begin_full_resync()
+            .await
+            .map_err(|_| "sync failed".to_string())?;
+        let mut transaction = store
+            .begin_write_transaction()
+            .map_err(|_| "sync failed".to_string())?;
+        transaction
+            .start_full_resync(Uuid::now_v7(), base_seq, now_ms()?)
+            .map_err(|_| "sync failed".to_string())?;
+        transaction
+            .commit()
+            .map_err(|_| "sync failed".to_string())?;
+    }
+
+    loop {
+        let progress = store
+            .load_full_resync()
+            .map_err(|_| "sync failed".to_string())?
+            .ok_or_else(|| "sync failed".to_string())?;
+        match progress.phase {
+            LocalFullResyncPhase::Base => {
+                let page = engine
+                    .scan_base_page(progress.base_cursor.as_ref(), FULL_RESYNC_PAGE_LIMIT)
+                    .await
+                    .map_err(|_| "sync failed".to_string())?;
+                if page.has_more && page.next_cursor.is_none() {
+                    return Err("sync failed".to_string());
+                }
+                let base_complete = !page.has_more;
+                let page_updated_at = now_ms()?;
+                let apply = apply_full_resync_page(
+                    &page.records,
+                    context,
+                    store,
+                    now_ms,
+                    false,
+                    |transaction| {
+                        transaction.advance_full_resync_base(
+                            progress.generation_id,
+                            page.next_cursor.as_ref(),
+                            base_complete,
+                            page_updated_at,
+                        )
+                    },
+                );
+                let page_summary = match apply {
+                    Ok(summary) => summary,
+                    Err(PageApplyError::MissingKey) => {
+                        context.keys = key_refresher.refresh().await?;
+                        refreshed_keys = true;
+                        match apply_full_resync_page(
+                            &page.records,
+                            context,
+                            store,
+                            now_ms,
+                            true,
+                            |transaction| {
+                                transaction.advance_full_resync_base(
+                                    progress.generation_id,
+                                    page.next_cursor.as_ref(),
+                                    base_complete,
+                                    page_updated_at,
+                                )
+                            },
+                        ) {
+                            Ok(summary) => summary,
+                            Err(PageApplyError::UpgradeRequired(version)) => {
+                                persist_full_resync_upgrade_block(store, now_ms, version)?;
+                                return Err("upgrade required".to_string());
+                            }
+                            Err(error) => return Err(page_apply_error_to_string(error)),
+                        }
+                    }
+                    Err(PageApplyError::UpgradeRequired(version)) => {
+                        persist_full_resync_upgrade_block(store, now_ms, version)?;
+                        return Err("upgrade required".to_string());
+                    }
+                    Err(error) => return Err(page_apply_error_to_string(error)),
+                };
+                merge_summary(summary, page_summary);
+            }
+            LocalFullResyncPhase::Delta => {
+                let page = engine
+                    .pull_page(progress.delta_cursor, FULL_RESYNC_PAGE_LIMIT)
+                    .await
+                    .map_err(|_| "sync failed".to_string())?;
+                let reached_closure = page.reached_closure();
+                let page_updated_at = now_ms()?;
+                let apply = apply_full_resync_page(
+                    &page.records,
+                    context,
+                    store,
+                    now_ms,
+                    false,
+                    |transaction| {
+                        transaction.advance_full_resync_delta(
+                            progress.generation_id,
+                            page.next_since,
+                            page_updated_at,
+                        )?;
+                        if reached_closure {
+                            transaction.enter_full_resync_sweep(
+                                progress.generation_id,
+                                page.high_water,
+                                page_updated_at,
+                            )?;
+                        }
+                        Ok(())
+                    },
+                );
+                let page_summary = match apply {
+                    Ok(summary) => summary,
+                    Err(PageApplyError::MissingKey) => {
+                        context.keys = key_refresher.refresh().await?;
+                        refreshed_keys = true;
+                        match apply_full_resync_page(
+                            &page.records,
+                            context,
+                            store,
+                            now_ms,
+                            true,
+                            |transaction| {
+                                transaction.advance_full_resync_delta(
+                                    progress.generation_id,
+                                    page.next_since,
+                                    page_updated_at,
+                                )?;
+                                if reached_closure {
+                                    transaction.enter_full_resync_sweep(
+                                        progress.generation_id,
+                                        page.high_water,
+                                        page_updated_at,
+                                    )?;
+                                }
+                                Ok(())
+                            },
+                        ) {
+                            Ok(summary) => summary,
+                            Err(PageApplyError::UpgradeRequired(version)) => {
+                                persist_full_resync_upgrade_block(store, now_ms, version)?;
+                                return Err("upgrade required".to_string());
+                            }
+                            Err(error) => return Err(page_apply_error_to_string(error)),
+                        }
+                    }
+                    Err(PageApplyError::UpgradeRequired(version)) => {
+                        persist_full_resync_upgrade_block(store, now_ms, version)?;
+                        return Err("upgrade required".to_string());
+                    }
+                    Err(error) => return Err(page_apply_error_to_string(error)),
+                };
+                merge_summary(summary, page_summary);
+            }
+            LocalFullResyncPhase::Sweep => {
+                let mut transaction = store
+                    .begin_write_transaction()
+                    .map_err(|_| "sync failed".to_string())?;
+                let swept = transaction
+                    .sweep_full_resync_batch(
+                        progress.generation_id,
+                        FULL_RESYNC_SWEEP_BATCH_LIMIT,
+                        now_ms()?,
+                    )
+                    .map_err(|_| "sync failed".to_string())?;
+                transaction
+                    .commit()
+                    .map_err(|_| "sync failed".to_string())?;
+                summary.deleted_count += swept.swept_lists + swept.swept_tasks;
+                if swept.scanned_records == 0 {
+                    let mut transaction = store
+                        .begin_write_transaction()
+                        .map_err(|_| "sync failed".to_string())?;
+                    transaction
+                        .finalize_full_resync(progress.generation_id, SYNC_CURSOR_NAME, now_ms()?)
+                        .map_err(|_| "sync failed".to_string())?;
+                    transaction
+                        .commit()
+                        .map_err(|_| "sync failed".to_string())?;
+                    return Ok(refreshed_keys);
+                }
+            }
+        }
+    }
+}
+
+fn persist_full_resync_upgrade_block<S, N>(
+    store: &mut S,
+    now_ms: &mut N,
+    envelope_version: u8,
+) -> Result<(), String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    store.set_setting(
+        SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+        &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
+        now_ms()?,
+    )
+}
+
+fn apply_full_resync_page<S, N, F>(
+    records: &[PullRecord],
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    quarantine_missing: bool,
+    finish: F,
+) -> Result<SyncRunSummary, PageApplyError>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+    F: FnOnce(&mut S::WriteTransaction) -> Result<(), String>,
+{
+    let progress = store
+        .load_full_resync()
+        .map_err(|_| PageApplyError::Hard)?
+        .ok_or(PageApplyError::Hard)?;
+    let mut transaction = store
+        .begin_write_transaction()
+        .map_err(|_| PageApplyError::Hard)?;
+    let mut page_summary = SyncRunSummary {
+        pulled_count: records.len(),
+        ..SyncRunSummary::default()
+    };
+    for record in records {
+        let disposition =
+            apply_pull_record(record, context, &mut transaction, now_ms, &mut page_summary)
+                .map_err(|_| PageApplyError::Hard)?;
+        match disposition {
+            ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => {
+                if transaction
+                    .delete_quarantine(record.record_id)
+                    .map_err(|_| PageApplyError::Hard)?
+                {
+                    page_summary.resolved_quarantine_count += 1;
+                }
+            }
+            ApplyDisposition::Deferred(reason, required_list_id) => {
+                if matches!(
+                    reason,
+                    PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+                ) && !quarantine_missing
+                {
+                    return Err(PageApplyError::MissingKey);
+                }
+                let failed_at = now_ms().map_err(|_| PageApplyError::Hard)?;
+                transaction
+                    .put_quarantine(LocalSyncQuarantineEntry {
+                        record_id: record.record_id,
+                        collection: record.collection,
+                        seq: record.seq,
+                        revision_hlc: record.revision_hlc.clone(),
+                        state: record.state.clone(),
+                        reason,
+                        required_list_id,
+                        first_failed_at: failed_at,
+                        last_failed_at: failed_at,
+                        attempt_count: 1,
+                    })
+                    .map_err(|_| PageApplyError::Hard)?;
+                page_summary.decrypt_failed_count += 1;
+                if matches!(
+                    reason,
+                    PullFailureReason::MissingDek | PullFailureReason::NoMatchingDek
+                ) {
+                    page_summary.missing_key_quarantined_count += 1;
+                } else {
+                    page_summary.corruption_quarantined_count += 1;
+                }
+            }
+            ApplyDisposition::UpgradeRequired(version) => {
+                return Err(PageApplyError::UpgradeRequired(version));
+            }
+        }
+        // Server presence is independent of decrypt/quarantine success.
+        transaction
+            .mark_full_resync_record(progress.generation_id, record.collection, record.record_id)
+            .map_err(|_| PageApplyError::Hard)?;
+    }
+    finish(&mut transaction).map_err(|_| PageApplyError::Hard)?;
+    transaction.commit().map_err(|_| PageApplyError::Hard)?;
+    Ok(page_summary)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PageApplyError {
     MissingKey,
@@ -344,7 +675,7 @@ fn merge_summary(target: &mut SyncRunSummary, page: SyncRunSummary) {
 }
 
 fn apply_pull_page<S, N>(
-    page: &crate::PullPage,
+    page: &crate::DeltaPage,
     context: &ActiveSyncContext,
     store: &mut S,
     now_ms: &mut N,

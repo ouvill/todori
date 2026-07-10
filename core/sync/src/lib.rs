@@ -14,14 +14,15 @@ pub mod hlc;
 pub mod keys;
 pub mod merge;
 pub mod protocol;
+pub mod resync;
 
 pub use apply::{
     run_sync_now, run_sync_now_with_key_refresh, run_sync_now_with_key_refresh_and_pre_push,
     ActiveSyncContext, SyncKeyRefresher,
 };
 pub use engine::{
-    EncryptedSyncState, PullPage, PullRecord, PushBatchOutcome, PushOp, PushOpOutcome, PushStatus,
-    SyncEngine, SyncEngineError, SyncRunSummary,
+    BasePage, DeltaPage, EncryptedSyncState, PreflightResult, PullRecord, PushBatchOutcome, PushOp,
+    PushOpOutcome, PushStatus, StableCursor, SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
     enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary,
@@ -43,6 +44,7 @@ pub use keys::{
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;
+pub use resync::{delta_reached_closure, full_resync_reason, FullResyncReason};
 
 #[cfg(test)]
 mod convergence_tests {

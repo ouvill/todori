@@ -11,6 +11,13 @@ pub const SYNC_PROTOCOL_VERSION: u16 = 2;
 pub struct SyncCapabilities {
     pub protocol_version: u16,
     pub envelope_version: u8,
+    pub gc_horizon_seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResyncStartResponse {
+    pub base_seq: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -112,6 +119,22 @@ pub enum PushStatus {
 pub struct PullResponse {
     pub records: Vec<SyncRecord>,
     pub next_since: i64,
+    pub has_more: bool,
+    pub high_water: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StableRecordCursor {
+    pub collection: SyncCollection,
+    pub record_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BaseScanResponse {
+    pub records: Vec<SyncRecord>,
+    pub next_cursor: Option<StableRecordCursor>,
     pub has_more: bool,
 }
 

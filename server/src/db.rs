@@ -22,5 +22,8 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     ))
     .execute(pool)
     .await?;
+    raw_sql(include_str!("../migrations/202607100002_fuzzy_resync.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }

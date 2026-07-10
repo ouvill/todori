@@ -2,16 +2,19 @@ use std::path::{Path, PathBuf};
 
 use todori_domain::{List, Task, Uuid};
 use todori_storage::{
-    open_encrypted, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx, PendingListKeyBundle,
-    SettingsRepository, SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
-    SqliteTaskRepository, StorageError, SyncOutboxState, SyncQuarantineEntry,
-    SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
+    open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
+    FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
+    PendingListKeyBundle, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
+    SqliteSyncStateRepository, SqliteTaskRepository, StorageError, SyncOutboxState,
+    SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState, SyncStateRepository,
+    TaskRepository,
 };
 use todori_sync::{
+    enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
     EncryptedSyncState, LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore,
     LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
     LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
-    SyncCollection,
+    StableCursor, SyncCollection,
 };
 
 pub struct SqliteSyncStore {
@@ -125,6 +128,15 @@ impl LocalMutationSyncStore for SqliteSyncStore {
 }
 
 impl LocalSyncStore for SqliteSyncStore {
+    fn load_full_resync(&mut self) -> Result<Option<LocalFullResyncProgress>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .load_full_resync()
+                .map(|progress| progress.map(storage_resync_to_local))
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn list_pending_list_key_bundles(
         &mut self,
         tenant_id: Uuid,
@@ -377,6 +389,13 @@ impl LocalMutationSyncStore for SqliteSyncWriteTx {
 }
 
 impl LocalSyncStore for SqliteSyncWriteTx {
+    fn load_full_resync(&mut self) -> Result<Option<LocalFullResyncProgress>, String> {
+        self.transaction
+            .load_full_resync()
+            .map(|progress| progress.map(storage_resync_to_local))
+            .map_err(|error| error.to_string())
+    }
+
     fn ack_pending_list_key_bundle(
         &mut self,
         tenant_id: Uuid,
@@ -500,11 +519,134 @@ impl LocalSyncStore for SqliteSyncWriteTx {
 }
 
 impl LocalSyncWriteTransaction for SqliteSyncWriteTx {
+    fn start_full_resync(
+        &mut self,
+        generation_id: Uuid,
+        base_seq: i64,
+        now_ms: i64,
+    ) -> Result<LocalFullResyncProgress, String> {
+        self.transaction
+            .start_full_resync(generation_id, base_seq, now_ms)
+            .map(storage_resync_to_local)
+            .map_err(|error| error.to_string())
+    }
+
+    fn mark_full_resync_record(
+        &mut self,
+        generation_id: Uuid,
+        collection: SyncCollection,
+        record_id: Uuid,
+    ) -> Result<(), String> {
+        self.transaction
+            .mark_full_resync_record(generation_id, collection.as_str(), record_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn advance_full_resync_base(
+        &mut self,
+        generation_id: Uuid,
+        next_cursor: Option<&StableCursor>,
+        base_complete: bool,
+        now_ms: i64,
+    ) -> Result<(), String> {
+        let cursor = next_cursor.map(local_cursor_to_storage);
+        self.transaction
+            .advance_full_resync_base(generation_id, cursor.as_ref(), base_complete, now_ms)
+            .map_err(|error| error.to_string())
+    }
+
+    fn advance_full_resync_delta(
+        &mut self,
+        generation_id: Uuid,
+        delta_cursor: i64,
+        now_ms: i64,
+    ) -> Result<(), String> {
+        self.transaction
+            .advance_full_resync_delta(generation_id, delta_cursor, now_ms)
+            .map_err(|error| error.to_string())
+    }
+
+    fn enter_full_resync_sweep(
+        &mut self,
+        generation_id: Uuid,
+        closure_high_water: i64,
+        now_ms: i64,
+    ) -> Result<(), String> {
+        self.transaction
+            .enter_full_resync_sweep(generation_id, closure_high_water, now_ms)
+            .map_err(|error| error.to_string())
+    }
+
+    fn sweep_full_resync_batch(
+        &mut self,
+        generation_id: Uuid,
+        limit: usize,
+        now_ms: i64,
+    ) -> Result<LocalFullResyncSweepSummary, String> {
+        self.transaction
+            .sweep_full_resync_batch(generation_id, limit, now_ms)
+            .map(storage_sweep_to_local)
+            .map_err(|error| error.to_string())
+    }
+
+    fn finalize_full_resync(
+        &mut self,
+        generation_id: Uuid,
+        cursor_name: &str,
+        now_ms: i64,
+    ) -> Result<i64, String> {
+        self.transaction
+            .finalize_full_resync(generation_id, cursor_name, now_ms)
+            .map_err(|error| error.to_string())
+    }
+
     fn commit(self) -> Result<(), String> {
         self.transaction
             .commit()
             .map(|_| ())
             .map_err(|error| error.to_string())
+    }
+}
+
+fn storage_resync_to_local(progress: FullResyncProgress) -> LocalFullResyncProgress {
+    LocalFullResyncProgress {
+        generation_id: progress.generation_id,
+        phase: match progress.phase {
+            FullResyncPhase::Base => LocalFullResyncPhase::Base,
+            FullResyncPhase::Delta => LocalFullResyncPhase::Delta,
+            FullResyncPhase::Sweep => LocalFullResyncPhase::Sweep,
+        },
+        base_seq: progress.base_seq,
+        base_cursor: progress.base_cursor.map(storage_cursor_to_local),
+        delta_cursor: progress.delta_cursor,
+        closure_high_water: progress.closure_high_water,
+        sweep_cursor: progress.sweep_cursor.map(storage_cursor_to_local),
+    }
+}
+
+fn storage_cursor_to_local(cursor: FullResyncStableCursor) -> StableCursor {
+    StableCursor {
+        collection: cursor
+            .collection
+            .parse()
+            .expect("storage validates full resync cursor collection"),
+        record_id: cursor.record_id,
+    }
+}
+
+fn local_cursor_to_storage(cursor: &StableCursor) -> FullResyncStableCursor {
+    FullResyncStableCursor {
+        collection: cursor.collection.to_string(),
+        record_id: cursor.record_id,
+    }
+}
+
+fn storage_sweep_to_local(summary: FullResyncSweepSummary) -> LocalFullResyncSweepSummary {
+    LocalFullResyncSweepSummary {
+        scanned_records: summary.scanned_records,
+        swept_lists: summary.swept_lists,
+        swept_tasks: summary.swept_tasks,
+        swept_record_states: summary.swept_record_states,
     }
 }
 
@@ -691,4 +833,95 @@ fn with_list_repository<T>(
     let connection = open_encrypted(db_path, db_key).map_err(|error| error.to_string())?;
     let mut repository = SqliteListRepository::new(connection);
     f(&mut repository)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use todori_domain::new_list;
+    use todori_storage::ListRepository;
+    use todori_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
+
+    const DB_KEY: [u8; 32] = [0x51; 32];
+
+    #[test]
+    fn transactional_seed_rolls_back_and_committed_seed_survives_absence_sweep() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("profile.sqlite3");
+        let list = new_list(
+            "Local".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1,
+        )
+        .unwrap();
+        let mut repository = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        repository.insert(list.clone()).unwrap();
+        drop(repository);
+
+        let keys = LocalSyncKeys {
+            list_deks: vec![(list.id, [0x33; 32])],
+        };
+        let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
+        let mut now = || Ok(10);
+        {
+            let mut transaction = store.begin_write_transaction().unwrap();
+            enqueue_backfill(
+                &mut transaction,
+                &keys,
+                "device",
+                std::slice::from_ref(&list),
+                &[],
+                &mut now,
+            )
+            .unwrap();
+            // Simulate a crash before the seed generation commits.
+        }
+        assert!(store.list_outbox_heads(10).unwrap().is_empty());
+
+        let mut transaction = store.begin_write_transaction().unwrap();
+        enqueue_backfill(
+            &mut transaction,
+            &keys,
+            "device",
+            std::slice::from_ref(&list),
+            &[],
+            &mut now,
+        )
+        .unwrap();
+        transaction.set_cursor("initial_backfill", 1, 11).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(store.list_outbox_heads(10).unwrap().len(), 1);
+
+        let generation_id = Uuid::now_v7();
+        let mut transaction = store.begin_write_transaction().unwrap();
+        transaction.start_full_resync(generation_id, 0, 20).unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 21)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 0, 22)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        loop {
+            let mut transaction = store.begin_write_transaction().unwrap();
+            let swept = transaction
+                .sweep_full_resync_batch(generation_id, 1, 23)
+                .unwrap();
+            transaction.commit().unwrap();
+            if swept.scanned_records == 0 {
+                break;
+            }
+        }
+        let mut transaction = store.begin_write_transaction().unwrap();
+        transaction
+            .finalize_full_resync(generation_id, SYNC_CURSOR_NAME, 24)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        assert_eq!(store.list_outbox_heads(10).unwrap().len(), 1);
+        assert!(store.get_list(list.id).unwrap().is_some());
+        assert_eq!(store.get_cursor_seq(SYNC_CURSOR_NAME).unwrap(), Some(0));
+    }
 }

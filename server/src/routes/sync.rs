@@ -14,7 +14,10 @@ use crate::{
 };
 use todori_sync::{
     account::ListDekBundleDto,
-    protocol::{PullResponse, PushRequest, PushResponse},
+    protocol::{
+        BaseScanResponse, PullResponse, PushRequest, PushResponse, ResyncStartResponse,
+        StableRecordCursor, SyncCollection,
+    },
 };
 
 pub fn router() -> Router<SharedState> {
@@ -22,6 +25,8 @@ pub fn router() -> Router<SharedState> {
         .route("/{tenant_id}/preflight", get(preflight))
         .route("/{tenant_id}/push", post(push))
         .route("/{tenant_id}/pull", get(pull))
+        .route("/{tenant_id}/resync/start", post(begin_full_resync))
+        .route("/{tenant_id}/resync/base", get(scan_base))
         .route(
             "/{tenant_id}/list-keys",
             get(list_key_bundles).post(upsert_list_key_bundle),
@@ -31,20 +36,65 @@ pub fn router() -> Router<SharedState> {
 async fn preflight(
     State(state): State<SharedState>,
     Path(tenant_id): Path<Uuid>,
+    Query(query): Query<PreflightQuery>,
     headers: HeaderMap,
 ) -> Result<Json<todori_sync::protocol::SyncCapabilities>, AppError> {
     let token = bearer_token(&headers)?;
     let _auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
-    Ok(Json(todori_sync::protocol::SyncCapabilities {
-        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
-        envelope_version: todori_sync::ENVELOPE_VERSION,
-    }))
+    sync::preflight(&state.pool, tenant_id, query.since)
+        .await
+        .map(Json)
+}
+
+#[derive(Debug, Deserialize)]
+struct PreflightQuery {
+    since: i64,
 }
 
 #[derive(Debug, Deserialize)]
 struct PullQuery {
     since: i64,
     limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BaseScanQuery {
+    after_collection: Option<SyncCollection>,
+    after_record_id: Option<Uuid>,
+    limit: Option<i64>,
+}
+
+async fn begin_full_resync(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<ResyncStartResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let _auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    sync::begin_full_resync(&state.pool, tenant_id)
+        .await
+        .map(Json)
+}
+
+async fn scan_base(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    Query(query): Query<BaseScanQuery>,
+    headers: HeaderMap,
+) -> Result<Json<BaseScanResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let _auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let cursor = match (query.after_collection, query.after_record_id) {
+        (None, None) => None,
+        (Some(collection), Some(record_id)) => Some(StableRecordCursor {
+            collection,
+            record_id,
+        }),
+        _ => return Err(AppError::bad_request("incomplete base cursor")),
+    };
+    sync::scan_base(&state.pool, tenant_id, cursor, query.limit)
+        .await
+        .map(Json)
 }
 
 async fn push(
