@@ -1,10 +1,14 @@
 //! `todori` CLI。
 //!
-//! `core` crate群を通じてローカルの暗号化DBへ直接アクセスする設計だが
+//! `todori-client`の共通profile APIを通じてローカルの暗号化DBへ直接アクセスする設計だが
 //! （`docs/03_技術仕様書.md` §8.1, §8.3）、DB統合前の現段階ではスタブとして
 //! サブコマンドの受け口のみを提供する。
 
 use clap::{Parser, Subcommand};
+
+// `todori-client`をfrontend共通入口としてcompile時にも固定する。実際の
+// profile openとsubcommand接続はOS secret store実装後の後続taskで行う。
+use todori_client as _;
 
 #[derive(Parser)]
 #[command(name = "todori", version, about = "Todori: E2EE Todo CLI")]

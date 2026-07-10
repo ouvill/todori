@@ -36,7 +36,8 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `core/domain` ── 純粋ロジック・ユースケース（リスト/タスク操作、ステータス遷移、サブタスク制約検証等）
 - `core/crypto` ── OPAQUE PoC、AEAD、HKDF、Device Key
 - `core/storage` ── SQLCipher + rusqlite。`TaskRepository` / `ListRepository`
-- `core/sync` ── 未実装（雛形のみ）
+- `core/client` ── package `todori-client` / crate `todori_client`。Flutter / CLI / MCPが共有する唯一のprofile・application service入口
+- `core/sync` ── frontend非依存の同期protocol、state machine、暗号record処理
 - `app/` ── Flutterアプリ本体
 - `app/rust` ── flutter_rust_bridge用のブリッジcrate（crate名 `todori_app_bridge`）
 - `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
@@ -53,6 +54,7 @@ cargo test --workspace
 cd app && flutter analyze
 cd app && flutter test        # 事前に: cd app/rust && env CARGO_TARGET_DIR=target cargo build --release
 sh app/tool/check_hardcoded_strings.sh
+sh app/tool/check_client_boundaries.sh
 ```
 
 ## 開発規約
@@ -62,6 +64,8 @@ sh app/tool/check_hardcoded_strings.sh
 - UI文字列は必ずARB化する（`app/lib/l10n/app_en.arb` + `app_ja.arb`）。文字列の直書きは `app/tool/check_hardcoded_strings.sh` が検出する。
 - 状態管理はRiverpod 3.x（`AsyncNotifier` + `invalidateSelf`）を用いる。`riverpod_generator` は使わない。ルーティングは `go_router` を用い、ルート定義は `app/lib/src/router.dart` に集約する。
 - 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
+- `core/` はcrate群の配置ディレクトリでありcrate名ではない。Cargo packageは `todori-<role>`、Rust crate名は `todori_<role>` とし、bare `core` package/lib、dependency alias、曖昧なumbrella crateを作らない。`todori_app_bridge`だけはCargo / pod / FRB stemの固定契約として例外とする。
+- Flutter bridge、CLI、MCPのTodori共通入口は `todori-client` とする。frontend adapterから `todori-crypto` / `todori-domain` / `todori-storage` / `todori-sync`へ直接依存せず、repository、暗号鍵、同期coordinatorを保持しない。task-91時点で残る`app/rust/src/api.rs` / `support.rs`は期限付き移行負債であり、新しい責務を追加してはならない。新しい共通機能は先に `core/client` のfrontend-neutral APIとして実装する。詳細は `docs/dev/client-profile-architecture.md` を参照する。
 - 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。標準・重要変更は実装着手時に指示書へ昇格し、`docs/tasks/PLAYBOOK.md` のフェーズを通す。`## 9. 完了報告` は実装結果と独立検証の共同記録とする。候補段階や軽量作業ではtask文書を作らない。
 
 ## 環境

@@ -11,5 +11,4 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
-todori-domain.workspace = true
-todori-storage.workspace = true
+todori-client.workspace = true

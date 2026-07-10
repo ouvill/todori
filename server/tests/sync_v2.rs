@@ -23,10 +23,9 @@ use testcontainers_modules::{
     postgres,
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
-use todori_app_bridge::BridgeSyncStore;
 use todori_client::{
     persist_local_crypto_context, Client, LocalCryptoIdentity, LocalMutationContext,
-    UpdateTaskInput,
+    SqliteSyncStore, UpdateTaskInput,
 };
 use todori_server::{
     auth::AuthContext,
@@ -241,7 +240,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             .await;
     }
 
-    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
     let mut key_refresher = TestKeyRefresher {
         calls: 0,
         keys: LocalSyncKeys {
@@ -386,7 +385,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
     );
 
     let failed_path = temp.path().join("refresh-failure.sqlite3");
-    let mut failed_store = BridgeSyncStore::new(failed_path.clone(), DB_KEY);
+    let mut failed_store = SqliteSyncStore::new(failed_path.clone(), DB_KEY);
     let mut failed_refresher = TestKeyRefresher {
         calls: 0,
         keys: LocalSyncKeys::default(),
@@ -437,7 +436,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             .unwrap()
             .execute_batch(&trigger)
             .unwrap();
-        let mut matrix_store = BridgeSyncStore::new(matrix_path.clone(), DB_KEY);
+        let mut matrix_store = SqliteSyncStore::new(matrix_path.clone(), DB_KEY);
         let mut matrix_refresher = TestKeyRefresher {
             calls: 0,
             keys: LocalSyncKeys {
@@ -524,7 +523,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         })
         .await;
     let unknown_path = temp.path().join("unknown-envelope.sqlite3");
-    let mut unknown_store = BridgeSyncStore::new(unknown_path.clone(), DB_KEY);
+    let mut unknown_store = SqliteSyncStore::new(unknown_path.clone(), DB_KEY);
     let unknown_context = ActiveSyncContext {
         device_id: "unknown-client".to_string(),
         keys: LocalSyncKeys {
@@ -629,7 +628,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
         .unwrap();
     drop(repository);
 
-    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
     let mut refresher = TestKeyRefresher {
         calls: 0,
         keys: LocalSyncKeys {
@@ -738,7 +737,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
         session_token: "token".to_string(),
         keys: LocalSyncKeys::default(),
     };
-    let mut store = BridgeSyncStore::new(db_path.clone(), DB_KEY);
+    let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
     let mut now = || Ok(Utc::now().timestamp_millis());
     assert_eq!(
         run_sync_now(context.clone(), &mut store, &mut now).await,
@@ -827,7 +826,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     let todori_client::LocalCryptoAvailability::Ready(local_context) = local_context else {
         panic!("local crypto context");
     };
-    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut clock = now + 100;
     let mut ticking_now = || {
         clock += 1;
@@ -842,7 +841,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     };
     let pre_push_calls = Arc::new(AtomicUsize::new(0));
     let pre_push_counter = pre_push_calls.clone();
-    let mut pre_push = |store: &mut BridgeSyncStore| {
+    let mut pre_push = |store: &mut SqliteSyncStore| {
         assert!(store
             .list_pending_list_key_bundles(fixture.tenant_id, 10)?
             .is_empty());
@@ -938,7 +937,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
             .map(|material| (Uuid::parse_str(&material.list_id).unwrap(), *material.dek))
             .collect(),
     };
-    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
     run_sync_now(
         ActiveSyncContext {
             server_url,
@@ -1020,7 +1019,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
         clock += 1;
         Ok(clock)
     };
-    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     run_sync_now(
         context("production-client-a", sync_a.keys.clone()),
         &mut store_a,
@@ -1028,7 +1027,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     )
     .await
     .unwrap();
-    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
     run_sync_now(
         context("production-client-b", sync_b.keys.clone()),
         &mut store_b,
@@ -1167,8 +1166,8 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         clock += 1;
         Ok(clock)
     };
-    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
-    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
     run_sync_now(
         context("rank-client-a", sync_a.keys.clone()),
         &mut store_a,

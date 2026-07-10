@@ -30,7 +30,6 @@ http.workspace = true
 testcontainers-modules.workspace = true
 tempfile.workspace = true
 todori-client.workspace = true
-todori_app_bridge = { path = "../app/rust" }
 todori-domain.workspace = true
 todori-storage.workspace = true
 tower.workspace = true
