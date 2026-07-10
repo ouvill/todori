@@ -3,11 +3,24 @@
 //! This crate is the shared entry point for Flutter, CLI, and MCP. It owns
 //! transaction boundaries that span domain rows and local sync bookkeeping.
 //!
-//! Frontends must enter through [`ClientProfile`]. Low-level storage and sync
+//! Frontends must enter through [`TodoriClient`]. Low-level storage and sync
 //! orchestration types are deliberately not part of the normal public API:
 //!
+//! ```no_run
+//! use todori_client::{LocalProfileConfig, TodoriClient};
+//!
+//! let client = TodoriClient::open(LocalProfileConfig::new("/tmp/todori", "Inbox"))?;
+//! # Ok::<(), todori_client::ClientError>(())
+//! ```
+//!
+//! The superseded pre-release names are intentionally unavailable:
+//!
 //! ```compile_fail
-//! use todori_client::Client;
+//! use todori_client::{ClientProfile, ProfileConfig};
+//! ```
+//!
+//! ```compile_fail
+//! use todori_client::SqliteMutationService;
 //! ```
 //!
 //! ```compile_fail
@@ -17,9 +30,9 @@
 mod crud_service;
 mod local_crypto;
 mod model;
-mod profile;
+mod mutation_service;
+mod runtime;
 mod sqlite_sync_store;
-mod task_service;
 
 pub(crate) use crud_service::{CreateTaskInput, ReorderTaskInput, SetTaskStatusInput};
 pub(crate) use local_crypto::{
@@ -27,19 +40,19 @@ pub(crate) use local_crypto::{
     LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity, LocalCryptoUnavailable,
 };
 pub use model::{AccountAuthResult, AccountSessionState, SyncStatus};
-pub use profile::{
-    ClientProfile, CreateTaskCommand, HomeTaskView, ProfileConfig, ReminderView,
-    ReorderTaskCommand, SetTaskStatusCommand, TaskUndoKind, TaskUndoView, UpdateTaskCommand,
+pub use mutation_service::ClientError;
+pub(crate) use mutation_service::{LocalMutationContext, SqliteMutationService, UpdateTaskInput};
+pub use runtime::{
+    CreateTaskCommand, HomeTaskView, LocalProfileConfig, ReminderView, ReorderTaskCommand,
+    SetTaskStatusCommand, TaskUndoKind, TaskUndoView, TodoriClient, UpdateTaskCommand,
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
-pub use task_service::ClientError;
-pub(crate) use task_service::{Client, LocalMutationContext, UpdateTaskInput};
 pub use todori_domain::{List, Task, TaskStatus, Uuid};
 
 /// Unstable low-level primitives for cross-crate integration tests.
 ///
 /// Product frontends must not enable this feature. These exports may change as
-/// the internal client implementation evolves; [`ClientProfile`] is the only
+/// the internal client implementation evolves; [`TodoriClient`] is the only
 /// supported application entry point.
 #[cfg(feature = "test-support")]
 pub mod test_support {
@@ -48,6 +61,8 @@ pub mod test_support {
         load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
         LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity, LocalCryptoUnavailable,
     };
+    pub use crate::mutation_service::{
+        LocalMutationContext, SqliteMutationService, UpdateTaskInput,
+    };
     pub use crate::sqlite_sync_store::{SqliteSyncStore, SqliteSyncWriteTx};
-    pub use crate::task_service::{Client, LocalMutationContext, UpdateTaskInput};
 }

@@ -16,7 +16,7 @@ use todori_sync::{
 use zeroize::Zeroizing;
 
 use super::{
-    now_ms, ClientProfile, CryptoRuntimeState, ACCOUNT_DEVICE_ID_SETTING_KEY,
+    now_ms, CryptoRuntimeState, TodoriClient, ACCOUNT_DEVICE_ID_SETTING_KEY,
     ACCOUNT_EMAIL_SETTING_KEY, ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
     ACCOUNT_TENANT_ID_SETTING_KEY, ACCOUNT_USER_ID_SETTING_KEY,
 };
@@ -31,7 +31,7 @@ enum AccountAuthMode {
     Login,
 }
 
-impl ClientProfile {
+impl TodoriClient {
     pub fn account_session_state(&self) -> Result<AccountSessionState, ClientError> {
         self.ensure_account_runtime_restored()?;
         Ok(self
@@ -587,7 +587,7 @@ mod tests {
     use todori_sync::LocalSyncStore;
 
     use super::*;
-    use crate::{Client, LocalMutationContext, SqliteSyncStore};
+    use crate::{LocalMutationContext, SqliteMutationService, SqliteSyncStore};
 
     #[test]
     fn remote_key_refresh_preserves_only_verified_pending_local_keys() {
@@ -661,7 +661,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let created = Client::new(db_path.clone(), DB_KEY)
+        let created = SqliteMutationService::new(db_path.clone(), DB_KEY)
             .create_list(
                 "Offline after logout".to_string(),
                 11,
@@ -715,7 +715,7 @@ mod tests {
             .set_cursor(super::super::INITIAL_BACKFILL_CURSOR_NAME, 1, 10)
             .unwrap();
 
-        let profile = ClientProfile {
+        let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Zeroizing::new(DB_KEY),
@@ -727,7 +727,7 @@ mod tests {
             sync: std::sync::Mutex::new(super::super::SyncRuntimeState::default()),
             operation_busy: std::sync::atomic::AtomicBool::new(false),
         };
-        profile
+        client
             .replace_account_runtime(
                 Some(account_session_state(
                     "user@example.com".into(),

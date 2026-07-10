@@ -2,5 +2,5 @@
 #![allow(unexpected_cfgs)]
 
 pub mod api;
+mod client_handle;
 pub mod frb_generated;
-mod profile_handle;

@@ -67,12 +67,16 @@ pub struct UpdateTaskInput {
     pub now_ms: i64,
 }
 
-pub struct Client {
+/// Low-level SQLite mutation primitive exposed only through `test-support`.
+///
+/// Product frontends use `TodoriClient`; this type exists for transactional
+/// integration tests that must exercise mutation and outbox atomicity.
+pub struct SqliteMutationService {
     pub(crate) db_path: PathBuf,
     pub(crate) db_key: [u8; 32],
 }
 
-impl Client {
+impl SqliteMutationService {
     pub fn new(db_path: impl Into<PathBuf>, db_key: [u8; 32]) -> Self {
         Self {
             db_path: db_path.into(),
@@ -292,7 +296,7 @@ mod tests {
 
     struct Fixture {
         _temp_dir: TempDir,
-        client: Client,
+        mutation_service: SqliteMutationService,
         task: Task,
         sync: LocalMutationContext,
     }
@@ -354,7 +358,7 @@ mod tests {
 
         Fixture {
             _temp_dir: temp_dir,
-            client: Client::new(db_path, DB_KEY),
+            mutation_service: SqliteMutationService::new(db_path, DB_KEY),
             task,
             sync: LocalMutationContext {
                 device_id: "device-a".to_string(),
@@ -380,18 +384,18 @@ mod tests {
     fn task_update_commits_domain_undo_hlc_outbox_and_record_state_together() {
         let fixture = fixture();
         let updated = fixture
-            .client
+            .mutation_service
             .update_task(update_input(fixture.task.id), &fixture.sync)
             .unwrap();
         assert_eq!(updated.title, "after");
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap().title, "after");
         assert!(tasks.latest_unconsumed_undo().unwrap().is_some());
         drop(tasks);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let settings = SqliteSettingsRepository::new(connection);
         assert!(settings
             .get_setting(SYNC_LOCAL_HLC_SETTING_KEY)
@@ -399,7 +403,7 @@ mod tests {
             .is_some());
         drop(settings);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         let state = sync
@@ -434,12 +438,12 @@ mod tests {
             keys: LocalSyncKeys::default(),
         };
         let error = fixture
-            .client
+            .mutation_service
             .update_task(update_input(fixture.task.id), &missing)
             .unwrap_err();
         assert!(matches!(error, ClientError::MissingListKey(_)));
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap().title, "before");
         assert!(tasks.latest_unconsumed_undo().unwrap().is_none());
@@ -447,22 +451,22 @@ mod tests {
 
     fn assert_atomic_rollback(trigger_sql: &str) {
         let fixture = fixture();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         connection.execute_batch(trigger_sql).unwrap();
         drop(connection);
 
         assert!(fixture
-            .client
+            .mutation_service
             .update_task(update_input(fixture.task.id), &fixture.sync)
             .is_err());
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap().title, "before");
         assert!(tasks.latest_unconsumed_undo().unwrap().is_none());
         drop(tasks);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let settings = SqliteSettingsRepository::new(connection);
         let stored_hlc = settings
             .get_setting(SYNC_LOCAL_HLC_SETTING_KEY)
@@ -471,7 +475,7 @@ mod tests {
         assert_eq!(Hlc::decode(&stored_hlc).unwrap().wall_ms, BASE_MS - 1_000);
         drop(settings);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         assert!(sync.list_outbox_heads(10).unwrap().is_empty());
         let state = sync

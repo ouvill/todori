@@ -72,7 +72,7 @@ Future<SyncStatusDto> syncNow() => RustLib.instance.api.crateApiSyncNow();
 /// Creates a list using a client-owned fractional `sort_order`.
 ///
 /// `sort_order` remains in the FRB contract for compatibility, but rank
-/// generation and rebalance are owned by `ClientProfile`.
+/// generation and rebalance are owned by `TodoriClient`.
 Future<ListDto> createList({required String name, required String sortOrder}) =>
     RustLib.instance.api.crateApiCreateList(name: name, sortOrder: sortOrder);
 

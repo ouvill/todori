@@ -8,7 +8,7 @@ trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/app/rust/src" "$fixture/cli" "$fixture/mcp-server"
 cp "$repo_root/app/rust/Cargo.toml" "$fixture/app/rust/Cargo.toml"
 cp "$repo_root/app/rust/src/api.rs" "$repo_root/app/rust/src/lib.rs" \
-  "$repo_root/app/rust/src/profile_handle.rs" "$fixture/app/rust/src/"
+  "$repo_root/app/rust/src/client_handle.rs" "$fixture/app/rust/src/"
 cp "$repo_root/cli/Cargo.toml" "$fixture/cli/Cargo.toml"
 cp "$repo_root/mcp-server/Cargo.toml" "$fixture/mcp-server/Cargo.toml"
 
@@ -39,6 +39,15 @@ cp "$repo_root/app/rust/Cargo.toml" "$fixture/app/rust/Cargo.toml"
 printf '%s\n' '// legacy' > "$fixture/app/rust/src/support.rs"
 expect_failure legacy-source
 rm "$fixture/app/rust/src/support.rs"
+
+printf '%s\n' '// superseded handle name' > "$fixture/app/rust/src/profile_handle.rs"
+expect_failure legacy-profile-handle
+rm "$fixture/app/rust/src/profile_handle.rs"
+
+printf '%s\n' 'use std::sync::OnceLock;' 'static ROGUE: OnceLock<()> = OnceLock::new();' > \
+  "$fixture/app/rust/src/rogue_handle.rs"
+expect_failure rogue-process-handle
+rm "$fixture/app/rust/src/rogue_handle.rs"
 
 mkdir -p "$fixture/rogue"
 printf '%s\n' '[package]' 'name = "core"' > "$fixture/rogue/Cargo.toml"

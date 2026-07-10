@@ -36,7 +36,8 @@ if rg -n 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|
   fail 'app/rust/Cargo.toml: lower Todori crates must not be hidden behind dependency aliases'
 fi
 
-for legacy_source in "$root/app/rust/src/support.rs" "$root/app/rust/src/sync_store.rs"; do
+for legacy_source in "$root/app/rust/src/support.rs" "$root/app/rust/src/sync_store.rs" \
+  "$root/app/rust/src/profile_handle.rs"; do
   if [ -e "$legacy_source" ]; then
     fail "$legacy_source: legacy bridge implementation must be removed"
   fi
@@ -49,8 +50,8 @@ if rg -n 'todori_(crypto|domain|storage|sync)|open_encrypted|Sqlite[A-Za-z0-9_]*
   fail 'app/rust/src: handwritten bridge code must not reference lower-layer implementation'
 fi
 
-if rg -n 'OnceLock' "$root/app/rust/src" -g '*.rs' -g '!frb_generated.rs' -g '!profile_handle.rs' >/dev/null; then
-  fail 'app/rust/src: process-global ClientProfile handle is only allowed in profile_handle.rs'
+if rg -n 'OnceLock' "$root/app/rust/src" -g '*.rs' -g '!frb_generated.rs' -g '!client_handle.rs' >/dev/null; then
+  fail 'app/rust/src: process-global TodoriClient handle is only allowed in client_handle.rs'
 fi
 
 if rg -n '^name[[:space:]]*=[[:space:]]*"core"' \

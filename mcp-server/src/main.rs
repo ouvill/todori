@@ -4,13 +4,13 @@
 //! （`docs/03_技術仕様書.md` §8.2）。本バイナリは現時点では起動確認用のスタブ。
 
 // CLIと同じく、Todoriのapplication serviceへはこの共通入口だけを使う。
-use todori_client::{ClientError, ClientProfile, ProfileConfig};
+use todori_client::{ClientError, LocalProfileConfig, TodoriClient};
 
-const _: fn(ProfileConfig) -> Result<ClientProfile, ClientError> = ClientProfile::open;
+const _: fn(LocalProfileConfig) -> Result<TodoriClient, ClientError> = TodoriClient::open;
 
 #[allow(dead_code)]
-fn _assert_async_profile_api(profile: &ClientProfile) {
-    std::mem::drop(profile.sync_now());
+fn _assert_async_client_api(client: &TodoriClient) {
+    std::mem::drop(client.sync_now());
 }
 
 fn main() {

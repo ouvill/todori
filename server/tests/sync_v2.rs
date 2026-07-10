@@ -24,7 +24,7 @@ use testcontainers_modules::{
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
 use todori_client::test_support::{
-    persist_local_crypto_context, Client, LocalCryptoIdentity, LocalMutationContext,
+    persist_local_crypto_context, LocalCryptoIdentity, LocalMutationContext, SqliteMutationService,
     SqliteSyncStore, UpdateTaskInput,
 };
 use todori_server::{
@@ -798,7 +798,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
         now,
     )
     .unwrap();
-    let client = Client::new(path_a.clone(), DB_KEY_A);
+    let client = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
     let created = client
         .create_list(
             "Created offline".to_string(),
@@ -997,8 +997,8 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
         device_id: "production-client-b".to_string(),
         keys: sync_a.keys.clone(),
     };
-    let client_a = Client::new(path_a.clone(), DB_KEY_A);
-    let client_b = Client::new(path_b.clone(), DB_KEY_B);
+    let client_a = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
+    let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let task = client_a
         .create_task(
             todori_client::test_support::CreateTaskInput {
@@ -1144,8 +1144,8 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         device_id: "rank-client-b".to_string(),
         keys: sync_a.keys.clone(),
     };
-    let client_a = Client::new(path_a.clone(), DB_KEY_A);
-    let client_b = Client::new(path_b.clone(), DB_KEY_B);
+    let client_a = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
+    let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let target = client_a
         .create_task(
             todori_client::test_support::CreateTaskInput {

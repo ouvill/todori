@@ -40,12 +40,17 @@ pub(super) const ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY: &str = "account_session
 pub(super) const INITIAL_BACKFILL_CURSOR_NAME: &str = "initial_backfill";
 
 #[derive(Debug, Clone)]
-pub struct ProfileConfig {
+/// Configuration used to open one local encrypted profile.
+///
+/// This selects local persistence and bootstrap values only. Account identity
+/// is stored separately as a durable `LocalProfileBinding`; credentials and
+/// runtime session state are not configuration.
+pub struct LocalProfileConfig {
     pub db_dir: PathBuf,
     pub default_inbox_name: String,
 }
 
-impl ProfileConfig {
+impl LocalProfileConfig {
     pub fn new(db_dir: impl Into<PathBuf>, default_inbox_name: impl Into<String>) -> Self {
         Self {
             db_dir: db_dir.into(),
@@ -54,7 +59,12 @@ impl ProfileConfig {
     }
 }
 
-pub struct ClientProfile {
+/// Frontend-neutral application facade for one local Todori profile.
+///
+/// Flutter, CLI, and MCP use this type for application operations. The type
+/// owns runtime state and coordinates storage, crypto, account, and sync; it is
+/// not a user-facing account profile model.
+pub struct TodoriClient {
     db_dir: PathBuf,
     db_path: PathBuf,
     db_key: Zeroizing<[u8; 32]>,
@@ -92,8 +102,8 @@ pub(crate) enum LocalMutationState {
     AccountBoundUnavailable,
 }
 
-impl ClientProfile {
-    pub fn open(config: ProfileConfig) -> Result<Self, ClientError> {
+impl TodoriClient {
+    pub fn open(config: LocalProfileConfig) -> Result<Self, ClientError> {
         std::fs::create_dir_all(&config.db_dir).map_err(ClientError::Io)?;
         let device_key = Zeroizing::new(
             load_or_create_device_key(&config.db_dir).map_err(ClientError::KeyStore)?,
@@ -265,25 +275,20 @@ pub(super) fn now_ms() -> Result<i64, ClientError> {
 
 #[cfg(test)]
 mod async_contract_tests {
-    use super::ClientProfile;
+    use super::TodoriClient;
 
     fn assert_send<T: Send>(_: T) {}
 
     #[allow(dead_code)]
-    fn network_api_futures_are_send(profile: &ClientProfile) {
-        assert_send(profile.account_register(
+    fn network_api_futures_are_send(client: &TodoriClient) {
+        assert_send(client.account_register(
             "user@example.com".into(),
             "password".into(),
             None,
             None,
         ));
-        assert_send(profile.account_login(
-            "user@example.com".into(),
-            "password".into(),
-            None,
-            None,
-        ));
-        assert_send(profile.account_logout());
-        assert_send(profile.sync_now());
+        assert_send(client.account_login("user@example.com".into(), "password".into(), None, None));
+        assert_send(client.account_logout());
+        assert_send(client.sync_now());
     }
 }

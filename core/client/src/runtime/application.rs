@@ -10,13 +10,14 @@ use todori_storage::{
 };
 use zeroize::Zeroizing;
 
-use crate::task_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
+use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
 use crate::{
-    load_local_crypto_context, Client, ClientError, CreateTaskInput, LocalCryptoAvailability,
-    LocalMutationContext, ReorderTaskInput, SetTaskStatusInput, UpdateTaskInput,
+    load_local_crypto_context, ClientError, CreateTaskInput, LocalCryptoAvailability,
+    LocalMutationContext, ReorderTaskInput, SetTaskStatusInput, SqliteMutationService,
+    UpdateTaskInput,
 };
 
-use super::{now_ms, ClientProfile, CryptoRuntimeState, LocalMutationState};
+use super::{now_ms, CryptoRuntimeState, LocalMutationState, TodoriClient};
 
 #[derive(Debug, Clone)]
 pub struct CreateTaskCommand {
@@ -92,7 +93,7 @@ enum CreateListMode {
     },
 }
 
-impl ClientProfile {
+impl TodoriClient {
     pub fn create_list(&self, name: String) -> Result<List, ClientError> {
         let _guard = self.operation_guard()?;
         let now = now_ms()?;
@@ -104,9 +105,13 @@ impl ClientProfile {
                 master_key,
                 mutation,
             } => {
-                let list =
-                    self.client()
-                        .create_list(name, now, tenant_id, &master_key, &mutation)?;
+                let list = self.mutation_service().create_list(
+                    name,
+                    now,
+                    tenant_id,
+                    &master_key,
+                    &mutation,
+                )?;
                 let refreshed =
                     load_local_crypto_context(&self.db_path, &self.db_key, Some(*master_key))?;
                 let LocalCryptoAvailability::Ready(crypto) = refreshed else {
@@ -133,7 +138,9 @@ impl ClientProfile {
             LocalMutationState::Anonymous => {
                 self.mutate_anonymous_list(list_id, |list| Ok(domain_rename_list(list, name, now)?))
             }
-            LocalMutationState::Ready(sync) => self.client().rename_list(list_id, name, now, &sync),
+            LocalMutationState::Ready(sync) => self
+                .mutation_service()
+                .rename_list(list_id, name, now, &sync),
             LocalMutationState::AccountBoundUnavailable => {
                 Err(ClientError::AccountBoundUnavailable)
             }
@@ -154,7 +161,9 @@ impl ClientProfile {
                 }
                 Ok(domain_archive_list(list, now)?)
             }),
-            LocalMutationState::Ready(sync) => self.client().archive_list(list_id, now, &sync),
+            LocalMutationState::Ready(sync) => {
+                self.mutation_service().archive_list(list_id, now, &sync)
+            }
             LocalMutationState::AccountBoundUnavailable => {
                 Err(ClientError::AccountBoundUnavailable)
             }
@@ -168,7 +177,9 @@ impl ClientProfile {
             LocalMutationState::Anonymous => {
                 self.mutate_anonymous_list(list_id, |list| Ok(domain_unarchive_list(list, now)?))
             }
-            LocalMutationState::Ready(sync) => self.client().unarchive_list(list_id, now, &sync),
+            LocalMutationState::Ready(sync) => {
+                self.mutation_service().unarchive_list(list_id, now, &sync)
+            }
             LocalMutationState::AccountBoundUnavailable => {
                 Err(ClientError::AccountBoundUnavailable)
             }
@@ -186,7 +197,7 @@ impl ClientProfile {
         let now = now_ms()?;
         match self.local_mutation_state()? {
             LocalMutationState::Anonymous => self.create_anonymous_task(command, now),
-            LocalMutationState::Ready(sync) => self.client().create_task(
+            LocalMutationState::Ready(sync) => self.mutation_service().create_task(
                 CreateTaskInput {
                     list_id: command.list_id,
                     title: command.title,
@@ -213,7 +224,7 @@ impl ClientProfile {
         let now = now_ms()?;
         match self.local_mutation_state()? {
             LocalMutationState::Anonymous => self.reorder_anonymous_task(command, now),
-            LocalMutationState::Ready(sync) => self.client().reorder_task(
+            LocalMutationState::Ready(sync) => self.mutation_service().reorder_task(
                 ReorderTaskInput {
                     task_id: command.task_id,
                     previous_task_id: command.previous_task_id,
@@ -272,7 +283,7 @@ impl ClientProfile {
         let now = now_ms()?;
         match self.local_mutation_state()? {
             LocalMutationState::Anonymous => self.update_anonymous_task(command, now),
-            LocalMutationState::Ready(sync) => self.client().update_task(
+            LocalMutationState::Ready(sync) => self.mutation_service().update_task(
                 UpdateTaskInput {
                     task_id: command.task_id,
                     title: command.title,
@@ -294,7 +305,7 @@ impl ClientProfile {
         let now = now_ms()?;
         match self.local_mutation_state()? {
             LocalMutationState::Anonymous => self.set_anonymous_task_status(command, now),
-            LocalMutationState::Ready(sync) => self.client().set_task_status(
+            LocalMutationState::Ready(sync) => self.mutation_service().set_task_status(
                 SetTaskStatusInput {
                     task_id: command.task_id,
                     status: command.status,
@@ -328,9 +339,9 @@ impl ClientProfile {
             LocalMutationState::Anonymous => self.with_task_repository(|repository| {
                 Ok(repository.undo_task_operation(undo_id, now)?)
             }),
-            LocalMutationState::Ready(sync) => {
-                self.client().undo_task_operation(undo_id, now, &sync)
-            }
+            LocalMutationState::Ready(sync) => self
+                .mutation_service()
+                .undo_task_operation(undo_id, now, &sync),
             LocalMutationState::AccountBoundUnavailable => {
                 Err(ClientError::AccountBoundUnavailable)
             }
@@ -428,9 +439,9 @@ impl ClientProfile {
     }
 }
 
-impl ClientProfile {
-    fn client(&self) -> Client {
-        Client::new(self.db_path.clone(), self.db_key())
+impl TodoriClient {
+    fn mutation_service(&self) -> SqliteMutationService {
+        SqliteMutationService::new(self.db_path.clone(), self.db_key())
     }
 
     fn create_list_mode(&self) -> Result<CreateListMode, ClientError> {
@@ -800,7 +811,7 @@ mod tests {
     use super::*;
     use crate::{
         persist_local_crypto_context,
-        profile::{AccountRuntimeState, SyncRuntimeState},
+        runtime::{AccountRuntimeState, SyncRuntimeState},
         AccountSessionState, LocalCryptoIdentity, LocalCryptoUnavailable,
     };
 
@@ -810,7 +821,7 @@ mod tests {
     #[test]
     fn update_task_rejects_priority_outside_public_contract_before_writing() {
         let temp = TempDir::new().unwrap();
-        let profile = ClientProfile {
+        let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: temp.path().join("profile.sqlite3"),
             db_key: Zeroizing::new(DB_KEY),
@@ -823,7 +834,7 @@ mod tests {
             operation_busy: std::sync::atomic::AtomicBool::new(false),
         };
 
-        let result = profile.update_task(UpdateTaskCommand {
+        let result = client.update_task(UpdateTaskCommand {
             task_id: Uuid::now_v7(),
             title: "invalid".into(),
             note: String::new(),
@@ -832,7 +843,7 @@ mod tests {
         });
 
         assert!(matches!(result, Err(ClientError::InvalidPriority)));
-        assert!(!profile.db_path.exists());
+        assert!(!client.db_path.exists());
     }
 
     #[test]
@@ -848,7 +859,7 @@ mod tests {
         SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
             .insert(list.clone())
             .unwrap();
-        let profile = ClientProfile {
+        let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Zeroizing::new(DB_KEY),
@@ -861,15 +872,15 @@ mod tests {
             operation_busy: std::sync::atomic::AtomicBool::new(false),
         };
 
-        let network_operation = profile.begin_operation().unwrap();
+        let network_operation = client.begin_operation().unwrap();
         assert!(matches!(
-            profile.rename_list(list.id, "Blocked".into()),
+            client.rename_list(list.id, "Blocked".into()),
             Err(ClientError::Busy)
         ));
         drop(network_operation);
 
         assert_eq!(
-            profile.rename_list(list.id, "Allowed".into()).unwrap().name,
+            client.rename_list(list.id, "Allowed".into()).unwrap().name,
             "Allowed"
         );
     }
@@ -888,7 +899,7 @@ mod tests {
             SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
                 .insert(list.clone())
                 .unwrap();
-            let profile = ClientProfile {
+            let client = TodoriClient {
                 db_dir: temp.path().to_path_buf(),
                 db_path: db_path.clone(),
                 db_key: Zeroizing::new(DB_KEY),
@@ -900,7 +911,7 @@ mod tests {
                 sync: Mutex::new(SyncRuntimeState::default()),
                 operation_busy: std::sync::atomic::AtomicBool::new(false),
             };
-            (temp, db_path, list, profile)
+            (temp, db_path, list, client)
         };
 
         let (_temp, anonymous_path, anonymous_list, anonymous) =
@@ -945,7 +956,7 @@ mod tests {
             BASE_MS,
         )
         .unwrap();
-        let ready = ClientProfile {
+        let ready = TodoriClient {
             db_dir: ready_temp.path().to_path_buf(),
             db_path: ready_path.clone(),
             db_key: Zeroizing::new(DB_KEY),
@@ -1021,7 +1032,7 @@ mod tests {
             ))
             .unwrap();
 
-        let profile = ClientProfile {
+        let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Zeroizing::new(DB_KEY),
@@ -1039,7 +1050,7 @@ mod tests {
                 list_deks: vec![(list.id, [0x55; 32])],
             },
         };
-        assert!(profile
+        assert!(client
             .delete_task_with_state(root.id, LocalMutationState::Ready(sync), BASE_MS + 1)
             .is_err());
 
@@ -1074,7 +1085,7 @@ mod tests {
             )
             .unwrap();
 
-        let profile = ClientProfile {
+        let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Zeroizing::new(DB_KEY),
@@ -1092,7 +1103,7 @@ mod tests {
                 list_deks: vec![(list.id, [0x55; 32])],
             },
         };
-        assert!(profile
+        assert!(client
             .delete_list_with_state(list.id, LocalMutationState::Ready(sync), BASE_MS + 1)
             .is_err());
 

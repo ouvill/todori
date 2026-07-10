@@ -13,8 +13,8 @@ use todori_storage::{
 };
 use zeroize::Zeroizing;
 
-use crate::task_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
-use crate::{Client, ClientError, LocalMutationContext};
+use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
+use crate::{ClientError, LocalMutationContext, SqliteMutationService};
 
 #[derive(Debug, Clone)]
 pub struct CreateTaskInput {
@@ -42,7 +42,7 @@ pub struct ReorderTaskInput {
     pub now_ms: i64,
 }
 
-impl Client {
+impl SqliteMutationService {
     pub fn create_list(
         &self,
         name: String,
@@ -431,7 +431,7 @@ mod tests {
 
     struct Fixture {
         _temp: TempDir,
-        client: Client,
+        mutation_service: SqliteMutationService,
         list: List,
         task: Task,
         sync: LocalMutationContext,
@@ -478,7 +478,7 @@ mod tests {
             .unwrap();
         Fixture {
             _temp: temp,
-            client: Client::new(db_path, DB_KEY),
+            mutation_service: SqliteMutationService::new(db_path, DB_KEY),
             list: list.clone(),
             task,
             sync: LocalMutationContext {
@@ -505,14 +505,14 @@ mod tests {
     fn task_create_status_and_undo_use_transactional_sync_state() {
         let fixture = fixture();
         let created = fixture
-            .client
+            .mutation_service
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .unwrap();
         assert_eq!(created.title, "created");
         assert_ne!(created.sort_order, fixture.task.sort_order);
 
         let done = fixture
-            .client
+            .mutation_service
             .set_task_status(
                 SetTaskStatusInput {
                     task_id: created.id,
@@ -524,17 +524,17 @@ mod tests {
             )
             .unwrap();
         assert_eq!(done.status, TaskStatus::Done);
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         let undo = tasks.latest_unconsumed_undo().unwrap().unwrap();
         drop(tasks);
 
         let restored = fixture
-            .client
+            .mutation_service
             .undo_task_operation(undo.id, BASE_MS + 3, &fixture.sync)
             .unwrap();
         assert_eq!(restored.status, TaskStatus::Todo);
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         assert!(sync
@@ -547,11 +547,11 @@ mod tests {
     fn account_bound_reorder_uses_midpoint_and_atomic_typed_placement() {
         let fixture = fixture();
         let created = fixture
-            .client
+            .mutation_service
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .unwrap();
         let reordered = fixture
-            .client
+            .mutation_service
             .reorder_task(
                 ReorderTaskInput {
                     task_id: created.id,
@@ -565,7 +565,7 @@ mod tests {
         assert!(reordered.sort_order < fixture.task.sort_order);
         assert_eq!(reordered.sort_order.len(), 32);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let state = SqliteSyncStateRepository::new(connection)
             .get_record_state(TASKS_COLLECTION, created.id)
             .unwrap()
@@ -600,7 +600,7 @@ mod tests {
             BASE_MS,
         )
         .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let mut tasks = SqliteTaskRepository::new(connection);
         tasks.update(first.clone()).unwrap();
         tasks.insert(second.clone()).unwrap();
@@ -612,7 +612,7 @@ mod tests {
         );
 
         assert!(fixture
-            .client
+            .mutation_service
             .reorder_task(
                 ReorderTaskInput {
                     task_id: target.id,
@@ -623,7 +623,7 @@ mod tests {
                 &fixture.sync,
             )
             .is_err());
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(first.id).unwrap().sort_order, first.sort_order);
         assert_eq!(tasks.get(second.id).unwrap().sort_order, second.sort_order);
@@ -665,11 +665,11 @@ mod tests {
             BASE_MS,
         )
         .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let mut lists = SqliteListRepository::new(connection);
         lists.insert(other_list).unwrap();
         drop(lists);
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let mut tasks = SqliteTaskRepository::new(connection);
         tasks.update(first.clone()).unwrap();
         tasks.insert(second.clone()).unwrap();
@@ -678,7 +678,7 @@ mod tests {
         drop(tasks);
 
         let reordered = fixture
-            .client
+            .mutation_service
             .reorder_task(
                 ReorderTaskInput {
                     task_id: target.id,
@@ -689,7 +689,7 @@ mod tests {
                 &fixture.sync,
             )
             .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         let first_after = tasks.get(first.id).unwrap();
         let second_after = tasks.get(second.id).unwrap();
@@ -697,7 +697,7 @@ mod tests {
         assert!(reordered.sort_order < second_after.sort_order);
         assert_eq!(tasks.get(other.id).unwrap().sort_order, other.sort_order);
         drop(tasks);
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert_eq!(
             SqliteSyncStateRepository::new(connection)
                 .list_outbox_heads(10)
@@ -712,16 +712,16 @@ mod tests {
         let fixture = fixture();
         let mut existing = fixture.task.clone();
         existing.sort_order = "ffffffffffffffffffffffffffffffff".to_string();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         SqliteTaskRepository::new(connection)
             .update(existing.clone())
             .unwrap();
 
         let created = fixture
-            .client
+            .mutation_service
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let existing = SqliteTaskRepository::new(connection)
             .get(existing.id)
             .unwrap();
@@ -734,7 +734,7 @@ mod tests {
     fn list_mutations_commit_with_outbox_and_record_state() {
         let fixture = fixture();
         let renamed = fixture
-            .client
+            .mutation_service
             .rename_list(
                 fixture.list.id,
                 "Renamed".to_string(),
@@ -744,17 +744,17 @@ mod tests {
             .unwrap();
         assert_eq!(renamed.name, "Renamed");
         let archived = fixture
-            .client
+            .mutation_service
             .archive_list(fixture.list.id, BASE_MS + 2, &fixture.sync)
             .unwrap();
         assert_eq!(archived.archived_at, Some(BASE_MS + 2));
         let active = fixture
-            .client
+            .mutation_service
             .unarchive_list(fixture.list.id, BASE_MS + 3, &fixture.sync)
             .unwrap();
         assert_eq!(active.archived_at, None);
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
         assert!(sync
@@ -767,12 +767,12 @@ mod tests {
     fn idempotent_archive_and_unarchive_leave_domain_clock_state_and_outbox_unchanged() {
         let fixture = fixture();
         fixture
-            .client
+            .mutation_service
             .archive_list(fixture.list.id, BASE_MS + 1, &fixture.sync)
             .unwrap();
         let archived_before = list_sync_snapshot(&fixture);
         let archived_again = fixture
-            .client
+            .mutation_service
             .archive_list(fixture.list.id, BASE_MS + 2, &fixture.sync)
             .unwrap();
         assert_eq!(archived_again.archived_at, Some(BASE_MS + 1));
@@ -780,12 +780,12 @@ mod tests {
         assert_eq!(list_sync_snapshot(&fixture), archived_before);
 
         fixture
-            .client
+            .mutation_service
             .unarchive_list(fixture.list.id, BASE_MS + 3, &fixture.sync)
             .unwrap();
         let active_before = list_sync_snapshot(&fixture);
         let active_again = fixture
-            .client
+            .mutation_service
             .unarchive_list(fixture.list.id, BASE_MS + 4, &fixture.sync)
             .unwrap();
         assert_eq!(active_again.archived_at, None);
@@ -802,11 +802,11 @@ mod tests {
         );
         let before_hlc = local_hlc(&fixture);
         assert!(fixture
-            .client
+            .mutation_service
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .is_err());
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert_eq!(
             SqliteTaskRepository::new(connection)
                 .list_active_by_list(fixture.list.id)
@@ -827,7 +827,7 @@ mod tests {
         );
         let before_hlc = local_hlc(&fixture);
         assert!(fixture
-            .client
+            .mutation_service
             .set_task_status(
                 SetTaskStatusInput {
                     task_id: fixture.task.id,
@@ -839,7 +839,7 @@ mod tests {
             )
             .is_err());
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap().status, TaskStatus::Todo);
         assert!(tasks.latest_unconsumed_undo().unwrap().is_none());
@@ -854,7 +854,7 @@ mod tests {
     fn undo_outbox_failure_rolls_back_restore_and_consumption() {
         let fixture = fixture();
         let mut tasks = {
-            let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+            let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
             SqliteTaskRepository::new(connection)
         };
         let done =
@@ -875,10 +875,10 @@ mod tests {
         );
 
         assert!(fixture
-            .client
+            .mutation_service
             .undo_task_operation(undo.id, BASE_MS + 2, &fixture.sync)
             .is_err());
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap(), done);
         assert_eq!(tasks.latest_unconsumed_undo().unwrap().unwrap().id, undo.id);
@@ -894,7 +894,7 @@ mod tests {
         );
         let before_hlc = local_hlc(&fixture);
         assert!(fixture
-            .client
+            .mutation_service
             .rename_list(
                 fixture.list.id,
                 "No commit".to_string(),
@@ -903,7 +903,7 @@ mod tests {
             )
             .is_err());
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert_eq!(
             SqliteListRepository::new(connection)
                 .get(fixture.list.id)
@@ -916,7 +916,7 @@ mod tests {
             record_state(&fixture, LISTS_COLLECTION, fixture.list.id),
             seeded
         );
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
             .list_outbox_heads(10)
             .unwrap()
@@ -929,12 +929,12 @@ mod tests {
         let mut input = create_input(fixture.list.id);
         input.parent_task_id = Some(Uuid::now_v7());
         assert!(matches!(
-            fixture.client.create_task(input, &fixture.sync),
+            fixture.mutation_service.create_task(input, &fixture.sync),
             Err(ClientError::Domain(
                 todori_domain::DomainError::ParentNotFound
             ))
         ));
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
             .list_outbox_heads(10)
             .unwrap()
@@ -950,12 +950,12 @@ mod tests {
         };
         assert!(matches!(
             fixture
-                .client
+                .mutation_service
                 .create_task(create_input(fixture.list.id), &missing),
             Err(ClientError::MissingListKey(id)) if id == fixture.list.id
         ));
         assert!(matches!(
-            fixture.client.set_task_status(
+            fixture.mutation_service.set_task_status(
                 SetTaskStatusInput {
                     task_id: fixture.task.id,
                     status: TaskStatus::Done,
@@ -967,7 +967,7 @@ mod tests {
             Err(ClientError::MissingListKey(id)) if id == fixture.list.id
         ));
         assert!(matches!(
-            fixture.client.rename_list(
+            fixture.mutation_service.rename_list(
                 fixture.list.id,
                 "No key".to_string(),
                 BASE_MS + 1,
@@ -976,12 +976,12 @@ mod tests {
             Err(ClientError::MissingListKey(id)) if id == fixture.list.id
         ));
 
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
         assert_eq!(tasks.get(fixture.task.id).unwrap(), fixture.task);
         assert_eq!(tasks.list_active_by_list(fixture.list.id).unwrap().len(), 1);
         drop(tasks);
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert_eq!(
             SqliteListRepository::new(connection)
                 .get(fixture.list.id)
@@ -995,7 +995,7 @@ mod tests {
         let fixture = fixture();
         let mut default_list = fixture.list.clone();
         default_list.is_default = true;
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         connection
             .execute(
                 "UPDATE lists SET is_default = 1 WHERE id = ?1",
@@ -1004,13 +1004,13 @@ mod tests {
             .unwrap();
         assert!(matches!(
             fixture
-                .client
+                .mutation_service
                 .archive_list(default_list.id, BASE_MS + 1, &fixture.sync,),
             Err(ClientError::Storage(
                 StorageError::DefaultListProtected { .. }
             ))
         ));
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
             .list_outbox_heads(10)
             .unwrap()
@@ -1027,7 +1027,7 @@ mod tests {
             device_id: Uuid::now_v7(),
         };
         persist_local_crypto_context(
-            fixture.client.db_path(),
+            fixture.mutation_service.db_path(),
             &DB_KEY,
             identity,
             &MASTER_KEY,
@@ -1037,7 +1037,7 @@ mod tests {
         .unwrap();
 
         let created = fixture
-            .client
+            .mutation_service
             .create_list(
                 "Offline".to_string(),
                 BASE_MS + 1,
@@ -1046,7 +1046,7 @@ mod tests {
                 &fixture.sync,
             )
             .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         assert_eq!(
             SqliteListRepository::new(connection)
                 .get(created.id)
@@ -1054,7 +1054,7 @@ mod tests {
                 .name,
             "Offline"
         );
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         let pending = sync.list_pending_list_key_bundles(tenant_id, 10).unwrap();
         assert_eq!(pending.len(), 1);
@@ -1065,7 +1065,7 @@ mod tests {
             .unwrap()
             .is_some());
         assert!(matches!(
-            load_local_crypto_context(fixture.client.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
+            load_local_crypto_context(fixture.mutation_service.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
             LocalCryptoAvailability::Ready(context) if context.sync_keys().contains_list(created.id)
         ));
     }
@@ -1083,7 +1083,7 @@ mod tests {
             let fixture = fixture();
             let tenant_id = Uuid::now_v7();
             persist_local_crypto_context(
-                fixture.client.db_path(),
+                fixture.mutation_service.db_path(),
                 &DB_KEY,
                 LocalCryptoIdentity {
                     tenant_id,
@@ -1098,7 +1098,7 @@ mod tests {
             install_trigger(&fixture, trigger);
 
             assert!(fixture
-                .client
+                .mutation_service
                 .create_list(
                     "Rollback".to_string(),
                     BASE_MS + 1,
@@ -1107,7 +1107,7 @@ mod tests {
                     &fixture.sync,
                 )
                 .is_err());
-            let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+            let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
             assert_eq!(
                 SqliteListRepository::new(connection)
                     .list_all()
@@ -1115,7 +1115,7 @@ mod tests {
                     .len(),
                 1
             );
-            let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+            let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
             let sync = SqliteSyncStateRepository::new(connection);
             assert!(sync
                 .list_pending_list_key_bundles(tenant_id, 10)
@@ -1127,14 +1127,14 @@ mod tests {
                 .unwrap()
                 .is_none());
             assert!(matches!(
-                load_local_crypto_context(fixture.client.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
+                load_local_crypto_context(fixture.mutation_service.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
                 LocalCryptoAvailability::Ready(context) if context.sync_keys().list_deks.len() == 1
             ));
         }
     }
 
     fn install_trigger(fixture: &Fixture, sql: &str) {
-        open_encrypted(fixture.client.db_path(), &DB_KEY)
+        open_encrypted(fixture.mutation_service.db_path(), &DB_KEY)
             .unwrap()
             .execute_batch(sql)
             .unwrap();
@@ -1152,7 +1152,7 @@ mod tests {
             SyncPlaintext::from_list(&fixture.list, clock.clone()).unwrap()
         };
         let plaintext_json = serde_json::to_string(&plaintext).unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         SqliteSyncStateRepository::new(connection)
             .put_record_state(SyncRecordState {
                 record_id,
@@ -1169,7 +1169,7 @@ mod tests {
     }
 
     fn record_state(fixture: &Fixture, collection: &str, record_id: Uuid) -> String {
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let state = SqliteSyncStateRepository::new(connection)
             .get_record_state(collection, record_id)
             .unwrap()
@@ -1181,7 +1181,7 @@ mod tests {
     }
 
     fn local_hlc(fixture: &Fixture) -> Option<String> {
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         SqliteSettingsRepository::new(connection)
             .get_setting(SYNC_LOCAL_HLC_SETTING_KEY)
             .unwrap()
@@ -1195,11 +1195,12 @@ mod tests {
         Option<SyncRecordState>,
         Vec<todori_storage::SyncOutboxEntry>,
     ) {
-        let list =
-            SqliteListRepository::new(open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap())
-                .get(fixture.list.id)
-                .unwrap();
-        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let list = SqliteListRepository::new(
+            open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap(),
+        )
+        .get(fixture.list.id)
+        .unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let sync = SqliteSyncStateRepository::new(connection);
         (
             list,

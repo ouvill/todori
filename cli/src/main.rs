@@ -1,20 +1,20 @@
 //! `todori` CLI。
 //!
-//! `todori-client`の共通profile APIを通じてローカルの暗号化DBへ直接アクセスする設計だが
+//! `todori-client`の共通client APIを通じてローカルの暗号化DBへ直接アクセスする設計だが
 //! （`docs/03_技術仕様書.md` §8.1, §8.3）、DB統合前の現段階ではスタブとして
 //! サブコマンドの受け口のみを提供する。
 
 use clap::{Parser, Subcommand};
 
 // `todori-client`をfrontend共通入口としてcompile時にも固定する。実際の
-// profile openとsubcommand接続はOS secret store実装後の後続taskで行う。
-use todori_client::{ClientError, ClientProfile, ProfileConfig};
+// local profile openとsubcommand接続はOS secret store実装後の後続taskで行う。
+use todori_client::{ClientError, LocalProfileConfig, TodoriClient};
 
-const _: fn(ProfileConfig) -> Result<ClientProfile, ClientError> = ClientProfile::open;
+const _: fn(LocalProfileConfig) -> Result<TodoriClient, ClientError> = TodoriClient::open;
 
 #[allow(dead_code)]
-fn _assert_async_profile_api(profile: &ClientProfile) {
-    std::mem::drop(profile.sync_now());
+fn _assert_async_client_api(client: &TodoriClient) {
+    std::mem::drop(client.sync_now());
 }
 
 #[derive(Parser)]

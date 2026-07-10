@@ -6,7 +6,7 @@ use todori_client::{
     TaskUndoView, UpdateTaskCommand, Uuid,
 };
 
-use crate::profile_handle::{init_profile, profile};
+use crate::client_handle::{client, init_client};
 
 pub struct ListDto {
     pub id: String,
@@ -127,19 +127,19 @@ pub fn create_draft_task(title: String) -> String {
 /// profile. Reinitializing with the same DB path succeeds idempotently;
 /// reinitializing with a different DB path returns an error.
 pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), String> {
-    init_profile(db_dir, default_inbox_name)
+    init_client(db_dir, default_inbox_name)
 }
 
 pub fn get_sync_server_url() -> Result<String, String> {
-    client_result(profile()?.sync_server_url())
+    client_result(client()?.sync_server_url())
 }
 
 pub fn set_sync_server_url(server_url: String) -> Result<(), String> {
-    client_result(profile()?.set_sync_server_url(server_url))
+    client_result(client()?.set_sync_server_url(server_url))
 }
 
 pub fn get_account_session_state() -> Result<AccountSessionStateDto, String> {
-    client_result(profile()?.account_session_state()).map(account_session_to_dto)
+    client_result(client()?.account_session_state()).map(account_session_to_dto)
 }
 
 pub async fn account_register(
@@ -148,7 +148,7 @@ pub async fn account_register(
     server_url: Option<String>,
     device_name: Option<String>,
 ) -> Result<AccountAuthResultDto, String> {
-    profile()?
+    client()?
         .account_register(email, password, server_url, device_name)
         .await
         .map_err(|error| error.to_string())
@@ -161,7 +161,7 @@ pub async fn account_login(
     server_url: Option<String>,
     device_name: Option<String>,
 ) -> Result<AccountAuthResultDto, String> {
-    profile()?
+    client()?
         .account_login(email, password, server_url, device_name)
         .await
         .map_err(|error| error.to_string())
@@ -169,18 +169,18 @@ pub async fn account_login(
 }
 
 pub async fn account_logout() -> Result<(), String> {
-    profile()?
+    client()?
         .account_logout()
         .await
         .map_err(|error| error.to_string())
 }
 
 pub fn get_sync_status() -> Result<SyncStatusDto, String> {
-    client_result(profile()?.sync_status()).map(sync_status_to_dto)
+    client_result(client()?.sync_status()).map(sync_status_to_dto)
 }
 
 pub async fn sync_now() -> Result<SyncStatusDto, String> {
-    profile()?
+    client()?
         .sync_now()
         .await
         .map_err(|error| error.to_string())
@@ -190,34 +190,34 @@ pub async fn sync_now() -> Result<SyncStatusDto, String> {
 /// Creates a list using a client-owned fractional `sort_order`.
 ///
 /// `sort_order` remains in the FRB contract for compatibility, but rank
-/// generation and rebalance are owned by `ClientProfile`.
+/// generation and rebalance are owned by `TodoriClient`.
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
     let _legacy_caller_rank = sort_order;
-    client_result(profile()?.create_list(name)).map(list_to_dto)
+    client_result(client()?.create_list(name)).map(list_to_dto)
 }
 
 pub fn get_lists() -> Result<Vec<ListDto>, String> {
-    client_result(profile()?.get_lists()).map(|lists| lists.into_iter().map(list_to_dto).collect())
+    client_result(client()?.get_lists()).map(|lists| lists.into_iter().map(list_to_dto).collect())
 }
 
 pub fn get_archived_lists() -> Result<Vec<ListDto>, String> {
-    client_result(profile()?.get_archived_lists())
+    client_result(client()?.get_archived_lists())
         .map(|lists| lists.into_iter().map(list_to_dto).collect())
 }
 
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.rename_list(list_id, name)).map(list_to_dto)
+    client_result(client()?.rename_list(list_id, name)).map(list_to_dto)
 }
 
 pub fn archive_list(list_id: String) -> Result<ListDto, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.archive_list(list_id)).map(list_to_dto)
+    client_result(client()?.archive_list(list_id)).map(list_to_dto)
 }
 
 pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.unarchive_list(list_id)).map(list_to_dto)
+    client_result(client()?.unarchive_list(list_id)).map(list_to_dto)
 }
 
 /// Creates a task at the end of its sibling group using a client-generated
@@ -236,7 +236,7 @@ pub fn create_task(
         due_at,
         note,
     };
-    client_result(profile()?.create_task(command)).map(task_to_dto)
+    client_result(client()?.create_task(command)).map(task_to_dto)
 }
 
 pub fn reorder_task(
@@ -249,17 +249,17 @@ pub fn reorder_task(
         previous_task_id: previous_task_id.as_deref().map(parse_uuid).transpose()?,
         next_task_id: next_task_id.as_deref().map(parse_uuid).transpose()?,
     };
-    client_result(profile()?.reorder_task(command)).map(task_to_dto)
+    client_result(client()?.reorder_task(command)).map(task_to_dto)
 }
 
 pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.get_tasks(list_id))
+    client_result(client()?.get_tasks(list_id))
         .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
 }
 
 pub fn search_tasks(query: String) -> Result<Vec<TaskDto>, String> {
-    client_result(profile()?.search_tasks(&query))
+    client_result(client()?.search_tasks(&query))
         .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
 }
 
@@ -267,18 +267,18 @@ pub fn get_home_tasks(
     today_start_ms: i64,
     tomorrow_start_ms: i64,
 ) -> Result<Vec<HomeTaskDto>, String> {
-    client_result(profile()?.get_home_tasks(today_start_ms, tomorrow_start_ms))
+    client_result(client()?.get_home_tasks(today_start_ms, tomorrow_start_ms))
         .map(|tasks| tasks.into_iter().map(home_task_to_dto).collect())
 }
 
 pub fn count_task_descendants(task_id: String) -> Result<i32, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.count_task_descendants(task_id)).and_then(count_to_i32)
+    client_result(client()?.count_task_descendants(task_id)).and_then(count_to_i32)
 }
 
 pub fn count_tasks_in_list(list_id: String) -> Result<i32, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.count_tasks_in_list(list_id)).and_then(count_to_i32)
+    client_result(client()?.count_tasks_in_list(list_id)).and_then(count_to_i32)
 }
 
 pub fn update_task(
@@ -295,7 +295,7 @@ pub fn update_task(
         priority,
         due_at,
     };
-    client_result(profile()?.update_task(command)).map(task_to_dto)
+    client_result(client()?.update_task(command)).map(task_to_dto)
 }
 
 pub fn set_task_status(
@@ -308,73 +308,73 @@ pub fn set_task_status(
         status: parse_status(&status)?,
         closed_reason,
     };
-    client_result(profile()?.set_task_status(command)).map(task_to_dto)
+    client_result(client()?.set_task_status(command)).map(task_to_dto)
 }
 
 pub fn delete_task(task_id: String) -> Result<(), String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.delete_task(task_id))
+    client_result(client()?.delete_task(task_id))
 }
 
 pub fn delete_list(list_id: String) -> Result<(), String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.delete_list(list_id))
+    client_result(client()?.delete_list(list_id))
 }
 
 pub fn get_latest_task_undo() -> Result<Option<TaskUndoDto>, String> {
-    client_result(profile()?.get_latest_task_undo()).map(|entry| entry.map(task_undo_to_dto))
+    client_result(client()?.get_latest_task_undo()).map(|entry| entry.map(task_undo_to_dto))
 }
 
 pub fn undo_task_operation(undo_id: String) -> Result<TaskDto, String> {
     let undo_id = parse_uuid(&undo_id)?;
-    client_result(profile()?.undo_task_operation(undo_id)).map(task_to_dto)
+    client_result(client()?.undo_task_operation(undo_id)).map(task_to_dto)
 }
 
 pub fn get_setting(key: String) -> Result<Option<String>, String> {
-    client_result(profile()?.get_setting(&key))
+    client_result(client()?.get_setting(&key))
 }
 
 pub fn set_setting(key: String, value: String) -> Result<(), String> {
-    client_result(profile()?.set_setting(&key, &value))
+    client_result(client()?.set_setting(&key, &value))
 }
 
 pub fn set_task_reminder(task_id: String, remind_at: i64) -> Result<ReminderDto, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.set_task_reminder(task_id, remind_at)).map(reminder_to_dto)
+    client_result(client()?.set_task_reminder(task_id, remind_at)).map(reminder_to_dto)
 }
 
 pub fn clear_task_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.clear_task_reminders(task_id))
+    client_result(client()?.clear_task_reminders(task_id))
         .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
 }
 
 pub fn get_task_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.get_task_reminders(task_id))
+    client_result(client()?.get_task_reminders(task_id))
         .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
 }
 
 pub fn get_task_subtree_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(profile()?.get_task_subtree_reminders(task_id))
+    client_result(client()?.get_task_subtree_reminders(task_id))
         .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
 }
 
 pub fn get_list_reminders(list_id: String) -> Result<Vec<ReminderDto>, String> {
     let list_id = parse_uuid(&list_id)?;
-    client_result(profile()?.get_list_reminders(list_id))
+    client_result(client()?.get_list_reminders(list_id))
         .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
 }
 
 pub fn list_pending_reminders(now_ms: i64) -> Result<Vec<ReminderDto>, String> {
-    client_result(profile()?.list_pending_reminders(now_ms))
+    client_result(client()?.list_pending_reminders(now_ms))
         .map(|reminders| reminders.into_iter().map(reminder_to_dto).collect())
 }
 
 pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<ReminderDto, String> {
     let reminder_id = parse_uuid(&reminder_id)?;
-    client_result(profile()?.snooze_reminder(reminder_id, snoozed_until)).map(reminder_to_dto)
+    client_result(client()?.snooze_reminder(reminder_id, snoozed_until)).map(reminder_to_dto)
 }
 
 fn client_result<T>(result: Result<T, todori_client::ClientError>) -> Result<T, String> {

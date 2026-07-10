@@ -8,11 +8,11 @@ use todori_sync::{
 use zeroize::Zeroizing;
 
 use super::{
-    now_ms, ClientProfile, CryptoRuntimeState, SyncRuntimeState, INITIAL_BACKFILL_CURSOR_NAME,
+    now_ms, CryptoRuntimeState, SyncRuntimeState, TodoriClient, INITIAL_BACKFILL_CURSOR_NAME,
 };
 use crate::{ClientError, SqliteSyncStore, SyncStatus};
 
-impl ClientProfile {
+impl TodoriClient {
     pub fn sync_status(&self) -> Result<SyncStatus, ClientError> {
         let logged_in = self.has_active_sync_context();
         let state = self.sync_state()?;
@@ -32,7 +32,7 @@ impl ClientProfile {
             state.running = true;
             state.last_error = None;
         }
-        let running = SyncRunningGuard { profile: self };
+        let running = SyncRunningGuard { client: self };
 
         let operation = match self.begin_operation() {
             Ok(operation) => operation,
@@ -71,7 +71,7 @@ impl ClientProfile {
             .ok_or(ClientError::AccountRequest)?;
         let mut store = SqliteSyncStore::new(self.db_path.clone(), self.db_key());
         let mut clock = || now_ms().map_err(|error| error.to_string());
-        let mut key_refresher = ProductionKeyRefresher { profile: self };
+        let mut key_refresher = ProductionKeyRefresher { client: self };
         let mut pre_push = |store: &mut SqliteSyncStore| {
             self.run_initial_backfill_if_needed(store)
                 .map_err(|error| error.to_string())
@@ -169,19 +169,19 @@ impl ClientProfile {
 }
 
 struct SyncRunningGuard<'a> {
-    profile: &'a ClientProfile,
+    client: &'a TodoriClient,
 }
 
 impl Drop for SyncRunningGuard<'_> {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.profile.sync_state() {
+        if let Ok(mut state) = self.client.sync_state() {
             state.running = false;
         }
     }
 }
 
 struct ProductionKeyRefresher<'a> {
-    profile: &'a ClientProfile,
+    client: &'a TodoriClient,
 }
 
 impl SyncKeyRefresher for ProductionKeyRefresher<'_> {
@@ -189,7 +189,7 @@ impl SyncKeyRefresher for ProductionKeyRefresher<'_> {
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>> {
         Box::pin(async move {
-            self.profile
+            self.client
                 .refresh_list_deks_for_sync()
                 .await
                 .map_err(|error| error.to_string())

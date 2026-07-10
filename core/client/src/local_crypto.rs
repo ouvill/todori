@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(context.device_id(), device_id);
         assert!(context.sync_keys().contains_list(list.id));
 
-        crate::Client::new(&db_path, DB_KEY)
+        crate::SqliteMutationService::new(&db_path, DB_KEY)
             .update_task(
                 crate::UpdateTaskInput {
                     task_id: task.id,

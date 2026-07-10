@@ -123,6 +123,8 @@ task-91はSQLite sync adapterを`todori-client`へ移し、frontend境界のCI g
 
 > 追補（task-93）: 互換性優先で残した同期FRB signatureとbridge内Tokio executorは不要と判断し、4つのnetwork FRB関数をasyncへ統一して削除した。Dart側の`Future` APIは不変。
 
+> 追補（task-94）: 本taskで導入した`ClientProfile` / `ProfileConfig`は、責務を明瞭にするため`TodoriClient` / `LocalProfileConfig`へbreaking renameした。旧名aliasは残していない。
+
 ### 独立検証
 
 - 判定: 合格（P1 / P2 / P3なし）
