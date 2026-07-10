@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 実装中: **task-87 typed field clock + placement/rank** — 重要変更レーン。task-86のCAS基盤を前提に、typed payload、changed-field clock、compound placement/completion、固定幅rank、transactional reorder/rebalanceを実装し、production CRUDを通る2-client同時別field編集をrelease gateにする。
-- 最新の完了: **task-86 protocol v2 CAS correctness基盤** — shared wire、base revision CAS、op ID outbox、atomic conflict merge/rebaseへv1互換なしで置換した。production changed-field clockとplacement/rankは次候補である。
+- 実装中: なし。
+- 最新の完了: **task-87 typed field clock + placement/rank** — strict typed payload、changed-field clock、compound placement/completion、固定幅128-bit rank、transactional reorder/rebalanceを実装した。production CRUDを通る2-client同時別field編集とequal-rank再収束をrelease gateとして独立検証済み。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
