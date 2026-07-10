@@ -31,6 +31,10 @@ class FakeBridgeService implements BridgeService {
     deletedCount: 0,
     decryptFailedCount: 0,
     repushCount: 0,
+    missingKeyQuarantinedCount: 0,
+    corruptionQuarantinedCount: 0,
+    resolvedQuarantineCount: 0,
+    upgradeRequired: false,
   );
   int _listSeq = 0;
   int _taskSeq = 0;
@@ -63,6 +67,10 @@ class FakeBridgeService implements BridgeService {
       deletedCount: 0,
       decryptFailedCount: 0,
       repushCount: 0,
+      missingKeyQuarantinedCount: 0,
+      corruptionQuarantinedCount: 0,
+      resolvedQuarantineCount: 0,
+      upgradeRequired: false,
     );
     _listSeq = listCount;
     _taskSeq = listCount * tasksPerList;
@@ -1118,6 +1126,10 @@ SyncStatusDto _copySyncStatus(
     deletedCount: status.deletedCount,
     decryptFailedCount: status.decryptFailedCount,
     repushCount: status.repushCount,
+    missingKeyQuarantinedCount: status.missingKeyQuarantinedCount,
+    corruptionQuarantinedCount: status.corruptionQuarantinedCount,
+    resolvedQuarantineCount: status.resolvedQuarantineCount,
+    upgradeRequired: status.upgradeRequired,
   );
 }
 

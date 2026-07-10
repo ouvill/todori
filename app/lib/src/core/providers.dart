@@ -212,6 +212,10 @@ SyncStatusDto _copySyncStatus(SyncStatusDto status, {bool? running}) {
     deletedCount: status.deletedCount,
     decryptFailedCount: status.decryptFailedCount,
     repushCount: status.repushCount,
+    missingKeyQuarantinedCount: status.missingKeyQuarantinedCount,
+    corruptionQuarantinedCount: status.corruptionQuarantinedCount,
+    resolvedQuarantineCount: status.resolvedQuarantineCount,
+    upgradeRequired: status.upgradeRequired,
   );
 }
 
