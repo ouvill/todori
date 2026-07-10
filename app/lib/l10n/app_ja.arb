@@ -175,5 +175,30 @@
   "accountSyncNever": "未同期",
   "accountSyncNowButton": "今すぐ同期",
   "accountSyncNowTooltip": "今すぐ同期",
+  "onboardingWelcomeTitle": "大切なことに、余白を",
+  "onboardingWelcomeBody": "予定も、小さな約束も、次に向き合うことも。点数や騒がしさのない、静かな居場所です。",
+  "onboardingWelcomeArtworkSemantics": "Todoriを表す静かな葉",
+  "onboardingPrivacyTitle": "プライバシーを守る",
+  "onboardingPrivacyBody": "ローカルデータベースは、この端末上で暗号化されます。同期を選んだ場合、タスク内容は端末を離れる前に暗号化されます。",
+  "onboardingPrivacyNote": "同期しないタスクはこの端末だけに保存されます。端末の紛失やアプリの削除により、復旧できなくなる場合があります。",
+  "onboardingPrivacyArtworkSemantics": "ローカル保護と暗号化同期を表す盾",
+  "onboardingBeginTitle": "まず、ひとつだけ",
+  "onboardingBeginBody": "気になっていることを追加しましょう。必要なときまで、Todoriは静かに待っています。",
+  "onboardingBeginArtworkSemantics": "静かな完了を表すチェックマーク",
+  "onboardingStartButton": "そっと始める",
+  "onboardingSaveFailed": "この選択を保存できませんでした。もう一度お試しください。",
+  "onboardingLoadFailed": "ローカル設定を読み込めませんでした。",
+  "retryButton": "もう一度試す",
+  "onboardingPagePosition": "{total}ページ中{current}ページ",
+  "@onboardingPagePosition": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

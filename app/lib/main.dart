@@ -14,6 +14,7 @@ import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
+import 'package:todori/src/screens/onboarding_screen.dart';
 import 'package:todori/src/ui/theme.dart';
 
 Future<void> main() async {
@@ -146,21 +147,94 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    final onboardingCompleted = ref.read(onboardingStatusProvider).value;
+    if (state == AppLifecycleState.resumed && onboardingCompleted == true) {
       unawaited(ref.read(syncStatusProvider.notifier).syncOnResume());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(syncStatusProvider);
-    return MaterialApp.router(
+    final onboardingStatus = ref.watch(onboardingStatusProvider);
+    return onboardingStatus.when(
+      loading: () =>
+          _buildOnboardingMaterialApp(home: const _OnboardingLoadingScreen()),
+      error: (error, stackTrace) => _buildOnboardingMaterialApp(
+        home: _OnboardingLoadErrorScreen(
+          onRetry: () => ref.invalidate(onboardingStatusProvider),
+        ),
+      ),
+      data: (completed) {
+        if (!completed) {
+          return _buildOnboardingMaterialApp(
+            home: OnboardingScreen(
+              onComplete: () =>
+                  ref.read(onboardingStatusProvider.notifier).complete(),
+            ),
+          );
+        }
+        ref.watch(syncStatusProvider);
+        return MaterialApp.router(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+          theme: buildTodoriTheme(Brightness.light),
+          darkTheme: buildTodoriTheme(Brightness.dark),
+          routerConfig: widget.router,
+        );
+      },
+    );
+  }
+
+  MaterialApp _buildOnboardingMaterialApp({required Widget home}) {
+    return MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
       theme: buildTodoriTheme(Brightness.light),
       darkTheme: buildTodoriTheme(Brightness.dark),
-      routerConfig: widget.router,
+      home: home,
+    );
+  }
+}
+
+class _OnboardingLoadingScreen extends StatelessWidget {
+  const _OnboardingLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}
+
+class _OnboardingLoadErrorScreen extends StatelessWidget {
+  const _OnboardingLoadErrorScreen({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  l10n.onboardingLoadFailed,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                FilledButton(onPressed: onRetry, child: Text(l10n.retryButton)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

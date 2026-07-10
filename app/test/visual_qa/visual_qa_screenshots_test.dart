@@ -57,6 +57,43 @@ void main() {
 
   setUpAll(_loadRealFonts);
 
+  testWidgets('onboarding_en: first-run welcome', (tester) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService(onboardingCompleted: false);
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Make room for what matters'), findsOneWidget);
+    await _screenshot(tester, 'onboarding_en');
+  });
+
+  testWidgets('onboarding_ja: first-run welcome', (tester) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    final fake = FakeBridgeService(onboardingCompleted: false);
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('大切なことに、余白を'), findsOneWidget);
+    await _screenshot(tester, 'onboarding_ja');
+  });
+
+  testWidgets('onboarding_text_scale_2: first run at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    final fake = FakeBridgeService(onboardingCompleted: false);
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Make room for what matters'), findsOneWidget);
+    await _screenshot(tester, 'onboarding_text_scale_2');
+  });
+
   testWidgets('home_tasks: root with a realistic mixed task list', (
     tester,
   ) async {

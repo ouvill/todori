@@ -43,7 +43,7 @@
 | Role | 使用箇所 | TextTheme | フォント | Weight | 色 |
 |---|---|---|---|---|---|
 | AppBarタイトル | Tasks/TaskDetail画面のAppBar `title` | `titleLarge`（AppBarThemeの`titleTextStyle`経由） | Inter | w700 | `colorScheme.primary` |
-| Home日付見出し | Home上部の1行日付（例: `July 7` / `7月7日(火)`） | `displaySmall` または `displayMedium` を28-32px級へ調整 | Newsreader（欧文）＋ システム和文セリフフォールバック（`fontFamilyFallback`に`'Hiragino Mincho ProN'`等） | w600（呼び出し側で明示上書き、line-height 0.95〜1.0） | `colorScheme.primary` |
+| Home日付見出し / 初回オンボーディング見出し | Home上部の1行日付（例: `July 7` / `7月7日(火)`）、またはオンボーディング各ページの主見出し1箇所 | `displaySmall` または `displayMedium` を28-32px級へ調整 | Newsreader（欧文）＋ システム和文セリフフォールバック（`fontFamilyFallback`に`'Hiragino Mincho ProN'`等） | w600（呼び出し側で明示上書き、line-height 0.95〜1.0） | `colorScheme.primary` |
 | Homeリスト名ラベル | Home行タイトル下の小さなアイコン+リスト名 | `labelMedium` または `bodySmall` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant` |
 | セクション見出し（Tasks） | 「Tasks」セクション見出し行 | `headlineSmall` | Inter | w700（テーマ既定） | `colorScheme.primary`（呼び出し側で上書き。テーマ既定は`onSurface`） |
 | 完了セクション見出し | 「Completed」折りたたみ見出し | `titleMedium` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant` |
@@ -55,7 +55,7 @@
 | Subtasks小見出し | 詳細画面の「Subtasks」 | `titleMedium` | Inter | w600（テーマ既定） | 既定色（上書きなし） |
 | 作成日キャプション | 詳細画面のcreated at | `bodySmall` | Inter | 既定 | `colorScheme.onSurfaceVariant` |
 
-- 基準フォント: `fontFamily: 'Inter'`（`ThemeData`既定）。Newsreaderのセリフ上書きはHome日付見出しなどのdisplayロールのみで、**28px級以上かつ1画面1〜2箇所**の規則を厳守する（2026-07-06タイポ裁定）。`titleLarge`・`headlineSmall`・`titleMedium`・`labelMedium`・本文系はセリフ化しない。
+- 基準フォント: `fontFamily: 'Inter'`（`ThemeData`既定）。Newsreaderのセリフ上書きはHome日付見出しと初回オンボーディングの主見出しのdisplayロールのみで、**28px級以上かつ1画面1箇所**の規則を厳守する（2026-07-06タイポ裁定、2026-07-10オンボーディング拡張）。`titleLarge`・`headlineSmall`・`titleMedium`・`labelMedium`・本文系はセリフ化しない。
 - 日本語グリフはNewsreader/Interにバンドルされないため、`fontFamilyFallback` を経由してプラットフォームフォールバックへ委ねる（新規日本語フォント同梱はしない、2026-07-06タイポ裁定）。Home日付見出しの和文は明朝系フォールバック（`'Hiragino Mincho ProN'`等）、その他Inter適用箇所の和文は角ゴシック系フォールバック（`'Hiragino Sans'`等）を使う。
 - ビューポート幅に応じた文字サイズのスケーリングはしない。プラットフォームのテキストスケーリングと折返しに委ねる。
 

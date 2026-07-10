@@ -25,7 +25,6 @@ Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md
 | サーバーのデバイス行重複排除 | 同一インストールからの再ログインで既存device rowを再利用する | 2026-07-10実機同期確認 |
 | Android Keystore DeviceKeyStore | Androidの開発用 `FileDeviceKeyStore` を本番用Android Keystore実装へ置き換える | 技術仕様§4.3 / task-74 |
 | SQLCipherクロスビルドCI | iOS / AndroidのSQLCipherビルド差分をCIで継続検証する | Phase 1計画書§6 |
-| オンボーディング / 初回起動体験 | DK復旧不可の注意表示を含む初回体験を設計・実装する | Phase 1計画書§5、2026-07-06人間裁定 |
 | Phase 1リリース前のlight固定 | ダークモード正式対応まで `themeMode` をlight固定する | 2026-07-06人間裁定 |
 | iOSリリース準備 | release build、署名、ストア提出前コンプライアンスを確認する | M5-01。人間作業を含む |
 | macOS dogfooding配布 | macOS desktop buildを配布し、既知差分をリリースノートへ記録する | M5-02。人間判断を含む |

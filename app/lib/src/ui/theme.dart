@@ -90,8 +90,9 @@ ThemeData buildTodoriTheme(Brightness brightness) {
     colorScheme: colorScheme,
     useMaterial3: true,
     // Inter is the UI body typeface (see `assets/fonts/Inter`) and covers
-    // every text role except `displayMedium` (the Today heading, overridden
-    // below to Newsreader). `fontFamilyFallback` applies to every style
+    // every text role except `displayMedium` (the Home date and first-run
+    // onboarding headings, overridden below to Newsreader).
+    // `fontFamilyFallback` applies to every style
     // derived from this `ThemeData` (since `copyWith` preserves it unless a
     // style explicitly sets its own), covering Japanese glyphs Inter does
     // not ship.
@@ -154,7 +155,8 @@ ThemeData buildTodoriTheme(Brightness brightness) {
     ),
     textTheme: base.textTheme.copyWith(
       // Newsreader (brand display serif) is scoped to `displayMedium` only
-      // -- the Today heading -- per the 2026-07-06 typography ruling
+      // -- Home date and first-run onboarding headings -- per the 2026-07-06
+      // typography ruling and 2026-07-10 onboarding extension
       // ("28px級以上かつ1画面1〜2箇所" rule, `docs/design/ui-spec.md`
       // セクション2). Its Japanese fallback is the system serif
       // (`_serifCjkFontFamilyFallback`), distinct from the sans-serif

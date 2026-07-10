@@ -571,6 +571,62 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accountSyncNowTooltip => 'Sync now';
 
   @override
+  String get onboardingWelcomeTitle => 'Make room for what matters';
+
+  @override
+  String get onboardingWelcomeBody =>
+      'A calm place for plans, small promises, and the next thing worth doing. No scores. No noise.';
+
+  @override
+  String get onboardingWelcomeArtworkSemantics =>
+      'A quiet leaf representing Todori';
+
+  @override
+  String get onboardingPrivacyTitle => 'Private by design';
+
+  @override
+  String get onboardingPrivacyBody =>
+      'Your local database is encrypted on this device. When you choose to sync, task content is encrypted before it leaves.';
+
+  @override
+  String get onboardingPrivacyNote =>
+      'Without sync, your tasks live only on this device and may be unrecoverable if the device is lost or the app is removed.';
+
+  @override
+  String get onboardingPrivacyArtworkSemantics =>
+      'A shield representing local protection and encrypted sync';
+
+  @override
+  String get onboardingBeginTitle => 'Begin with one small thing';
+
+  @override
+  String get onboardingBeginBody =>
+      'Add what needs your attention. Todori stays quiet until you need it.';
+
+  @override
+  String get onboardingBeginArtworkSemantics =>
+      'A settled check mark representing a completed task';
+
+  @override
+  String get onboardingStartButton => 'Start gently';
+
+  @override
+  String get onboardingSaveFailed =>
+      'Todori couldn\'t save this choice. Try again to continue.';
+
+  @override
+  String get onboardingLoadFailed =>
+      'Todori couldn\'t read its local settings.';
+
+  @override
+  String get retryButton => 'Try again';
+
+  @override
+  String onboardingPagePosition(int current, int total) {
+    return 'Page $current of $total';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }

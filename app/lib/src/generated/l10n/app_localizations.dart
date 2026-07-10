@@ -1106,6 +1106,96 @@ abstract class AppLocalizations {
   /// **'Sync now'**
   String get accountSyncNowTooltip;
 
+  /// No description provided for @onboardingWelcomeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make room for what matters'**
+  String get onboardingWelcomeTitle;
+
+  /// No description provided for @onboardingWelcomeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A calm place for plans, small promises, and the next thing worth doing. No scores. No noise.'**
+  String get onboardingWelcomeBody;
+
+  /// No description provided for @onboardingWelcomeArtworkSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'A quiet leaf representing Todori'**
+  String get onboardingWelcomeArtworkSemantics;
+
+  /// No description provided for @onboardingPrivacyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Private by design'**
+  String get onboardingPrivacyTitle;
+
+  /// No description provided for @onboardingPrivacyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your local database is encrypted on this device. When you choose to sync, task content is encrypted before it leaves.'**
+  String get onboardingPrivacyBody;
+
+  /// No description provided for @onboardingPrivacyNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Without sync, your tasks live only on this device and may be unrecoverable if the device is lost or the app is removed.'**
+  String get onboardingPrivacyNote;
+
+  /// No description provided for @onboardingPrivacyArtworkSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'A shield representing local protection and encrypted sync'**
+  String get onboardingPrivacyArtworkSemantics;
+
+  /// No description provided for @onboardingBeginTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Begin with one small thing'**
+  String get onboardingBeginTitle;
+
+  /// No description provided for @onboardingBeginBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Add what needs your attention. Todori stays quiet until you need it.'**
+  String get onboardingBeginBody;
+
+  /// No description provided for @onboardingBeginArtworkSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'A settled check mark representing a completed task'**
+  String get onboardingBeginArtworkSemantics;
+
+  /// No description provided for @onboardingStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start gently'**
+  String get onboardingStartButton;
+
+  /// No description provided for @onboardingSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Todori couldn\'t save this choice. Try again to continue.'**
+  String get onboardingSaveFailed;
+
+  /// No description provided for @onboardingLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Todori couldn\'t read its local settings.'**
+  String get onboardingLoadFailed;
+
+  /// No description provided for @retryButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get retryButton;
+
+  /// No description provided for @onboardingPagePosition.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {current} of {total}'**
+  String onboardingPagePosition(int current, int total);
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

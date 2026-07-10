@@ -40,4 +40,22 @@ void main() {
       throwsA(isA<ArgumentError>()),
     );
   });
+
+  test(
+    'onboardingStatusProvider defaults to incomplete and persists',
+    () async {
+      final fake = FakeBridgeService(onboardingCompleted: false);
+      final container = ProviderContainer(
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      );
+      addTearDown(container.dispose);
+
+      expect(await container.read(onboardingStatusProvider.future), isFalse);
+
+      await container.read(onboardingStatusProvider.notifier).complete();
+
+      expect(await container.read(onboardingStatusProvider.future), isTrue);
+      expect(await fake.getSetting(key: onboardingCompletedSettingKey), '1');
+    },
+  );
 }

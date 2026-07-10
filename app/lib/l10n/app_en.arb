@@ -353,6 +353,31 @@
   "accountSyncNever": "Never",
   "accountSyncNowButton": "Sync now",
   "accountSyncNowTooltip": "Sync now",
+  "onboardingWelcomeTitle": "Make room for what matters",
+  "onboardingWelcomeBody": "A calm place for plans, small promises, and the next thing worth doing. No scores. No noise.",
+  "onboardingWelcomeArtworkSemantics": "A quiet leaf representing Todori",
+  "onboardingPrivacyTitle": "Private by design",
+  "onboardingPrivacyBody": "Your local database is encrypted on this device. When you choose to sync, task content is encrypted before it leaves.",
+  "onboardingPrivacyNote": "Without sync, your tasks live only on this device and may be unrecoverable if the device is lost or the app is removed.",
+  "onboardingPrivacyArtworkSemantics": "A shield representing local protection and encrypted sync",
+  "onboardingBeginTitle": "Begin with one small thing",
+  "onboardingBeginBody": "Add what needs your attention. Todori stays quiet until you need it.",
+  "onboardingBeginArtworkSemantics": "A settled check mark representing a completed task",
+  "onboardingStartButton": "Start gently",
+  "onboardingSaveFailed": "Todori couldn't save this choice. Try again to continue.",
+  "onboardingLoadFailed": "Todori couldn't read its local settings.",
+  "retryButton": "Try again",
+  "onboardingPagePosition": "Page {current} of {total}",
+  "@onboardingPagePosition": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

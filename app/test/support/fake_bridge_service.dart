@@ -1,6 +1,9 @@
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/providers.dart'
-    show defaultSyncServerUrl, syncServerUrlSettingKey;
+    show
+        defaultSyncServerUrl,
+        onboardingCompletedSettingKey,
+        syncServerUrlSettingKey;
 import 'package:todori/src/rust/api.dart';
 
 /// In-memory fake [BridgeService].
@@ -9,11 +12,14 @@ import 'package:todori/src/rust/api.dart';
 /// screen/provider/router skeleton can be exercised without the native Rust
 /// library and without calling `initCore`.
 class FakeBridgeService implements BridgeService {
+  FakeBridgeService({bool onboardingCompleted = true})
+    : _settings = {if (onboardingCompleted) onboardingCompletedSettingKey: '1'};
+
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
   final List<ReminderDto> _reminders = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
-  final Map<String, String> _settings = {};
+  final Map<String, String> _settings;
   final List<void Function()> _pendingSyncMutations = [];
   final List<FakeReorderCall> reorderCalls = [];
   int syncNowCalls = 0;
@@ -55,6 +61,7 @@ class FakeBridgeService implements BridgeService {
     reorderCalls.clear();
     syncNowCalls = 0;
     _settings.clear();
+    _settings[onboardingCompletedSettingKey] = '1';
     _accountSession = const AccountSessionStateDto(loggedIn: false);
     _syncStatus = const SyncStatusDto(
       loggedIn: false,

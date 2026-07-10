@@ -26,6 +26,7 @@ final bridgeServiceProvider = Provider<BridgeService>(
 );
 
 const uiModeSettingKey = 'ui_mode';
+const onboardingCompletedSettingKey = 'onboarding_completed';
 const syncServerUrlSettingKey = 'sync_server_url';
 const defaultSyncServerUrl = 'http://localhost:3000';
 const defaultUiMode = 'simple';
@@ -255,6 +256,31 @@ class UiModeNotifier extends AsyncNotifier<String> {
 final uiModeProvider = AsyncNotifierProvider<UiModeNotifier, String>(
   UiModeNotifier.new,
 );
+
+/// Gates the one-time welcome experience before the app starts its ordinary
+/// Home and sync providers. The flag is device-local and remains inside the
+/// encrypted settings table; it is intentionally not synchronized.
+class OnboardingStatusNotifier extends AsyncNotifier<bool> {
+  @override
+  FutureOr<bool> build() async {
+    final value = await ref
+        .watch(settingsRepositoryProvider)
+        .getSetting(onboardingCompletedSettingKey);
+    return value == '1';
+  }
+
+  Future<void> complete() async {
+    await ref
+        .read(settingsRepositoryProvider)
+        .setSetting(onboardingCompletedSettingKey, '1');
+    state = const AsyncData(true);
+  }
+}
+
+final onboardingStatusProvider =
+    AsyncNotifierProvider<OnboardingStatusNotifier, bool>(
+      OnboardingStatusNotifier.new,
+    );
 
 /// Generates a placeholder, monotonically-appending sort order string (e.g.
 /// `a0`, `a1`, `a2`, ...) for newly created lists in this UI skeleton.

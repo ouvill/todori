@@ -569,6 +569,57 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountSyncNowTooltip => '今すぐ同期';
 
   @override
+  String get onboardingWelcomeTitle => '大切なことに、余白を';
+
+  @override
+  String get onboardingWelcomeBody =>
+      '予定も、小さな約束も、次に向き合うことも。点数や騒がしさのない、静かな居場所です。';
+
+  @override
+  String get onboardingWelcomeArtworkSemantics => 'Todoriを表す静かな葉';
+
+  @override
+  String get onboardingPrivacyTitle => 'プライバシーを守る';
+
+  @override
+  String get onboardingPrivacyBody =>
+      'ローカルデータベースは、この端末上で暗号化されます。同期を選んだ場合、タスク内容は端末を離れる前に暗号化されます。';
+
+  @override
+  String get onboardingPrivacyNote =>
+      '同期しないタスクはこの端末だけに保存されます。端末の紛失やアプリの削除により、復旧できなくなる場合があります。';
+
+  @override
+  String get onboardingPrivacyArtworkSemantics => 'ローカル保護と暗号化同期を表す盾';
+
+  @override
+  String get onboardingBeginTitle => 'まず、ひとつだけ';
+
+  @override
+  String get onboardingBeginBody =>
+      '気になっていることを追加しましょう。必要なときまで、Todoriは静かに待っています。';
+
+  @override
+  String get onboardingBeginArtworkSemantics => '静かな完了を表すチェックマーク';
+
+  @override
+  String get onboardingStartButton => 'そっと始める';
+
+  @override
+  String get onboardingSaveFailed => 'この選択を保存できませんでした。もう一度お試しください。';
+
+  @override
+  String get onboardingLoadFailed => 'ローカル設定を読み込めませんでした。';
+
+  @override
+  String get retryButton => 'もう一度試す';
+
+  @override
+  String onboardingPagePosition(int current, int total) {
+    return '$totalページ中$currentページ';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }
