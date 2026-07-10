@@ -121,6 +121,8 @@ task-91はSQLite sync adapterを`todori-client`へ移し、frontend境界のCI g
 - Commit: `310e818`。
 - 未解決: multiprocess DB-backed sync lease、Windows DPAPI / Linux Secret Service、Fuzzy-scan/GC horizon、aggregate削除scope/epochは別task。現在の境界のままFuzzy-scanへ着手可能。
 
+> 追補（task-93）: 互換性優先で残した同期FRB signatureとbridge内Tokio executorは不要と判断し、4つのnetwork FRB関数をasyncへ統一して削除した。Dart側の`Future` APIは不変。
+
 ### 独立検証
 
 - 判定: 合格（P1 / P2 / P3なし）

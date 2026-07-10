@@ -7,7 +7,7 @@
 ## 現在
 
 - 進行中: なし。
-- 最新の完了: **task-92 ClientProfile全面移設** — profile/account/crypto/sync/CRUD/query/reminderを`todori-client`へ集約し、bridgeを39 FRB関数・8 DTO・profile handleへ縮小した。async network正本、atomic delete、zero-exception boundaryを独立検証し、P1 / P2 / P3なしを確認済み。
+- 最新の完了: **task-93 FRB network APIのasync統一** — account/sync FRB関数をasync direct-awaitへ変更し、bridge内Tokio runtimeと依存を削除した。Dart Future API不変を確認し、独立検証でP1 / P2 / P3なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

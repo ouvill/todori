@@ -6,7 +6,7 @@ use todori_client::{
     TaskUndoView, UpdateTaskCommand, Uuid,
 };
 
-use crate::profile_handle::{init_profile, profile, run_network};
+use crate::profile_handle::{init_profile, profile};
 
 pub struct ListDto {
     pub id: String,
@@ -142,36 +142,49 @@ pub fn get_account_session_state() -> Result<AccountSessionStateDto, String> {
     client_result(profile()?.account_session_state()).map(account_session_to_dto)
 }
 
-pub fn account_register(
+pub async fn account_register(
     email: String,
     password: String,
     server_url: Option<String>,
     device_name: Option<String>,
 ) -> Result<AccountAuthResultDto, String> {
-    run_network(profile()?.account_register(email, password, server_url, device_name))
+    profile()?
+        .account_register(email, password, server_url, device_name)
+        .await
+        .map_err(|error| error.to_string())
         .map(account_auth_to_dto)
 }
 
-pub fn account_login(
+pub async fn account_login(
     email: String,
     password: String,
     server_url: Option<String>,
     device_name: Option<String>,
 ) -> Result<AccountAuthResultDto, String> {
-    run_network(profile()?.account_login(email, password, server_url, device_name))
+    profile()?
+        .account_login(email, password, server_url, device_name)
+        .await
+        .map_err(|error| error.to_string())
         .map(account_auth_to_dto)
 }
 
-pub fn account_logout() -> Result<(), String> {
-    run_network(profile()?.account_logout())
+pub async fn account_logout() -> Result<(), String> {
+    profile()?
+        .account_logout()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 pub fn get_sync_status() -> Result<SyncStatusDto, String> {
     client_result(profile()?.sync_status()).map(sync_status_to_dto)
 }
 
-pub fn sync_now() -> Result<SyncStatusDto, String> {
-    run_network(profile()?.sync_now()).map(sync_status_to_dto)
+pub async fn sync_now() -> Result<SyncStatusDto, String> {
+    profile()?
+        .sync_now()
+        .await
+        .map_err(|error| error.to_string())
+        .map(sync_status_to_dto)
 }
 
 /// Creates a list using a client-owned fractional `sort_order`.
@@ -534,9 +547,16 @@ fn json_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+
     use super::*;
 
+    fn assert_result_future<T>(future: impl Future<Output = Result<T, String>>) {
+        drop(future);
+    }
+
     #[test]
+    #[allow(clippy::type_complexity)]
     fn all_public_function_signatures_remain_stable() {
         let _: fn(String) -> String = greet;
         let _: fn(String) -> String = create_draft_task;
@@ -544,21 +564,11 @@ mod tests {
         let _: fn() -> Result<String, String> = get_sync_server_url;
         let _: fn(String) -> Result<(), String> = set_sync_server_url;
         let _: fn() -> Result<AccountSessionStateDto, String> = get_account_session_state;
-        let _: fn(
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        ) -> Result<AccountAuthResultDto, String> = account_register;
-        let _: fn(
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        ) -> Result<AccountAuthResultDto, String> = account_login;
-        let _: fn() -> Result<(), String> = account_logout;
+        assert_result_future(account_register(String::new(), String::new(), None, None));
+        assert_result_future(account_login(String::new(), String::new(), None, None));
+        assert_result_future(account_logout());
         let _: fn() -> Result<SyncStatusDto, String> = get_sync_status;
-        let _: fn() -> Result<SyncStatusDto, String> = sync_now;
+        assert_result_future(sync_now());
         let _: fn(String, String) -> Result<ListDto, String> = create_list;
         let _: fn() -> Result<Vec<ListDto>, String> = get_lists;
         let _: fn() -> Result<Vec<ListDto>, String> = get_archived_lists;

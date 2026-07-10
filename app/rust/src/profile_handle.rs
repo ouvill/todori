@@ -1,10 +1,9 @@
 use std::{
-    future::Future,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
-use todori_client::{ClientError, ClientProfile, ProfileConfig};
+use todori_client::{ClientProfile, ProfileConfig};
 
 static PROFILE: OnceLock<ClientProfile> = OnceLock::new();
 
@@ -31,17 +30,6 @@ pub(crate) fn profile() -> Result<&'static ClientProfile, String> {
     PROFILE
         .get()
         .ok_or_else(|| "core is not initialized".to_string())
-}
-
-pub(crate) fn run_network<T>(
-    future: impl Future<Output = Result<T, ClientError>>,
-) -> Result<T, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "client runtime is unavailable".to_string())?
-        .block_on(future)
-        .map_err(|error| error.to_string())
 }
 
 fn profile_db_path(db_dir: impl AsRef<Path>) -> PathBuf {

@@ -29,8 +29,8 @@ app_dependencies="$(
     }
   ' "$root/app/rust/Cargo.toml" | sort
 )"
-if [ "$app_dependencies" != "$(printf '%s\n' flutter_rust_bridge todori-client tokio | sort)" ]; then
-  fail 'app/rust/Cargo.toml: only flutter_rust_bridge, todori-client and tokio are allowed dependencies'
+if [ "$app_dependencies" != "$(printf '%s\n' flutter_rust_bridge todori-client | sort)" ]; then
+  fail 'app/rust/Cargo.toml: only flutter_rust_bridge and todori-client are allowed dependencies'
 fi
 if rg -n 'package[[:space:]]*=[[:space:]]*"todori-(crypto|domain|storage|sync)"|path[[:space:]]*=[[:space:]]*"[^"]*core/(crypto|domain|storage|sync)"' "$root/app/rust/Cargo.toml" >/dev/null; then
   fail 'app/rust/Cargo.toml: lower Todori crates must not be hidden behind dependency aliases'
@@ -45,14 +45,8 @@ done
 if rg -n 'todori_(crypto|domain|storage|sync)|open_encrypted|Sqlite[A-Za-z0-9_]*|[A-Za-z0-9_]*Repository|AccountClient|LocalSyncStore|LocalMutationContext|load_or_create_device_key|tokio|zeroize' \
   "$root/app/rust/src" \
   -g '*.rs' \
-  -g '!frb_generated.rs' \
-  -g '!profile_handle.rs' >/dev/null; then
+  -g '!frb_generated.rs' >/dev/null; then
   fail 'app/rust/src: handwritten bridge code must not reference lower-layer implementation'
-fi
-
-if rg -n 'todori_(crypto|domain|storage|sync)|open_encrypted|Sqlite[A-Za-z0-9_]*|[A-Za-z0-9_]*Repository|AccountClient|LocalSyncStore|LocalMutationContext|load_or_create_device_key|zeroize' \
-  "$root/app/rust/src/profile_handle.rs" >/dev/null; then
-  fail 'app/rust/src/profile_handle.rs: only profile ownership and blocking execution are allowed'
 fi
 
 if rg -n 'OnceLock' "$root/app/rust/src" -g '*.rs' -g '!frb_generated.rs' -g '!profile_handle.rs' >/dev/null; then

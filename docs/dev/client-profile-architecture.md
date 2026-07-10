@@ -26,7 +26,7 @@ flowchart TB
 
 | 層 | 所有するもの | 所有しないもの |
 |---|---|---|
-| `todori_app_bridge` | FRB公開関数、文字列/typed input変換、Dart向けDTO変換、process内profile handle、既存同期FRB署名用の薄いTokio executor | repository、SQLCipher open、鍵、account/sync state、同期順序 |
+| `todori_app_bridge` | FRB公開関数、文字列/typed input変換、Dart向けDTO変換、process内profile handle | repository、SQLCipher open、鍵、account/sync state、同期順序、runtime生成 |
 | `todori-cli` | clap、対話、表示、exit code | CRUD規則、repository、暗号、同期coordinator |
 | `todori-mcp-server` | MCP schema、認可prompt、stdio transport、tool response | CRUD規則、repository、暗号、同期coordinator |
 | `todori-client` | profile open、account/session、application service、transaction境界、sync coordinator、SQLite sync adapter | Flutter/Dart/FRB、clap、MCP transport |
@@ -69,6 +69,6 @@ Rust import:   todori_<role>
 
 `sh app/tool/check_client_boundaries.sh`はfrontend manifestの直接依存、bridge sourceの禁止import、bare `core` crate/aliasを検査する。Cargo compileだけでは検知できない境界の意図をCIで固定する。
 
-task-92で`app/rust/src/support.rs` / `sync_store.rs`を削除し、application/profile責務を`ClientProfile`へ全面移設した。bridgeの通常依存はFRB、`todori-client`、同期FRB signature用Tokioだけで、Todori workspace内依存はclientのみであり、legacy exceptionは存在しない。CIは下位crate参照0、削除済みmoduleの再作成禁止、manifest allowlistを検査する。Fuzzy-scanはこの境界を変えずに`todori-sync` / `todori-storage` / `todori-client` / serverへ実装する。
+task-92で`app/rust/src/support.rs` / `sync_store.rs`を削除し、application/profile責務を`ClientProfile`へ全面移設した。task-93でnetwork FRB関数もasyncへ統一し、bridge内blocking executorを削除した。bridgeの通常依存はFRBと`todori-client`だけで、Todori workspace内依存はclientのみであり、legacy exceptionは存在しない。CIは下位crate参照0、runtime生成0、削除済みmoduleの再作成禁止、manifest allowlistを検査する。Fuzzy-scanはこの境界を変えずに`todori-sync` / `todori-storage` / `todori-client` / serverへ実装する。
 
-Networkを伴うaccount/sync APIは`ClientProfile`のasync methodを正本とする。Flutter bridgeだけは既存の同期FRB signatureを維持するため`profile_handle.rs`内のTokio executorでFutureを完了させる。CLIは直接await可能で、async MCP runtimeからnested runtimeを作らない。低水準の`Client`、`LocalMutationContext`、SQLite sync store、local crypto helperは通常public APIではなく、server統合testが`test-support` featureを明示した場合だけ利用できる。
+Networkを伴うaccount/sync APIは`ClientProfile`とFRBの両方でasyncとし、Futureを直接awaitする。Flutter/Dart、CLI、MCPの各runtime内で自然に実行し、adapterやclientがnested runtimeを生成しない。低水準の`Client`、`LocalMutationContext`、SQLite sync store、local crypto helperは通常public APIではなく、server統合testが`test-support` featureを明示した場合だけ利用できる。

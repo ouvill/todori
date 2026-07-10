@@ -11,4 +11,3 @@ crate-type = ["cdylib", "staticlib", "lib"]
 [dependencies]
 flutter_rust_bridge = "=2.12.0"
 todori-client.workspace = true
-tokio.workspace = true

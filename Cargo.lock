@@ -3388,7 +3388,6 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "todori-client",
- "tokio",
 ]
 
 [[package]]
