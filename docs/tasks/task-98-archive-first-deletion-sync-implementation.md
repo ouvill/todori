@@ -111,7 +111,7 @@ task-97 / ADR-016は、aggregate scope / epochやserver-visible hierarchy metada
 - 証拠: `server_trusted_continuity_binds_proofs_and_guards_all_writes`、`closure_ack_failure_keeps_local_commit_and_retries_before_push`、`remote_list_deletion_cascades_offline_descendant_and_converges_to_tombstone`、`list_key_retirement_waits_for_tombstone_gc_and_device_closure`、`full_resync_preserves_valid_never_synced_list_and_task_in_dependency_order`、`remote_list_tombstone_replaces_known_descendant_live_outbox_with_tombstone`が成功した。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`、`sh app/tool/check_client_boundaries.sh`、`sh app/tool/test_client_boundaries.sh`、`git diff --check`が成功した。
 - skip / 環境制約: workspace testの既存macOS Keychain実アクセスtest 1件と10k encrypted seed性能test 1件は既定どおりignored。Flutter / FRB変更がないためFlutter固有gateは対象外。server統合testはDockerアクセスを許可した環境で実行した。
-- Commit: 未コミット
+- Commit: `4d93b18`（実装）、完了記録commitはgit履歴を参照。
 - 未解決: なし。
 
 ### 独立検証
