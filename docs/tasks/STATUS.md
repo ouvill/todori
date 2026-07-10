@@ -6,15 +6,14 @@
 
 ## 現在
 
-- 実装中: なし。
+- 実装中: **task-88 typed pull + durable quarantine** — 重要変更レーン。pull failure taxonomy、push前capability preflight、transaction外key refresh、durable quarantine、page単位cursor transaction、quarantine再適用を実装する。
 - 最新の完了: **task-87 typed field clock + placement/rank** — strict typed payload、changed-field clock、compound placement/completion、固定幅128-bit rank、transactional reorder/rebalanceを実装した。production CRUDを通る2-client同時別field編集とequal-rank再収束をrelease gateとして独立検証済み。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **typed pull + durable quarantine** — missing DEK、corrupt blob、unknown protocolを分類し、key refresh、durable quarantine、upgrade-required、cursor transactionを実装する。出典: ADR-012 / task-82。
-2. **offline list作成 + key bundle queue** — List DEK生成、local cache、list row、entity outbox、key-bundle upload queueをatomicに作り、bundleをrecordより先にidempotent uploadする。出典: ADR-013 / task-84未解決事項。
+1. **offline list作成 + key bundle queue** — List DEK生成、local cache、list row、entity outbox、key-bundle upload queueをatomicに作り、bundleをrecordより先にidempotent uploadする。出典: ADR-013 / task-84未解決事項。
 
 着手を決めた候補だけをtaskへ昇格する。未着手候補の詳細は [`BACKLOG.md`](./BACKLOG.md) を参照する。
 
