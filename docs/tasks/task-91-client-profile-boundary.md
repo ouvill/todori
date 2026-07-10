@@ -105,7 +105,7 @@ ADR-011はFlutter desktop、CLI、将来のMCP serverが共通application servic
 - 命名: `core/`はディレクトリ、Cargo packageは`todori-<role>`、Rust crateは`todori_<role>`と文書化した。`cargo metadata`上もbare `core` targetは存在しない。`todori_app_bridge`はCargo / pod / FRB stem契約の例外として維持する。
 - Architecture: `docs/dev/client-profile-architecture.md`へ目標依存、層別責務、Fuzzy-scanの配置、段階移行を記録した。`STATUS.md`では`ClientProfile`全面移設をFuzzy-scanより前のNext 1へ置き、押し出したSQLCipher cross-build CIを`BACKLOG.md`へ移した。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`、bridge release build、`flutter analyze`、`flutter test`（130 passed / visual QA harness 1 skipped）、hardcoded-string check、client boundary check、FRB生成物diff check、`git diff --check`が成功した。通常sandboxではDocker socketとFlutter SDK cacheが権限制約で失敗したため、承認付き実行で再確認した。
-- Commit: 未コミット。
+- Commit: `5b91daf`。
 - 未解決: `app/rust/src/api.rs` 1,148行と`support.rs` 1,243行にはprofile open、account/session、CRUD/query、settings/reminder、sync coordinatorと下位crate直接依存が残る。次taskでfrontend-neutralな`ClientProfile`へ移し、legacy exceptionとapp manifestのcrypto/domain/storage/sync依存を0にする。監査で見つかったdelete + outboxの別transactionと同一tenant再login時のinitial-backfill cursor削除も、そのtaskで挙動testとともに解消する。Fuzzy-scanはその後に実装する。
 
 ### 独立検証
