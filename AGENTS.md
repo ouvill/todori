@@ -62,7 +62,7 @@ sh app/tool/check_hardcoded_strings.sh
 - UI文字列は必ずARB化する（`app/lib/l10n/app_en.arb` + `app_ja.arb`）。文字列の直書きは `app/tool/check_hardcoded_strings.sh` が検出する。
 - 状態管理はRiverpod 3.x（`AsyncNotifier` + `invalidateSelf`）を用いる。`riverpod_generator` は使わない。ルーティングは `go_router` を用い、ルート定義は `app/lib/src/router.dart` に集約する。
 - 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
-- 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。標準・重要変更は実装着手時に指示書へ昇格し、完了時に「## 9. 完了報告」を追記する。候補段階や軽量作業ではtask文書を作らない。
+- 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。標準・重要変更は実装着手時に指示書へ昇格し、`docs/tasks/PLAYBOOK.md` のフェーズを通す。`## 9. 完了報告` は実装結果と独立検証の共同記録とする。候補段階や軽量作業ではtask文書を作らない。
 
 ## 環境
 

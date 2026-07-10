@@ -1,14 +1,15 @@
 # Todori バックログ
 
-未着手の候補だけを置く。現在と次の3件は [`STATUS.md`](./STATUS.md)、完了履歴は既存 `task-*.md` とgit、マイルストーンは [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
+Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md`](./STATUS.md)、完了履歴は既存 `task-*.md` とgit、マイルストーンは [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
 
 ## 運用ルール
 
 - 完了項目をこのファイルへ残さない。
+- 候補を `STATUS.md` のNextへ移す時にこのファイルから削除し、状態を重複させない。
 - task番号は実装着手が決まった時点で採番する。候補段階では採番しない。
 - Laterは最大20件を目安とする。上限を超えたら優先度を付けずIceboxへ移す。
 - 仕様変更・依存追加・暗号・鍵・課金・public/private境界は、人間承認後にtaskへ昇格する。
-- task完了後はこのファイルから削除し、結果をtask文書とgitへ残す。
+- taskの結果はtask文書とgitへ残す。
 
 ## Later
 
