@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 実装中: **task-88 typed pull + durable quarantine** — 重要変更レーン。pull failure taxonomy、push前capability preflight、transaction外key refresh、durable quarantine、page単位cursor transaction、quarantine再適用を実装する。
-- 最新の完了: **task-87 typed field clock + placement/rank** — strict typed payload、changed-field clock、compound placement/completion、固定幅128-bit rank、transactional reorder/rebalanceを実装した。production CRUDを通る2-client同時別field編集とequal-rank再収束をrelease gateとして独立検証済み。
+- 実装中: なし。
+- 最新の完了: **task-88 typed pull + durable quarantine** — pull failure taxonomy、push前capability preflight、transaction外key refresh、durable quarantine、page単位cursor transaction、quarantine再適用を実装した。production adapter / 実HTTP / Postgres / SQLCipherの回復・停止・rollback gateを含め、独立再検証でP1 / P2 / P3なしを確認済み。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
