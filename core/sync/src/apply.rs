@@ -24,7 +24,7 @@ enum ApplyDisposition {
     AppliedCurrent,
     Rebased,
     Deferred(PullFailureReason, Option<Uuid>),
-    UpgradeRequired,
+    UpgradeRequired(u8),
 }
 
 pub trait SyncKeyRefresher {
@@ -83,18 +83,26 @@ where
     .map_err(|_| "sync failed".to_string())?;
     let mut summary = SyncRunSummary::default();
 
-    if store
-        .get_setting(SYNC_UPGRADE_REQUIRED_SETTING_KEY)?
-        .is_some()
+    let durable_upgrade_block = store.get_setting(SYNC_UPGRADE_REQUIRED_SETTING_KEY)?;
+    if durable_upgrade_block
+        .as_deref()
+        .is_some_and(upgrade_block_is_active)
     {
         return Err("upgrade required".to_string());
     }
     match engine.preflight().await {
-        Ok(()) => {}
-        Err(SyncEngineError::UpgradeRequired) => {
+        Ok(()) => {
+            if durable_upgrade_block.is_some() {
+                store.set_setting(SYNC_UPGRADE_REQUIRED_SETTING_KEY, "0:0", now_ms()?)?;
+            }
+        }
+        Err(SyncEngineError::UpgradeRequired {
+            protocol_version,
+            envelope_version,
+        }) => {
             store.set_setting(
                 SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                "protocol_or_envelope",
+                &upgrade_block_value(protocol_version, envelope_version),
                 now_ms()?,
             )?;
             return Err("upgrade required".to_string());
@@ -111,12 +119,13 @@ where
         context.keys = key_refresher.refresh().await?;
     }
     if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
-        if error == "upgrade required" {
+        if let Some(envelope_version) = replay_upgrade_version(&error) {
             store.set_setting(
                 SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                "unsupported_envelope",
+                &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
                 now_ms()?,
             )?;
+            return Err("upgrade required".to_string());
         }
         return Err(error);
     }
@@ -217,12 +226,16 @@ where
             Err(PageApplyError::MissingKey) => {
                 context.keys = key_refresher.refresh().await?;
                 if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
-                    if error == "upgrade required" {
+                    if let Some(envelope_version) = replay_upgrade_version(&error) {
                         store.set_setting(
                             SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                            "unsupported_envelope",
+                            &upgrade_block_value(
+                                crate::protocol::SYNC_PROTOCOL_VERSION,
+                                envelope_version,
+                            ),
                             now_ms()?,
                         )?;
+                        return Err("upgrade required".to_string());
                     }
                     return Err(error);
                 }
@@ -230,10 +243,10 @@ where
                     .map_err(page_apply_error_to_string)?;
                 merge_summary(&mut summary, page_summary);
             }
-            Err(PageApplyError::UpgradeRequired) => {
+            Err(PageApplyError::UpgradeRequired(envelope_version)) => {
                 store.set_setting(
                     SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                    "unsupported_envelope",
+                    &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
                     now_ms()?,
                 )?;
                 return Err("upgrade required".to_string());
@@ -251,13 +264,13 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PageApplyError {
     MissingKey,
-    UpgradeRequired,
+    UpgradeRequired(u8),
     Hard,
 }
 
 fn page_apply_error_to_string(error: PageApplyError) -> String {
     match error {
-        PageApplyError::UpgradeRequired => "upgrade required".to_string(),
+        PageApplyError::UpgradeRequired(_) => "upgrade required".to_string(),
         PageApplyError::MissingKey | PageApplyError::Hard => "sync failed".to_string(),
     }
 }
@@ -337,7 +350,9 @@ where
                     page_summary.corruption_quarantined_count += 1;
                 }
             }
-            ApplyDisposition::UpgradeRequired => return Err(PageApplyError::UpgradeRequired),
+            ApplyDisposition::UpgradeRequired(version) => {
+                return Err(PageApplyError::UpgradeRequired(version));
+            }
         }
     }
     transaction
@@ -401,7 +416,9 @@ where
                 })?;
                 transaction.commit()?;
             }
-            ApplyDisposition::UpgradeRequired => return Err("upgrade required".to_string()),
+            ApplyDisposition::UpgradeRequired(version) => {
+                return Err(format!("upgrade required:{version}"));
+            }
         }
     }
     Ok(())
@@ -442,7 +459,7 @@ where
     }
     match apply_pull_record(current, context, store, now_ms, summary)? {
         ApplyDisposition::AppliedCurrent | ApplyDisposition::Rebased => Ok(()),
-        ApplyDisposition::Deferred(_, _) | ApplyDisposition::UpgradeRequired => {
+        ApplyDisposition::Deferred(_, _) | ApplyDisposition::UpgradeRequired(_) => {
             Err("sync failed".to_string())
         }
     }
@@ -563,7 +580,13 @@ where
     let incoming = decrypt_plaintext(&dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
     let incoming = match incoming {
         Ok(incoming) => incoming,
-        Err(error) => return Ok(classify_envelope_error(error, Some(record.record_id))),
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                Some(record.record_id),
+                blob.first().copied().unwrap_or(0),
+            ));
+        }
     };
     let existing = store.get_list(record.record_id)?;
     let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Lists, record.record_id)?;
@@ -873,7 +896,7 @@ fn decrypt_task_plaintext(
         ));
     }
     if blob[0] != crate::ENVELOPE_VERSION {
-        return Err(ApplyDisposition::UpgradeRequired);
+        return Err(ApplyDisposition::UpgradeRequired(blob[0]));
     }
     let mut candidates = Vec::new();
     let mut expected_list_id = None;
@@ -903,7 +926,7 @@ fn decrypt_task_plaintext(
         match decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
             Ok(plaintext) => return Ok(plaintext),
             Err(EnvelopeError::UnsupportedVersion) => {
-                return Err(ApplyDisposition::UpgradeRequired)
+                return Err(ApplyDisposition::UpgradeRequired(blob[0]))
             }
             Err(EnvelopeError::Deserialization | EnvelopeError::Serialization) => {
                 invalid_plaintext = true;
@@ -932,9 +955,10 @@ fn decrypt_task_plaintext(
 fn classify_envelope_error(
     error: EnvelopeError,
     required_list_id: Option<Uuid>,
+    envelope_version: u8,
 ) -> ApplyDisposition {
     match error {
-        EnvelopeError::UnsupportedVersion => ApplyDisposition::UpgradeRequired,
+        EnvelopeError::UnsupportedVersion => ApplyDisposition::UpgradeRequired(envelope_version),
         EnvelopeError::Crypto(_) => {
             ApplyDisposition::Deferred(PullFailureReason::AuthenticationFailed, required_list_id)
         }
@@ -945,6 +969,26 @@ fn classify_envelope_error(
             ApplyDisposition::Deferred(PullFailureReason::CorruptEnvelope, required_list_id)
         }
     }
+}
+
+fn upgrade_block_value(protocol_version: u16, envelope_version: u8) -> String {
+    format!("{protocol_version}:{envelope_version}")
+}
+
+fn upgrade_block_is_active(value: &str) -> bool {
+    let Some((protocol, envelope)) = value.split_once(':') else {
+        return true;
+    };
+    let (Ok(protocol), Ok(envelope)) = (protocol.parse::<u16>(), envelope.parse::<u8>()) else {
+        return true;
+    };
+    crate::protocol::SYNC_PROTOCOL_VERSION < protocol || crate::ENVELOPE_VERSION < envelope
+}
+
+fn replay_upgrade_version(error: &str) -> Option<u8> {
+    error
+        .strip_prefix("upgrade required:")
+        .and_then(|value| value.parse().ok())
 }
 
 fn record_hlc_or_initial(plaintext: &SyncPlaintext) -> Hlc {
@@ -1361,7 +1405,7 @@ mod tests {
 
         assert_eq!(
             apply_pull_record(&current, &context, &mut store, &mut now, &mut summary).unwrap(),
-            ApplyDisposition::UpgradeRequired
+            ApplyDisposition::UpgradeRequired(0xff)
         );
 
         assert_eq!(store.outbox.len(), 1);
@@ -1546,4 +1590,12 @@ mod tests {
     fn uuid(value: u128) -> Uuid {
         Uuid::from_u128(value)
     }
+}
+#[test]
+fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
+    assert!(upgrade_block_is_active("3:2"));
+    assert!(upgrade_block_is_active("2:3"));
+    assert!(!upgrade_block_is_active("2:2"));
+    assert!(!upgrade_block_is_active("0:0"));
+    assert!(upgrade_block_is_active("invalid"));
 }

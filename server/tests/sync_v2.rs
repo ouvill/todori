@@ -404,6 +404,82 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         .is_none());
     assert!(failed_store.list_quarantine(10).unwrap().is_empty());
 
+    for (name, trigger) in [
+        (
+            "state",
+            "CREATE TRIGGER fail_page_state BEFORE INSERT ON sync_record_states
+             BEGIN SELECT RAISE(ABORT, 'injected state failure'); END;"
+                .to_string(),
+        ),
+        (
+            "quarantine",
+            format!(
+                "CREATE TRIGGER fail_page_quarantine BEFORE INSERT ON sync_quarantine
+                 WHEN NEW.record_id = '{}'
+                 BEGIN SELECT RAISE(ABORT, 'injected quarantine failure'); END;",
+                missing.id
+            ),
+        ),
+        (
+            "cursor",
+            "CREATE TRIGGER fail_page_cursor BEFORE INSERT ON sync_cursors
+             BEGIN SELECT RAISE(ABORT, 'injected cursor failure'); END;"
+                .to_string(),
+        ),
+    ] {
+        let matrix_path = temp.path().join(format!("failure-{name}.sqlite3"));
+        open_encrypted(&matrix_path, &DB_KEY)
+            .unwrap()
+            .execute_batch(&trigger)
+            .unwrap();
+        let mut matrix_store = BridgeSyncStore::new(matrix_path.clone(), DB_KEY);
+        let mut matrix_refresher = TestKeyRefresher {
+            calls: 0,
+            keys: LocalSyncKeys {
+                list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+            },
+            fail: false,
+        };
+        assert_eq!(
+            run_sync_now_with_key_refresh(
+                ActiveSyncContext {
+                    keys: LocalSyncKeys::default(),
+                    ..context.clone()
+                },
+                &mut matrix_store,
+                &mut ticking_now,
+                &mut matrix_refresher,
+            )
+            .await,
+            Err("sync failed".to_string()),
+            "failure stage {name}"
+        );
+        assert_eq!(matrix_refresher.calls, 1, "failure stage {name}");
+        let connection = open_encrypted(&matrix_path, &DB_KEY).unwrap();
+        for table in [
+            "lists",
+            "sync_record_states",
+            "sync_outbox",
+            "sync_quarantine",
+            "sync_cursors",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table} rollback at failure stage {name}");
+        }
+        let hlc_count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM settings WHERE key = 'sync_local_hlc'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hlc_count, 0, "HLC rollback at failure stage {name}");
+    }
+
     let unknown = todori_domain::new_list(
         "Future".to_string(),
         "dfffffffffffffffffffffffffffffff".to_string(),

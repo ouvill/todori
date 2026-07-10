@@ -32,7 +32,10 @@ pub enum SyncEngineError {
     #[error("invalid pull response")]
     InvalidPullResponse,
     #[error("sync client upgrade required")]
-    UpgradeRequired,
+    UpgradeRequired {
+        protocol_version: u16,
+        envelope_version: u8,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +145,10 @@ impl SyncEngine {
         if capabilities.protocol_version != protocol::SYNC_PROTOCOL_VERSION
             || capabilities.envelope_version != crate::ENVELOPE_VERSION
         {
-            return Err(SyncEngineError::UpgradeRequired);
+            return Err(SyncEngineError::UpgradeRequired {
+                protocol_version: capabilities.protocol_version,
+                envelope_version: capabilities.envelope_version,
+            });
         }
         Ok(())
     }
