@@ -6,16 +6,15 @@
 
 ## 現在
 
-- 実装中: なし。
+- 実装中: **task-87 typed field clock + placement/rank** — 重要変更レーン。task-86のCAS基盤を前提に、typed payload、changed-field clock、compound placement/completion、固定幅rank、transactional reorder/rebalanceを実装し、production CRUDを通る2-client同時別field編集をrelease gateにする。
 - 最新の完了: **task-86 protocol v2 CAS correctness基盤** — shared wire、base revision CAS、op ID outbox、atomic conflict merge/rebaseへv1互換なしで置換した。production changed-field clockとplacement/rankは次候補である。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
 ## 次の候補（最大3件）
 
-1. **typed field clock + placement/rank** — task/listを型付きClocked payloadへ移し、completion/placement compound、固定幅128-bit rank、transactional reorder/rebalanceを実装する。出典: ADR-012 / ADR-014。
-2. **typed pull + durable quarantine** — missing DEK、corrupt blob、unknown protocolを分類し、key refresh、durable quarantine、upgrade-required、cursor transactionを実装する。出典: ADR-012 / task-82。
-3. **offline list作成 + key bundle queue** — List DEK生成、local cache、list row、entity outbox、key-bundle upload queueをatomicに作り、bundleをrecordより先にidempotent uploadする。出典: ADR-013 / task-84未解決事項。
+1. **typed pull + durable quarantine** — missing DEK、corrupt blob、unknown protocolを分類し、key refresh、durable quarantine、upgrade-required、cursor transactionを実装する。出典: ADR-012 / task-82。
+2. **offline list作成 + key bundle queue** — List DEK生成、local cache、list row、entity outbox、key-bundle upload queueをatomicに作り、bundleをrecordより先にidempotent uploadする。出典: ADR-013 / task-84未解決事項。
 
 着手を決めた候補だけをtaskへ昇格する。未着手候補の詳細は [`BACKLOG.md`](./BACKLOG.md) を参照する。
 
