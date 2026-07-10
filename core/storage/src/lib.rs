@@ -7,11 +7,11 @@ use std::{path::Path, str::FromStr, time::Duration};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
-use todori_domain::{new_default_list, List, Task, TaskStatus, Uuid};
+use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskStatus, Uuid};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 11;
+pub const LATEST_SCHEMA_VERSION: i32 = 12;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -64,6 +64,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 11,
         name: "replace_sync_metadata_v2",
         apply: replace_sync_metadata_v2,
+    },
+    Migration {
+        target_version: 12,
+        name: "normalize_fixed_width_ranks",
+        apply: normalize_fixed_width_ranks,
     },
 ];
 
@@ -753,7 +758,7 @@ fn add_lists_is_default(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
              SELECT id
              FROM lists
              WHERE archived_at IS NULL
-             ORDER BY sort_order ASC, created_at ASC, id ASC
+             ORDER BY sort_order ASC, id ASC
              LIMIT 1
          );
          CREATE UNIQUE INDEX idx_lists_single_default
@@ -1009,6 +1014,34 @@ fn replace_sync_metadata_v2(transaction: &Transaction<'_>) -> rusqlite::Result<(
              updated_at INTEGER NOT NULL
          );",
     )
+}
+
+/// Pre-release destructive rank migration. Domain order is preserved while all
+/// sync metadata is discarded so the caller can seed strict typed payloads.
+fn normalize_fixed_width_ranks(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "WITH ranked AS (
+             SELECT id,
+                    printf('%016x%016x', row_number() OVER (ORDER BY sort_order, id), 0) AS rank
+             FROM lists
+         )
+         UPDATE lists
+         SET sort_order = (SELECT rank FROM ranked WHERE ranked.id = lists.id);
+
+         WITH ranked AS (
+             SELECT id,
+                    printf('%016x%016x',
+                           row_number() OVER (
+                               PARTITION BY list_id, parent_task_id
+                               ORDER BY sort_order, id
+                           ),
+                           0) AS rank
+             FROM tasks
+         )
+         UPDATE tasks
+         SET sort_order = (SELECT rank FROM ranked WHERE ranked.id = tasks.id);",
+    )?;
+    replace_sync_metadata_v2(transaction)
 }
 
 const BASELINE_V1_COLUMNS: &[(&str, &[&str])] = &[
@@ -1352,7 +1385,7 @@ fn list_active_tasks_by_list_on(
                 created_at, updated_at
          FROM tasks
          WHERE list_id = ?1
-         ORDER BY sort_order ASC",
+         ORDER BY sort_order ASC, id ASC",
     )?;
     let tasks = statement
         .query_map([list_id.to_string()], row_to_task)?
@@ -1791,7 +1824,7 @@ impl ListRepository for SqliteListRepository {
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NULL
-             ORDER BY sort_order ASC",
+             ORDER BY sort_order ASC, id ASC",
         )?;
         let lists = statement
             .query_map([], row_to_list)?
@@ -1806,7 +1839,7 @@ impl ListRepository for SqliteListRepository {
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NOT NULL
-             ORDER BY archived_at DESC, sort_order ASC",
+             ORDER BY archived_at DESC, sort_order ASC, id ASC",
         )?;
         let lists = statement
             .query_map([], row_to_list)?
@@ -1824,10 +1857,11 @@ impl ListRepository for SqliteListRepository {
             return Ok(list);
         }
 
-        let existing_count: i64 =
+        let last_rank: Option<String> =
             self.connection
-                .query_row("SELECT count(*) FROM lists", [], |row| row.get(0))?;
-        let sort_order = format!("a{existing_count}");
+                .query_row("SELECT max(sort_order) FROM lists", [], |row| row.get(0))?;
+        let sort_order = fractional_index_after(last_rank.as_deref())
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
         let list = new_default_list(name, sort_order, now_ms)
             .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
         self.insert(list.clone())?;
@@ -3401,7 +3435,6 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let repository = SqliteTaskRepository::new(connection);
-
         assert_eq!(repository.get(task.id).unwrap(), task);
     }
 
@@ -3632,6 +3665,7 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let repository = SqliteTaskRepository::new(connection);
+        task.sort_order = "00000000000000010000000000000000".to_string();
 
         assert_eq!(
             read_user_version(repository.connection()).unwrap(),
@@ -3808,12 +3842,16 @@ mod tests {
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut migrated_list = list.clone();
+        migrated_list.sort_order = "00000000000000010000000000000000".to_string();
+        let mut migrated_task = task.clone();
+        migrated_task.sort_order = "00000000000000010000000000000000".to_string();
         assert_eq!(
             read_user_version(&connection).unwrap(),
             LATEST_SCHEMA_VERSION
         );
-        assert_eq!(get_list_on(&connection, list.id).unwrap(), list);
-        assert_eq!(get_task_on(&connection, task.id).unwrap(), task);
+        assert_eq!(get_list_on(&connection, list.id).unwrap(), migrated_list);
+        assert_eq!(get_task_on(&connection, task.id).unwrap(), migrated_task);
         let repository = SqliteSyncStateRepository::new(connection);
         assert!(repository.list_outbox_heads(10).unwrap().is_empty());
         assert_eq!(repository.get_record_state("tasks", task.id).unwrap(), None);
@@ -4295,6 +4333,8 @@ mod tests {
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
+        list.sort_order = "00000000000000010000000000000000".to_string();
+        task.sort_order = "00000000000000010000000000000000".to_string();
 
         assert_eq!(
             read_user_version(&connection).unwrap(),
@@ -4351,6 +4391,7 @@ mod tests {
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
+        list.sort_order = "00000000000000010000000000000000".to_string();
 
         assert_eq!(
             read_user_version(&connection).unwrap(),

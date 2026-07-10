@@ -211,7 +211,18 @@ pub fn sync_now() -> Result<SyncStatusDto, String> {
 /// in this bridge layer.
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
     preflight_sync_mutation()?;
-    let list = new_list(name, sort_order, now_ms()?).map_err(|error| error.to_string())?;
+    let _legacy_caller_rank = sort_order;
+    let last_rank = with_list_repository(|repository| {
+        let mut lists = repository.list_all().map_err(|error| error.to_string())?;
+        lists.extend(
+            repository
+                .list_archived()
+                .map_err(|error| error.to_string())?,
+        );
+        Ok(lists.into_iter().map(|list| list.sort_order).max())
+    })?;
+    let rank = fractional_index_after(last_rank.as_deref()).map_err(|error| error.to_string())?;
+    let list = new_list(name, rank, now_ms()?).map_err(|error| error.to_string())?;
     ensure_list_dek_for_list(list.id)?;
     with_list_repository(|repository| {
         repository
@@ -388,6 +399,20 @@ pub fn reorder_task(
     }
 
     let now_ms = now_ms()?;
+    if let Some((client, sync)) = account_bound_client()? {
+        return client
+            .reorder_task(
+                todori_client::ReorderTaskInput {
+                    task_id,
+                    previous_task_id,
+                    next_task_id,
+                    now_ms,
+                },
+                &sync,
+            )
+            .map(task_to_dto)
+            .map_err(|error| error.to_string());
+    }
     with_task_repository(|repository| {
         let mut task = repository.get(task_id).map_err(|error| error.to_string())?;
 

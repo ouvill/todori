@@ -1,7 +1,8 @@
 use todori_domain::{
-    archive_list as domain_archive_list, fractional_index_after, new_task,
-    rename_list as domain_rename_list, transition_task, unarchive_list as domain_unarchive_list,
-    update_due_at, update_note, validate_parent_for, List, Task, TaskStatus, Uuid,
+    archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
+    new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
+    unarchive_list as domain_unarchive_list, update_due_at, update_note, validate_parent_for, List,
+    Task, TaskStatus, Uuid,
 };
 use todori_storage::{open_encrypted, SqliteWriteTx, StorageError, TaskUndoOperation};
 
@@ -26,7 +27,82 @@ pub struct SetTaskStatusInput {
     pub now_ms: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReorderTaskInput {
+    pub task_id: Uuid,
+    pub previous_task_id: Option<Uuid>,
+    pub next_task_id: Option<Uuid>,
+    pub now_ms: i64,
+}
+
 impl Client {
+    pub fn reorder_task(
+        &self,
+        input: ReorderTaskInput,
+        sync: &LocalMutationContext,
+    ) -> Result<Task, ClientError> {
+        if input.previous_task_id == Some(input.task_id)
+            || input.next_task_id == Some(input.task_id)
+            || (input.previous_task_id.is_some() && input.previous_task_id == input.next_task_id)
+        {
+            return Err(ClientError::Domain(
+                todori_domain::DomainError::InvalidSortOrderBoundary,
+            ));
+        }
+        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+        let target = transaction.get_task(input.task_id)?;
+        require_list_key(sync, target.list_id)?;
+        let mut scope = transaction
+            .list_active_tasks_by_list(target.list_id)?
+            .into_iter()
+            .filter(|task| task.parent_task_id == target.parent_task_id && task.id != target.id)
+            .collect::<Vec<_>>();
+        scope.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+        let insertion = insertion_index(
+            &scope,
+            input.previous_task_id,
+            input.next_task_id,
+            target.list_id,
+            target.parent_task_id,
+        )?;
+        let previous_rank = insertion
+            .checked_sub(1)
+            .and_then(|index| scope.get(index))
+            .map(|task| task.sort_order.as_str());
+        let next_rank = scope.get(insertion).map(|task| task.sort_order.as_str());
+        let midpoint = fractional_index_between(previous_rank, next_rank).ok();
+        let collides = midpoint
+            .as_ref()
+            .is_some_and(|rank| scope.iter().any(|task| task.sort_order == *rank));
+        if let Some(rank) = midpoint.filter(|_| !collides) {
+            let mut updated = target;
+            updated.sort_order = rank;
+            updated.updated_at = input.now_ms;
+            transaction.update_task(updated.clone())?;
+            enqueue_task_in_transaction(&mut transaction, sync, &updated, false, input.now_ms)?;
+            transaction.commit()?;
+            return Ok(updated);
+        }
+
+        scope.insert(insertion, target);
+        let ranks = rebalance_ranks(scope.len())?;
+        let mut reordered = None;
+        for (mut task, rank) in scope.into_iter().zip(ranks) {
+            if task.sort_order != rank {
+                task.sort_order = rank;
+                task.updated_at = input.now_ms;
+                transaction.update_task(task.clone())?;
+                enqueue_task_in_transaction(&mut transaction, sync, &task, false, input.now_ms)?;
+            }
+            if task.id == input.task_id {
+                reordered = Some(task);
+            }
+        }
+        transaction.commit()?;
+        reordered.ok_or(ClientError::Storage(StorageError::NotFound(input.task_id)))
+    }
+
     pub fn create_task(
         &self,
         input: CreateTaskInput,
@@ -42,7 +118,46 @@ impl Client {
             .filter(|task| task.parent_task_id == input.parent_task_id)
             .map(|task| task.sort_order.as_str())
             .max();
-        let sort_order = fractional_index_after(last_sibling_sort_order)?;
+        let sort_order = match fractional_index_after(last_sibling_sort_order) {
+            Ok(rank) => rank,
+            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+                let mut siblings = tasks
+                    .iter()
+                    .filter(|task| task.parent_task_id == input.parent_task_id)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                siblings.sort_by(|a, b| {
+                    (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id))
+                });
+                for (mut sibling, rank) in siblings.into_iter().zip(rebalance_ranks(
+                    tasks
+                        .iter()
+                        .filter(|task| task.parent_task_id == input.parent_task_id)
+                        .count(),
+                )?) {
+                    if sibling.sort_order != rank {
+                        sibling.sort_order = rank;
+                        sibling.updated_at = input.now_ms;
+                        transaction.update_task(sibling.clone())?;
+                        enqueue_task_in_transaction(
+                            &mut transaction,
+                            sync,
+                            &sibling,
+                            false,
+                            input.now_ms,
+                        )?;
+                    }
+                }
+                let refreshed = transaction.list_active_tasks_by_list(input.list_id)?;
+                let last = refreshed
+                    .iter()
+                    .filter(|task| task.parent_task_id == input.parent_task_id)
+                    .map(|task| task.sort_order.as_str())
+                    .max();
+                fractional_index_after(last)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         let mut task = new_task(
             input.list_id,
             input.parent_task_id,
@@ -177,6 +292,45 @@ impl Client {
     }
 }
 
+fn insertion_index(
+    scope: &[Task],
+    previous: Option<Uuid>,
+    next: Option<Uuid>,
+    list_id: Uuid,
+    parent_task_id: Option<Uuid>,
+) -> Result<usize, ClientError> {
+    let find = |id| {
+        scope
+            .iter()
+            .position(|task| task.id == id)
+            .ok_or(ClientError::Storage(StorageError::NotFound(id)))
+    };
+    let index = match (previous, next) {
+        (None, None) => scope.len(),
+        (Some(previous), None) => find(previous)? + 1,
+        (None, Some(next)) => find(next)?,
+        (Some(previous), Some(next)) => {
+            let previous_index = find(previous)?;
+            let next_index = find(next)?;
+            if previous_index + 1 != next_index {
+                return Err(ClientError::Domain(
+                    todori_domain::DomainError::InvalidSortOrderBoundary,
+                ));
+            }
+            next_index
+        }
+    };
+    if scope
+        .iter()
+        .any(|task| task.list_id != list_id || task.parent_task_id != parent_task_id)
+    {
+        return Err(ClientError::Domain(
+            todori_domain::DomainError::InvalidSortOrderBoundary,
+        ));
+    }
+    Ok(index)
+}
+
 fn require_list_key(sync: &LocalMutationContext, list_id: Uuid) -> Result<(), ClientError> {
     if sync.keys.contains_list(list_id) {
         Ok(())
@@ -195,7 +349,8 @@ mod tests {
         SyncStateRepository, TaskRepository,
     };
     use todori_sync::{
-        Hlc, LocalSyncKeys, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
+        Hlc, LocalSyncKeys, SyncPlaintext, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY,
+        TASKS_COLLECTION,
     };
 
     use super::*;
@@ -214,12 +369,17 @@ mod tests {
     fn fixture() -> Fixture {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("client.sqlite3");
-        let list = new_list("Inbox".to_string(), "a0".to_string(), BASE_MS).unwrap();
+        let list = new_list(
+            "Inbox".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
         let task = new_task(
             list.id,
             None,
             "before".to_string(),
-            "a0".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
             BASE_MS,
         )
         .unwrap();
@@ -313,6 +473,193 @@ mod tests {
     }
 
     #[test]
+    fn account_bound_reorder_uses_midpoint_and_atomic_typed_placement() {
+        let fixture = fixture();
+        let created = fixture
+            .client
+            .create_task(create_input(fixture.list.id), &fixture.sync)
+            .unwrap();
+        let reordered = fixture
+            .client
+            .reorder_task(
+                ReorderTaskInput {
+                    task_id: created.id,
+                    previous_task_id: None,
+                    next_task_id: Some(fixture.task.id),
+                    now_ms: BASE_MS + 2,
+                },
+                &fixture.sync,
+            )
+            .unwrap();
+        assert!(reordered.sort_order < fixture.task.sort_order);
+        assert_eq!(reordered.sort_order.len(), 32);
+
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let state = SqliteSyncStateRepository::new(connection)
+            .get_record_state(TASKS_COLLECTION, created.id)
+            .unwrap()
+            .unwrap();
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("live");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("task");
+        };
+        assert_eq!(plaintext.placement.value.rank, reordered.sort_order);
+    }
+
+    #[test]
+    fn exhausted_gap_rebalances_only_scope_and_rolls_back_on_outbox_failure() {
+        let fixture = fixture();
+        let mut first = fixture.task.clone();
+        first.sort_order = "00000000000000000000000000000000".to_string();
+        let second = new_task(
+            fixture.list.id,
+            None,
+            "second".to_string(),
+            "00000000000000000000000000000001".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let target = new_task(
+            fixture.list.id,
+            None,
+            "target".to_string(),
+            "ffffffffffffffffffffffffffffffff".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let mut tasks = SqliteTaskRepository::new(connection);
+        tasks.update(first.clone()).unwrap();
+        tasks.insert(second.clone()).unwrap();
+        tasks.insert(target.clone()).unwrap();
+        drop(tasks);
+        install_trigger(
+            &fixture,
+            "CREATE TRIGGER fail_rebalance_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+        );
+
+        assert!(fixture
+            .client
+            .reorder_task(
+                ReorderTaskInput {
+                    task_id: target.id,
+                    previous_task_id: Some(first.id),
+                    next_task_id: Some(second.id),
+                    now_ms: BASE_MS + 2,
+                },
+                &fixture.sync,
+            )
+            .is_err());
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let tasks = SqliteTaskRepository::new(connection);
+        assert_eq!(tasks.get(first.id).unwrap().sort_order, first.sort_order);
+        assert_eq!(tasks.get(second.id).unwrap().sort_order, second.sort_order);
+        assert_eq!(tasks.get(target.id).unwrap().sort_order, target.sort_order);
+    }
+
+    #[test]
+    fn exhausted_gap_successfully_rebalances_current_scope_only() {
+        let fixture = fixture();
+        let mut first = fixture.task.clone();
+        first.sort_order = "00000000000000000000000000000000".to_string();
+        let second = new_task(
+            fixture.list.id,
+            None,
+            "second".to_string(),
+            "00000000000000000000000000000001".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let target = new_task(
+            fixture.list.id,
+            None,
+            "target".to_string(),
+            "ffffffffffffffffffffffffffffffff".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let other_list = new_list(
+            "Other".to_string(),
+            "bfffffffffffffffffffffffffffffff".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let other = new_task(
+            other_list.id,
+            None,
+            "other".to_string(),
+            "00000000000000000000000000000001".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let mut lists = SqliteListRepository::new(connection);
+        lists.insert(other_list).unwrap();
+        drop(lists);
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let mut tasks = SqliteTaskRepository::new(connection);
+        tasks.update(first.clone()).unwrap();
+        tasks.insert(second.clone()).unwrap();
+        tasks.insert(target.clone()).unwrap();
+        tasks.insert(other.clone()).unwrap();
+        drop(tasks);
+
+        let reordered = fixture
+            .client
+            .reorder_task(
+                ReorderTaskInput {
+                    task_id: target.id,
+                    previous_task_id: Some(first.id),
+                    next_task_id: Some(second.id),
+                    now_ms: BASE_MS + 2,
+                },
+                &fixture.sync,
+            )
+            .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let tasks = SqliteTaskRepository::new(connection);
+        let first_after = tasks.get(first.id).unwrap();
+        let second_after = tasks.get(second.id).unwrap();
+        assert!(first_after.sort_order < reordered.sort_order);
+        assert!(reordered.sort_order < second_after.sort_order);
+        assert_eq!(tasks.get(other.id).unwrap().sort_order, other.sort_order);
+        drop(tasks);
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        assert_eq!(
+            SqliteSyncStateRepository::new(connection)
+                .list_outbox_heads(10)
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn tail_create_rebalances_when_max_rank_exhausts_space() {
+        let fixture = fixture();
+        let mut existing = fixture.task.clone();
+        existing.sort_order = "ffffffffffffffffffffffffffffffff".to_string();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        SqliteTaskRepository::new(connection)
+            .update(existing.clone())
+            .unwrap();
+
+        let created = fixture
+            .client
+            .create_task(create_input(fixture.list.id), &fixture.sync)
+            .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let existing = SqliteTaskRepository::new(connection)
+            .get(existing.id)
+            .unwrap();
+        assert_eq!(existing.sort_order.len(), 32);
+        assert!(existing.sort_order < created.sort_order);
+        assert!(created.sort_order < "ffffffffffffffffffffffffffffffff".to_string());
+    }
+
+    #[test]
     fn list_mutations_commit_with_outbox_and_record_state() {
         let fixture = fixture();
         let renamed = fixture
@@ -372,7 +719,7 @@ mod tests {
     #[test]
     fn status_outbox_failure_rolls_back_task_undo_hlc_and_state() {
         let fixture = fixture();
-        seed_record_state(&fixture, TASKS_COLLECTION, fixture.task.id);
+        let seeded = seed_record_state(&fixture, TASKS_COLLECTION, fixture.task.id);
         install_trigger(
             &fixture,
             "CREATE TRIGGER fail_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT, 'fail'); END;",
@@ -398,7 +745,7 @@ mod tests {
         assert_eq!(local_hlc(&fixture), before_hlc);
         assert_eq!(
             record_state(&fixture, TASKS_COLLECTION, fixture.task.id),
-            "baseline"
+            seeded
         );
     }
 
@@ -439,7 +786,7 @@ mod tests {
     #[test]
     fn list_record_state_failure_rolls_back_domain_hlc_and_outbox() {
         let fixture = fixture();
-        seed_record_state(&fixture, LISTS_COLLECTION, fixture.list.id);
+        let seeded = seed_record_state(&fixture, LISTS_COLLECTION, fixture.list.id);
         install_trigger(
             &fixture,
             "CREATE TRIGGER fail_state BEFORE UPDATE ON sync_record_states BEGIN SELECT RAISE(ABORT, 'fail'); END;",
@@ -466,7 +813,7 @@ mod tests {
         assert_eq!(local_hlc(&fixture), before_hlc);
         assert_eq!(
             record_state(&fixture, LISTS_COLLECTION, fixture.list.id),
-            "baseline"
+            seeded
         );
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         assert!(SqliteSyncStateRepository::new(connection)
@@ -576,7 +923,18 @@ mod tests {
             .unwrap();
     }
 
-    fn seed_record_state(fixture: &Fixture, collection: &str, record_id: Uuid) {
+    fn seed_record_state(fixture: &Fixture, collection: &str, record_id: Uuid) -> String {
+        let clock = Hlc {
+            wall_ms: BASE_MS - 1,
+            counter: 0,
+            device_id: "seed".to_string(),
+        };
+        let plaintext = if collection == TASKS_COLLECTION {
+            SyncPlaintext::from_task(&fixture.task, clock.clone()).unwrap()
+        } else {
+            SyncPlaintext::from_list(&fixture.list, clock.clone()).unwrap()
+        };
+        let plaintext_json = serde_json::to_string(&plaintext).unwrap();
         let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
         SqliteSyncStateRepository::new(connection)
             .put_record_state(SyncRecordState {
@@ -584,18 +942,13 @@ mod tests {
                 collection: collection.to_string(),
                 current_revision_hlc: None,
                 state: SyncRecordSemanticState::Live {
-                    mutation_hlc: Hlc {
-                        wall_ms: BASE_MS - 1,
-                        counter: 0,
-                        device_id: "seed".to_string(),
-                    }
-                    .encode()
-                    .unwrap(),
-                    plaintext_json: "baseline".to_string(),
+                    mutation_hlc: clock.encode().unwrap(),
+                    plaintext_json: plaintext_json.clone(),
                 },
                 updated_at: BASE_MS,
             })
             .unwrap();
+        plaintext_json
     }
 
     fn record_state(fixture: &Fixture, collection: &str, record_id: Uuid) -> String {

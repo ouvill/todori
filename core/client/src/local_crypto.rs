@@ -273,12 +273,24 @@ mod tests {
     fn persisted_context_reopens_without_remote_session() {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("client.sqlite3");
-        let list = new_list("Inbox".to_string(), "a0".to_string(), NOW).unwrap();
+        let list = new_list(
+            "Inbox".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         SqliteListRepository::new(connection)
             .insert(list.clone())
             .unwrap();
-        let task = new_task(list.id, None, "before".to_string(), "a0".to_string(), NOW).unwrap();
+        let task = new_task(
+            list.id,
+            None,
+            "before".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         SqliteTaskRepository::new(connection)
             .insert(task.clone())
@@ -343,7 +355,12 @@ mod tests {
     fn bound_profile_without_master_key_is_not_anonymous() {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("client.sqlite3");
-        let list = new_list("Inbox".to_string(), "a0".to_string(), NOW).unwrap();
+        let list = new_list(
+            "Inbox".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         SqliteListRepository::new(connection)
             .insert(list.clone())
@@ -373,8 +390,18 @@ mod tests {
     fn missing_required_list_key_is_not_ready() {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("client.sqlite3");
-        let cached_list = new_list("Cached".to_string(), "a0".to_string(), NOW).unwrap();
-        let missing_list = new_list("Missing".to_string(), "a1".to_string(), NOW).unwrap();
+        let cached_list = new_list(
+            "Cached".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
+        let missing_list = new_list(
+            "Missing".to_string(),
+            "bfffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         let mut lists = SqliteListRepository::new(connection);
         lists.insert(cached_list.clone()).unwrap();
@@ -428,7 +455,12 @@ mod tests {
     fn corrupt_cached_bundle_is_typed_unavailable() {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("client.sqlite3");
-        let list = new_list("Inbox".to_string(), "a0".to_string(), NOW).unwrap();
+        let list = new_list(
+            "Inbox".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            NOW,
+        )
+        .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         SqliteListRepository::new(connection)
             .insert(list.clone())

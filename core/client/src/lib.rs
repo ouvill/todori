@@ -7,7 +7,7 @@ mod crud_service;
 mod local_crypto;
 mod task_service;
 
-pub use crud_service::{CreateTaskInput, SetTaskStatusInput};
+pub use crud_service::{CreateTaskInput, ReorderTaskInput, SetTaskStatusInput};
 pub use local_crypto::{
     load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
     LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity, LocalCryptoUnavailable,

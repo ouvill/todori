@@ -253,7 +253,9 @@ mod tests {
         SqliteSyncStateRepository, SqliteTaskRepository, SyncRecordSemanticState, SyncRecordState,
         SyncStateRepository, TaskRepository,
     };
-    use todori_sync::{Hlc, LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION};
+    use todori_sync::{
+        Hlc, LocalSyncKeys, SyncPlaintext, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
+    };
 
     use super::*;
 
@@ -270,12 +272,17 @@ mod tests {
     fn fixture() -> Fixture {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("client.sqlite3");
-        let list = new_list("Inbox".to_string(), "a0".to_string(), BASE_MS).unwrap();
+        let list = new_list(
+            "Inbox".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            BASE_MS,
+        )
+        .unwrap();
         let task = new_task(
             list.id,
             None,
             "before".to_string(),
-            "a0".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
             BASE_MS,
         )
         .unwrap();
@@ -287,13 +294,15 @@ mod tests {
         let mut tasks = SqliteTaskRepository::new(connection);
         tasks.insert(task.clone()).unwrap();
         drop(tasks);
-        let baseline_hlc = Hlc {
+        let baseline_clock = Hlc {
             wall_ms: BASE_MS - 1_000,
             counter: 0,
             device_id: "device-a".to_string(),
-        }
-        .encode()
-        .unwrap();
+        };
+        let baseline_hlc = baseline_clock.encode().unwrap();
+        let baseline_plaintext =
+            serde_json::to_string(&SyncPlaintext::from_task(&task, baseline_clock).unwrap())
+                .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         let mut settings = SqliteSettingsRepository::new(connection);
         settings
@@ -309,7 +318,7 @@ mod tests {
                 current_revision_hlc: None,
                 state: SyncRecordSemanticState::Live {
                     mutation_hlc: baseline_hlc,
-                    plaintext_json: "baseline".to_string(),
+                    plaintext_json: baseline_plaintext,
                 },
                 updated_at: BASE_MS,
             })
@@ -441,9 +450,12 @@ mod tests {
             .get_record_state(TASKS_COLLECTION, fixture.task.id)
             .unwrap()
             .unwrap();
-        assert!(matches!(
-            state.state,
-            SyncRecordSemanticState::Live { plaintext_json, .. } if plaintext_json == "baseline"
-        ));
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("expected live state");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("expected task plaintext");
+        };
+        assert_eq!(plaintext.title.value, "before");
     }
 }
