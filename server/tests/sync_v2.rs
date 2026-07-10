@@ -279,6 +279,191 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     assert_eq!(plaintext.note.value, "Note from B");
 }
 
+#[tokio::test]
+async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconverges() {
+    const DB_KEY_A: [u8; 32] = [0xc1; 32];
+    const DB_KEY_B: [u8; 32] = [0xd2; 32];
+    let fixture = Fixture::setup().await;
+    let server_url = fixture.serve().await;
+    let temp = TempDir::new().unwrap();
+    let path_a = temp.path().join("rank-client-a.sqlite3");
+    let path_b = temp.path().join("rank-client-b.sqlite3");
+    let now = Utc::now().timestamp_millis() - 10_000;
+    let list = todori_domain::new_list(
+        "Shared ranks".to_string(),
+        "7fffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    for (path, key) in [(&path_a, &DB_KEY_A), (&path_b, &DB_KEY_B)] {
+        SqliteListRepository::new(open_encrypted(path, key).unwrap())
+            .insert(list.clone())
+            .unwrap();
+    }
+    let list_dek = [0x6b; 32];
+    let sync_a = LocalMutationContext {
+        device_id: "rank-client-a".to_string(),
+        keys: LocalSyncKeys {
+            list_deks: vec![(list.id, list_dek)],
+        },
+    };
+    let sync_b = LocalMutationContext {
+        device_id: "rank-client-b".to_string(),
+        keys: sync_a.keys.clone(),
+    };
+    let client_a = Client::new(path_a.clone(), DB_KEY_A);
+    let client_b = Client::new(path_b.clone(), DB_KEY_B);
+    let target = client_a
+        .create_task(
+            todori_client::CreateTaskInput {
+                list_id: list.id,
+                title: "reorder target".to_string(),
+                parent_task_id: None,
+                due_at: None,
+                note: None,
+                now_ms: now + 1,
+            },
+            &sync_a,
+        )
+        .unwrap();
+    let context = |device_id: &str, keys: LocalSyncKeys| ActiveSyncContext {
+        server_url: server_url.clone(),
+        tenant_id: fixture.tenant_id,
+        device_id: device_id.to_string(),
+        session_token: fixture.token.clone(),
+        keys,
+    };
+    let mut clock = now + 100;
+    let mut ticking_now = || {
+        clock += 1;
+        Ok(clock)
+    };
+    let mut store_a = BridgeSyncStore::new(path_a.clone(), DB_KEY_A);
+    let mut store_b = BridgeSyncStore::new(path_b.clone(), DB_KEY_B);
+    run_sync_now(
+        context("rank-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    run_sync_now(
+        context("rank-client-b", sync_b.keys.clone()),
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+
+    let concurrent_a = client_a
+        .create_task(
+            todori_client::CreateTaskInput {
+                list_id: list.id,
+                title: "same gap A".to_string(),
+                parent_task_id: None,
+                due_at: None,
+                note: None,
+                now_ms: now + 200,
+            },
+            &sync_a,
+        )
+        .unwrap();
+    let concurrent_b = client_b
+        .create_task(
+            todori_client::CreateTaskInput {
+                list_id: list.id,
+                title: "same gap B".to_string(),
+                parent_task_id: None,
+                due_at: None,
+                note: None,
+                now_ms: now + 201,
+            },
+            &sync_b,
+        )
+        .unwrap();
+    assert_eq!(concurrent_a.sort_order, concurrent_b.sort_order);
+    run_sync_now(
+        context("rank-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    run_sync_now(
+        context("rank-client-b", sync_b.keys.clone()),
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    run_sync_now(
+        context("rank-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    let order = |path: &std::path::Path, key: &[u8; 32]| {
+        SqliteTaskRepository::new(open_encrypted(path, key).unwrap())
+            .list_active_by_list(list.id)
+            .unwrap()
+            .into_iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(&path_a, &DB_KEY_A), order(&path_b, &DB_KEY_B));
+    let (previous, next) = if concurrent_a.id < concurrent_b.id {
+        (concurrent_a.id, concurrent_b.id)
+    } else {
+        (concurrent_b.id, concurrent_a.id)
+    };
+
+    client_a
+        .reorder_task(
+            todori_client::ReorderTaskInput {
+                task_id: target.id,
+                previous_task_id: Some(previous),
+                next_task_id: Some(next),
+                now_ms: now + 300,
+            },
+            &sync_a,
+        )
+        .unwrap();
+    run_sync_now(
+        context("rank-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    run_sync_now(
+        context("rank-client-b", sync_b.keys.clone()),
+        &mut store_b,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    run_sync_now(
+        context("rank-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+
+    let order_a = order(&path_a, &DB_KEY_A);
+    let order_b = order(&path_b, &DB_KEY_B);
+    assert_eq!(order_a, order_b);
+    assert_eq!(order_a, vec![previous, target.id, next]);
+    let ranks = SqliteTaskRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap())
+        .list_active_by_list(list.id)
+        .unwrap()
+        .into_iter()
+        .map(|task| task.sort_order)
+        .collect::<Vec<_>>();
+    assert!(ranks.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
 fn hlc(delta: i64, counter: u32, device: &str) -> String {
     Hlc {
         wall_ms: Utc::now().timestamp_millis() + delta,

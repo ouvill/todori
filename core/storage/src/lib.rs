@@ -389,8 +389,25 @@ impl<'connection> SqliteWriteTx<'connection> {
         list_active_tasks_by_list_on(&self.transaction, list_id)
     }
 
+    pub fn list_lists_including_archived(&self) -> Result<Vec<List>, StorageError> {
+        let mut statement = self.transaction.prepare(
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    is_default, created_at, updated_at
+             FROM lists
+             ORDER BY sort_order ASC, id ASC",
+        )?;
+        let lists = statement
+            .query_map([], row_to_list)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(lists)
+    }
+
     pub fn insert_task(&mut self, task: Task) -> Result<(), StorageError> {
         insert_task_on(&self.transaction, &task)
+    }
+
+    pub fn insert_list(&mut self, list: List) -> Result<(), StorageError> {
+        insert_list_on(&self.transaction, &list)
     }
 
     pub fn update_task(&mut self, task: Task) -> Result<(), StorageError> {
@@ -1839,7 +1856,7 @@ impl ListRepository for SqliteListRepository {
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NOT NULL
-             ORDER BY archived_at DESC, sort_order ASC, id ASC",
+             ORDER BY sort_order ASC, id ASC",
         )?;
         let lists = statement
             .query_map([], row_to_list)?
@@ -5221,6 +5238,35 @@ mod tests {
                 .map(|list| list.id)
                 .collect::<Vec<_>>(),
             vec![first.id]
+        );
+    }
+
+    #[test]
+    fn archived_lists_use_rank_and_record_id_order() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteListRepository::new(connection);
+        let mut later_rank = sample_list("b0000000000000000000000000000000");
+        later_rank.id = Uuid::from_u128(12);
+        later_rank.archived_at = Some(10);
+        let mut later_id = sample_list("a0000000000000000000000000000000");
+        later_id.id = Uuid::from_u128(11);
+        later_id.archived_at = Some(30);
+        let mut earlier_id = later_id.clone();
+        earlier_id.id = Uuid::from_u128(10);
+        earlier_id.archived_at = Some(20);
+        repository.insert(later_rank.clone()).unwrap();
+        repository.insert(later_id.clone()).unwrap();
+        repository.insert(earlier_id.clone()).unwrap();
+
+        assert_eq!(
+            repository
+                .list_archived()
+                .unwrap()
+                .into_iter()
+                .map(|list| list.id)
+                .collect::<Vec<_>>(),
+            vec![earlier_id.id, later_id.id, later_rank.id]
         );
     }
 

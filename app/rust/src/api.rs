@@ -1,16 +1,18 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use todori_crypto::{derive_local_db_key, load_or_create_device_key};
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
-    new_list, new_task, rename_list as domain_rename_list, transition_task,
+    new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
     unarchive_list as domain_unarchive_list, update_due_at, update_note, update_priority,
     update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SettingsRepository,
-    SqliteListRepository, SqliteTaskRepository, StorageError, TaskRepository, TaskUndoEntry,
-    TaskUndoOperation,
+    SqliteListRepository, SqliteWriteTx, TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 
 use crate::support::{
@@ -212,6 +214,10 @@ pub fn sync_now() -> Result<SyncStatusDto, String> {
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
     preflight_sync_mutation()?;
     let _legacy_caller_rank = sort_order;
+    let now_ms = now_ms()?;
+    if account_bound_client()?.is_none() {
+        return create_anonymous_list(name, now_ms).map(list_to_dto);
+    }
     let last_rank = with_list_repository(|repository| {
         let mut lists = repository.list_all().map_err(|error| error.to_string())?;
         lists.extend(
@@ -222,7 +228,7 @@ pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> 
         Ok(lists.into_iter().map(|list| list.sort_order).max())
     })?;
     let rank = fractional_index_after(last_rank.as_deref()).map_err(|error| error.to_string())?;
-    let list = new_list(name, rank, now_ms()?).map_err(|error| error.to_string())?;
+    let list = new_list(name, rank, now_ms).map_err(|error| error.to_string())?;
     ensure_list_dek_for_list(list.id)?;
     with_list_repository(|repository| {
         repository
@@ -285,7 +291,11 @@ pub fn archive_list(list_id: String) -> Result<ListDto, String> {
             return Err("default list cannot be archived".to_string());
         }
 
-        let updated = domain_archive_list(list, now_ms).map_err(|error| error.to_string())?;
+        let updated =
+            domain_archive_list(list.clone(), now_ms).map_err(|error| error.to_string())?;
+        if updated == list {
+            return Ok(list_to_dto(list));
+        }
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
@@ -304,7 +314,11 @@ pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
     }
     with_list_repository(|repository| {
         let list = repository.get(list_id).map_err(|error| error.to_string())?;
-        let updated = domain_unarchive_list(list, now_ms).map_err(|error| error.to_string())?;
+        let updated =
+            domain_unarchive_list(list.clone(), now_ms).map_err(|error| error.to_string())?;
+        if updated == list {
+            return Ok(list_to_dto(list));
+        }
         repository
             .update(updated.clone())
             .map_err(|error| error.to_string())?;
@@ -340,45 +354,7 @@ pub fn create_task(
             .map(task_to_dto)
             .map_err(|error| error.to_string());
     }
-    with_task_repository(|repository| {
-        let mut tasks = repository
-            .list_active_by_list(list_id)
-            .map_err(|error| error.to_string())?;
-
-        let last_sibling_sort_order = tasks
-            .iter()
-            .filter(|existing| existing.parent_task_id == parent_task_id)
-            .map(|existing| existing.sort_order.as_str())
-            .max();
-        let sort_order =
-            fractional_index_after(last_sibling_sort_order).map_err(|error| error.to_string())?;
-        let mut task = new_task(list_id, parent_task_id, title, sort_order, now_ms)
-            .map_err(|error| error.to_string())?;
-        if let Some(note) = note {
-            task = update_note(task, note, now_ms).map_err(|error| error.to_string())?;
-        }
-        if let Some(due_at) = due_at {
-            task = update_due_at(task, Some(due_at), now_ms).map_err(|error| error.to_string())?;
-        }
-
-        if let Some(parent_id) = parent_task_id {
-            if !tasks.iter().any(|existing| existing.id == parent_id) {
-                match repository.get(parent_id) {
-                    Ok(parent) => tasks.push(parent),
-                    Err(StorageError::NotFound(_)) => {}
-                    Err(error) => return Err(error.to_string()),
-                }
-            }
-
-            validate_parent_for(task.id, list_id, parent_id, &tasks)
-                .map_err(|error| error.to_string())?;
-        }
-
-        repository
-            .insert(task.clone())
-            .map_err(|error| error.to_string())?;
-        Ok(task_to_dto(task))
-    })
+    create_anonymous_task(list_id, title, parent_task_id, due_at, note, now_ms).map(task_to_dto)
 }
 
 pub fn reorder_task(
@@ -413,32 +389,7 @@ pub fn reorder_task(
             .map(task_to_dto)
             .map_err(|error| error.to_string());
     }
-    with_task_repository(|repository| {
-        let mut task = repository.get(task_id).map_err(|error| error.to_string())?;
-
-        let previous = previous_task_id
-            .map(|boundary_id| load_reorder_boundary(repository, boundary_id, &task))
-            .transpose()?;
-        let next = next_task_id
-            .map(|boundary_id| load_reorder_boundary(repository, boundary_id, &task))
-            .transpose()?;
-
-        let sort_order = fractional_index_between(
-            previous
-                .as_ref()
-                .map(|boundary| boundary.sort_order.as_str()),
-            next.as_ref().map(|boundary| boundary.sort_order.as_str()),
-        )
-        .map_err(|error| error.to_string())?;
-
-        task.sort_order = sort_order;
-        task.updated_at = now_ms;
-        repository
-            .update(task.clone())
-            .map_err(|error| error.to_string())?;
-        enqueue_task_sync(&task, false)?;
-        Ok(task_to_dto(task))
-    })
+    reorder_anonymous_task(task_id, previous_task_id, next_task_id, now_ms).map(task_to_dto)
 }
 
 pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
@@ -744,6 +695,227 @@ fn account_bound_client(
     }
 }
 
+fn create_anonymous_list(name: String, now_ms: i64) -> Result<List, String> {
+    let state = core_state()?;
+    create_anonymous_list_on(&state.db_path, &state.db_key, name, now_ms)
+}
+
+fn create_anonymous_list_on(
+    db_path: &Path,
+    db_key: &[u8; 32],
+    name: String,
+    now_ms: i64,
+) -> Result<List, String> {
+    let mut connection = open_encrypted(db_path, db_key).map_err(|e| e.to_string())?;
+    let mut transaction = SqliteWriteTx::begin(&mut connection).map_err(|e| e.to_string())?;
+    let lists = transaction
+        .list_lists_including_archived()
+        .map_err(|e| e.to_string())?;
+    let rank = match fractional_index_after(lists.last().map(|list| list.sort_order.as_str())) {
+        Ok(rank) => rank,
+        Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+            let ranks = rebalance_ranks(lists.len() + 1).map_err(|e| e.to_string())?;
+            for (mut list, rank) in lists.into_iter().zip(ranks.iter()) {
+                if list.sort_order != *rank {
+                    list.sort_order.clone_from(rank);
+                    list.updated_at = now_ms;
+                    transaction.update_list(list).map_err(|e| e.to_string())?;
+                }
+            }
+            ranks
+                .last()
+                .cloned()
+                .ok_or_else(|| "rank rebalance failed".to_string())?
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let list = new_list(name, rank, now_ms).map_err(|e| e.to_string())?;
+    transaction
+        .insert_list(list.clone())
+        .map_err(|e| e.to_string())?;
+    transaction.commit().map_err(|e| e.to_string())?;
+    Ok(list)
+}
+
+fn create_anonymous_task(
+    list_id: Uuid,
+    title: String,
+    parent_task_id: Option<Uuid>,
+    due_at: Option<i64>,
+    note: Option<String>,
+    now_ms: i64,
+) -> Result<Task, String> {
+    let state = core_state()?;
+    create_anonymous_task_on(
+        &state.db_path,
+        &state.db_key,
+        list_id,
+        title,
+        parent_task_id,
+        due_at,
+        note,
+        now_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_anonymous_task_on(
+    db_path: &Path,
+    db_key: &[u8; 32],
+    list_id: Uuid,
+    title: String,
+    parent_task_id: Option<Uuid>,
+    due_at: Option<i64>,
+    note: Option<String>,
+    now_ms: i64,
+) -> Result<Task, String> {
+    let mut connection = open_encrypted(db_path, db_key).map_err(|e| e.to_string())?;
+    let mut transaction = SqliteWriteTx::begin(&mut connection).map_err(|e| e.to_string())?;
+    transaction.get_list(list_id).map_err(|e| e.to_string())?;
+    let mut tasks = transaction
+        .list_active_tasks_by_list(list_id)
+        .map_err(|e| e.to_string())?;
+    let siblings = tasks
+        .iter()
+        .filter(|task| task.parent_task_id == parent_task_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    let rank = match fractional_index_after(siblings.last().map(|task| task.sort_order.as_str())) {
+        Ok(rank) => rank,
+        Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+            let ranks = rebalance_ranks(siblings.len() + 1).map_err(|e| e.to_string())?;
+            for (mut sibling, rank) in siblings.into_iter().zip(ranks.iter()) {
+                if sibling.sort_order != *rank {
+                    sibling.sort_order.clone_from(rank);
+                    sibling.updated_at = now_ms;
+                    transaction
+                        .update_task(sibling)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            ranks
+                .last()
+                .cloned()
+                .ok_or_else(|| "rank rebalance failed".to_string())?
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut task =
+        new_task(list_id, parent_task_id, title, rank, now_ms).map_err(|e| e.to_string())?;
+    if let Some(note) = note {
+        task = update_note(task, note, now_ms).map_err(|e| e.to_string())?;
+    }
+    if let Some(due_at) = due_at {
+        task = update_due_at(task, Some(due_at), now_ms).map_err(|e| e.to_string())?;
+    }
+    if let Some(parent_id) = parent_task_id {
+        if !tasks.iter().any(|existing| existing.id == parent_id) {
+            if let Ok(parent) = transaction.get_task(parent_id) {
+                tasks.push(parent);
+            }
+        }
+        validate_parent_for(task.id, list_id, parent_id, &tasks).map_err(|e| e.to_string())?;
+    }
+    transaction
+        .insert_task(task.clone())
+        .map_err(|e| e.to_string())?;
+    transaction.commit().map_err(|e| e.to_string())?;
+    Ok(task)
+}
+
+fn reorder_anonymous_task(
+    task_id: Uuid,
+    previous_task_id: Option<Uuid>,
+    next_task_id: Option<Uuid>,
+    now_ms: i64,
+) -> Result<Task, String> {
+    let state = core_state()?;
+    reorder_anonymous_task_on(
+        &state.db_path,
+        &state.db_key,
+        task_id,
+        previous_task_id,
+        next_task_id,
+        now_ms,
+    )
+}
+
+fn reorder_anonymous_task_on(
+    db_path: &Path,
+    db_key: &[u8; 32],
+    task_id: Uuid,
+    previous_task_id: Option<Uuid>,
+    next_task_id: Option<Uuid>,
+    now_ms: i64,
+) -> Result<Task, String> {
+    let mut connection = open_encrypted(db_path, db_key).map_err(|e| e.to_string())?;
+    let mut transaction = SqliteWriteTx::begin(&mut connection).map_err(|e| e.to_string())?;
+    let target = transaction.get_task(task_id).map_err(|e| e.to_string())?;
+    let mut scope = transaction
+        .list_active_tasks_by_list(target.list_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|task| task.parent_task_id == target.parent_task_id && task.id != target.id)
+        .collect::<Vec<_>>();
+    scope.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
+    let find = |id| {
+        scope
+            .iter()
+            .position(|task| task.id == id)
+            .ok_or_else(|| format!("reorder boundary not found: {id}"))
+    };
+    let insertion = match (previous_task_id, next_task_id) {
+        (None, None) => scope.len(),
+        (Some(previous), None) => find(previous)? + 1,
+        (None, Some(next)) => find(next)?,
+        (Some(previous), Some(next)) => {
+            let previous = find(previous)?;
+            let next = find(next)?;
+            if previous + 1 != next {
+                return Err("reorder boundaries are not adjacent".to_string());
+            }
+            next
+        }
+    };
+    let previous_rank = insertion
+        .checked_sub(1)
+        .and_then(|index| scope.get(index))
+        .map(|task| task.sort_order.as_str());
+    let next_rank = scope.get(insertion).map(|task| task.sort_order.as_str());
+    let midpoint = fractional_index_between(previous_rank, next_rank).ok();
+    let collides = midpoint
+        .as_ref()
+        .is_some_and(|rank| scope.iter().any(|task| task.sort_order == *rank));
+    if let Some(rank) = midpoint.filter(|_| !collides) {
+        let mut updated = target;
+        updated.sort_order = rank;
+        updated.updated_at = now_ms;
+        transaction
+            .update_task(updated.clone())
+            .map_err(|e| e.to_string())?;
+        transaction.commit().map_err(|e| e.to_string())?;
+        return Ok(updated);
+    }
+
+    scope.insert(insertion, target);
+    let ranks = rebalance_ranks(scope.len()).map_err(|e| e.to_string())?;
+    let mut reordered = None;
+    for (mut task, rank) in scope.into_iter().zip(ranks) {
+        if task.sort_order != rank {
+            task.sort_order = rank;
+            task.updated_at = now_ms;
+            transaction
+                .update_task(task.clone())
+                .map_err(|e| e.to_string())?;
+        }
+        if task.id == task_id {
+            reordered = Some(task);
+        }
+    }
+    transaction.commit().map_err(|e| e.to_string())?;
+    reordered.ok_or_else(|| "reordered task not found".to_string())
+}
+
 fn parse_uuid(value: &str) -> Result<Uuid, String> {
     Uuid::from_str(value).map_err(|error| error.to_string())
 }
@@ -756,23 +928,6 @@ fn parse_status(value: &str) -> Result<TaskStatus, String> {
         "wont_do" => Ok(TaskStatus::WontDo),
         other => Err(format!("invalid task status: {other}")),
     }
-}
-
-fn load_reorder_boundary(
-    repository: &SqliteTaskRepository,
-    boundary_id: Uuid,
-    task: &Task,
-) -> Result<Task, String> {
-    let boundary = repository
-        .get(boundary_id)
-        .map_err(|error| error.to_string())?;
-    if boundary.list_id != task.list_id {
-        return Err("reorder boundary belongs to a different list".to_string());
-    }
-    if boundary.parent_task_id != task.parent_task_id {
-        return Err("reorder boundary belongs to a different parent".to_string());
-    }
-    Ok(boundary)
 }
 
 fn count_to_i32(count: usize) -> Result<i32, String> {
@@ -866,6 +1021,9 @@ fn task_undo_operation_to_string(operation_type: TaskUndoOperation) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::TempDir;
+    use todori_storage::SqliteTaskRepository;
+
     use super::*;
 
     #[test]
@@ -882,5 +1040,120 @@ mod tests {
         ) -> Result<TaskDto, String> = create_task;
         let _: fn(String, String, Option<String>) -> Result<TaskDto, String> = set_task_status;
         let _: fn(String) -> Result<TaskDto, String> = undo_task_operation;
+    }
+
+    #[test]
+    fn anonymous_fixed_rank_tail_create_and_equal_rank_reorder_rebalance_atomically() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("anonymous.sqlite3");
+        let db_key = [0xa7; 32];
+        let inbox = new_list("Inbox".into(), todori_domain::MAX_RANK.to_string(), 1).unwrap();
+        let list_id = inbox.id;
+        SqliteListRepository::new(open_encrypted(&db_path, &db_key).unwrap())
+            .insert(inbox.clone())
+            .unwrap();
+        let created_list = create_anonymous_list_on(&db_path, &db_key, "Tail".into(), 2).unwrap();
+        let inbox_after = SqliteListRepository::new(open_encrypted(&db_path, &db_key).unwrap())
+            .get(list_id)
+            .unwrap();
+        assert_ne!(inbox.sort_order, inbox_after.sort_order);
+        assert!(created_list.sort_order.as_str() < todori_domain::MAX_RANK);
+
+        let first = new_task(
+            list_id,
+            None,
+            "first".into(),
+            todori_domain::MAX_RANK.into(),
+            10,
+        )
+        .unwrap();
+        SqliteTaskRepository::new(open_encrypted(&db_path, &db_key).unwrap())
+            .insert(first.clone())
+            .unwrap();
+        let tail = create_anonymous_task_on(
+            &db_path,
+            &db_key,
+            list_id,
+            "tail".into(),
+            None,
+            None,
+            None,
+            11,
+        )
+        .unwrap();
+        assert!(first.sort_order != tail.sort_order);
+        assert!(tail.sort_order.as_str() < todori_domain::MAX_RANK);
+
+        let equal_rank = "00000000000000000000000000000001".to_string();
+        let mut earlier =
+            new_task(list_id, None, "earlier".into(), equal_rank.clone(), 20).unwrap();
+        earlier.id = Uuid::from_u128(10);
+        let mut later = new_task(list_id, None, "later".into(), equal_rank, 20).unwrap();
+        later.id = Uuid::from_u128(11);
+        let target = new_task(
+            list_id,
+            None,
+            "target".into(),
+            todori_domain::MAX_RANK.into(),
+            20,
+        )
+        .unwrap();
+        {
+            let mut repository =
+                SqliteTaskRepository::new(open_encrypted(&db_path, &db_key).unwrap());
+            repository.insert(earlier.clone()).unwrap();
+            repository.insert(later.clone()).unwrap();
+            repository.insert(target.clone()).unwrap();
+        }
+        open_encrypted(&db_path, &db_key)
+            .unwrap()
+            .execute_batch(&format!(
+                "CREATE TRIGGER fail_anonymous_reorder BEFORE UPDATE ON tasks
+                 WHEN NEW.id = '{}' BEGIN SELECT RAISE(ABORT, 'fail'); END;",
+                target.id
+            ))
+            .unwrap();
+        assert!(reorder_anonymous_task_on(
+            &db_path,
+            &db_key,
+            target.id,
+            Some(earlier.id),
+            Some(later.id),
+            21,
+        )
+        .is_err());
+        let repository = SqliteTaskRepository::new(open_encrypted(&db_path, &db_key).unwrap());
+        assert_eq!(
+            repository.get(earlier.id).unwrap().sort_order,
+            earlier.sort_order
+        );
+        assert_eq!(
+            repository.get(later.id).unwrap().sort_order,
+            later.sort_order
+        );
+        assert_eq!(
+            repository.get(target.id).unwrap().sort_order,
+            target.sort_order
+        );
+        drop(repository);
+        open_encrypted(&db_path, &db_key)
+            .unwrap()
+            .execute_batch("DROP TRIGGER fail_anonymous_reorder")
+            .unwrap();
+
+        let reordered = reorder_anonymous_task_on(
+            &db_path,
+            &db_key,
+            target.id,
+            Some(earlier.id),
+            Some(later.id),
+            22,
+        )
+        .unwrap();
+        let repository = SqliteTaskRepository::new(open_encrypted(&db_path, &db_key).unwrap());
+        let earlier_after = repository.get(earlier.id).unwrap();
+        let later_after = repository.get(later.id).unwrap();
+        assert!(earlier_after.sort_order < reordered.sort_order);
+        assert!(reordered.sort_order < later_after.sort_order);
     }
 }

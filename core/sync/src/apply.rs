@@ -540,9 +540,14 @@ where
         Some(LocalSyncRecordState {
             state: LocalSyncSemanticState::Live { plaintext_json, .. },
             ..
-        }) => serde_json::from_str(&plaintext_json)
-            .map(Some)
-            .map_err(|_| "sync failed".to_string()),
+        }) => {
+            let plaintext: SyncPlaintext =
+                serde_json::from_str(&plaintext_json).map_err(|_| "sync failed".to_string())?;
+            plaintext
+                .validate_for_collection(collection.as_str(), &record_id.to_string())
+                .map_err(|_| "sync failed".to_string())?;
+            Ok(Some(plaintext))
+        }
         Some(LocalSyncRecordState {
             state: LocalSyncSemanticState::Tombstone { .. },
             ..
@@ -633,6 +638,9 @@ fn task_from_plaintext<N>(
 where
     N: FnMut() -> Result<i64, String>,
 {
+    plaintext
+        .validate_for_collection(TASKS_COLLECTION, &id.to_string())
+        .map_err(|_| "sync failed".to_string())?;
     let SyncPlaintext::Task(fields) = plaintext else {
         return Err("sync failed".to_string());
     };
@@ -666,6 +674,9 @@ fn list_from_plaintext<N>(
 where
     N: FnMut() -> Result<i64, String>,
 {
+    plaintext
+        .validate_for_collection(LISTS_COLLECTION, &id.to_string())
+        .map_err(|_| "sync failed".to_string())?;
     let SyncPlaintext::List(fields) = plaintext else {
         return Err("sync failed".to_string());
     };
@@ -688,6 +699,7 @@ mod tests {
     use std::collections::HashMap;
 
     use todori_crypto::key_hierarchy::KEY_LEN;
+    use todori_domain::new_task;
 
     use super::*;
     use crate::{
@@ -1033,6 +1045,65 @@ mod tests {
         assert_eq!(store.outbox.len(), 1);
         assert_eq!(store.outbox[0].op_id, stale_op_id);
         assert_eq!(summary.decrypt_failed_count, 1);
+    }
+
+    #[test]
+    fn pull_rejects_authenticated_task_with_unencodable_field_clock() {
+        let list_id = uuid(50);
+        let record_id = uuid(51);
+        let dek = [0x51; KEY_LEN];
+        let task = new_task(
+            list_id,
+            None,
+            "invalid clock".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1,
+        )
+        .unwrap();
+        let clock = Hlc {
+            wall_ms: 1_799_000_000_050,
+            counter: 0,
+            device_id: "remote".to_string(),
+        };
+        let mut plaintext = SyncPlaintext::from_task(&task, clock.clone()).unwrap();
+        let SyncPlaintext::Task(fields) = &mut plaintext else {
+            panic!("task");
+        };
+        fields.note.hlc.device_id.clear();
+        let plaintext_json = serde_json::to_vec(&plaintext).unwrap();
+        let aad = format!("todori-sync-envelope/v2\ncollection:tasks\nrecord_id:{record_id}");
+        let mut blob = vec![crate::ENVELOPE_VERSION];
+        blob.extend_from_slice(
+            &todori_crypto::encrypt(&dek, &plaintext_json, aad.as_bytes()).unwrap(),
+        );
+        let record = PullRecord {
+            record_id,
+            collection: SyncCollection::Tasks,
+            seq: 1,
+            revision_hlc: Hlc {
+                wall_ms: clock.wall_ms + 1,
+                ..clock.clone()
+            }
+            .encode()
+            .unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: clock.encode().unwrap(),
+                blob,
+            },
+        };
+        let context = context_for(list_id, dek);
+        let mut store = FakeStore::default();
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        assert_eq!(
+            apply_pull_record(&record, &context, &mut store, &mut now, &mut summary).unwrap(),
+            ApplyDisposition::Deferred
+        );
+        assert_eq!(summary.decrypt_failed_count, 1);
+        assert!(!store
+            .record_states
+            .contains_key(&(SyncCollection::Tasks, record_id)));
     }
 
     #[test]

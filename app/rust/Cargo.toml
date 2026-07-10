@@ -18,3 +18,6 @@ todori-sync.workspace = true
 todori-storage.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

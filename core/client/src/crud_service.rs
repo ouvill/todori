@@ -284,7 +284,10 @@ impl Client {
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_list(list_id)?;
         require_list_key(sync, before.id)?;
-        let updated = mutation(before)?;
+        let updated = mutation(before.clone())?;
+        if updated == before {
+            return Ok(before);
+        }
         transaction.update_list(updated.clone())?;
         enqueue_list_in_transaction(&mut transaction, sync, &updated, false, now_ms)?;
         transaction.commit()?;
@@ -693,6 +696,36 @@ mod tests {
     }
 
     #[test]
+    fn idempotent_archive_and_unarchive_leave_domain_clock_state_and_outbox_unchanged() {
+        let fixture = fixture();
+        fixture
+            .client
+            .archive_list(fixture.list.id, BASE_MS + 1, &fixture.sync)
+            .unwrap();
+        let archived_before = list_sync_snapshot(&fixture);
+        let archived_again = fixture
+            .client
+            .archive_list(fixture.list.id, BASE_MS + 2, &fixture.sync)
+            .unwrap();
+        assert_eq!(archived_again.archived_at, Some(BASE_MS + 1));
+        assert_eq!(archived_again.updated_at, BASE_MS + 1);
+        assert_eq!(list_sync_snapshot(&fixture), archived_before);
+
+        fixture
+            .client
+            .unarchive_list(fixture.list.id, BASE_MS + 3, &fixture.sync)
+            .unwrap();
+        let active_before = list_sync_snapshot(&fixture);
+        let active_again = fixture
+            .client
+            .unarchive_list(fixture.list.id, BASE_MS + 4, &fixture.sync)
+            .unwrap();
+        assert_eq!(active_again.archived_at, None);
+        assert_eq!(active_again.updated_at, BASE_MS + 3);
+        assert_eq!(list_sync_snapshot(&fixture), active_before);
+    }
+
+    #[test]
     fn task_create_outbox_failure_rolls_back_insert_hlc_and_state() {
         let fixture = fixture();
         install_trigger(
@@ -968,5 +1001,28 @@ mod tests {
         SqliteSettingsRepository::new(connection)
             .get_setting(SYNC_LOCAL_HLC_SETTING_KEY)
             .unwrap()
+    }
+
+    fn list_sync_snapshot(
+        fixture: &Fixture,
+    ) -> (
+        List,
+        Option<String>,
+        Option<SyncRecordState>,
+        Vec<todori_storage::SyncOutboxEntry>,
+    ) {
+        let list =
+            SqliteListRepository::new(open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap())
+                .get(fixture.list.id)
+                .unwrap();
+        let connection = open_encrypted(fixture.client.db_path(), &DB_KEY).unwrap();
+        let sync = SqliteSyncStateRepository::new(connection);
+        (
+            list,
+            local_hlc(fixture),
+            sync.get_record_state(LISTS_COLLECTION, fixture.list.id)
+                .unwrap(),
+            sync.list_outbox_heads(10).unwrap(),
+        )
     }
 }

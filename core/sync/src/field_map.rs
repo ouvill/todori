@@ -37,6 +37,14 @@ pub enum FieldMapError {
     KindMismatch,
     #[error("rank must be exactly 32 lowercase hexadecimal digits")]
     InvalidRank,
+    #[error("field clock cannot be encoded")]
+    InvalidHlc,
+    #[error("task completion fields are inconsistent with status")]
+    InvalidCompletion,
+    #[error("task placement is invalid for this record")]
+    InvalidPlacement,
+    #[error("record id must be a UUID")]
+    InvalidRecordId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,10 +127,47 @@ pub enum SyncPlaintext {
 }
 
 impl SyncPlaintext {
-    pub fn validate_for_collection(&self, collection: &str) -> Result<(), FieldMapError> {
+    pub fn validate_for_collection(
+        &self,
+        collection: &str,
+        record_id: &str,
+    ) -> Result<(), FieldMapError> {
+        let record_id = Uuid::parse_str(record_id).map_err(|_| FieldMapError::InvalidRecordId)?;
         match (collection, self) {
-            ("tasks", Self::Task(task)) => validate_rank(&task.placement.value.rank),
-            ("lists", Self::List(list)) => validate_rank(&list.placement.value.rank),
+            ("tasks", Self::Task(task)) => {
+                validate_rank(&task.placement.value.rank)?;
+                validate_task_completion(&task.completion.value)?;
+                if task.placement.value.parent_task_id == Some(record_id) {
+                    return Err(FieldMapError::InvalidPlacement);
+                }
+                validate_hlcs([
+                    &task.title.hlc,
+                    &task.note.hlc,
+                    &task.priority.hlc,
+                    &task.due_at.hlc,
+                    &task.scheduled_at.hlc,
+                    &task.estimated_minutes.hlc,
+                    &task.assignee.hlc,
+                    &task.created_at.hlc,
+                    &task.updated_at.hlc,
+                    &task.completion.hlc,
+                    &task.placement.hlc,
+                ])
+            }
+            ("lists", Self::List(list)) => {
+                validate_rank(&list.placement.value.rank)?;
+                validate_hlcs([
+                    &list.name.hlc,
+                    &list.color.hlc,
+                    &list.icon.hlc,
+                    &list.org_id.hlc,
+                    &list.is_default.hlc,
+                    &list.archived_at.hlc,
+                    &list.created_at.hlc,
+                    &list.updated_at.hlc,
+                    &list.placement.hlc,
+                ])
+            }
             _ => Err(FieldMapError::KindMismatch),
         }
     }
@@ -274,6 +319,28 @@ pub fn validate_rank(rank: &str) -> Result<(), FieldMapError> {
     }
 }
 
+fn validate_hlcs<'a>(hlcs: impl IntoIterator<Item = &'a Hlc>) -> Result<(), FieldMapError> {
+    for hlc in hlcs {
+        hlc.encode().map_err(|_| FieldMapError::InvalidHlc)?;
+    }
+    Ok(())
+}
+
+fn validate_task_completion(completion: &TaskCompletion) -> Result<(), FieldMapError> {
+    let valid = match completion.status {
+        TaskStatus::Todo | TaskStatus::InProgress => {
+            completion.completed_at.is_none() && completion.closed_reason.is_none()
+        }
+        TaskStatus::Done => completion.completed_at.is_some() && completion.closed_reason.is_none(),
+        TaskStatus::WontDo => completion.completed_at.is_some(),
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(FieldMapError::InvalidCompletion)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +372,119 @@ mod tests {
             validate_rank("A0000000000000000000000000000000"),
             Err(FieldMapError::InvalidRank)
         );
+    }
+
+    #[test]
+    fn strict_payload_rejects_unencodable_clock_invalid_completion_and_self_parent() {
+        let mut task = new_task(
+            Uuid::now_v7(),
+            None,
+            "x".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let record_id = task.id;
+        let mut value = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        let SyncPlaintext::Task(fields) = &mut value else {
+            unreachable!()
+        };
+        fields.note.hlc.device_id.clear();
+        assert_eq!(
+            value.validate_for_collection("tasks", &record_id.to_string()),
+            Err(FieldMapError::InvalidHlc)
+        );
+
+        task.status = TaskStatus::Done;
+        let mut value = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        assert_eq!(
+            value.validate_for_collection("tasks", &record_id.to_string()),
+            Err(FieldMapError::InvalidCompletion)
+        );
+        let SyncPlaintext::Task(fields) = &mut value else {
+            unreachable!()
+        };
+        fields.completion.value.completed_at = Some(2);
+        fields.completion.value.closed_reason = Some("not valid for done".into());
+        assert_eq!(
+            value.validate_for_collection("tasks", &record_id.to_string()),
+            Err(FieldMapError::InvalidCompletion)
+        );
+
+        let mut task = new_task(
+            Uuid::now_v7(),
+            None,
+            "x".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        task.parent_task_id = Some(record_id);
+        let value = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        assert_eq!(
+            value.validate_for_collection("tasks", &record_id.to_string()),
+            Err(FieldMapError::InvalidPlacement)
+        );
+    }
+
+    #[test]
+    fn completion_semantics_accept_only_domain_reachable_shapes() {
+        for completion in [
+            TaskCompletion {
+                status: TaskStatus::Todo,
+                completed_at: None,
+                closed_reason: None,
+            },
+            TaskCompletion {
+                status: TaskStatus::InProgress,
+                completed_at: None,
+                closed_reason: None,
+            },
+            TaskCompletion {
+                status: TaskStatus::Done,
+                completed_at: Some(1),
+                closed_reason: None,
+            },
+            TaskCompletion {
+                status: TaskStatus::WontDo,
+                completed_at: Some(1),
+                closed_reason: Some("reason".into()),
+            },
+        ] {
+            assert_eq!(validate_task_completion(&completion), Ok(()));
+        }
+        for completion in [
+            TaskCompletion {
+                status: TaskStatus::Todo,
+                completed_at: Some(1),
+                closed_reason: None,
+            },
+            TaskCompletion {
+                status: TaskStatus::InProgress,
+                completed_at: None,
+                closed_reason: Some("stale".into()),
+            },
+            TaskCompletion {
+                status: TaskStatus::Done,
+                completed_at: None,
+                closed_reason: None,
+            },
+            TaskCompletion {
+                status: TaskStatus::Done,
+                completed_at: Some(1),
+                closed_reason: Some("invalid".into()),
+            },
+            TaskCompletion {
+                status: TaskStatus::WontDo,
+                completed_at: None,
+                closed_reason: Some("reason".into()),
+            },
+        ] {
+            assert_eq!(
+                validate_task_completion(&completion),
+                Err(FieldMapError::InvalidCompletion)
+            );
+        }
     }
 
     #[test]
