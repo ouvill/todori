@@ -10,6 +10,7 @@ const _rRule = Color(0xFFD3D3C9);
 const _rCoral = Color(0xFFC96357);
 const _rAmber = Color(0xFFC08B3E);
 const _rLowPriority = Color(0xFF82A994);
+const _rCheckFill = Color(0xFF356A57);
 const _rNight = Color(0xFF183E31);
 const _rNightMuted = Color(0xFFAFC8BA);
 const _rNightText = Color(0xFFF5F0E4);
@@ -2886,13 +2887,13 @@ class _RadicalCheckPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final t = progress.clamp(0.0, 1.0);
     final center = size.center(Offset.zero);
-    final radius = (math.min(size.width, size.height) - 1.2) / 2;
+    final radius = (math.min(size.width, size.height) - 1) / 2;
     canvas.drawCircle(
       center,
       radius,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
+        ..strokeWidth = 1
         ..color = _rGreen.withValues(alpha: 1 - (t * 0.42)),
     );
     if (t <= 0) {
@@ -2901,7 +2902,7 @@ class _RadicalCheckPainter extends CustomPainter {
     canvas.drawCircle(
       center,
       radius * (0.78 + (t * 0.22)),
-      Paint()..color = _rGreen.withValues(alpha: t),
+      Paint()..color = _rCheckFill.withValues(alpha: t),
     );
     final checkProgress = ((t - 0.16) / 0.84).clamp(0.0, 1.0);
     if (checkProgress <= 0) {
@@ -2916,7 +2917,7 @@ class _RadicalCheckPainter extends CustomPainter {
       metric.extractPath(0, metric.length * checkProgress),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8
+        ..strokeWidth = 1.4
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..color = _rNightText.withValues(alpha: checkProgress),
