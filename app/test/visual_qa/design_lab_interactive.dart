@@ -167,7 +167,6 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 15, 18, 76),
           children: [
-            const SizedBox(height: 44),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 6),
               child: _RadicalSimpleHeading(

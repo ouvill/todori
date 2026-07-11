@@ -49,17 +49,12 @@ class _RadicalHomeMock extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: _RadicalBrandBar(onSearch: onSearch),
-            ),
-            const SizedBox(height: 23),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: _RadicalHomeHeading(),
+              child: _RadicalHomeHeading(onSearch: onSearch),
             ),
             const SizedBox(height: 29),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 6),
-              child: _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
+              child: _RadicalTodaySectionTitle(),
             ),
             const SizedBox(height: 3),
             _RadicalTaskStream(
@@ -106,40 +101,37 @@ class _RadicalHomeMock extends StatelessWidget {
   }
 }
 
-class _RadicalBrandBar extends StatelessWidget {
-  const _RadicalBrandBar({this.onSearch});
+class _RadicalSearchButton extends StatelessWidget {
+  const _RadicalSearchButton({this.onSearch});
+
+  final VoidCallback? onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onSearch ?? () {},
+      icon: const Icon(LucideIcons.search300, size: 20),
+      color: _rInk,
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(44),
+        padding: EdgeInsets.zero,
+        alignment: Alignment.centerRight,
+      ),
+    );
+  }
+}
+
+class _RadicalHomeHeading extends StatelessWidget {
+  const _RadicalHomeHeading({this.onSearch});
 
   final VoidCallback? onSearch;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
-        const Spacer(),
-        IconButton(
-          onPressed: onSearch ?? () {},
-          icon: const Icon(LucideIcons.search300, size: 20),
-          color: _rInk,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerRight,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RadicalHomeHeading extends StatelessWidget {
-  const _RadicalHomeHeading();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Expanded(
+        const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -166,16 +158,47 @@ class _RadicalHomeHeading extends StatelessWidget {
             ],
           ),
         ),
-        Padding(
-          padding: EdgeInsets.only(bottom: 2),
+        _RadicalSearchButton(onSearch: onSearch),
+      ],
+    );
+  }
+}
+
+class _RadicalTodaySectionTitle extends StatelessWidget {
+  const _RadicalTodaySectionTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        Expanded(
           child: Text(
-            '1 overdue',
+            'TODAY',
             style: TextStyle(
               fontFamily: _directionSans,
-              color: _rCoral,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+              color: _rMuted,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.45,
             ),
+          ),
+        ),
+        Text(
+          '5 open',
+          style: TextStyle(
+            fontFamily: _directionSans,
+            color: _rMuted,
+            fontSize: 10.5,
+          ),
+        ),
+        SizedBox(width: 8),
+        Text(
+          '1 overdue',
+          style: TextStyle(
+            fontFamily: _directionSans,
+            color: _rCoral,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -875,9 +898,12 @@ class _RadicalListsMock extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
           children: [
-            _RadicalBrandBar(onSearch: onSearch),
-            const SizedBox(height: 22),
-            const _RadicalSimpleHeading(title: 'Lists', trailing: 'Edit'),
+            _RadicalSimpleHeading(
+              title: 'Lists',
+              trailing: 'Edit',
+              showSearch: true,
+              onSearch: onSearch,
+            ),
             const SizedBox(height: 24),
             const _RadicalSectionTitle(label: 'SMART', trailing: '45 tasks'),
             const SizedBox(height: 3),
@@ -1381,9 +1407,12 @@ class _RadicalAccountMock extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
           children: [
-            _RadicalBrandBar(onSearch: onSearch),
-            const SizedBox(height: 22),
-            const _RadicalSimpleHeading(title: 'You', trailing: ''),
+            _RadicalSimpleHeading(
+              title: 'You',
+              trailing: '',
+              showSearch: true,
+              onSearch: onSearch,
+            ),
             const SizedBox(height: 23),
             const _RadicalIdentity(),
             const SizedBox(height: 31),
@@ -2186,10 +2215,17 @@ class _RadicalNavAdd extends StatelessWidget {
 }
 
 class _RadicalSimpleHeading extends StatelessWidget {
-  const _RadicalSimpleHeading({required this.title, required this.trailing});
+  const _RadicalSimpleHeading({
+    required this.title,
+    required this.trailing,
+    this.showSearch = false,
+    this.onSearch,
+  });
 
   final String title;
   final String trailing;
+  final bool showSearch;
+  final VoidCallback? onSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -2219,6 +2255,10 @@ class _RadicalSimpleHeading extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+        if (showSearch) ...[
+          const SizedBox(width: 10),
+          _RadicalSearchButton(onSearch: onSearch),
+        ],
       ],
     );
   }
