@@ -111,11 +111,19 @@ class _InteractiveDesignLabShellState
   }
 }
 
-class _InteractiveCalendarMock extends StatelessWidget {
+class _InteractiveCalendarMock extends StatefulWidget {
   const _InteractiveCalendarMock({this.onNavSelected, this.onAdd});
 
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
+
+  @override
+  State<_InteractiveCalendarMock> createState() =>
+      _InteractiveCalendarMockState();
+}
+
+class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
+  var _showCompleted = false;
 
   @override
   Widget build(BuildContext context) {
@@ -123,31 +131,179 @@ class _InteractiveCalendarMock extends StatelessWidget {
       backgroundColor: _rCanvas,
       bottomNavigationBar: _RadicalNav(
         selectedIndex: 1,
-        onSelected: onNavSelected,
-        onAdd: onAdd,
+        onSelected: widget.onNavSelected,
+        onAdd: widget.onAdd,
       ),
       body: SafeArea(
         bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
-          children: const [
-            SizedBox(height: 44),
-            _RadicalSimpleHeading(title: 'Calendar', trailing: 'May 2026'),
-            SizedBox(height: 27),
-            _InteractiveWeekStrip(),
-            SizedBox(height: 30),
-            _RadicalSectionTitle(label: 'TUESDAY 27', trailing: '5 tasks'),
-            SizedBox(height: 5),
-            _InteractiveAgendaRow(time: '9:00', title: 'Prepare launch notes'),
-            _InteractiveAgendaRow(
+          children: [
+            const SizedBox(height: 44),
+            const _RadicalSimpleHeading(
+              title: 'Calendar',
+              trailing: 'May 2026',
+            ),
+            const SizedBox(height: 27),
+            const _InteractiveWeekStrip(),
+            const SizedBox(height: 30),
+            const _RadicalSectionTitle(
+              label: 'TUESDAY 27',
+              trailing: '5 tasks',
+            ),
+            const SizedBox(height: 5),
+            const _InteractiveAgendaRow(
+              time: '9:00',
+              title: 'Prepare launch notes',
+            ),
+            const _InteractiveAgendaRow(
               time: '9:30',
               title: 'Review onboarding copy',
             ),
-            _InteractiveAgendaRow(
+            const _InteractiveAgendaRow(
               time: '11:00',
               title: 'Finalize navigation states',
             ),
-            _InteractiveAgendaRow(time: '14:00', title: 'Send release build'),
+            const _InteractiveAgendaRow(
+              time: '14:00',
+              title: 'Send release build',
+            ),
+            const SizedBox(height: 24),
+            _InteractiveCompletedDisclosure(
+              isExpanded: _showCompleted,
+              onTap: () {
+                setState(() => _showCompleted = !_showCompleted);
+              },
+            ),
+            if (_showCompleted) ...const [
+              _InteractiveCompletedRow(
+                title: 'Approved release direction',
+                detail: 'Today · Design',
+              ),
+              _InteractiveCompletedRow(
+                title: 'Shared weekly plan',
+                detail: 'Yesterday · Work',
+                isLast: true,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractiveCompletedDisclosure extends StatelessWidget {
+  const _InteractiveCompletedDisclosure({
+    required this.isExpanded,
+    required this.onTap,
+  });
+
+  final bool isExpanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 52,
+        child: Row(
+          children: [
+            const Icon(LucideIcons.circleCheck300, size: 16, color: _rMuted),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Completed',
+                style: TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const Text(
+              '3 this week',
+              style: TextStyle(
+                fontFamily: _directionSans,
+                color: _rMuted,
+                fontSize: 11.5,
+              ),
+            ),
+            const SizedBox(width: 8),
+            AnimatedRotation(
+              turns: isExpanded ? 0.5 : 0,
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              child: const Icon(
+                LucideIcons.chevronDown300,
+                size: 15,
+                color: _rMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractiveCompletedRow extends StatelessWidget {
+  const _InteractiveCompletedRow({
+    required this.title,
+    required this.detail,
+    this.isLast = false,
+  });
+
+  final String title;
+  final String detail;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(bottom: BorderSide(color: _rRule, width: 0.65)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(26, 11, 0, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 3),
+              child: Icon(LucideIcons.check300, size: 13, color: _rGreen),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: _directionSans,
+                      color: _rInk,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    detail,
+                    style: const TextStyle(
+                      fontFamily: _directionSans,
+                      color: _rMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

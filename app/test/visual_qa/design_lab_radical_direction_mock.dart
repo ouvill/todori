@@ -908,11 +908,12 @@ class _RadicalComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Material(
-        color: _rSheet,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+    return Material(
+      color: _rSheet,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 18),
           child: Column(

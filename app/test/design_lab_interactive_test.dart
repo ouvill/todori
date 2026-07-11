@@ -16,6 +16,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Calendar'), findsAtLeastNWidgets(1));
     expect(find.text('TUESDAY 27'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('Approved release direction'), findsNothing);
+
+    await tester.tap(find.text('Completed'));
+    await tester.pumpAndSettle();
+    expect(find.text('Approved release direction'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.listTodo300));
     await tester.pumpAndSettle();

@@ -516,6 +516,19 @@ void main() {
     await _screenshot(tester, 'design_lab_task_list');
   });
 
+  testWidgets('design_lab_calendar: quiet completed reflection', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.calendar),
+    );
+    await _screenshot(tester, 'design_lab_calendar');
+    await tester.tap(find.text('Completed'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'design_lab_calendar_completed');
+  });
+
   testWidgets('design_lab_list_overview: borderless list index direction', (
     tester,
   ) async {

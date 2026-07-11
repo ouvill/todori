@@ -15,6 +15,7 @@ part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
   taskList,
+  calendar,
   listOverview,
   focusTimer,
   taskDetail,
@@ -36,6 +37,7 @@ class DesignLabMockApp extends StatelessWidget {
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
         DesignLabMock.taskList => const _RadicalHomeMock(),
+        DesignLabMock.calendar => const _InteractiveCalendarMock(),
         DesignLabMock.listOverview => const _RadicalListsMock(),
         DesignLabMock.focusTimer => const _RadicalFocusMock(),
         DesignLabMock.taskDetail => const _RadicalDetailMock(),
