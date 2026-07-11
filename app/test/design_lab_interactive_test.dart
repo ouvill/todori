@@ -46,6 +46,8 @@ void main() {
     expect(find.text('MANUAL ORDER'), findsOneWidget);
     expect(find.text('Verify reduced motion'), findsOneWidget);
 
+    await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('design-lab-task-focus-Prepare launch notes')),
     );

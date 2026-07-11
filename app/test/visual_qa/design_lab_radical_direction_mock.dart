@@ -282,7 +282,7 @@ class _RadicalTaskStream extends StatelessWidget {
   }
 }
 
-class _RadicalTaskRow extends StatelessWidget {
+class _RadicalTaskRow extends StatefulWidget {
   const _RadicalTaskRow({
     required this.title,
     required this.meta,
@@ -308,8 +308,29 @@ class _RadicalTaskRow extends StatelessWidget {
   final VoidCallback? onFocus;
 
   @override
+  State<_RadicalTaskRow> createState() => _RadicalTaskRowState();
+}
+
+class _RadicalTaskRowState extends State<_RadicalTaskRow> {
+  static const _revealWidth = 58.0;
+
+  var _dragOffset = 0.0;
+  var _isDragging = false;
+
+  @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final title = widget.title;
+    final meta = widget.meta;
+    final time = widget.time;
+    final children = widget.children;
+    final isOverdue = widget.isOverdue;
+    final isLast = widget.isLast;
+    final onTap = widget.onTap;
+    final isDone = widget.isDone;
+    final onToggle = widget.onToggle;
+    final onFocus = widget.onFocus;
+
+    final taskContent = InkWell(
       onTap: onTap,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -372,40 +393,13 @@ class _RadicalTaskRow extends StatelessWidget {
                             ],
                           ),
                         ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              time,
-                              style: const TextStyle(
-                                fontFamily: _directionSans,
-                                color: _rMuted,
-                                fontSize: 11.5,
-                              ),
-                            ),
-                            if (onFocus != null) ...[
-                              const SizedBox(width: 7),
-                              IconButton(
-                                key: ValueKey('design-lab-task-focus-$title'),
-                                onPressed: onFocus,
-                                tooltip: 'Open focus timer',
-                                icon: const Icon(
-                                  LucideIcons.timer300,
-                                  size: 17,
-                                ),
-                                color: _rGreen,
-                                style: IconButton.styleFrom(
-                                  minimumSize: const Size.square(32),
-                                  maximumSize: const Size.square(32),
-                                  padding: EdgeInsets.zero,
-                                  side: const BorderSide(
-                                    color: _rSage,
-                                    width: 0.8,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
+                        Text(
+                          time,
+                          style: const TextStyle(
+                            fontFamily: _directionSans,
+                            color: _rMuted,
+                            fontSize: 11.5,
+                          ),
                         ),
                       ],
                     ),
@@ -416,6 +410,75 @@ class _RadicalTaskRow extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (onFocus == null) {
+      return taskContent;
+    }
+
+    return ClipRect(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SizedBox(
+                width: _revealWidth,
+                child: Material(
+                  color: _rGreen,
+                  child: InkWell(
+                    key: ValueKey('design-lab-task-focus-$title'),
+                    onTap: () {
+                      setState(() => _dragOffset = 0);
+                      onFocus();
+                    },
+                    child: const Tooltip(
+                      message: 'Open focus timer',
+                      child: Center(
+                        child: Icon(
+                          LucideIcons.timer300,
+                          size: 19,
+                          color: _rNightText,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragStart: (_) {
+              setState(() => _isDragging = true);
+            },
+            onHorizontalDragUpdate: (details) {
+              setState(() {
+                _dragOffset = (_dragOffset + details.delta.dx).clamp(
+                  -_revealWidth,
+                  0,
+                );
+              });
+            },
+            onHorizontalDragEnd: (_) {
+              setState(() {
+                _isDragging = false;
+                _dragOffset = _dragOffset < -_revealWidth / 2
+                    ? -_revealWidth
+                    : 0;
+              });
+            },
+            child: AnimatedContainer(
+              duration: _isDragging
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(_dragOffset, 0, 0),
+              child: ColoredBox(color: _rCanvas, child: taskContent),
             ),
           ),
         ],

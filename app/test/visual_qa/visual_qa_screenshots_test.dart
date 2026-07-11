@@ -604,6 +604,9 @@ void main() {
       const DesignLabMockApp(mock: DesignLabMock.listTasks),
     );
     await _screenshot(tester, 'design_lab_list_tasks');
+    await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'design_lab_list_tasks_timer_reveal');
   });
 
   testWidgets('design_lab_task_detail_editing: calm document editing', (
