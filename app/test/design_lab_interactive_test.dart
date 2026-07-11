@@ -15,7 +15,7 @@ void main() {
     expect(find.text('Completed'), findsOneWidget);
     expect(find.text('See the rest of the week'), findsNothing);
     expect(
-      find.byKey(const ValueKey('design-lab-completion-particles')),
+      find.byKey(const ValueKey('design-lab-completion-halo')),
       findsNothing,
     );
 
@@ -27,7 +27,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
     expect(
-      find.byKey(const ValueKey('design-lab-completion-particles')),
+      find.byKey(const ValueKey('design-lab-completion-halo')),
       findsOneWidget,
     );
     expect(

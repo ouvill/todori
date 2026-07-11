@@ -571,7 +571,7 @@ void main() {
     await _screenshot(tester, 'design_lab_task_create_sheet');
   });
 
-  testWidgets('design_lab_completion_midframe: particles and strike', (
+  testWidgets('design_lab_completion_midframe: halo and strike', (
     tester,
   ) async {
     _setMobileViewport(tester);

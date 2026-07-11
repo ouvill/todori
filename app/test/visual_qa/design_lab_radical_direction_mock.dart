@@ -271,8 +271,24 @@ class _RadicalTaskStream extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget visibleTask(String title, Widget child) =>
-        hiddenTaskTitles.contains(title) ? const SizedBox.shrink() : child;
+    Widget visibleTask(String title, Widget child) => AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, -0.04),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+      child: hiddenTaskTitles.contains(title)
+          ? SizedBox.shrink(key: ValueKey('hidden-$title'))
+          : KeyedSubtree(key: ValueKey('active-$title'), child: child),
+    );
 
     return Column(
       children: [
@@ -2792,14 +2808,15 @@ class _RadicalCheck extends StatefulWidget {
 
 class _RadicalCheckState extends State<_RadicalCheck>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _particlesController;
+  late final AnimationController _haloController;
+  var _isPressed = false;
 
   @override
   void initState() {
     super.initState();
-    _particlesController = AnimationController(
+    _haloController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 360),
     );
   }
 
@@ -2809,9 +2826,9 @@ class _RadicalCheckState extends State<_RadicalCheck>
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
-      _particlesController.forward(from: 0);
+      _haloController.forward(from: 0);
     } else if (oldWidget.isDone && !widget.isDone) {
-      _particlesController
+      _haloController
         ..stop()
         ..value = 0;
     }
@@ -2819,7 +2836,7 @@ class _RadicalCheckState extends State<_RadicalCheck>
 
   @override
   void dispose() {
-    _particlesController.dispose();
+    _haloController.dispose();
     super.dispose();
   }
 
@@ -2845,15 +2862,15 @@ class _RadicalCheckState extends State<_RadicalCheck>
         if (!reduceMotion)
           Positioned.fill(
             child: AnimatedBuilder(
-              animation: _particlesController,
+              animation: _haloController,
               builder: (context, child) {
-                if (_particlesController.value == 0) {
+                if (_haloController.value == 0) {
                   return const SizedBox.shrink();
                 }
                 return CustomPaint(
-                  key: const ValueKey('design-lab-completion-particles'),
-                  painter: _RadicalCompletionParticlesPainter(
-                    progress: _particlesController.value,
+                  key: const ValueKey('design-lab-completion-halo'),
+                  painter: _RadicalCompletionHaloPainter(
+                    progress: _haloController.value,
                   ),
                 );
               },
@@ -2868,11 +2885,22 @@ class _RadicalCheckState extends State<_RadicalCheck>
     return Semantics(
       button: true,
       checked: widget.isDone,
-      child: InkResponse(
-        radius: 24,
-        customBorder: const CircleBorder(),
-        onTap: widget.onTap,
-        child: visual,
+      child: AnimatedScale(
+        scale: _isPressed ? 0.94 : 1,
+        duration: Duration(milliseconds: _isPressed ? 90 : 140),
+        curve: Curves.easeOutCubic,
+        child: InkResponse(
+          radius: 24,
+          customBorder: const CircleBorder(),
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapCancel: () => setState(() => _isPressed = false),
+          onTap: () {
+            setState(() => _isPressed = false);
+            HapticFeedback.lightImpact();
+            widget.onTap?.call();
+          },
+          child: visual,
+        ),
       ),
     );
   }
@@ -2929,23 +2957,10 @@ class _RadicalCheckPainter extends CustomPainter {
       oldDelegate.progress != progress;
 }
 
-class _RadicalCompletionParticlesPainter extends CustomPainter {
-  const _RadicalCompletionParticlesPainter({required this.progress});
+class _RadicalCompletionHaloPainter extends CustomPainter {
+  const _RadicalCompletionHaloPainter({required this.progress});
 
   final double progress;
-
-  static const _angles = [-2.55, -1.95, -1.18, -0.48, 0.16, 0.78, 1.46, 2.28];
-  static const _radii = [18.0, 21.0, 24.0, 22.0, 20.0, 24.0, 19.0, 17.0];
-  static const _colors = [
-    _rCoral,
-    _rAmber,
-    _rLowPriority,
-    _rCoral,
-    _rLowPriority,
-    _rAmber,
-    _rCoral,
-    _rLowPriority,
-  ];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2954,22 +2969,19 @@ class _RadicalCompletionParticlesPainter extends CustomPainter {
       return;
     }
     final travel = Curves.easeOutCubic.transform(t);
-    final opacity = 1 - Curves.easeInCubic.transform(t);
-    final origin = size.center(Offset.zero);
-    for (var index = 0; index < _angles.length; index += 1) {
-      final distance = _radii[index] * travel;
-      final offset =
-          Offset(math.cos(_angles[index]), math.sin(_angles[index])) * distance;
-      canvas.drawCircle(
-        origin + offset,
-        1.45 + (1.1 * (1 - t)),
-        Paint()..color = _colors[index].withValues(alpha: opacity),
-      );
-    }
+    final baseRadius = math.min(size.width, size.height) / 2;
+    canvas.drawCircle(
+      size.center(Offset.zero),
+      baseRadius + (11 * travel),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = _rCheckFill.withValues(alpha: 0.55 * (1 - t)),
+    );
   }
 
   @override
-  bool shouldRepaint(_RadicalCompletionParticlesPainter oldDelegate) =>
+  bool shouldRepaint(_RadicalCompletionHaloPainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
 
