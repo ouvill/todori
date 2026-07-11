@@ -1,0 +1,125 @@
+# task-100: プロトタイプ感を解消するプロダクトUI再設計
+
+> ステータス: 進行中（調査・計画）
+> 作業日: 2026-07-11
+
+## 1. 背景とコンテキスト
+
+task-99で配色、タイポグラフィ、レスポンシブナビゲーション、画面遷移を刷新したが、プロダクトオーナーの実機評価では「部品をきれいにしたプロトタイプ」の印象が残った。原因は、巨大見出し、全行カード、過剰なpill、Quick AddとNavigationBarの二重占有、モバイル構造を引き伸ばしたワイド画面、管理フォーム然としたAccountなど、画面の構成原理が従来のままだったことにある。
+
+本タスクではtask-99の外観を前提にせず、Homeの選別・ツリー・完了体験だけを不変条件として、主要画面を日常利用できる静かなプロダクトUIへ再構成する。
+
+## 2. 事前に読むべきファイル
+
+- `AGENTS.md`
+- `docs/tasks/PLAYBOOK.md`
+- `docs/tasks/DESIGN_PLAYBOOK.md`
+- `docs/design/visual-direction.md`
+- `docs/design/ui-spec.md`
+- `docs/tasks/task-99-elegant-ui-redesign.md`
+- `app/lib/src/ui/theme.dart`
+- `app/lib/src/ui/app_navigation_shell.dart`
+- `app/lib/src/screens/tasks_screen.dart`
+- `app/lib/src/screens/lists_screen.dart`
+- `app/lib/src/screens/task_detail_screen.dart`
+- `app/lib/src/screens/account_screen.dart`
+
+## 3. ゴール
+
+- 主要画面から「大きな見出し + 大きな角丸カードを並べたデモ」の印象をなくす。
+- タスクが装飾より先に読め、件数が増えても疲れない密度を作る。
+- モバイルは片手操作、ワイド画面はsidebar / content幅 / detail階層を活かしたプロダクト固有の構成にする。
+- Home、Lists、Task detail、Accountを、同じ余白・線・タイポグラフィ・操作強度で統一する。
+
+## 4. スコープ
+
+### やること
+
+- Homeのhero領域、セクション、タスク行、Quick Add、下部ナビゲーションの密度再設計。
+- 全行独立カードを廃止し、セクション単位の連続したtask canvasへ変更。
+- モバイルNavigationBarを低く静かな構成へ変更し、Quick Addとの二重占有を解消。
+- Listsを単なる行カードから、件数・選択・作成導線が整理された管理面へ変更。
+- Task detailの大カードを解体し、直接編集できるdocument canvasへ変更。
+- Accountを接続設定と認証操作の優先度が分かるsettings canvasへ変更。
+- ワイド画面でcontent最大幅とsidebar構成を持ち、横方向の間延びを防ぐ。
+- 既存モーションを再調整し、完了時のチェックpath・局所パーティクル・取り消し線を維持。
+- widget test、visual QA、拘束仕様を新構造へ同期。
+
+### やらないこと
+
+- タスク選別、サブタスク規則、完了・Undo、DB、同期、暗号、FRB APIの変更。
+- Focus timer、検索、タグ、Logbook等の未実装機能追加。
+- 画像やマスコットを通常画面へ常設すること。
+- dark mode正式対応、新規パッケージ導入。
+
+## 5. 実装手順
+
+1. 現在の `app/build/visual_qa/` を `app/build/visual_qa_before_v2/` へ保存する。
+2. themeとapp shellから、面・border・ナビゲーション・content幅の規則を更新する。
+3. Homeをcompact header + continuous task canvas + inline composerへ再構成する。
+4. Lists、Task detail、Accountを直接的なcanvas構造へ置き換える。
+5. 狭幅、日本語、text scale 2.0、ワイド画面のvisual QAを生成し、全PNGを目視する。
+6. Flutter品質ゲートと境界checkを実行し、実装結果を記録する。
+
+## 6. 受け入れ基準
+
+- [ ] `home_tasks.png` でHome見出しと上部余白が縮小し、従来より多くのタスク内容が初期viewportに見える。
+- [ ] Homeの通常タスクが1件ずつ独立した大カードに見えず、セクション内で連続したリズムを持つ。
+- [ ] Quick AddとNavigationBarが別々の大きな帯として画面下を占有しない。
+- [ ] Homeの4期日セクション、各タスク最大1回表示、サブタスクツリー、完了Undoと完了モーションが維持される。
+- [ ] `lists.png` が大きな空白と単一カードだけの画面ではなく、リスト管理の階層と作成導線を判別できる。
+- [ ] `task_detail.png` で大きな外周カードとpill群が主役にならず、タイトル・note・属性・subtasksがdocumentとして読める。
+- [ ] `account_signed_out.png` でServer URLが最初の巨大フォームに見えず、接続設定とログイン操作の優先順位が明確である。
+- [ ] ワイドHome / Listsで本文が横幅いっぱいに伸びず、読みやすい最大幅または複数pane構造になる。
+- [ ] セリフ書体は28px級以上かつ画面1〜2箇所に限定し、本文・タスク・操作はInter主体になる。
+- [ ] 情報pillは同一行2個以下を原則とし、同じ情報を重複表示しない。
+- [ ] 390x844、日本語、text scale 2.0でoverflowや操作不能がない。
+- [ ] tooltip、semantics、48px級タップ領域、Reduce Motionを維持する。
+- [ ] Flutter品質ゲート、境界check、`git diff --check` が成功する。
+- [ ] before / afterの全visual QA PNGを目視し、画面単位の所見を完了報告へ記録する。
+
+## 7. 制約・注意事項
+
+- Homeのデータ構築と完了非同期制御は外観変更のために書き換えない。
+- 新しい装飾を足すより、カード、pill、線、文言を減らして階層を作る。
+- iOS的な模倣やTickTick/Todoistの複製ではなく、操作密度だけを北極星として参照する。
+- 新規UI文字列は英日ARBへ追加し、生成物を手編集しない。
+- visual QAのdebug bannerは評価対象外だが、それ以外の描画異常は残さない。
+
+## 8. 完了報告に含めるべき内容
+
+- 廃止したプロトタイプ的構造と、置き換えた画面構成。
+- Homeの不変条件と完了体験が維持された証拠。
+- before / after PNGの保存先、各主要画面の目視所見。
+- 狭幅、日本語、text scale 2.0、ワイド画面の結果。
+- 実行した品質ゲート、独立検証の判定と指摘。
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-11
+- 結果: Homeの巨大hero、通常行の独立カード、画面下部Quick Add帯を廃止し、compact header、最大920pxの連続task canvas、Dynamic Typeでiconへ縮退するfloating Quick Addへ置き換えた。Listsは最大760pxの線形管理面、Task detailは重複AppBar見出しと外周カードを持たないdocument canvas、Accountは最大620pxで認証を接続設定より先に置くsettings canvasへ変更した。
+- 保持した挙動: Homeの4期日セクション、各タスク最大1回表示、サブタスクツリー、完了確認、Undo、チェックpath、局所パーティクル、左から右の取り消し線、Reduce Motionを維持した。
+- 証拠: before=`app/build/visual_qa_before_v2/`、after=`app/build/visual_qa/`。visual QA 47テスト / 49 PNGの生成に成功し、Home英日・空状態・text scale 2.0、Lists、Account、Task detail、ワイドHome / Lists、完了3フレームを目視した。
+- Commit: 未コミット。
+- 未解決: プロダクトオーナーによる新方向の実機評価と、実装を担当していない検証者による独立検証が未実施。
+
+### 品質ゲート
+
+- `cargo fmt --all -- --check`: 成功。
+- `cargo clippy --workspace -- -D warnings`: 成功。
+- `cargo test --workspace`: 成功。sandbox内ではDocker接続が拒否されたため、承認付き環境でserver統合testを含め再実行した。
+- `cd app && flutter analyze`: 成功。
+- `cd app && flutter test --concurrency=1`: 130件成功、visual QA harness 1件は設計どおりskip。
+- `sh app/tool/visual_qa.sh`: 47件成功、49 PNG生成。
+- `sh app/tool/check_hardcoded_strings.sh`: 成功。
+- `sh app/tool/check_client_boundaries.sh`: 成功。
+- `sh app/tool/test_client_boundaries.sh`: 成功。
+- `git diff --check`: 成功。
+
+### 独立検証
+
+- 判定: 未実施（プロダクトオーナーの方向確認後に実施）。
+- 根拠: 実装者による品質ゲートとVisual QAは成功しているが、合否は独立判定していない。
+- 検証者: 未定。

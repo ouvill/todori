@@ -148,12 +148,12 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      height: 72,
+      height: 64,
       elevation: 0,
       backgroundColor: colorScheme.surface,
       indicatorColor: colorScheme.primaryContainer,
       indicatorShape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(999),
       ),
       iconTheme: WidgetStateProperty.resolveWith((states) {
         return IconThemeData(
@@ -187,8 +187,7 @@ ThemeData buildTodoriTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(AppRadius.md),
         borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
       ),
-      filled: true,
-      fillColor: colorScheme.surface,
+      filled: false,
     ),
     listTileTheme: ListTileThemeData(
       iconColor: colorScheme.onSurfaceVariant,

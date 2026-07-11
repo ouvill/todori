@@ -151,7 +151,8 @@ class TasksScreen extends ConsumerWidget {
           );
         },
       ),
-      bottomNavigationBar: QuickAddBar(
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: QuickAddBar(
         listOptions: createListOptions,
         initialListId: createInitialListId,
         initialDueAt: createInitialDueAt,
@@ -390,90 +391,98 @@ class _TasksBodyState extends State<_TasksBody> {
           : const <_HomeSectionData>[];
       return SafeArea(
         top: true,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                12,
-                AppSpacing.md,
-                AppSpacing.xl * 3,
-              ),
-              sliver: SliverMainAxisGroup(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: _HomeTasksHeader(
-                      sortMenu: widget.sortMenu,
-                      listActionsMenu: widget.listActionsMenu,
-                    ),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 920),
+            child: CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    12,
+                    AppSpacing.md,
+                    AppSpacing.xl * 3,
                   ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppSpacing.lg),
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _HomeTasksHeader(
+                          sortMenu: widget.sortMenu,
+                          listActionsMenu: widget.listActionsMenu,
+                        ),
+                      ),
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.md),
+                      ),
+                      if (visibleHomeSections.isEmpty)
+                        SliverToBoxAdapter(child: _HomeClearState(l10n: l10n))
+                      else
+                        _HomeSectionsPanelSliver(
+                          sections: visibleHomeSections,
+                          collapsedSections: _collapsedHomeSections,
+                          onToggleSection: (section) {
+                            setState(() {
+                              if (!_collapsedHomeSections.add(section)) {
+                                _collapsedHomeSections.remove(section);
+                              }
+                            });
+                          },
+                          rowBuilder: (context, row, section) =>
+                              _buildHomeTaskRow(
+                                context,
+                                row.node,
+                                section,
+                                rootListId: row.rootListId,
+                                parentTaskName: row.parentTaskName,
+                                countsInSection: row.countsInSection,
+                                pendingExitPhase: row.pendingExitPhase,
+                                disableInteractions: row.disableInteractions,
+                                isPendingRoot: row.isPendingRoot,
+                              ),
+                        ),
+                      if (closedRows.isNotEmpty) ...[
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: AppSpacing.lg),
+                        ),
+                        SliverToBoxAdapter(
+                          child: _CompletedSectionHeader(
+                            count: closedRows.length,
+                            isExpanded: _showCompleted,
+                            onTap: () => setState(
+                              () => _showCompleted = !_showCompleted,
+                            ),
+                          ),
+                        ),
+                        if (_showCompleted)
+                          SliverList.builder(
+                            itemCount: closedRows.length * 2,
+                            itemBuilder: (context, index) {
+                              if (index.isEven) {
+                                return const SizedBox(height: AppSpacing.sm);
+                              }
+                              final row = closedRows[index ~/ 2];
+                              return _buildHomeTaskRow(
+                                context,
+                                row.node,
+                                row.node.task.dueAt == null
+                                    ? _HomeSectionKind.today
+                                    : _homeSectionForDueAt(
+                                        row.node.task.dueAt!,
+                                        homeLocalRangesMs(),
+                                      ),
+                                rootListId: row.rootListId,
+                                parentTaskName: row.parentTaskName,
+                              );
+                            },
+                          ),
+                      ],
+                    ],
                   ),
-                  if (visibleHomeSections.isEmpty)
-                    SliverToBoxAdapter(child: _HomeClearState(l10n: l10n))
-                  else
-                    _HomeSectionsPanelSliver(
-                      sections: visibleHomeSections,
-                      collapsedSections: _collapsedHomeSections,
-                      onToggleSection: (section) {
-                        setState(() {
-                          if (!_collapsedHomeSections.add(section)) {
-                            _collapsedHomeSections.remove(section);
-                          }
-                        });
-                      },
-                      rowBuilder: (context, row, section) => _buildHomeTaskRow(
-                        context,
-                        row.node,
-                        section,
-                        rootListId: row.rootListId,
-                        parentTaskName: row.parentTaskName,
-                        countsInSection: row.countsInSection,
-                        pendingExitPhase: row.pendingExitPhase,
-                        disableInteractions: row.disableInteractions,
-                        isPendingRoot: row.isPendingRoot,
-                      ),
-                    ),
-                  if (closedRows.isNotEmpty) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: AppSpacing.lg),
-                    ),
-                    SliverToBoxAdapter(
-                      child: _CompletedSectionHeader(
-                        count: closedRows.length,
-                        isExpanded: _showCompleted,
-                        onTap: () =>
-                            setState(() => _showCompleted = !_showCompleted),
-                      ),
-                    ),
-                    if (_showCompleted)
-                      SliverList.builder(
-                        itemCount: closedRows.length * 2,
-                        itemBuilder: (context, index) {
-                          if (index.isEven) {
-                            return const SizedBox(height: AppSpacing.sm);
-                          }
-                          final row = closedRows[index ~/ 2];
-                          return _buildHomeTaskRow(
-                            context,
-                            row.node,
-                            row.node.task.dueAt == null
-                                ? _HomeSectionKind.today
-                                : _homeSectionForDueAt(
-                                    row.node.task.dueAt!,
-                                    homeLocalRangesMs(),
-                                  ),
-                            rootListId: row.rootListId,
-                            parentTaskName: row.parentTaskName,
-                          );
-                        },
-                      ),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
     }
@@ -1490,55 +1499,44 @@ class _HomeTasksHeader extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final today = formatHomeHeaderDate(locale, DateTime.now());
-    final showCompactBrand = MediaQuery.sizeOf(context).width < 720;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (showCompactBrand)
-              Semantics(
-                image: true,
-                label: l10n.appTitle,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(11),
-                    child: Icon(
-                      LucideIcons.sprout300,
-                      size: 20,
-                      color: colorScheme.primary,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    today,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.7,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    l10n.homeTitle,
+                    style: theme.textTheme.displayMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                    ),
+                  ),
+                ],
               ),
-            const Spacer(),
-            ?listActionsMenu,
-            sortMenu,
+            ),
+            if (listActionsMenu != null) ...[
+              listActionsMenu!,
+              const SizedBox(width: AppSpacing.xs),
+            ],
+            Padding(padding: const EdgeInsets.only(bottom: 1), child: sortMenu),
           ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        Text(
-          today,
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.9,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          l10n.homeTitle,
-          style: theme.textTheme.displayMedium?.copyWith(
-            color: colorScheme.onSurface,
-            fontSize: 42,
-            fontWeight: FontWeight.w600,
-            height: 1.02,
-          ),
         ),
       ],
     );
@@ -1740,7 +1738,7 @@ class _HomeSectionsPanelSliver extends StatelessWidget {
             rowBuilder: rowBuilder,
           ),
           if (index < sections.length - 1)
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
         ],
       ],
     );

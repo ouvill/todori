@@ -91,29 +91,38 @@ class AppNavigationShell extends StatelessWidget {
 
         return Scaffold(
           body: child,
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: selectedIndex,
-            onDestinationSelected: selectDestination,
-            destinations: [
-              NavigationDestination(
-                tooltip: l10n.homeSmartListTooltip,
-                icon: const Icon(LucideIcons.house300),
-                selectedIcon: const Icon(LucideIcons.house300),
-                label: l10n.homeTitle,
+          bottomNavigationBar: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
-              NavigationDestination(
-                tooltip: l10n.homeListMenuTooltip,
-                icon: const Icon(LucideIcons.listTodo300),
-                selectedIcon: const Icon(LucideIcons.listTodo300),
-                label: l10n.listsTitle,
-              ),
-              NavigationDestination(
-                tooltip: l10n.accountTitle,
-                icon: const Icon(LucideIcons.userRound300),
-                selectedIcon: const Icon(LucideIcons.userRound300),
-                label: l10n.accountTitle,
-              ),
-            ],
+            ),
+            child: NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: selectDestination,
+              destinations: [
+                NavigationDestination(
+                  tooltip: l10n.homeSmartListTooltip,
+                  icon: const Icon(LucideIcons.house300),
+                  selectedIcon: const Icon(LucideIcons.house300),
+                  label: l10n.homeTitle,
+                ),
+                NavigationDestination(
+                  tooltip: l10n.homeListMenuTooltip,
+                  icon: const Icon(LucideIcons.listTodo300),
+                  selectedIcon: const Icon(LucideIcons.listTodo300),
+                  label: l10n.listsTitle,
+                ),
+                NavigationDestination(
+                  tooltip: l10n.accountTitle,
+                  icon: const Icon(LucideIcons.userRound300),
+                  selectedIcon: const Icon(LucideIcons.userRound300),
+                  label: l10n.accountTitle,
+                ),
+              ],
+            ),
           ),
         );
       },

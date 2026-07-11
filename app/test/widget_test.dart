@@ -279,7 +279,7 @@ void main() {
     await tester.tap(find.text('作成日表示を確認する'));
     await tester.pumpAndSettle();
 
-    expect(find.text('タスク詳細'), findsOneWidget);
+    expect(find.text('タスク詳細'), findsNothing);
     expect(
       find.text('作成日時: ${formatAbsoluteDate('ja', task.createdAt)}'),
       findsOneWidget,
@@ -1287,7 +1287,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('No due child under home parent'));
     await tester.pumpAndSettle();
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.byTooltip('Task actions'), findsOneWidget);
     expect(find.text('No due child under home parent'), findsOneWidget);
 
@@ -1550,13 +1550,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('A little room to breathe.'), findsOneWidget);
-      expect(find.text('Add task'), findsOneWidget);
+      expect(find.text('Add task'), findsNothing);
       expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
       expect(find.byKey(const ValueKey('quick-add-field')), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
       expect(tester.takeException(), isNull);
 
-      await tester.ensureVisible(find.text('Add task'));
+      await tester.ensureVisible(find.byKey(const ValueKey('quick-add-open')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('quick-add-open')));
       await tester.pumpAndSettle();
@@ -1617,7 +1617,7 @@ void main() {
     await tester.tap(find.textContaining('README screenshot'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
     // Priority is conveyed in the metadata row, not beside the title or via
     // the removed edit dialog.
@@ -1653,7 +1653,7 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.text('Buy milk'), findsOneWidget);
     // No persistent Local protection/lock chip in the main task UI (see
     // `docs/design/visual-direction.md` Security Signal section); status
@@ -3581,7 +3581,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
-      expect(find.text('Task detail'), findsOneWidget);
+      expect(find.text('Task detail'), findsNothing);
       expect(find.text('Parent detail task'), findsOneWidget);
       expect(find.text('Detail child task'), findsOneWidget);
       expect(childCheckbox, findsOneWidget);

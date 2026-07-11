@@ -90,85 +90,93 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        12,
-        AppSpacing.md,
-        AppSpacing.xl,
-      ),
-      children: [
-        Text(
-          l10n.listsTitle,
-          style: theme.textTheme.displayMedium?.copyWith(
-            color: colorScheme.onSurface,
-            fontSize: 42,
-            fontWeight: FontWeight.w600,
-            height: 1.02,
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.xl,
           ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: colorScheme.outlineVariant),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (widget.lists.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: AppEmptyState(
-                    icon: LucideIcons.listTodo300,
-                    title: l10n.listsEmptyTitle,
-                    body: l10n.listsEmptyBody,
-                  ),
-                )
-              else
-                for (var index = 0; index < widget.lists.length; index += 1)
-                  _ListManagementRow(
-                    icon: LucideIcons.circle300,
-                    color: _listAccent(colorScheme, index),
-                    title: widget.lists[index].name,
-                    onTap: () =>
-                        context.push('/lists/${widget.lists[index].id}/tasks'),
-                  ),
-              Divider(color: colorScheme.outlineVariant),
-              _ListManagementRow(
-                icon: LucideIcons.plus300,
-                color: colorScheme.primary,
-                title: l10n.homeNewListButton,
-                onTap: widget.onCreateList,
+          children: [
+            Text(
+              l10n.listsTitle,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: colorScheme.onSurface,
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
               ),
-              if (widget.archivedLists.isNotEmpty) ...[
-                Divider(color: colorScheme.outlineVariant),
-                _ArchivedListsHeader(
-                  count: widget.archivedLists.length,
-                  expanded: _archivedExpanded,
-                  onTap: () =>
-                      setState(() => _archivedExpanded = !_archivedExpanded),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: colorScheme.outlineVariant),
+                  bottom: BorderSide(color: colorScheme.outlineVariant),
                 ),
-                if (_archivedExpanded)
-                  for (
-                    var index = 0;
-                    index < widget.archivedLists.length;
-                    index += 1
-                  )
-                    _ListManagementRow(
-                      icon: LucideIcons.archive300,
-                      color: colorScheme.onSurfaceVariant,
-                      title: widget.archivedLists[index].name,
-                      onTap: () => context.push(
-                        '/lists/${widget.archivedLists[index].id}/tasks',
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.lists.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: AppEmptyState(
+                        icon: LucideIcons.listTodo300,
+                        title: l10n.listsEmptyTitle,
+                        body: l10n.listsEmptyBody,
+                      ),
+                    )
+                  else
+                    for (var index = 0; index < widget.lists.length; index += 1)
+                      _ListManagementRow(
+                        icon: LucideIcons.circle300,
+                        color: _listAccent(colorScheme, index),
+                        title: widget.lists[index].name,
+                        onTap: () => context.push(
+                          '/lists/${widget.lists[index].id}/tasks',
+                        ),
+                      ),
+                  Divider(color: colorScheme.outlineVariant),
+                  _ListManagementRow(
+                    icon: LucideIcons.plus300,
+                    color: colorScheme.primary,
+                    title: l10n.homeNewListButton,
+                    onTap: widget.onCreateList,
+                  ),
+                  if (widget.archivedLists.isNotEmpty) ...[
+                    Divider(color: colorScheme.outlineVariant),
+                    _ArchivedListsHeader(
+                      count: widget.archivedLists.length,
+                      expanded: _archivedExpanded,
+                      onTap: () => setState(
+                        () => _archivedExpanded = !_archivedExpanded,
                       ),
                     ),
-              ],
-            ],
-          ),
+                    if (_archivedExpanded)
+                      for (
+                        var index = 0;
+                        index < widget.archivedLists.length;
+                        index += 1
+                      )
+                        _ListManagementRow(
+                          icon: LucideIcons.archive300,
+                          color: colorScheme.onSurfaceVariant,
+                          title: widget.archivedLists[index].name,
+                          onTap: () => context.push(
+                            '/lists/${widget.archivedLists[index].id}/tasks',
+                          ),
+                        ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -263,14 +271,14 @@ class _ListManagementRow extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 42,
-              height: 42,
+              width: 34,
+              height: 34,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                child: Icon(icon, color: color, size: 20),
+                child: Icon(icon, color: color, size: 18),
               ),
             ),
             const SizedBox(width: 12),

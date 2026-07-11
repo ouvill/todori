@@ -129,94 +129,55 @@ class _QuickAddBarState extends State<QuickAddBar> {
     final enabled =
         widget.initialListId != null &&
         widget.listOptions.any((list) => list.id == widget.initialListId);
+    final iconOnly = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: viewInsets.bottom),
-      child: SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(
-          AppSpacing.md,
-          AppSpacing.sm,
-          AppSpacing.md,
-          AppSpacing.sm,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            child: Tooltip(
-              message: l10n.quickAddOpenTooltip,
-              child: Semantics(
-                button: true,
-                enabled: enabled,
-                label: l10n.quickAddOpenSemantics,
-                child: Material(
-                  color: colorScheme.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  child: InkWell(
-                    key: const ValueKey('quick-add-open'),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                    onTap: enabled ? _openSheet : null,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                        border: Border.all(
-                          color: colorScheme.outlineVariant.withValues(
-                            alpha: 0.9,
-                          ),
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsetsDirectional.fromSTEB(
-                          AppSpacing.md,
-                          12,
-                          12,
-                          12,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              LucideIcons.plus300,
-                              size: 20,
-                              color: enabled
-                                  ? colorScheme.primary
-                                  : colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Text(
-                                l10n.quickAddHint,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: enabled
-                                      ? colorScheme.onSurfaceVariant
-                                      : colorScheme.onSurfaceVariant.withValues(
-                                          alpha: 0.6,
-                                        ),
-                                ),
-                              ),
-                            ),
-                            Icon(
-                              LucideIcons.chevronUp300,
-                              size: 18,
-                              color: colorScheme.onSurfaceVariant.withValues(
-                                alpha: 0.7,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+      child: Tooltip(
+        message: l10n.quickAddOpenTooltip,
+        child: Semantics(
+          button: true,
+          enabled: enabled,
+          label: l10n.quickAddOpenSemantics,
+          child: Material(
+            color: enabled
+                ? colorScheme.primary
+                : colorScheme.surfaceContainerHighest,
+            elevation: 2,
+            shadowColor: colorScheme.shadow.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              key: const ValueKey('quick-add-open'),
+              borderRadius: BorderRadius.circular(999),
+              onTap: enabled ? _openSheet : null,
+              child: Padding(
+                padding: iconOnly
+                    ? const EdgeInsets.all(14)
+                    : const EdgeInsetsDirectional.fromSTEB(16, 12, 18, 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      LucideIcons.plus300,
+                      size: 19,
+                      color: enabled
+                          ? colorScheme.onPrimary
+                          : colorScheme.onSurfaceVariant,
                     ),
-                  ),
+                    if (!iconOnly) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        l10n.quickAddHint,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: enabled
+                              ? colorScheme.onPrimary
+                              : colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -994,11 +955,8 @@ class AppHomeTaskRow extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final effectiveDepth = math.min(depth, 4);
     return Material(
-      color: colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
+      color: Colors.transparent,
+      shape: const RoundedRectangleBorder(),
       child: Stack(
         children: [
           if (effectiveDepth > 0)
@@ -1016,7 +974,7 @@ class AppHomeTaskRow extends StatelessWidget {
             button: true,
             label: semanticLabel,
             child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
               onTap: onTap,
               child: Padding(
                 padding: EdgeInsetsDirectional.only(
