@@ -939,12 +939,7 @@ fn semantic_state_is_superseded(incoming: &StoredState, current: &StoredState) -
                 delete_hlc: current,
             },
         ) => incoming <= current,
-        (
-            StoredState::Live {
-                mutation_hlc: _, ..
-            },
-            StoredState::Tombstone { delete_hlc: _ },
-        ) => true,
+        (StoredState::Live { .. }, StoredState::Tombstone { .. }) => true,
         (
             StoredState::Tombstone {
                 delete_hlc: incoming,
