@@ -91,7 +91,7 @@
 - 保持した挙動: Homeの4期日セクション、各タスク最大1回表示、サブタスクツリー、完了確認、Undo、チェックpath、局所パーティクル、左から右の取り消し線、Reduce Motionを維持した。
 - 証拠: before=`app/build/visual_qa_before/`（47 PNG）、after=`app/build/visual_qa/`（49 PNG）。visual QA 47テストに成功し、Home英日、空状態、text scale 2.0、Lists、Task detail、create sheet、完了3フレーム、ワイド画面のNavigationRailを目視確認した。
 - 仕様同期: `docs/design/ui-spec.md` を2026-07-11人間裁定と新しい実装値へ更新した。
-- Commit: `c43a655`（UI再設計本体）
+- Commits: `c43a655`（UI再設計本体）、`e1e1588`（IA・画面遷移追補）
 - 未解決: なし。
 
 ### 品質ゲート
