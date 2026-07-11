@@ -18,12 +18,20 @@ class _RadicalHomeMock extends StatelessWidget {
     this.onTaskTap,
     this.onNavSelected,
     this.onAdd,
+    this.completedTaskTitles = const <String>{},
+    this.onTaskToggle,
+    this.showCompleted = false,
+    this.onCompletedTap,
   });
 
   final VoidCallback? onSearch;
   final VoidCallback? onTaskTap;
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
+  final Set<String> completedTaskTitles;
+  final ValueChanged<String>? onTaskToggle;
+  final bool showCompleted;
+  final VoidCallback? onCompletedTap;
 
   @override
   Widget build(BuildContext context) {
@@ -54,12 +62,43 @@ class _RadicalHomeMock extends StatelessWidget {
               child: _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
             ),
             const SizedBox(height: 3),
-            _RadicalTaskStream(onTaskTap: onTaskTap),
-            const SizedBox(height: 17),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: _RadicalCalendarLink(),
+            _RadicalTaskStream(
+              onTaskTap: onTaskTap,
+              completedTaskTitles: completedTaskTitles,
+              onTaskToggle: onTaskToggle,
             ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalCompletedDisclosure(
+                isExpanded: showCompleted,
+                countLabel: '${1 + completedTaskTitles.length} today',
+                onTap: onCompletedTap,
+              ),
+            ),
+            if (showCompleted) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: _RadicalCompletedRow(
+                  title: 'Approved release direction',
+                  detail: 'Today · Design',
+                  isLast: completedTaskTitles.isEmpty,
+                ),
+              ),
+              for (
+                var index = 0;
+                index < completedTaskTitles.length;
+                index += 1
+              )
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: _RadicalCompletedRow(
+                    title: completedTaskTitles.elementAt(index),
+                    detail: 'Today · Completed',
+                    isLast: index == completedTaskTitles.length - 1,
+                  ),
+                ),
+            ],
           ],
         ),
       ),
@@ -145,9 +184,15 @@ class _RadicalHomeHeading extends StatelessWidget {
 }
 
 class _RadicalTaskStream extends StatelessWidget {
-  const _RadicalTaskStream({this.onTaskTap});
+  const _RadicalTaskStream({
+    this.onTaskTap,
+    this.completedTaskTitles = const <String>{},
+    this.onTaskToggle,
+  });
 
   final VoidCallback? onTaskTap;
+  final Set<String> completedTaskTitles;
+  final ValueChanged<String>? onTaskToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -158,16 +203,22 @@ class _RadicalTaskStream extends StatelessWidget {
           meta: 'Design · 25 minutes',
           time: '9:00',
           onTap: onTaskTap,
+          isDone: completedTaskTitles.contains('Prepare launch notes'),
+          onToggle: () => onTaskToggle?.call('Prepare launch notes'),
         ),
-        const _RadicalTaskRow(
+        _RadicalTaskRow(
           title: 'Review onboarding copy',
           meta: 'Product',
           time: '9:30',
+          isDone: completedTaskTitles.contains('Review onboarding copy'),
+          onToggle: () => onTaskToggle?.call('Review onboarding copy'),
         ),
         _RadicalTaskRow(
           title: 'Finalize navigation states',
           meta: 'Design',
           time: '11:00',
+          isDone: completedTaskTitles.contains('Finalize navigation states'),
+          onToggle: () => onTaskToggle?.call('Finalize navigation states'),
           children: [
             _RadicalSubtask(title: 'Check compact width', isDone: true),
             _RadicalSubtask(
@@ -185,6 +236,8 @@ class _RadicalTaskStream extends StatelessWidget {
           title: 'Send release build',
           meta: 'Work',
           time: '14:00',
+          isDone: completedTaskTitles.contains('Send release build'),
+          onToggle: () => onTaskToggle?.call('Send release build'),
         ),
         _RadicalTaskRow(
           title: 'Renew domain settings',
@@ -192,6 +245,8 @@ class _RadicalTaskStream extends StatelessWidget {
           time: 'Mon',
           isOverdue: true,
           isLast: true,
+          isDone: completedTaskTitles.contains('Renew domain settings'),
+          onToggle: () => onTaskToggle?.call('Renew domain settings'),
         ),
       ],
     );
@@ -207,6 +262,8 @@ class _RadicalTaskRow extends StatelessWidget {
     this.isOverdue = false,
     this.isLast = false,
     this.onTap,
+    this.isDone = false,
+    this.onToggle,
   });
 
   final String title;
@@ -216,6 +273,8 @@ class _RadicalTaskRow extends StatelessWidget {
   final bool isOverdue;
   final bool isLast;
   final VoidCallback? onTap;
+  final bool isDone;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -224,9 +283,13 @@ class _RadicalTaskRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 15),
-            child: _RadicalCheck(),
+          Padding(
+            padding: const EdgeInsets.only(top: 15),
+            child: _RadicalCheck(
+              key: ValueKey('design-lab-task-check-$title'),
+              isDone: isDone,
+              onTap: onToggle,
+            ),
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -251,12 +314,16 @@ class _RadicalTaskRow extends StatelessWidget {
                             children: [
                               Text(
                                 title,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: _directionSans,
-                                  color: _rInk,
+                                  color: isDone ? _rMuted : _rInk,
                                   fontSize: 15.5,
                                   fontWeight: FontWeight.w500,
                                   height: 1.2,
+                                  decoration: isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                  decorationColor: _rMuted,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -407,46 +474,6 @@ class _RadicalBranchPainter extends CustomPainter {
       oldDelegate.depth != depth ||
       oldDelegate.isLast != isLast ||
       oldDelegate.hasChildren != hasChildren;
-}
-
-class _RadicalCalendarLink extends StatelessWidget {
-  const _RadicalCalendarLink();
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {},
-      child: const SizedBox(
-        height: 48,
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'See the rest of the week',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rGreen,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Calendar  →',
-              style: TextStyle(
-                fontFamily: _directionSans,
-                color: _rMuted,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _RadicalDetailMock extends StatelessWidget {
@@ -2234,14 +2261,20 @@ class _RadicalSectionTitle extends StatelessWidget {
 }
 
 class _RadicalCheck extends StatelessWidget {
-  const _RadicalCheck({this.isDone = false, this.size = 20});
+  const _RadicalCheck({
+    super.key,
+    this.isDone = false,
+    this.size = 20,
+    this.onTap,
+  });
 
   final bool isDone;
   final double size;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final mark = DecoratedBox(
       decoration: BoxDecoration(
         color: isDone ? _rGreen : Colors.transparent,
         shape: BoxShape.circle,
@@ -2252,6 +2285,18 @@ class _RadicalCheck extends StatelessWidget {
         child: isDone
             ? Icon(LucideIcons.check300, size: size * 0.55, color: _rNightText)
             : null,
+      ),
+    );
+    if (onTap == null) {
+      return mark;
+    }
+    return Semantics(
+      button: true,
+      checked: isDone,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: mark,
       ),
     );
   }

@@ -1,5 +1,4 @@
-import 'dart:ui';
-
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -12,12 +11,26 @@ void main() {
     _setDesignLabViewport(tester);
     await tester.pumpWidget(const InteractiveDesignLabApp());
     expect(find.text('Verify reduced motion'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('See the rest of the week'), findsNothing);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('design-lab-task-check-Review onboarding copy'),
+      ),
+    );
+    await tester.pump();
 
     await tester.tap(find.byIcon(LucideIcons.calendarDays300));
     await tester.pumpAndSettle();
     expect(find.text('Calendar'), findsAtLeastNWidgets(1));
     expect(find.text('TUESDAY 27'), findsOneWidget);
     expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('4 this week'), findsOneWidget);
+    final completedTask = tester.widget<Text>(
+      find.text('Review onboarding copy'),
+    );
+    expect(completedTask.style?.decoration, TextDecoration.lineThrough);
     expect(find.text('Approved release direction'), findsNothing);
 
     await tester.tap(find.text('Completed'));

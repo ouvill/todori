@@ -25,6 +25,8 @@ class _InteractiveDesignLabShell extends StatefulWidget {
 class _InteractiveDesignLabShellState
     extends State<_InteractiveDesignLabShell> {
   var _selectedIndex = 0;
+  var _showTodayCompleted = false;
+  final _completedTaskTitles = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -34,10 +36,19 @@ class _InteractiveDesignLabShellState
         onTaskTap: _openTaskDetail,
         onNavSelected: _selectTab,
         onAdd: _openComposer,
+        completedTaskTitles: _completedTaskTitles,
+        onTaskToggle: _toggleTask,
+        showCompleted: _showTodayCompleted,
+        onCompletedTap: () {
+          setState(() => _showTodayCompleted = !_showTodayCompleted);
+        },
       ),
       1 => _InteractiveCalendarMock(
         onNavSelected: _selectTab,
         onAdd: _openComposer,
+        onTaskTap: _openTaskDetail,
+        completedTaskTitles: _completedTaskTitles,
+        onTaskToggle: _toggleTask,
       ),
       3 => _RadicalListsMock(
         onSearch: _openSearch,
@@ -58,6 +69,14 @@ class _InteractiveDesignLabShellState
       return;
     }
     setState(() => _selectedIndex = index);
+  }
+
+  void _toggleTask(String title) {
+    setState(() {
+      if (!_completedTaskTitles.add(title)) {
+        _completedTaskTitles.remove(title);
+      }
+    });
   }
 
   void _openSearch() {
@@ -112,10 +131,19 @@ class _InteractiveDesignLabShellState
 }
 
 class _InteractiveCalendarMock extends StatefulWidget {
-  const _InteractiveCalendarMock({this.onNavSelected, this.onAdd});
+  const _InteractiveCalendarMock({
+    this.onNavSelected,
+    this.onAdd,
+    this.onTaskTap,
+    this.completedTaskTitles = const <String>{},
+    this.onTaskToggle,
+  });
 
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
+  final VoidCallback? onTaskTap;
+  final Set<String> completedTaskTitles;
+  final ValueChanged<String>? onTaskToggle;
 
   @override
   State<_InteractiveCalendarMock> createState() =>
@@ -137,54 +165,121 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
+          padding: const EdgeInsets.fromLTRB(18, 15, 18, 76),
           children: [
             const SizedBox(height: 44),
-            const _RadicalSimpleHeading(
-              title: 'Calendar',
-              trailing: 'May 2026',
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalSimpleHeading(
+                title: 'Calendar',
+                trailing: 'May 2026',
+              ),
             ),
             const SizedBox(height: 27),
-            const _InteractiveWeekStrip(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _InteractiveWeekStrip(),
+            ),
             const SizedBox(height: 30),
-            const _RadicalSectionTitle(
-              label: 'TUESDAY 27',
-              trailing: '5 tasks',
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalSectionTitle(
+                label: 'TUESDAY 27',
+                trailing: '4 tasks',
+              ),
             ),
             const SizedBox(height: 5),
-            const _InteractiveAgendaRow(
-              time: '9:00',
+            _RadicalTaskRow(
               title: 'Prepare launch notes',
+              meta: 'Design · 25 minutes',
+              time: '9:00',
+              onTap: widget.onTaskTap,
+              isDone: widget.completedTaskTitles.contains(
+                'Prepare launch notes',
+              ),
+              onToggle: () => widget.onTaskToggle?.call('Prepare launch notes'),
             ),
-            const _InteractiveAgendaRow(
-              time: '9:30',
+            _RadicalTaskRow(
               title: 'Review onboarding copy',
+              meta: 'Product',
+              time: '9:30',
+              isDone: widget.completedTaskTitles.contains(
+                'Review onboarding copy',
+              ),
+              onToggle: () =>
+                  widget.onTaskToggle?.call('Review onboarding copy'),
             ),
-            const _InteractiveAgendaRow(
-              time: '11:00',
+            _RadicalTaskRow(
               title: 'Finalize navigation states',
+              meta: 'Design',
+              time: '11:00',
+              isDone: widget.completedTaskTitles.contains(
+                'Finalize navigation states',
+              ),
+              onToggle: () =>
+                  widget.onTaskToggle?.call('Finalize navigation states'),
+              children: const [
+                _RadicalSubtask(title: 'Check compact width', isDone: true),
+                _RadicalSubtask(
+                  title: 'Polish focus transition',
+                  hasChildren: true,
+                ),
+                _RadicalSubtask(
+                  title: 'Verify reduced motion',
+                  depth: 1,
+                  isLast: true,
+                ),
+              ],
             ),
-            const _InteractiveAgendaRow(
-              time: '14:00',
+            _RadicalTaskRow(
               title: 'Send release build',
+              meta: 'Work',
+              time: '14:00',
+              isLast: true,
+              isDone: widget.completedTaskTitles.contains('Send release build'),
+              onToggle: () => widget.onTaskToggle?.call('Send release build'),
             ),
-            const SizedBox(height: 24),
-            _InteractiveCompletedDisclosure(
-              isExpanded: _showCompleted,
-              onTap: () {
-                setState(() => _showCompleted = !_showCompleted);
-              },
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalCompletedDisclosure(
+                isExpanded: _showCompleted,
+                countLabel:
+                    '${3 + widget.completedTaskTitles.length} this week',
+                onTap: () {
+                  setState(() => _showCompleted = !_showCompleted);
+                },
+              ),
             ),
-            if (_showCompleted) ...const [
-              _InteractiveCompletedRow(
-                title: 'Approved release direction',
-                detail: 'Today · Design',
+            if (_showCompleted) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6),
+                child: _RadicalCompletedRow(
+                  title: 'Approved release direction',
+                  detail: 'Today · Design',
+                ),
               ),
-              _InteractiveCompletedRow(
-                title: 'Shared weekly plan',
-                detail: 'Yesterday · Work',
-                isLast: true,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: _RadicalCompletedRow(
+                  title: 'Shared weekly plan',
+                  detail: 'Yesterday · Work',
+                  isLast: widget.completedTaskTitles.isEmpty,
+                ),
               ),
+              for (
+                var index = 0;
+                index < widget.completedTaskTitles.length;
+                index += 1
+              )
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: _RadicalCompletedRow(
+                    title: widget.completedTaskTitles.elementAt(index),
+                    detail: 'Today · Completed',
+                    isLast: index == widget.completedTaskTitles.length - 1,
+                  ),
+                ),
             ],
           ],
         ),
@@ -193,14 +288,16 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
   }
 }
 
-class _InteractiveCompletedDisclosure extends StatelessWidget {
-  const _InteractiveCompletedDisclosure({
+class _RadicalCompletedDisclosure extends StatelessWidget {
+  const _RadicalCompletedDisclosure({
     required this.isExpanded,
+    required this.countLabel,
     required this.onTap,
   });
 
   final bool isExpanded;
-  final VoidCallback onTap;
+  final String countLabel;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -223,9 +320,9 @@ class _InteractiveCompletedDisclosure extends StatelessWidget {
                 ),
               ),
             ),
-            const Text(
-              '3 this week',
-              style: TextStyle(
+            Text(
+              countLabel,
+              style: const TextStyle(
                 fontFamily: _directionSans,
                 color: _rMuted,
                 fontSize: 11.5,
@@ -250,8 +347,8 @@ class _InteractiveCompletedDisclosure extends StatelessWidget {
   }
 }
 
-class _InteractiveCompletedRow extends StatelessWidget {
-  const _InteractiveCompletedRow({
+class _RadicalCompletedRow extends StatelessWidget {
+  const _RadicalCompletedRow({
     required this.title,
     required this.detail,
     this.isLast = false,
@@ -361,51 +458,6 @@ class _InteractiveWeekStrip extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _InteractiveAgendaRow extends StatelessWidget {
-  const _InteractiveAgendaRow({required this.time, required this.title});
-
-  final String time;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: _rRule, width: 0.65)),
-      ),
-      child: SizedBox(
-        height: 58,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 55,
-              child: Text(
-                time,
-                style: const TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rMuted,
-                  fontSize: 11.5,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rInk,
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
