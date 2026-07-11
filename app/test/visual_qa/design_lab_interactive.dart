@@ -34,6 +34,7 @@ class _InteractiveDesignLabShellState
       0 => _RadicalHomeMock(
         onSearch: _openSearch,
         onTaskTap: _openTaskDetail,
+        onTaskFocus: () => _openFocusSetup(context),
         onNavSelected: _selectTab,
         onAdd: _openComposer,
         completedTaskTitles: _completedTaskTitles,
@@ -47,6 +48,7 @@ class _InteractiveDesignLabShellState
         onNavSelected: _selectTab,
         onAdd: _openComposer,
         onTaskTap: _openTaskDetail,
+        onTaskFocus: () => _openFocusSetup(context),
         completedTaskTitles: _completedTaskTitles,
         onTaskToggle: _toggleTask,
       ),
@@ -107,6 +109,7 @@ class _InteractiveDesignLabShellState
       builder: (routeContext) => _RadicalListTasksMock(
         onBack: () => Navigator.of(routeContext).pop(),
         onTaskTap: () => _openTaskDetailFrom(routeContext),
+        onTaskFocus: () => _openFocusSetup(routeContext),
         onActions: () => _openTaskActions(routeContext),
         onDueDate: () => _openDueDate(routeContext),
         onAdd: () => _openComposerFrom(routeContext),
@@ -243,6 +246,7 @@ class _InteractiveCalendarMock extends StatefulWidget {
     this.onNavSelected,
     this.onAdd,
     this.onTaskTap,
+    this.onTaskFocus,
     this.completedTaskTitles = const <String>{},
     this.onTaskToggle,
   });
@@ -250,6 +254,7 @@ class _InteractiveCalendarMock extends StatefulWidget {
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
   final VoidCallback? onTaskTap;
+  final VoidCallback? onTaskFocus;
   final Set<String> completedTaskTitles;
   final ValueChanged<String>? onTaskToggle;
 
@@ -301,6 +306,7 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
               meta: 'Design · 25 minutes',
               time: '9:00',
               onTap: widget.onTaskTap,
+              onFocus: widget.onTaskFocus,
               isDone: widget.completedTaskTitles.contains(
                 'Prepare launch notes',
               ),

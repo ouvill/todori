@@ -4,6 +4,7 @@ class _RadicalListTasksMock extends StatelessWidget {
   const _RadicalListTasksMock({
     this.onBack,
     this.onTaskTap,
+    this.onTaskFocus,
     this.onActions,
     this.onDueDate,
     this.onAdd,
@@ -11,6 +12,7 @@ class _RadicalListTasksMock extends StatelessWidget {
 
   final VoidCallback? onBack;
   final VoidCallback? onTaskTap;
+  final VoidCallback? onTaskFocus;
   final VoidCallback? onActions;
   final VoidCallback? onDueDate;
   final VoidCallback? onAdd;
@@ -50,6 +52,7 @@ class _RadicalListTasksMock extends StatelessWidget {
               meta: 'Today · 25 minutes',
               time: '9:00',
               onTap: onTaskTap,
+              onFocus: onTaskFocus,
             ),
             const _RadicalTaskRow(
               title: 'Refine empty states',

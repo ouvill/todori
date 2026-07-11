@@ -16,6 +16,7 @@ class _RadicalHomeMock extends StatelessWidget {
   const _RadicalHomeMock({
     this.onSearch,
     this.onTaskTap,
+    this.onTaskFocus,
     this.onNavSelected,
     this.onAdd,
     this.completedTaskTitles = const <String>{},
@@ -26,6 +27,7 @@ class _RadicalHomeMock extends StatelessWidget {
 
   final VoidCallback? onSearch;
   final VoidCallback? onTaskTap;
+  final VoidCallback? onTaskFocus;
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
   final Set<String> completedTaskTitles;
@@ -59,6 +61,7 @@ class _RadicalHomeMock extends StatelessWidget {
             const SizedBox(height: 3),
             _RadicalTaskStream(
               onTaskTap: onTaskTap,
+              onTaskFocus: onTaskFocus,
               completedTaskTitles: completedTaskTitles,
               onTaskToggle: onTaskToggle,
             ),
@@ -209,11 +212,13 @@ class _RadicalTodaySectionTitle extends StatelessWidget {
 class _RadicalTaskStream extends StatelessWidget {
   const _RadicalTaskStream({
     this.onTaskTap,
+    this.onTaskFocus,
     this.completedTaskTitles = const <String>{},
     this.onTaskToggle,
   });
 
   final VoidCallback? onTaskTap;
+  final VoidCallback? onTaskFocus;
   final Set<String> completedTaskTitles;
   final ValueChanged<String>? onTaskToggle;
 
@@ -226,6 +231,7 @@ class _RadicalTaskStream extends StatelessWidget {
           meta: 'Design · 25 minutes',
           time: '9:00',
           onTap: onTaskTap,
+          onFocus: onTaskFocus,
           isDone: completedTaskTitles.contains('Prepare launch notes'),
           onToggle: () => onTaskToggle?.call('Prepare launch notes'),
         ),
@@ -287,6 +293,7 @@ class _RadicalTaskRow extends StatelessWidget {
     this.onTap,
     this.isDone = false,
     this.onToggle,
+    this.onFocus,
   });
 
   final String title;
@@ -298,6 +305,7 @@ class _RadicalTaskRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool isDone;
   final VoidCallback? onToggle;
+  final VoidCallback? onFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -364,13 +372,40 @@ class _RadicalTaskRow extends StatelessWidget {
                             ],
                           ),
                         ),
-                        Text(
-                          time,
-                          style: const TextStyle(
-                            fontFamily: _directionSans,
-                            color: _rMuted,
-                            fontSize: 11.5,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              time,
+                              style: const TextStyle(
+                                fontFamily: _directionSans,
+                                color: _rMuted,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                            if (onFocus != null) ...[
+                              const SizedBox(width: 7),
+                              IconButton(
+                                key: ValueKey('design-lab-task-focus-$title'),
+                                onPressed: onFocus,
+                                tooltip: 'Open focus timer',
+                                icon: const Icon(
+                                  LucideIcons.timer300,
+                                  size: 17,
+                                ),
+                                color: _rGreen,
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size.square(32),
+                                  maximumSize: const Size.square(32),
+                                  padding: EdgeInsets.zero,
+                                  side: const BorderSide(
+                                    color: _rSage,
+                                    width: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),

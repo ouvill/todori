@@ -46,6 +46,15 @@ void main() {
     expect(find.text('MANUAL ORDER'), findsOneWidget);
     expect(find.text('Verify reduced motion'), findsOneWidget);
 
+    await tester.tap(
+      find.byKey(const ValueKey('design-lab-task-focus-Prepare launch notes')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('SET FOCUS'), findsOneWidget);
+    await tester.tap(find.byIcon(LucideIcons.x300));
+    await tester.pumpAndSettle();
+    expect(find.text('MANUAL ORDER'), findsOneWidget);
+
     await tester.tap(find.byKey(const ValueKey('design-lab-list-actions')));
     await tester.pumpAndSettle();
     expect(find.text('LIST ACTIONS'), findsOneWidget);
