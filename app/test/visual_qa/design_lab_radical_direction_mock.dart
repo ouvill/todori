@@ -158,7 +158,15 @@ class _RadicalTaskStream extends StatelessWidget {
           time: '11:00',
           children: [
             _RadicalSubtask(title: 'Check compact width', isDone: true),
-            _RadicalSubtask(title: 'Polish focus transition'),
+            _RadicalSubtask(
+              title: 'Polish focus transition',
+              hasChildren: true,
+            ),
+            _RadicalSubtask(
+              title: 'Verify reduced motion',
+              depth: 1,
+              isLast: true,
+            ),
           ],
         ),
         _RadicalTaskRow(
@@ -280,10 +288,19 @@ class _RadicalTaskRow extends StatelessWidget {
 }
 
 class _RadicalSubtask extends StatelessWidget {
-  const _RadicalSubtask({required this.title, this.isDone = false});
+  const _RadicalSubtask({
+    required this.title,
+    this.isDone = false,
+    this.depth = 0,
+    this.isLast = false,
+    this.hasChildren = false,
+  });
 
   final String title;
   final bool isDone;
+  final int depth;
+  final bool isLast;
+  final bool hasChildren;
 
   @override
   Widget build(BuildContext context) {
@@ -292,9 +309,13 @@ class _RadicalSubtask extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 28,
+            width: 28 + (depth * 22),
             child: CustomPaint(
-              painter: const _RadicalBranchPainter(),
+              painter: _RadicalBranchPainter(
+                depth: depth,
+                isLast: isLast,
+                hasChildren: hasChildren,
+              ),
               child: Align(
                 alignment: Alignment.centerRight,
                 child: _RadicalCheck(isDone: isDone, size: 17),
@@ -323,7 +344,15 @@ class _RadicalSubtask extends StatelessWidget {
 }
 
 class _RadicalBranchPainter extends CustomPainter {
-  const _RadicalBranchPainter();
+  const _RadicalBranchPainter({
+    required this.depth,
+    required this.isLast,
+    required this.hasChildren,
+  });
+
+  final int depth;
+  final bool isLast;
+  final bool hasChildren;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -331,18 +360,41 @@ class _RadicalBranchPainter extends CustomPainter {
       ..color = _rRule
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
+    for (var ancestor = 1; ancestor < depth; ancestor += 1) {
+      final x = 19.5 + ((ancestor - 1) * 22.0);
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(
+          x,
+          isLast && ancestor == depth - 1 ? size.height / 2 : size.height,
+        ),
+        paint,
+      );
+    }
+    final x = depth == 0 ? 1.0 : 19.5 + ((depth - 1) * 22.0);
     canvas.drawPath(
       Path()
-        ..moveTo(1, 0)
-        ..lineTo(1, size.height / 2)
-        ..quadraticBezierTo(1, size.height / 2 + 3, 5, size.height / 2 + 3)
+        ..moveTo(x, 0)
+        ..lineTo(x, size.height / 2)
+        ..quadraticBezierTo(x, size.height / 2 + 3, x + 4, size.height / 2 + 3)
         ..lineTo(size.width - 23, size.height / 2 + 3),
       paint,
     );
+    if (hasChildren) {
+      final childStemX = size.width - 8.5;
+      canvas.drawLine(
+        Offset(childStemX, size.height / 2 + 12.5),
+        Offset(childStemX, size.height),
+        paint,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(_RadicalBranchPainter oldDelegate) => false;
+  bool shouldRepaint(_RadicalBranchPainter oldDelegate) =>
+      oldDelegate.depth != depth ||
+      oldDelegate.isLast != isLast ||
+      oldDelegate.hasChildren != hasChildren;
 }
 
 class _RadicalCalendarLink extends StatelessWidget {
@@ -407,7 +459,7 @@ class _RadicalDetailMock extends StatelessWidget {
             const SizedBox(height: 27),
             const _RadicalMetadataGrid(),
             const SizedBox(height: 32),
-            const _RadicalSectionTitle(label: 'SUBTASKS', trailing: '1 / 3'),
+            const _RadicalSectionTitle(label: 'SUBTASKS', trailing: '1 / 4'),
             const SizedBox(height: 7),
             const _RadicalDetailTree(),
           ],
@@ -625,7 +677,15 @@ class _RadicalDetailTree extends StatelessWidget {
     return const Column(
       children: [
         _RadicalDetailSubtask(title: 'Collect final screenshots', isDone: true),
-        _RadicalDetailSubtask(title: 'Write concise release summary'),
+        _RadicalDetailSubtask(
+          title: 'Write concise release summary',
+          hasChildren: true,
+        ),
+        _RadicalDetailSubtask(
+          title: 'Confirm product highlights',
+          depth: 1,
+          isLast: true,
+        ),
         _RadicalDetailSubtask(title: 'Proofread Japanese copy', isLast: true),
         SizedBox(height: 5),
         Align(
@@ -653,11 +713,15 @@ class _RadicalDetailSubtask extends StatelessWidget {
     required this.title,
     this.isDone = false,
     this.isLast = false,
+    this.depth = 0,
+    this.hasChildren = false,
   });
 
   final String title;
   final bool isDone;
   final bool isLast;
+  final int depth;
+  final bool hasChildren;
 
   @override
   Widget build(BuildContext context) {
@@ -666,9 +730,13 @@ class _RadicalDetailSubtask extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 34,
+            width: 34 + (depth * 22),
             child: CustomPaint(
-              painter: _RadicalTreePainter(end: isLast),
+              painter: _RadicalTreePainter(
+                depth: depth,
+                end: isLast,
+                hasChildren: hasChildren,
+              ),
               child: Align(
                 alignment: Alignment.centerRight,
                 child: _RadicalCheck(isDone: isDone, size: 19),
@@ -695,9 +763,15 @@ class _RadicalDetailSubtask extends StatelessWidget {
 }
 
 class _RadicalTreePainter extends CustomPainter {
-  const _RadicalTreePainter({required this.end});
+  const _RadicalTreePainter({
+    required this.depth,
+    required this.end,
+    required this.hasChildren,
+  });
 
+  final int depth;
   final bool end;
+  final bool hasChildren;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -705,12 +779,28 @@ class _RadicalTreePainter extends CustomPainter {
       ..color = _rRule
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
-    const x = 3.0;
+    for (var ancestor = 1; ancestor < depth; ancestor += 1) {
+      final x = 24.5 + ((ancestor - 1) * 22.0);
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, end && ancestor == depth - 1 ? size.height / 2 : size.height),
+        paint,
+      );
+    }
+    final x = depth == 0 ? 3.0 : 24.5 + ((depth - 1) * 22.0);
     canvas.drawLine(
-      const Offset(x, 0),
+      Offset(x, 0),
       Offset(x, end ? size.height / 2 : size.height),
       paint,
     );
+    if (hasChildren) {
+      final childStemX = size.width - 9.5;
+      canvas.drawLine(
+        Offset(childStemX, size.height / 2 + 13.5),
+        Offset(childStemX, size.height),
+        paint,
+      );
+    }
     canvas.drawLine(
       Offset(x, size.height / 2),
       Offset(size.width - 25, size.height / 2),
@@ -719,7 +809,10 @@ class _RadicalTreePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RadicalTreePainter oldDelegate) => oldDelegate.end != end;
+  bool shouldRepaint(_RadicalTreePainter oldDelegate) =>
+      oldDelegate.depth != depth ||
+      oldDelegate.end != end ||
+      oldDelegate.hasChildren != hasChildren;
 }
 
 class _RadicalListsMock extends StatelessWidget {

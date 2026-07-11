@@ -11,6 +11,7 @@ void main() {
   ) async {
     _setDesignLabViewport(tester);
     await tester.pumpWidget(const InteractiveDesignLabApp());
+    expect(find.text('Verify reduced motion'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.calendarDays300));
     await tester.pumpAndSettle();
@@ -45,6 +46,7 @@ void main() {
     await tester.tap(find.text('Prepare launch notes'));
     await tester.pumpAndSettle();
     expect(find.text('Begin a 25 minute focus'), findsOneWidget);
+    expect(find.text('Confirm product highlights'), findsOneWidget);
 
     await tester.tap(find.text('Begin a 25 minute focus'));
     await tester.pumpAndSettle();
