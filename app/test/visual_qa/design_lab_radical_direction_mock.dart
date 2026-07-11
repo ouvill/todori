@@ -37,17 +37,29 @@ class _RadicalHomeMock extends StatelessWidget {
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
+          padding: const EdgeInsets.fromLTRB(18, 15, 18, 76),
           children: [
-            _RadicalBrandBar(onSearch: onSearch),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalBrandBar(onSearch: onSearch),
+            ),
             const SizedBox(height: 23),
-            const _RadicalHomeHeading(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalHomeHeading(),
+            ),
             const SizedBox(height: 29),
-            const _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
+            ),
             const SizedBox(height: 3),
             _RadicalTaskStream(onTaskTap: onTaskTap),
             const SizedBox(height: 17),
-            const _RadicalCalendarLink(),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: _RadicalCalendarLink(),
+            ),
           ],
         ),
       ),
