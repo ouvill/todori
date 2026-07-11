@@ -1,5 +1,8 @@
 part of 'design_lab_mocks.dart';
 
+// Kept as a legacy comparison while the compact product direction is under
+// review; the default Design Lab route now renders _ProductDirectionDetailMock.
+// ignore: unused_element
 class _TaskDetailMock extends StatelessWidget {
   const _TaskDetailMock();
 

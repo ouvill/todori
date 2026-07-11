@@ -6,6 +6,7 @@ import 'package:todori/src/ui/theme.dart';
 
 part 'design_lab_task_create_sheet_mock.dart';
 part 'design_lab_task_detail_mock.dart';
+part 'design_lab_product_direction_mock.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
@@ -30,10 +31,10 @@ class DesignLabMockApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
-        DesignLabMock.taskList => const _TaskListMock(),
+        DesignLabMock.taskList => const _ProductDirectionHomeMock(),
         DesignLabMock.listOverview => const _ListOverviewMock(),
-        DesignLabMock.focusTimer => const _FocusTimerMock(),
-        DesignLabMock.taskDetail => const _TaskDetailMock(),
+        DesignLabMock.focusTimer => const _ProductDirectionFocusMock(),
+        DesignLabMock.taskDetail => const _ProductDirectionDetailMock(),
         DesignLabMock.taskCreateSheet => const _TaskCreateSheetMock(),
         DesignLabMock.search => const _SearchMock(),
         DesignLabMock.settings => const _SettingsMock(),
@@ -192,7 +193,10 @@ const _typoNewsreaderA = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Newsreader',
     fontWeight: FontWeight.w400,
@@ -208,7 +212,10 @@ const _typoNewsreaderA = _LabTypography(
 /// task-34; kept here only as a comparison baseline against 案A (the
 /// direction that replaced it).
 const _typoLoraB = _LabTypography(
-  todayHeading: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w600),
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'Lora',
+    fontWeight: FontWeight.w600,
+  ),
   tasksHeadline: _LabTypoOverride(
     fontFamily: 'Lora',
     fontWeight: FontWeight.w700,
@@ -232,7 +239,10 @@ const _typoSansOnlyC = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
@@ -257,7 +267,10 @@ const _typoJaMinchoD = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w400,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w400),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w400,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Newsreader',
     fontWeight: FontWeight.w400,

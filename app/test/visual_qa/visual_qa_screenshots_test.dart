@@ -1010,6 +1010,10 @@ Future<void> _loadRealFonts() async {
     family: 'Newsreader',
     weightPaths: _newsreaderWeightPaths,
   );
+  await _loadBrandFont(
+    family: 'SourceSerif4',
+    weightPaths: _sourceSerif4WeightPaths,
+  );
   await _loadZenOldMinchoFont();
   await _loadCjkFallbackFont();
   await _loadMinchoFallbackFont();
@@ -1047,6 +1051,13 @@ const _newsreaderWeightPaths = [
   'assets/fonts/Newsreader/Newsreader-Regular.ttf',
   'assets/fonts/Newsreader/Newsreader-Medium.ttf',
   'assets/fonts/Newsreader/Newsreader-SemiBold.ttf',
+];
+
+/// Design Lab-only candidate replacing Newsreader in the compact product
+/// direction. A variable font is sufficient because the exploration uses a
+/// single restrained medium weight for display text and timer numerals.
+const _sourceSerif4WeightPaths = [
+  'assets/fonts/SourceSerif4/SourceSerif4-Variable.ttf',
 ];
 
 /// Must match the first entry of `_cjkFontFamilyFallback` in
