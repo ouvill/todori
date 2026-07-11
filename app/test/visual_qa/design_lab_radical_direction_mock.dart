@@ -13,27 +13,41 @@ const _rNightMuted = Color(0xFFAFC8BA);
 const _rNightText = Color(0xFFF5F0E4);
 
 class _RadicalHomeMock extends StatelessWidget {
-  const _RadicalHomeMock();
+  const _RadicalHomeMock({
+    this.onSearch,
+    this.onTaskTap,
+    this.onNavSelected,
+    this.onAdd,
+  });
+
+  final VoidCallback? onSearch;
+  final VoidCallback? onTaskTap;
+  final ValueChanged<int>? onNavSelected;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _rCanvas,
-      bottomNavigationBar: const _RadicalNav(selectedIndex: 0),
+      bottomNavigationBar: _RadicalNav(
+        selectedIndex: 0,
+        onSelected: onNavSelected,
+        onAdd: onAdd,
+      ),
       body: SafeArea(
         bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
-          children: const [
-            _RadicalBrandBar(),
-            SizedBox(height: 23),
-            _RadicalHomeHeading(),
-            SizedBox(height: 29),
-            _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
-            SizedBox(height: 3),
-            _RadicalTaskStream(),
-            SizedBox(height: 17),
-            _RadicalCalendarLink(),
+          children: [
+            _RadicalBrandBar(onSearch: onSearch),
+            const SizedBox(height: 23),
+            const _RadicalHomeHeading(),
+            const SizedBox(height: 29),
+            const _RadicalSectionTitle(label: 'TODAY', trailing: '5 open'),
+            const SizedBox(height: 3),
+            _RadicalTaskStream(onTaskTap: onTaskTap),
+            const SizedBox(height: 17),
+            const _RadicalCalendarLink(),
           ],
         ),
       ),
@@ -42,7 +56,9 @@ class _RadicalHomeMock extends StatelessWidget {
 }
 
 class _RadicalBrandBar extends StatelessWidget {
-  const _RadicalBrandBar();
+  const _RadicalBrandBar({this.onSearch});
+
+  final VoidCallback? onSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +66,7 @@ class _RadicalBrandBar extends StatelessWidget {
       children: [
         const Spacer(),
         IconButton(
-          onPressed: () {},
+          onPressed: onSearch ?? () {},
           icon: const Icon(LucideIcons.search300, size: 20),
           color: _rInk,
           style: IconButton.styleFrom(
@@ -117,18 +133,21 @@ class _RadicalHomeHeading extends StatelessWidget {
 }
 
 class _RadicalTaskStream extends StatelessWidget {
-  const _RadicalTaskStream();
+  const _RadicalTaskStream({this.onTaskTap});
+
+  final VoidCallback? onTaskTap;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       children: [
         _RadicalTaskRow(
           title: 'Prepare launch notes',
           meta: 'Design · 25 minutes',
           time: '9:00',
+          onTap: onTaskTap,
         ),
-        _RadicalTaskRow(
+        const _RadicalTaskRow(
           title: 'Review onboarding copy',
           meta: 'Product',
           time: '9:30',
@@ -167,6 +186,7 @@ class _RadicalTaskRow extends StatelessWidget {
     this.children = const [],
     this.isOverdue = false,
     this.isLast = false,
+    this.onTap,
   });
 
   final String title;
@@ -175,82 +195,86 @@ class _RadicalTaskRow extends StatelessWidget {
   final List<_RadicalSubtask> children;
   final bool isOverdue;
   final bool isLast;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 15),
-          child: _RadicalCheck(),
-        ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: isLast
-                  ? null
-                  : const Border(
-                      bottom: BorderSide(color: _rRule, width: 0.65),
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 15),
+            child: _RadicalCheck(),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: isLast
+                    ? null
+                    : const Border(
+                        bottom: BorderSide(color: _rRule, width: 0.65),
+                      ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Column(
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontFamily: _directionSans,
+                                  color: _rInk,
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w500,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                meta,
+                                style: TextStyle(
+                                  fontFamily: _directionSans,
+                                  color: isOverdue ? _rCoral : _rMuted,
+                                  fontSize: 11.5,
+                                  fontWeight: isOverdue
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          time,
+                          style: const TextStyle(
+                            fontFamily: _directionSans,
+                            color: _rMuted,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
                     ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Column(
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontFamily: _directionSans,
-                                color: _rInk,
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w500,
-                                height: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              meta,
-                              style: TextStyle(
-                                fontFamily: _directionSans,
-                                color: isOverdue ? _rCoral : _rMuted,
-                                fontSize: 11.5,
-                                fontWeight: isOverdue
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        time,
-                        style: const TextStyle(
-                          fontFamily: _directionSans,
-                          color: _rMuted,
-                          fontSize: 11.5,
-                        ),
-                      ),
+                    if (children.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Column(children: children),
                     ],
-                  ),
-                  if (children.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Column(children: children),
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -278,14 +302,18 @@ class _RadicalSubtask extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Text(
-            title,
-            style: TextStyle(
-              fontFamily: _directionSans,
-              color: isDone ? _rMuted : _rInk,
-              fontSize: 13.5,
-              decoration: isDone ? TextDecoration.lineThrough : null,
-              decorationColor: _rMuted,
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: _directionSans,
+                color: isDone ? _rMuted : _rInk,
+                fontSize: 13.5,
+                decoration: isDone ? TextDecoration.lineThrough : null,
+                decorationColor: _rMuted,
+              ),
             ),
           ),
         ],
@@ -308,7 +336,7 @@ class _RadicalBranchPainter extends CustomPainter {
         ..moveTo(1, 0)
         ..lineTo(1, size.height / 2)
         ..quadraticBezierTo(1, size.height / 2 + 3, 5, size.height / 2 + 3)
-        ..lineTo(size.width - 8, size.height / 2 + 3),
+        ..lineTo(size.width - 23, size.height / 2 + 3),
       paint,
     );
   }
@@ -328,16 +356,20 @@ class _RadicalCalendarLink extends StatelessWidget {
         height: 48,
         child: Row(
           children: [
-            Text(
-              'See the rest of the week',
-              style: TextStyle(
-                fontFamily: _directionSans,
-                color: _rGreen,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+            Expanded(
+              child: Text(
+                'See the rest of the week',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rGreen,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-            Spacer(),
+            SizedBox(width: 12),
             Text(
               'Calendar  →',
               style: TextStyle(
@@ -354,7 +386,10 @@ class _RadicalCalendarLink extends StatelessWidget {
 }
 
 class _RadicalDetailMock extends StatelessWidget {
-  const _RadicalDetailMock();
+  const _RadicalDetailMock({this.onBack, this.onBeginFocus});
+
+  final VoidCallback? onBack;
+  final VoidCallback? onBeginFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -363,18 +398,18 @@ class _RadicalDetailMock extends StatelessWidget {
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 6, 24, 28),
-          children: const [
-            _RadicalRouteBar(),
-            SizedBox(height: 19),
-            _RadicalDetailTitle(),
-            SizedBox(height: 25),
-            _RadicalDetailFocusLink(),
-            SizedBox(height: 27),
-            _RadicalMetadataGrid(),
-            SizedBox(height: 32),
-            _RadicalSectionTitle(label: 'SUBTASKS', trailing: '1 / 3'),
-            SizedBox(height: 7),
-            _RadicalDetailTree(),
+          children: [
+            _RadicalRouteBar(onBack: onBack),
+            const SizedBox(height: 19),
+            const _RadicalDetailTitle(),
+            const SizedBox(height: 25),
+            _RadicalDetailFocusLink(onTap: onBeginFocus),
+            const SizedBox(height: 27),
+            const _RadicalMetadataGrid(),
+            const SizedBox(height: 32),
+            const _RadicalSectionTitle(label: 'SUBTASKS', trailing: '1 / 3'),
+            const SizedBox(height: 7),
+            const _RadicalDetailTree(),
           ],
         ),
       ),
@@ -383,14 +418,16 @@ class _RadicalDetailMock extends StatelessWidget {
 }
 
 class _RadicalRouteBar extends StatelessWidget {
-  const _RadicalRouteBar();
+  const _RadicalRouteBar({this.onBack});
+
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         IconButton(
-          onPressed: () {},
+          onPressed: onBack ?? () {},
           icon: const Icon(LucideIcons.arrowLeft300, size: 21),
           color: _rInk,
           style: IconButton.styleFrom(
@@ -462,25 +499,31 @@ class _RadicalDetailTitle extends StatelessWidget {
 }
 
 class _RadicalDetailFocusLink extends StatelessWidget {
-  const _RadicalDetailFocusLink();
+  const _RadicalDetailFocusLink({this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(left: 36),
       child: InkWell(
-        onTap: () {},
+        onTap: onTap,
         child: const SizedBox(
           height: 45,
           child: Row(
             children: [
-              Text(
-                'Begin a 25 minute focus',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rGreen,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: Text(
+                  'Begin a 25 minute focus',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rGreen,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               SizedBox(width: 8),
@@ -670,7 +713,7 @@ class _RadicalTreePainter extends CustomPainter {
     );
     canvas.drawLine(
       Offset(x, size.height / 2),
-      Offset(size.width - 9, size.height / 2),
+      Offset(size.width - 25, size.height / 2),
       paint,
     );
   }
@@ -680,63 +723,71 @@ class _RadicalTreePainter extends CustomPainter {
 }
 
 class _RadicalListsMock extends StatelessWidget {
-  const _RadicalListsMock();
+  const _RadicalListsMock({this.onSearch, this.onNavSelected, this.onAdd});
+
+  final VoidCallback? onSearch;
+  final ValueChanged<int>? onNavSelected;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _rCanvas,
-      bottomNavigationBar: const _RadicalNav(selectedIndex: 3),
+      bottomNavigationBar: _RadicalNav(
+        selectedIndex: 3,
+        onSelected: onNavSelected,
+        onAdd: onAdd,
+      ),
       body: SafeArea(
         bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
-          children: const [
-            _RadicalBrandBar(),
-            SizedBox(height: 22),
-            _RadicalSimpleHeading(title: 'Lists', trailing: 'Edit'),
-            SizedBox(height: 24),
-            _RadicalSectionTitle(label: 'SMART', trailing: '45 tasks'),
-            SizedBox(height: 3),
-            _RadicalListRow(title: 'Today', count: '6', marker: _rGreen),
-            _RadicalListRow(
+          children: [
+            _RadicalBrandBar(onSearch: onSearch),
+            const SizedBox(height: 22),
+            const _RadicalSimpleHeading(title: 'Lists', trailing: 'Edit'),
+            const SizedBox(height: 24),
+            const _RadicalSectionTitle(label: 'SMART', trailing: '45 tasks'),
+            const SizedBox(height: 3),
+            const _RadicalListRow(title: 'Today', count: '6', marker: _rGreen),
+            const _RadicalListRow(
               title: 'Inbox',
               count: '3',
               marker: Color(0xFF82A994),
             ),
-            _RadicalListRow(
+            const _RadicalListRow(
               title: 'Scheduled',
               count: '12',
               marker: Color(0xFF7898AF),
             ),
-            _RadicalListRow(
+            const _RadicalListRow(
               title: 'Completed',
               count: '24',
               marker: _rMuted,
               isLast: true,
             ),
-            SizedBox(height: 27),
-            _RadicalSectionTitle(label: 'YOUR LISTS', trailing: ''),
-            SizedBox(height: 3),
-            _RadicalListRow(
+            const SizedBox(height: 27),
+            const _RadicalSectionTitle(label: 'YOUR LISTS', trailing: ''),
+            const SizedBox(height: 3),
+            const _RadicalListRow(
               title: 'Design',
               subtitle: 'Updated today',
               count: '7',
               marker: _rGreen,
             ),
-            _RadicalListRow(
+            const _RadicalListRow(
               title: 'Work',
               subtitle: 'Launch and operations',
               count: '9',
               marker: Color(0xFFC98257),
             ),
-            _RadicalListRow(
+            const _RadicalListRow(
               title: 'Personal',
               subtitle: 'Home and errands',
               count: '6',
               marker: Color(0xFF6F92A9),
             ),
-            _RadicalListRow(
+            const _RadicalListRow(
               title: 'Learning',
               subtitle: 'Reading and courses',
               count: '3',
@@ -851,7 +902,9 @@ class _RadicalCreateMock extends StatelessWidget {
 }
 
 class _RadicalComposer extends StatelessWidget {
-  const _RadicalComposer();
+  const _RadicalComposer({this.onSubmit});
+
+  final VoidCallback? onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -906,7 +959,7 @@ class _RadicalComposer extends StatelessWidget {
                       color: _rGreen,
                       shape: const CircleBorder(),
                       child: InkWell(
-                        onTap: () {},
+                        onTap: onSubmit ?? () {},
                         customBorder: const CircleBorder(),
                         child: const Icon(
                           LucideIcons.arrowUp300,
@@ -953,7 +1006,9 @@ class _RadicalComposerAction extends StatelessWidget {
 }
 
 class _RadicalSearchMock extends StatelessWidget {
-  const _RadicalSearchMock();
+  const _RadicalSearchMock({this.onBack});
+
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -962,30 +1017,30 @@ class _RadicalSearchMock extends StatelessWidget {
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-          children: const [
-            _RadicalSearchLine(),
-            SizedBox(height: 29),
-            _RadicalSectionTitle(label: 'RECENT', trailing: 'Clear'),
-            SizedBox(height: 3),
-            _RadicalSearchResult(
+          children: [
+            _RadicalSearchLine(onBack: onBack),
+            const SizedBox(height: 29),
+            const _RadicalSectionTitle(label: 'RECENT', trailing: 'Clear'),
+            const SizedBox(height: 3),
+            const _RadicalSearchResult(
               title: 'Prepare launch notes',
               subtitle: 'Today · Design',
             ),
-            _RadicalSearchResult(
+            const _RadicalSearchResult(
               title: 'Design',
               subtitle: 'List · 7 open tasks',
             ),
-            _RadicalSearchResult(
+            const _RadicalSearchResult(
               title: 'Draft restore flow',
               subtitle: 'Tomorrow · Product',
               isLast: true,
             ),
-            SizedBox(height: 30),
-            _RadicalSectionTitle(label: 'FILTER', trailing: ''),
-            SizedBox(height: 3),
-            _RadicalFilterRow(title: 'Due this week', count: '8'),
-            _RadicalFilterRow(title: 'Ready to focus', count: '4'),
-            _RadicalFilterRow(
+            const SizedBox(height: 30),
+            const _RadicalSectionTitle(label: 'FILTER', trailing: ''),
+            const SizedBox(height: 3),
+            const _RadicalFilterRow(title: 'Due this week', count: '8'),
+            const _RadicalFilterRow(title: 'Ready to focus', count: '4'),
+            const _RadicalFilterRow(
               title: 'Recently completed',
               count: '12',
               isLast: true,
@@ -998,7 +1053,9 @@ class _RadicalSearchMock extends StatelessWidget {
 }
 
 class _RadicalSearchLine extends StatelessWidget {
-  const _RadicalSearchLine();
+  const _RadicalSearchLine({this.onBack});
+
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1011,7 +1068,7 @@ class _RadicalSearchLine extends StatelessWidget {
         child: Row(
           children: [
             IconButton(
-              onPressed: () {},
+              onPressed: onBack ?? () {},
               icon: const Icon(LucideIcons.arrowLeft300, size: 20),
               color: _rInk,
               style: IconButton.styleFrom(
@@ -1171,45 +1228,59 @@ class _RadicalFilterRow extends StatelessWidget {
 }
 
 class _RadicalAccountMock extends StatelessWidget {
-  const _RadicalAccountMock();
+  const _RadicalAccountMock({this.onSearch, this.onNavSelected, this.onAdd});
+
+  final VoidCallback? onSearch;
+  final ValueChanged<int>? onNavSelected;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _rCanvas,
-      bottomNavigationBar: const _RadicalNav(selectedIndex: 4),
+      bottomNavigationBar: _RadicalNav(
+        selectedIndex: 4,
+        onSelected: onNavSelected,
+        onAdd: onAdd,
+      ),
       body: SafeArea(
         bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
-          children: const [
-            _RadicalBrandBar(),
-            SizedBox(height: 22),
-            _RadicalSimpleHeading(title: 'You', trailing: ''),
-            SizedBox(height: 23),
-            _RadicalIdentity(),
-            SizedBox(height: 31),
-            _RadicalSectionTitle(label: 'PRIVATE SYNC', trailing: 'Sync now'),
-            SizedBox(height: 3),
-            _RadicalSettingRow(
+          children: [
+            _RadicalBrandBar(onSearch: onSearch),
+            const SizedBox(height: 22),
+            const _RadicalSimpleHeading(title: 'You', trailing: ''),
+            const SizedBox(height: 23),
+            const _RadicalIdentity(),
+            const SizedBox(height: 31),
+            const _RadicalSectionTitle(
+              label: 'PRIVATE SYNC',
+              trailing: 'Sync now',
+            ),
+            const SizedBox(height: 3),
+            const _RadicalSettingRow(
               title: 'Up to date',
               detail: 'Last synced 2 minutes ago',
             ),
-            _RadicalSettingRow(
+            const _RadicalSettingRow(
               title: 'End-to-end encrypted',
               detail: 'Keys stay on your devices',
               isLast: true,
             ),
-            SizedBox(height: 29),
-            _RadicalSectionTitle(label: 'PREFERENCES', trailing: ''),
-            SizedBox(height: 3),
-            _RadicalSettingRow(
+            const SizedBox(height: 29),
+            const _RadicalSectionTitle(label: 'PREFERENCES', trailing: ''),
+            const SizedBox(height: 3),
+            const _RadicalSettingRow(
               title: 'Notifications',
               detail: 'Planning at 9:00',
             ),
-            _RadicalSettingRow(title: 'Focus', detail: '25 minute default'),
-            _RadicalSettingRow(title: 'Appearance', detail: 'Warm light'),
-            _RadicalSettingRow(
+            const _RadicalSettingRow(
+              title: 'Focus',
+              detail: '25 minute default',
+            ),
+            const _RadicalSettingRow(title: 'Appearance', detail: 'Warm light'),
+            const _RadicalSettingRow(
               title: 'Language',
               detail: 'English',
               isLast: true,
@@ -1340,7 +1411,21 @@ class _RadicalSettingRow extends StatelessWidget {
 }
 
 class _RadicalFocusSetupMock extends StatelessWidget {
-  const _RadicalFocusSetupMock();
+  const _RadicalFocusSetupMock({
+    this.onClose,
+    this.onBegin,
+    this.durationMinutes = 25,
+    this.onDecrease,
+    this.onIncrease,
+    this.onPresetSelected,
+  });
+
+  final VoidCallback? onClose;
+  final VoidCallback? onBegin;
+  final int durationMinutes;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
+  final ValueChanged<int>? onPresetSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -1351,7 +1436,7 @@ class _RadicalFocusSetupMock extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 23),
           child: Column(
             children: [
-              const _RadicalFocusBar(label: 'SET FOCUS'),
+              _RadicalFocusBar(label: 'SET FOCUS', onClose: onClose),
               const SizedBox(height: 36),
               const Text(
                 'Prepare launch notes',
@@ -1363,13 +1448,20 @@ class _RadicalFocusSetupMock extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 74),
-              const _RadicalDurationControl(),
+              _RadicalDurationControl(
+                durationMinutes: durationMinutes,
+                onDecrease: onDecrease,
+                onIncrease: onIncrease,
+              ),
               const SizedBox(height: 44),
-              const _RadicalPresetLine(),
+              _RadicalPresetLine(
+                durationMinutes: durationMinutes,
+                onSelected: onPresetSelected,
+              ),
               const SizedBox(height: 42),
               const _RadicalModeLine(),
               const Spacer(),
-              const _RadicalBeginButton(),
+              _RadicalBeginButton(onPressed: onBegin),
             ],
           ),
         ),
@@ -1379,7 +1471,15 @@ class _RadicalFocusSetupMock extends StatelessWidget {
 }
 
 class _RadicalDurationControl extends StatelessWidget {
-  const _RadicalDurationControl();
+  const _RadicalDurationControl({
+    required this.durationMinutes,
+    this.onDecrease,
+    this.onIncrease,
+  });
+
+  final int durationMinutes;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
 
   @override
   Widget build(BuildContext context) {
@@ -1387,7 +1487,7 @@ class _RadicalDurationControl extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
-          onPressed: () {},
+          onPressed: onDecrease ?? () {},
           icon: const Icon(LucideIcons.minus300, size: 20),
           color: _rMuted,
           style: IconButton.styleFrom(
@@ -1397,11 +1497,11 @@ class _RadicalDurationControl extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 29),
-        const Column(
+        Column(
           children: [
             Text(
-              '25',
-              style: TextStyle(
+              '$durationMinutes',
+              style: const TextStyle(
                 fontFamily: _directionSans,
                 color: _rInk,
                 fontSize: 70,
@@ -1410,8 +1510,8 @@ class _RadicalDurationControl extends StatelessWidget {
                 letterSpacing: -3,
               ),
             ),
-            SizedBox(height: 8),
-            Text(
+            const SizedBox(height: 8),
+            const Text(
               'MINUTES',
               style: TextStyle(
                 fontFamily: _directionSans,
@@ -1425,7 +1525,7 @@ class _RadicalDurationControl extends StatelessWidget {
         ),
         const SizedBox(width: 29),
         IconButton(
-          onPressed: () {},
+          onPressed: onIncrease ?? () {},
           icon: const Icon(LucideIcons.plus300, size: 20),
           color: _rGreen,
           style: IconButton.styleFrom(
@@ -1440,55 +1540,64 @@ class _RadicalDurationControl extends StatelessWidget {
 }
 
 class _RadicalPresetLine extends StatelessWidget {
-  const _RadicalPresetLine();
+  const _RadicalPresetLine({required this.durationMinutes, this.onSelected});
+
+  final int durationMinutes;
+  final ValueChanged<int>? onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _RadicalPreset(label: '15'),
-        _RadicalPreset(label: '25', active: true),
-        _RadicalPreset(label: '45'),
-        _RadicalPreset(label: '60'),
+        for (final minutes in const [15, 25, 45, 60])
+          _RadicalPreset(
+            label: '$minutes',
+            active: durationMinutes == minutes,
+            onTap: () => onSelected?.call(minutes),
+          ),
       ],
     );
   }
 }
 
 class _RadicalPreset extends StatelessWidget {
-  const _RadicalPreset({required this.label, this.active = false});
+  const _RadicalPreset({required this.label, this.active = false, this.onTap});
 
   final String label;
   final bool active;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 54,
-      height: 42,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: _directionSans,
-              color: active ? _rGreen : _rMuted,
-              fontSize: 13,
-              fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        width: 54,
+        height: 42,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: _directionSans,
+                color: active ? _rGreen : _rMuted,
+                fontSize: 13,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+              ),
             ),
-          ),
-          const SizedBox(height: 7),
-          SizedBox(
-            width: 16,
-            child: Divider(
-              color: active ? _rGreen : Colors.transparent,
-              height: 1,
-              thickness: 2,
+            const SizedBox(height: 7),
+            SizedBox(
+              width: 16,
+              child: Divider(
+                color: active ? _rGreen : Colors.transparent,
+                height: 1,
+                thickness: 2,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1538,7 +1647,9 @@ class _RadicalModeLine extends StatelessWidget {
 }
 
 class _RadicalBeginButton extends StatelessWidget {
-  const _RadicalBeginButton();
+  const _RadicalBeginButton({this.onPressed});
+
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1546,7 +1657,7 @@ class _RadicalBeginButton extends StatelessWidget {
       width: double.infinity,
       height: 50,
       child: FilledButton(
-        onPressed: () {},
+        onPressed: onPressed ?? () {},
         style: FilledButton.styleFrom(
           backgroundColor: _rGreen,
           foregroundColor: _rNightText,
@@ -1565,7 +1676,21 @@ class _RadicalBeginButton extends StatelessWidget {
 }
 
 class _RadicalFocusMock extends StatelessWidget {
-  const _RadicalFocusMock();
+  const _RadicalFocusMock({
+    this.onClose,
+    this.onPause,
+    this.onFinish,
+    this.remainingSeconds = 1500,
+    this.progress = 0.67,
+    this.isPaused = false,
+  });
+
+  final VoidCallback? onClose;
+  final VoidCallback? onPause;
+  final VoidCallback? onFinish;
+  final int remainingSeconds;
+  final double progress;
+  final bool isPaused;
 
   @override
   Widget build(BuildContext context) {
@@ -1576,7 +1701,11 @@ class _RadicalFocusMock extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: Column(
             children: [
-              const _RadicalFocusBar(label: 'FOCUS  ·  1 OF 4', inverse: true),
+              _RadicalFocusBar(
+                label: 'FOCUS  ·  1 OF 4',
+                inverse: true,
+                onClose: onClose,
+              ),
               const SizedBox(height: 39),
               const Text(
                 'Prepare launch notes',
@@ -1589,9 +1718,9 @@ class _RadicalFocusMock extends StatelessWidget {
                 ),
               ),
               const Spacer(flex: 2),
-              const Text(
-                '25:00',
-                style: TextStyle(
+              Text(
+                _formatFocusTime(remainingSeconds),
+                style: const TextStyle(
                   fontFamily: _directionSans,
                   color: _rNightText,
                   fontSize: 78,
@@ -1610,9 +1739,13 @@ class _RadicalFocusMock extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 48),
-              const _RadicalHorizon(),
+              _RadicalHorizon(progress: progress),
               const Spacer(flex: 3),
-              const _RadicalFocusActions(),
+              _RadicalFocusActions(
+                onPause: onPause,
+                onFinish: onFinish,
+                isPaused: isPaused,
+              ),
             ],
           ),
         ),
@@ -1621,46 +1754,61 @@ class _RadicalFocusMock extends StatelessWidget {
   }
 }
 
+String _formatFocusTime(int seconds) {
+  final minutes = seconds ~/ 60;
+  final remainder = seconds % 60;
+  return '$minutes:${remainder.toString().padLeft(2, '0')}';
+}
+
 class _RadicalHorizon extends StatelessWidget {
-  const _RadicalHorizon();
+  const _RadicalHorizon({this.progress = 0.67});
+
+  final double progress;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          const Positioned(
-            left: 0,
-            right: 0,
-            top: 22,
-            child: Divider(color: Color(0xFF4F7162), height: 1),
-          ),
-          Positioned(
-            left: 0,
-            top: 21,
-            child: Container(width: 228, height: 2, color: _rSage),
-          ),
-          const Positioned(
-            left: 202,
-            top: -13,
-            child: Column(
-              children: [
-                _RadicalFlyingTsugumidori(),
-                SizedBox(height: 2),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: _rSage,
-                    shape: BoxShape.circle,
-                  ),
-                  child: SizedBox.square(dimension: 5),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final activeWidth = width * progress.clamp(0.0, 1.0);
+        final birdLeft = (activeWidth - 25).clamp(0.0, width - 44);
+        return SizedBox(
+          height: 40,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Positioned(
+                left: 0,
+                right: 0,
+                top: 22,
+                child: Divider(color: Color(0xFF4F7162), height: 1),
+              ),
+              Positioned(
+                left: 0,
+                top: 21,
+                child: Container(width: activeWidth, height: 2, color: _rSage),
+              ),
+              Positioned(
+                left: birdLeft,
+                top: -13,
+                child: const Column(
+                  children: [
+                    _RadicalFlyingTsugumidori(),
+                    SizedBox(height: 2),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: _rSage,
+                        shape: BoxShape.circle,
+                      ),
+                      child: SizedBox.square(dimension: 5),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1684,7 +1832,15 @@ class _RadicalFlyingTsugumidori extends StatelessWidget {
 }
 
 class _RadicalFocusActions extends StatelessWidget {
-  const _RadicalFocusActions();
+  const _RadicalFocusActions({
+    this.onPause,
+    this.onFinish,
+    this.isPaused = false,
+  });
+
+  final VoidCallback? onPause;
+  final VoidCallback? onFinish;
+  final bool isPaused;
 
   @override
   Widget build(BuildContext context) {
@@ -1694,7 +1850,7 @@ class _RadicalFocusActions extends StatelessWidget {
           child: SizedBox(
             height: 50,
             child: OutlinedButton(
-              onPressed: () {},
+              onPressed: onPause ?? () {},
               style: OutlinedButton.styleFrom(
                 foregroundColor: _rNightText,
                 side: const BorderSide(color: _rSage, width: 0.8),
@@ -1705,14 +1861,14 @@ class _RadicalFocusActions extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              child: const Text('Pause'),
+              child: Text(isPaused ? 'Resume' : 'Pause'),
             ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: TextButton(
-            onPressed: () {},
+            onPressed: onFinish ?? () {},
             style: TextButton.styleFrom(
               foregroundColor: _rNightMuted,
               minimumSize: const Size.fromHeight(50),
@@ -1731,10 +1887,15 @@ class _RadicalFocusActions extends StatelessWidget {
 }
 
 class _RadicalFocusBar extends StatelessWidget {
-  const _RadicalFocusBar({required this.label, this.inverse = false});
+  const _RadicalFocusBar({
+    required this.label,
+    this.inverse = false,
+    this.onClose,
+  });
 
   final String label;
   final bool inverse;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -1743,7 +1904,7 @@ class _RadicalFocusBar extends StatelessWidget {
     return Row(
       children: [
         IconButton(
-          onPressed: () {},
+          onPressed: onClose ?? () {},
           icon: const Icon(LucideIcons.x300, size: 21),
           color: color,
           style: IconButton.styleFrom(
@@ -1772,13 +1933,21 @@ class _RadicalFocusBar extends StatelessWidget {
 }
 
 class _RadicalNav extends StatelessWidget {
-  const _RadicalNav({required this.selectedIndex});
+  const _RadicalNav({required this.selectedIndex, this.onSelected, this.onAdd});
 
   final int selectedIndex;
+  final ValueChanged<int>? onSelected;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Today', 'Calendar', '', 'Lists', 'You'];
+    const items = [
+      (LucideIcons.house300, 'Today'),
+      (LucideIcons.calendarDays300, 'Calendar'),
+      (LucideIcons.plus300, ''),
+      (LucideIcons.listTodo300, 'Lists'),
+      (LucideIcons.circleUserRound300, 'You'),
+    ];
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: _rCanvas,
@@ -1790,13 +1959,15 @@ class _RadicalNav extends StatelessWidget {
           height: 58,
           child: Row(
             children: [
-              for (var index = 0; index < labels.length; index += 1)
+              for (var index = 0; index < items.length; index += 1)
                 Expanded(
                   child: index == 2
-                      ? const _RadicalNavAdd()
+                      ? _RadicalNavAdd(onTap: onAdd)
                       : _RadicalNavLabel(
-                          label: labels[index],
+                          icon: items[index].$1,
+                          label: items[index].$2,
                           isSelected: selectedIndex == index,
+                          onTap: () => onSelected?.call(index),
                         ),
                 ),
             ],
@@ -1808,18 +1979,27 @@ class _RadicalNav extends StatelessWidget {
 }
 
 class _RadicalNavLabel extends StatelessWidget {
-  const _RadicalNavLabel({required this.label, required this.isSelected});
+  const _RadicalNavLabel({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    this.onTap,
+  });
 
+  final IconData icon;
   final String label;
   final bool isSelected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          Icon(icon, size: 18, color: isSelected ? _rGreen : _rMuted),
+          const SizedBox(height: 3),
           Text(
             label,
             style: TextStyle(
@@ -1829,7 +2009,7 @@ class _RadicalNavLabel extends StatelessWidget {
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
             ),
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 4),
           SizedBox(
             width: 14,
             child: Divider(
@@ -1845,7 +2025,9 @@ class _RadicalNavLabel extends StatelessWidget {
 }
 
 class _RadicalNavAdd extends StatelessWidget {
-  const _RadicalNavAdd();
+  const _RadicalNavAdd({this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1856,7 +2038,7 @@ class _RadicalNavAdd extends StatelessWidget {
           color: _rGreen,
           shape: const CircleBorder(),
           child: InkWell(
-            onTap: () {},
+            onTap: onTap,
             customBorder: const CircleBorder(),
             child: const Icon(
               LucideIcons.plus300,

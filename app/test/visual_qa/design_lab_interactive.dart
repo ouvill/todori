@@ -1,0 +1,392 @@
+part of 'design_lab_mocks.dart';
+
+class InteractiveDesignLabApp extends StatelessWidget {
+  const InteractiveDesignLabApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Todori Design Lab',
+      theme: buildTodoriTheme(Brightness.light),
+      home: const _InteractiveDesignLabShell(),
+    );
+  }
+}
+
+class _InteractiveDesignLabShell extends StatefulWidget {
+  const _InteractiveDesignLabShell();
+
+  @override
+  State<_InteractiveDesignLabShell> createState() =>
+      _InteractiveDesignLabShellState();
+}
+
+class _InteractiveDesignLabShellState
+    extends State<_InteractiveDesignLabShell> {
+  var _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (_selectedIndex) {
+      0 => _RadicalHomeMock(
+        onSearch: _openSearch,
+        onTaskTap: _openTaskDetail,
+        onNavSelected: _selectTab,
+        onAdd: _openComposer,
+      ),
+      1 => _InteractiveCalendarMock(
+        onNavSelected: _selectTab,
+        onAdd: _openComposer,
+      ),
+      3 => _RadicalListsMock(
+        onSearch: _openSearch,
+        onNavSelected: _selectTab,
+        onAdd: _openComposer,
+      ),
+      4 => _RadicalAccountMock(
+        onSearch: _openSearch,
+        onNavSelected: _selectTab,
+        onAdd: _openComposer,
+      ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  void _selectTab(int index) {
+    if (index == 2 || index == _selectedIndex) {
+      return;
+    }
+    setState(() => _selectedIndex = index);
+  }
+
+  void _openSearch() {
+    _pushLabRoute(
+      context,
+      builder: (routeContext) =>
+          _RadicalSearchMock(onBack: () => Navigator.of(routeContext).pop()),
+    );
+  }
+
+  void _openTaskDetail() {
+    _pushLabRoute(
+      context,
+      builder: (routeContext) => _RadicalDetailMock(
+        onBack: () => Navigator.of(routeContext).pop(),
+        onBeginFocus: () => _openFocusSetup(routeContext),
+      ),
+    );
+  }
+
+  void _openFocusSetup(BuildContext parentContext) {
+    _pushLabRoute(
+      parentContext,
+      builder: (routeContext) => _InteractiveFocusSetup(
+        onClose: () => Navigator.of(routeContext).pop(),
+        onBegin: (durationMinutes) {
+          Navigator.of(routeContext).pushReplacement(
+            _labRoute(
+              routeContext,
+              builder: (focusContext) => _InteractiveFocusTimer(
+                onClose: () => Navigator.of(focusContext).pop(),
+                onFinish: () => Navigator.of(focusContext).pop(),
+                durationMinutes: durationMinutes,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openComposer() {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: _rInk.withValues(alpha: 0.3),
+      isScrollControlled: true,
+      builder: (sheetContext) =>
+          _RadicalComposer(onSubmit: () => Navigator.of(sheetContext).pop()),
+    );
+  }
+}
+
+class _InteractiveCalendarMock extends StatelessWidget {
+  const _InteractiveCalendarMock({this.onNavSelected, this.onAdd});
+
+  final ValueChanged<int>? onNavSelected;
+  final VoidCallback? onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _rCanvas,
+      bottomNavigationBar: _RadicalNav(
+        selectedIndex: 1,
+        onSelected: onNavSelected,
+        onAdd: onAdd,
+      ),
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 15, 24, 76),
+          children: const [
+            SizedBox(height: 44),
+            _RadicalSimpleHeading(title: 'Calendar', trailing: 'May 2026'),
+            SizedBox(height: 27),
+            _InteractiveWeekStrip(),
+            SizedBox(height: 30),
+            _RadicalSectionTitle(label: 'TUESDAY 27', trailing: '5 tasks'),
+            SizedBox(height: 5),
+            _InteractiveAgendaRow(time: '9:00', title: 'Prepare launch notes'),
+            _InteractiveAgendaRow(
+              time: '9:30',
+              title: 'Review onboarding copy',
+            ),
+            _InteractiveAgendaRow(
+              time: '11:00',
+              title: 'Finalize navigation states',
+            ),
+            _InteractiveAgendaRow(time: '14:00', title: 'Send release build'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractiveWeekStrip extends StatelessWidget {
+  const _InteractiveWeekStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    const days = [
+      ('M', '26'),
+      ('T', '27'),
+      ('W', '28'),
+      ('T', '29'),
+      ('F', '30'),
+    ];
+    return Row(
+      children: [
+        for (var index = 0; index < days.length; index += 1)
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  days[index].$1,
+                  style: const TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  days[index].$2,
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: index == 1 ? _rGreen : _rInk,
+                    fontSize: 15,
+                    fontWeight: index == 1 ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: 14,
+                  child: Divider(
+                    color: index == 1 ? _rGreen : Colors.transparent,
+                    thickness: 2,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _InteractiveAgendaRow extends StatelessWidget {
+  const _InteractiveAgendaRow({required this.time, required this.title});
+
+  final String time;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _rRule, width: 0.65)),
+      ),
+      child: SizedBox(
+        height: 58,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 55,
+              child: Text(
+                time,
+                style: const TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rMuted,
+                  fontSize: 11.5,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rInk,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractiveFocusSetup extends StatefulWidget {
+  const _InteractiveFocusSetup({required this.onClose, required this.onBegin});
+
+  final VoidCallback onClose;
+  final ValueChanged<int> onBegin;
+
+  @override
+  State<_InteractiveFocusSetup> createState() => _InteractiveFocusSetupState();
+}
+
+class _InteractiveFocusSetupState extends State<_InteractiveFocusSetup> {
+  var _durationMinutes = 25;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RadicalFocusSetupMock(
+      onClose: widget.onClose,
+      onBegin: () => widget.onBegin(_durationMinutes),
+      durationMinutes: _durationMinutes,
+      onDecrease: () => _changeDuration(-5),
+      onIncrease: () => _changeDuration(5),
+      onPresetSelected: (minutes) {
+        setState(() => _durationMinutes = minutes);
+      },
+    );
+  }
+
+  void _changeDuration(int delta) {
+    setState(() {
+      _durationMinutes = (_durationMinutes + delta).clamp(5, 120);
+    });
+  }
+}
+
+class _InteractiveFocusTimer extends StatefulWidget {
+  const _InteractiveFocusTimer({
+    required this.onClose,
+    required this.onFinish,
+    required this.durationMinutes,
+  });
+
+  final VoidCallback onClose;
+  final VoidCallback onFinish;
+  final int durationMinutes;
+
+  @override
+  State<_InteractiveFocusTimer> createState() => _InteractiveFocusTimerState();
+}
+
+class _InteractiveFocusTimerState extends State<_InteractiveFocusTimer> {
+  Timer? _timer;
+  late final int _totalSeconds;
+  late int _remainingSeconds;
+  var _isPaused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _totalSeconds = widget.durationMinutes * 60;
+    _remainingSeconds = _totalSeconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _tick(Timer timer) {
+    if (_isPaused || _remainingSeconds == 0) {
+      return;
+    }
+    setState(() => _remainingSeconds -= 1);
+  }
+
+  void _togglePause() {
+    setState(() => _isPaused = !_isPaused);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed = _totalSeconds - _remainingSeconds;
+    return _RadicalFocusMock(
+      onClose: widget.onClose,
+      onPause: _togglePause,
+      onFinish: widget.onFinish,
+      remainingSeconds: _remainingSeconds,
+      progress: elapsed / _totalSeconds,
+      isPaused: _isPaused,
+    );
+  }
+}
+
+Future<T?> _pushLabRoute<T>(
+  BuildContext context, {
+  required WidgetBuilder builder,
+}) {
+  return Navigator.of(context).push(_labRoute(context, builder: builder));
+}
+
+PageRoute<T> _labRoute<T>(
+  BuildContext context, {
+  required WidgetBuilder builder,
+}) {
+  final reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+  return PageRouteBuilder<T>(
+    transitionDuration: reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 280),
+    reverseTransitionDuration: reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 220),
+    pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (reduceMotion) {
+        return child;
+      }
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0.025, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}

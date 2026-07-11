@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ part 'design_lab_task_detail_mock.dart';
 part 'design_lab_product_direction_mock.dart';
 part 'design_lab_product_system_mock.dart';
 part 'design_lab_radical_direction_mock.dart';
+part 'design_lab_interactive.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
