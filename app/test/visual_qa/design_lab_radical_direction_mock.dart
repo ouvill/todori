@@ -8,6 +8,8 @@ const _rGreen = Color(0xFF1D6048);
 const _rSage = Color(0xFFBFD7C8);
 const _rRule = Color(0xFFD3D3C9);
 const _rCoral = Color(0xFFC96357);
+const _rAmber = Color(0xFFC08B3E);
+const _rLowPriority = Color(0xFF82A994);
 const _rNight = Color(0xFF183E31);
 const _rNightMuted = Color(0xFFAFC8BA);
 const _rNightText = Color(0xFFF5F0E4);
@@ -21,6 +23,7 @@ class _RadicalHomeMock extends StatelessWidget {
     this.onAdd,
     this.completedTaskTitles = const <String>{},
     this.onTaskToggle,
+    this.hiddenTaskTitles = const <String>{},
     this.showCompleted = false,
     this.onCompletedTap,
   });
@@ -32,6 +35,7 @@ class _RadicalHomeMock extends StatelessWidget {
   final VoidCallback? onAdd;
   final Set<String> completedTaskTitles;
   final ValueChanged<String>? onTaskToggle;
+  final Set<String> hiddenTaskTitles;
   final bool showCompleted;
   final VoidCallback? onCompletedTap;
 
@@ -64,6 +68,7 @@ class _RadicalHomeMock extends StatelessWidget {
               onTaskFocus: onTaskFocus,
               completedTaskTitles: completedTaskTitles,
               onTaskToggle: onTaskToggle,
+              hiddenTaskTitles: hiddenTaskTitles,
             ),
             const SizedBox(height: 18),
             Padding(
@@ -254,67 +259,90 @@ class _RadicalTaskStream extends StatelessWidget {
     this.onTaskFocus,
     this.completedTaskTitles = const <String>{},
     this.onTaskToggle,
+    this.hiddenTaskTitles = const <String>{},
   });
 
   final VoidCallback? onTaskTap;
   final VoidCallback? onTaskFocus;
   final Set<String> completedTaskTitles;
   final ValueChanged<String>? onTaskToggle;
+  final Set<String> hiddenTaskTitles;
 
   @override
   Widget build(BuildContext context) {
+    Widget visibleTask(String title, Widget child) =>
+        hiddenTaskTitles.contains(title) ? const SizedBox.shrink() : child;
+
     return Column(
       children: [
-        _RadicalTaskRow(
-          title: 'Prepare launch notes',
-          meta: 'Design · 25 minutes',
-          time: '9:00',
-          onTap: onTaskTap,
-          onFocus: onTaskFocus,
-          isDone: completedTaskTitles.contains('Prepare launch notes'),
-          onToggle: () => onTaskToggle?.call('Prepare launch notes'),
+        visibleTask(
+          'Prepare launch notes',
+          _RadicalTaskRow(
+            title: 'Prepare launch notes',
+            meta: 'Design · 25 minutes',
+            time: '9:00',
+            priority: 3,
+            onTap: onTaskTap,
+            onFocus: onTaskFocus,
+            isDone: completedTaskTitles.contains('Prepare launch notes'),
+            onToggle: () => onTaskToggle?.call('Prepare launch notes'),
+          ),
         ),
-        _RadicalTaskRow(
-          title: 'Review onboarding copy',
-          meta: 'Product',
-          time: '9:30',
-          isDone: completedTaskTitles.contains('Review onboarding copy'),
-          onToggle: () => onTaskToggle?.call('Review onboarding copy'),
+        visibleTask(
+          'Review onboarding copy',
+          _RadicalTaskRow(
+            title: 'Review onboarding copy',
+            meta: 'Product',
+            time: '9:30',
+            priority: 2,
+            isDone: completedTaskTitles.contains('Review onboarding copy'),
+            onToggle: () => onTaskToggle?.call('Review onboarding copy'),
+          ),
         ),
-        _RadicalTaskRow(
-          title: 'Finalize navigation states',
-          meta: 'Design',
-          time: '11:00',
-          isDone: completedTaskTitles.contains('Finalize navigation states'),
-          onToggle: () => onTaskToggle?.call('Finalize navigation states'),
-          children: [
-            _RadicalSubtask(title: 'Check compact width', isDone: true),
-            _RadicalSubtask(
-              title: 'Polish focus transition',
-              hasChildren: true,
-            ),
-            _RadicalSubtask(
-              title: 'Verify reduced motion',
-              depth: 1,
-              isLast: true,
-            ),
-          ],
+        visibleTask(
+          'Finalize navigation states',
+          _RadicalTaskRow(
+            title: 'Finalize navigation states',
+            meta: 'Design',
+            time: '11:00',
+            priority: 1,
+            isDone: completedTaskTitles.contains('Finalize navigation states'),
+            onToggle: () => onTaskToggle?.call('Finalize navigation states'),
+            children: [
+              _RadicalSubtask(title: 'Check compact width', isDone: true),
+              _RadicalSubtask(
+                title: 'Polish focus transition',
+                hasChildren: true,
+              ),
+              _RadicalSubtask(
+                title: 'Verify reduced motion',
+                depth: 1,
+                isLast: true,
+              ),
+            ],
+          ),
         ),
-        _RadicalTaskRow(
-          title: 'Send release build',
-          meta: 'Work',
-          time: '14:00',
-          isDone: completedTaskTitles.contains('Send release build'),
-          onToggle: () => onTaskToggle?.call('Send release build'),
+        visibleTask(
+          'Send release build',
+          _RadicalTaskRow(
+            title: 'Send release build',
+            meta: 'Work',
+            time: '14:00',
+            isDone: completedTaskTitles.contains('Send release build'),
+            onToggle: () => onTaskToggle?.call('Send release build'),
+          ),
         ),
-        _RadicalTaskRow(
-          title: 'Renew domain settings',
-          meta: 'Personal · overdue',
-          time: 'Mon',
-          isOverdue: true,
-          isLast: true,
-          isDone: completedTaskTitles.contains('Renew domain settings'),
-          onToggle: () => onTaskToggle?.call('Renew domain settings'),
+        visibleTask(
+          'Renew domain settings',
+          _RadicalTaskRow(
+            title: 'Renew domain settings',
+            meta: 'Personal · overdue',
+            time: 'Mon',
+            isOverdue: true,
+            isLast: true,
+            isDone: completedTaskTitles.contains('Renew domain settings'),
+            onToggle: () => onTaskToggle?.call('Renew domain settings'),
+          ),
         ),
       ],
     );
@@ -333,6 +361,7 @@ class _RadicalTaskRow extends StatefulWidget {
     this.isDone = false,
     this.onToggle,
     this.onFocus,
+    this.priority = 0,
   });
 
   final String title;
@@ -345,6 +374,7 @@ class _RadicalTaskRow extends StatefulWidget {
   final bool isDone;
   final VoidCallback? onToggle;
   final VoidCallback? onFocus;
+  final int priority;
 
   @override
   State<_RadicalTaskRow> createState() => _RadicalTaskRowState();
@@ -368,6 +398,7 @@ class _RadicalTaskRowState extends State<_RadicalTaskRow> {
     final isDone = widget.isDone;
     final onToggle = widget.onToggle;
     final onFocus = widget.onFocus;
+    final priority = widget.priority;
 
     final taskContent = InkWell(
       onTap: onTap,
@@ -403,31 +434,42 @@ class _RadicalTaskRowState extends State<_RadicalTaskRow> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                title,
+                              _RadicalAnimatedTaskTitle(
+                                text: title,
+                                isDone: isDone,
                                 style: TextStyle(
                                   fontFamily: _directionSans,
                                   color: isDone ? _rMuted : _rInk,
                                   fontSize: 15.5,
                                   fontWeight: FontWeight.w500,
                                   height: 1.2,
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : null,
                                   decorationColor: _rMuted,
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              Text(
-                                meta,
-                                style: TextStyle(
-                                  fontFamily: _directionSans,
-                                  color: isOverdue ? _rCoral : _rMuted,
-                                  fontSize: 11.5,
-                                  fontWeight: isOverdue
-                                      ? FontWeight.w600
-                                      : FontWeight.w400,
-                                ),
+                              Row(
+                                children: [
+                                  if (priority > 0) ...[
+                                    _RadicalPriorityDot(
+                                      priority: priority,
+                                      isMuted: isDone,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Flexible(
+                                    child: Text(
+                                      meta,
+                                      style: TextStyle(
+                                        fontFamily: _directionSans,
+                                        color: isOverdue ? _rCoral : _rMuted,
+                                        fontSize: 11.5,
+                                        fontWeight: isOverdue
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -524,6 +566,157 @@ class _RadicalTaskRowState extends State<_RadicalTaskRow> {
       ),
     );
   }
+}
+
+class _RadicalAnimatedTaskTitle extends StatefulWidget {
+  const _RadicalAnimatedTaskTitle({
+    required this.text,
+    required this.isDone,
+    required this.style,
+  });
+
+  final String text;
+  final bool isDone;
+  final TextStyle style;
+
+  @override
+  State<_RadicalAnimatedTaskTitle> createState() =>
+      _RadicalAnimatedTaskTitleState();
+}
+
+class _RadicalAnimatedTaskTitleState extends State<_RadicalAnimatedTaskTitle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  var _animatingStrike = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 300),
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed && mounted) {
+            setState(() => _animatingStrike = false);
+          }
+        });
+  }
+
+  @override
+  void didUpdateWidget(covariant _RadicalAnimatedTaskTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
+      setState(() => _animatingStrike = true);
+      _controller.forward(from: 0);
+    } else if (oldWidget.isDone && !widget.isDone) {
+      _controller
+        ..stop()
+        ..value = 0;
+      _animatingStrike = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      widget.text,
+      style: widget.style.copyWith(decoration: TextDecoration.none),
+    );
+    if (!widget.isDone) {
+      return text;
+    }
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        text,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) => CustomPaint(
+                key: const ValueKey('design-lab-strikethrough'),
+                painter: _RadicalStrikethroughPainter(
+                  text: widget.text,
+                  style: widget.style,
+                  textDirection: Directionality.of(context),
+                  textScaler: MediaQuery.textScalerOf(context),
+                  progress: reduceMotion || !_animatingStrike
+                      ? 1
+                      : Curves.easeOutCubic.transform(_controller.value),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RadicalStrikethroughPainter extends CustomPainter {
+  const _RadicalStrikethroughPainter({
+    required this.text,
+    required this.style,
+    required this.textDirection,
+    required this.textScaler,
+    required this.progress,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextDirection textDirection;
+  final TextScaler textScaler;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: style.copyWith(decoration: TextDecoration.none),
+      ),
+      textDirection: textDirection,
+      textScaler: textScaler,
+    )..layout(maxWidth: size.width);
+    final lines = painter.computeLineMetrics();
+    final scaledProgress = progress.clamp(0.0, 1.0) * lines.length;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, (style.fontSize ?? 14) / 14)
+      ..strokeCap = StrokeCap.round
+      ..color = style.decorationColor ?? _rMuted;
+    for (var index = 0; index < lines.length; index += 1) {
+      final lineProgress = (scaledProgress - index).clamp(0.0, 1.0);
+      if (lineProgress <= 0) {
+        continue;
+      }
+      final line = lines[index];
+      final y = line.baseline - (line.ascent * 0.34);
+      canvas.drawLine(
+        Offset(line.left, y),
+        Offset(line.left + (line.width * lineProgress), y),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RadicalStrikethroughPainter oldDelegate) =>
+      oldDelegate.text != text ||
+      oldDelegate.style != style ||
+      oldDelegate.textDirection != textDirection ||
+      oldDelegate.textScaler != textScaler ||
+      oldDelegate.progress != progress;
 }
 
 class _RadicalSubtask extends StatelessWidget {
@@ -1213,10 +1406,24 @@ class _RadicalCreateMock extends StatelessWidget {
   }
 }
 
-class _RadicalComposer extends StatelessWidget {
+class _RadicalComposer extends StatefulWidget {
   const _RadicalComposer({this.onSubmit});
 
   final VoidCallback? onSubmit;
+
+  @override
+  State<_RadicalComposer> createState() => _RadicalComposerState();
+}
+
+class _RadicalComposerState extends State<_RadicalComposer> {
+  var _listIndex = 0;
+  var _dueIndex = 0;
+  var _planIndex = 0;
+  var _priority = 0;
+
+  static const _lists = ['Inbox', 'Design', 'Work'];
+  static const _dueDates = ['Today', 'Tomorrow', 'No date'];
+  static const _plans = ['Any time', '25 min', '45 min'];
 
   @override
   Widget build(BuildContext context) {
@@ -1259,20 +1466,87 @@ class _RadicalComposer extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               const Divider(color: _rRule, height: 1),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
               Row(
                 children: [
-                  const _RadicalComposerAction(label: 'Inbox'),
-                  const _RadicalComposerAction(label: 'Today', isActive: true),
-                  const _RadicalComposerAction(label: 'Any time'),
-                  const Spacer(),
+                  Expanded(
+                    child: _RadicalComposerProperty(
+                      key: const ValueKey('design-lab-composer-list'),
+                      label: 'LIST',
+                      value: _lists[_listIndex],
+                      icon: LucideIcons.listTodo300,
+                      onTap: () => setState(
+                        () => _listIndex = (_listIndex + 1) % _lists.length,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _RadicalComposerProperty(
+                      key: const ValueKey('design-lab-composer-due'),
+                      label: 'DUE',
+                      value: _dueDates[_dueIndex],
+                      icon: LucideIcons.calendarDays300,
+                      onTap: () => setState(
+                        () => _dueIndex = (_dueIndex + 1) % _dueDates.length,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(color: _rRule, height: 1),
+              Row(
+                children: [
+                  Expanded(
+                    child: _RadicalComposerProperty(
+                      key: const ValueKey('design-lab-composer-plan'),
+                      label: 'PLAN',
+                      value: _plans[_planIndex],
+                      icon: LucideIcons.timer300,
+                      onTap: () => setState(
+                        () => _planIndex = (_planIndex + 1) % _plans.length,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _RadicalComposerProperty(
+                      key: const ValueKey('design-lab-composer-priority'),
+                      label: 'PRIORITY',
+                      value: switch (_priority) {
+                        1 => 'Low',
+                        2 => 'Medium',
+                        3 => 'High',
+                        _ => 'None',
+                      },
+                      priority: _priority,
+                      onTap: () =>
+                          setState(() => _priority = (_priority + 1) % 4),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(color: _rRule, height: 1),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Details stay editable after capture.',
+                      style: TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rMuted,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ),
                   SizedBox.square(
                     dimension: 42,
                     child: Material(
                       color: _rGreen,
                       shape: const CircleBorder(),
                       child: InkWell(
-                        onTap: onSubmit ?? () {},
+                        onTap: widget.onSubmit ?? () {},
                         customBorder: const CircleBorder(),
                         child: const Icon(
                           LucideIcons.arrowUp300,
@@ -1292,26 +1566,70 @@ class _RadicalComposer extends StatelessWidget {
   }
 }
 
-class _RadicalComposerAction extends StatelessWidget {
-  const _RadicalComposerAction({required this.label, this.isActive = false});
+class _RadicalComposerProperty extends StatelessWidget {
+  const _RadicalComposerProperty({
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.icon,
+    this.priority = 0,
+    super.key,
+  });
 
   final String label;
-  final bool isActive;
+  final String value;
+  final VoidCallback onTap;
+  final IconData? icon;
+  final int priority;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: _directionSans,
-            color: isActive ? _rGreen : _rMuted,
-            fontSize: 12,
-            fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-          ),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: _directionSans,
+                color: _rMuted,
+                fontSize: 8.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.15,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (priority > 0)
+                  _RadicalPriorityDot(priority: priority)
+                else if (icon != null)
+                  Icon(icon, size: 14, color: _rGreen)
+                else
+                  const SizedBox.square(dimension: 6),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      fontFamily: _directionSans,
+                      color: _rInk,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  LucideIcons.chevronDown300,
+                  size: 13,
+                  color: _rMuted,
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -2455,7 +2773,7 @@ class _RadicalSectionTitle extends StatelessWidget {
   }
 }
 
-class _RadicalCheck extends StatelessWidget {
+class _RadicalCheck extends StatefulWidget {
   const _RadicalCheck({
     super.key,
     this.isDone = false,
@@ -2468,30 +2786,220 @@ class _RadicalCheck extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
+  State<_RadicalCheck> createState() => _RadicalCheckState();
+}
+
+class _RadicalCheckState extends State<_RadicalCheck>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _particlesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _particlesController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _RadicalCheck oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
+      _particlesController.forward(from: 0);
+    } else if (oldWidget.isDone && !widget.isDone) {
+      _particlesController
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _particlesController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final mark = DecoratedBox(
-      decoration: BoxDecoration(
-        color: isDone ? _rGreen : Colors.transparent,
-        shape: BoxShape.circle,
-        border: Border.all(color: _rGreen, width: 1),
-      ),
-      child: SizedBox.square(
-        dimension: size,
-        child: isDone
-            ? Icon(LucideIcons.check300, size: size * 0.55, color: _rNightText)
-            : null,
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final mark = TweenAnimationBuilder<double>(
+      tween: Tween(end: widget.isDone ? 1 : 0),
+      duration: reduceMotion
+          ? Duration.zero
+          : widget.isDone
+          ? const Duration(milliseconds: 250)
+          : const Duration(milliseconds: 150),
+      curve: widget.isDone ? Curves.easeOutBack : Curves.easeOutCubic,
+      builder: (context, progress, child) => CustomPaint(
+        size: Size.square(widget.size),
+        painter: _RadicalCheckPainter(progress: progress),
       ),
     );
-    if (onTap == null) {
-      return mark;
+    final visual = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        if (!reduceMotion)
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _particlesController,
+              builder: (context, child) {
+                if (_particlesController.value == 0) {
+                  return const SizedBox.shrink();
+                }
+                return CustomPaint(
+                  key: const ValueKey('design-lab-completion-particles'),
+                  painter: _RadicalCompletionParticlesPainter(
+                    progress: _particlesController.value,
+                  ),
+                );
+              },
+            ),
+          ),
+        mark,
+      ],
+    );
+    if (widget.onTap == null) {
+      return visual;
     }
     return Semantics(
       button: true,
-      checked: isDone,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: mark,
+      checked: widget.isDone,
+      child: InkResponse(
+        radius: 24,
+        customBorder: const CircleBorder(),
+        onTap: widget.onTap,
+        child: visual,
+      ),
+    );
+  }
+}
+
+class _RadicalCheckPainter extends CustomPainter {
+  const _RadicalCheckPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = progress.clamp(0.0, 1.0);
+    final center = size.center(Offset.zero);
+    final radius = (math.min(size.width, size.height) - 1.2) / 2;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..color = _rGreen.withValues(alpha: 1 - (t * 0.42)),
+    );
+    if (t <= 0) {
+      return;
+    }
+    canvas.drawCircle(
+      center,
+      radius * (0.78 + (t * 0.22)),
+      Paint()..color = _rGreen.withValues(alpha: t),
+    );
+    final checkProgress = ((t - 0.16) / 0.84).clamp(0.0, 1.0);
+    if (checkProgress <= 0) {
+      return;
+    }
+    final path = Path()
+      ..moveTo(size.width * 0.29, size.height * 0.52)
+      ..lineTo(size.width * 0.44, size.height * 0.67)
+      ..lineTo(size.width * 0.73, size.height * 0.35);
+    final metric = path.computeMetrics().single;
+    canvas.drawPath(
+      metric.extractPath(0, metric.length * checkProgress),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = _rNightText.withValues(alpha: checkProgress),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RadicalCheckPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+class _RadicalCompletionParticlesPainter extends CustomPainter {
+  const _RadicalCompletionParticlesPainter({required this.progress});
+
+  final double progress;
+
+  static const _angles = [-2.55, -1.95, -1.18, -0.48, 0.16, 0.78, 1.46, 2.28];
+  static const _radii = [18.0, 21.0, 24.0, 22.0, 20.0, 24.0, 19.0, 17.0];
+  static const _colors = [
+    _rCoral,
+    _rAmber,
+    _rLowPriority,
+    _rCoral,
+    _rLowPriority,
+    _rAmber,
+    _rCoral,
+    _rLowPriority,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = progress.clamp(0.0, 1.0);
+    if (t <= 0) {
+      return;
+    }
+    final travel = Curves.easeOutCubic.transform(t);
+    final opacity = 1 - Curves.easeInCubic.transform(t);
+    final origin = size.center(Offset.zero);
+    for (var index = 0; index < _angles.length; index += 1) {
+      final distance = _radii[index] * travel;
+      final offset =
+          Offset(math.cos(_angles[index]), math.sin(_angles[index])) * distance;
+      canvas.drawCircle(
+        origin + offset,
+        1.45 + (1.1 * (1 - t)),
+        Paint()..color = _colors[index].withValues(alpha: opacity),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RadicalCompletionParticlesPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+class _RadicalPriorityDot extends StatelessWidget {
+  const _RadicalPriorityDot({required this.priority, this.isMuted = false});
+
+  final int priority;
+  final bool isMuted;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (priority) {
+      3 => ('High priority', _rCoral),
+      2 => ('Medium priority', _rAmber),
+      1 => ('Low priority', _rLowPriority),
+      _ => ('No priority', Colors.transparent),
+    };
+    if (priority <= 0) {
+      return const SizedBox.shrink();
+    }
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: isMuted ? color.withValues(alpha: 0.42) : color,
+            shape: BoxShape.circle,
+          ),
+          child: const SizedBox.square(dimension: 6),
+        ),
       ),
     );
   }

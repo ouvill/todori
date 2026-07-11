@@ -14,6 +14,10 @@ void main() {
     expect(find.text('Verify reduced motion'), findsOneWidget);
     expect(find.text('Completed'), findsOneWidget);
     expect(find.text('See the rest of the week'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('design-lab-completion-particles')),
+      findsNothing,
+    );
 
     await tester.tap(
       find.byKey(
@@ -21,6 +25,15 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      find.byKey(const ValueKey('design-lab-completion-particles')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('design-lab-strikethrough')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byIcon(LucideIcons.calendarDays300));
     await tester.pumpAndSettle();
@@ -28,10 +41,10 @@ void main() {
     expect(find.text('TUESDAY 27'), findsOneWidget);
     expect(find.text('Completed'), findsOneWidget);
     expect(find.text('4 this week'), findsOneWidget);
-    final completedTask = tester.widget<Text>(
-      find.text('Review onboarding copy'),
+    expect(
+      find.byKey(const ValueKey('design-lab-strikethrough')),
+      findsAtLeastNWidgets(1),
     );
-    expect(completedTask.style?.decoration, TextDecoration.lineThrough);
     expect(find.text('Approved release direction'), findsNothing);
 
     await tester.tap(find.text('Completed'));
@@ -89,6 +102,24 @@ void main() {
     await tester.tap(find.byIcon(LucideIcons.plus300));
     await tester.pumpAndSettle();
     expect(find.text('What needs doing?'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('design-lab-composer-list')));
+    await tester.tap(find.byKey(const ValueKey('design-lab-composer-due')));
+    await tester.tap(find.byKey(const ValueKey('design-lab-composer-plan')));
+    await tester.tap(
+      find.byKey(const ValueKey('design-lab-composer-priority')),
+    );
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('design-lab-composer-list')),
+        matching: find.text('Design'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Tomorrow'), findsOneWidget);
+    expect(find.text('25 min'), findsOneWidget);
+    expect(find.text('Low'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.arrowUp300));
     await tester.pumpAndSettle();

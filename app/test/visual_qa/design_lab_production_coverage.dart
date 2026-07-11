@@ -51,6 +51,7 @@ class _RadicalListTasksMock extends StatelessWidget {
               title: 'Prepare launch notes',
               meta: 'Today · 25 minutes',
               time: '9:00',
+              priority: 3,
               onTap: onTaskTap,
               onFocus: onTaskFocus,
             ),
@@ -58,11 +59,13 @@ class _RadicalListTasksMock extends StatelessWidget {
               title: 'Refine empty states',
               meta: 'Tomorrow · High',
               time: '',
+              priority: 2,
             ),
             const _RadicalTaskRow(
               title: 'Finalize navigation states',
               meta: 'Friday',
               time: '11:00',
+              priority: 1,
               children: [
                 _RadicalSubtask(title: 'Check compact width', isDone: true),
                 _RadicalSubtask(

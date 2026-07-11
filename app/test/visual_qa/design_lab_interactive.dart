@@ -27,6 +27,7 @@ class _InteractiveDesignLabShellState
   var _selectedIndex = 0;
   var _showTodayCompleted = false;
   final _completedTaskTitles = <String>{};
+  final _retiredTaskTitles = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +39,7 @@ class _InteractiveDesignLabShellState
         onNavSelected: _selectTab,
         onAdd: _openComposer,
         completedTaskTitles: _completedTaskTitles,
+        hiddenTaskTitles: _retiredTaskTitles,
         onTaskToggle: _toggleTask,
         showCompleted: _showTodayCompleted,
         onCompletedTap: () {
@@ -76,11 +78,22 @@ class _InteractiveDesignLabShellState
   }
 
   void _toggleTask(String title) {
+    final completed = !_completedTaskTitles.contains(title);
     setState(() {
-      if (!_completedTaskTitles.add(title)) {
+      if (completed) {
+        _completedTaskTitles.add(title);
+      } else {
         _completedTaskTitles.remove(title);
+        _retiredTaskTitles.remove(title);
       }
     });
+    if (completed) {
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
+        if (mounted && _completedTaskTitles.contains(title)) {
+          setState(() => _retiredTaskTitles.add(title));
+        }
+      });
+    }
   }
 
   void _openSearch() {
@@ -305,6 +318,7 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
               title: 'Prepare launch notes',
               meta: 'Design · 25 minutes',
               time: '9:00',
+              priority: 3,
               onTap: widget.onTaskTap,
               onFocus: widget.onTaskFocus,
               isDone: widget.completedTaskTitles.contains(
@@ -316,6 +330,7 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
               title: 'Review onboarding copy',
               meta: 'Product',
               time: '9:30',
+              priority: 2,
               isDone: widget.completedTaskTitles.contains(
                 'Review onboarding copy',
               ),
@@ -326,6 +341,7 @@ class _InteractiveCalendarMockState extends State<_InteractiveCalendarMock> {
               title: 'Finalize navigation states',
               meta: 'Design',
               time: '11:00',
+              priority: 1,
               isDone: widget.completedTaskTitles.contains(
                 'Finalize navigation states',
               ),

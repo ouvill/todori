@@ -571,6 +571,23 @@ void main() {
     await _screenshot(tester, 'design_lab_task_create_sheet');
   });
 
+  testWidgets('design_lab_completion_midframe: particles and strike', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(const InteractiveDesignLabApp());
+    await tester.tap(
+      find.byKey(
+        const ValueKey('design-lab-task-check-Review onboarding copy'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    await _screenshot(tester, 'design_lab_completion_midframe');
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('design_lab_search: underline search direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(const DesignLabMockApp(mock: DesignLabMock.search));
