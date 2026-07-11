@@ -11,6 +11,7 @@ part 'design_lab_product_direction_mock.dart';
 part 'design_lab_product_system_mock.dart';
 part 'design_lab_radical_direction_mock.dart';
 part 'design_lab_interactive.dart';
+part 'design_lab_production_coverage.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
@@ -23,6 +24,13 @@ enum DesignLabMock {
   search,
   settings,
   timerSetup,
+  listTasks,
+  taskDetailEditing,
+  accountSignedOut,
+  taskActions,
+  dueDateSheet,
+  systemStates,
+  onboarding,
 }
 
 class DesignLabMockApp extends StatelessWidget {
@@ -45,6 +53,13 @@ class DesignLabMockApp extends StatelessWidget {
         DesignLabMock.search => const _RadicalSearchMock(),
         DesignLabMock.settings => const _RadicalAccountMock(),
         DesignLabMock.timerSetup => const _RadicalFocusSetupMock(),
+        DesignLabMock.listTasks => const _RadicalListTasksMock(),
+        DesignLabMock.taskDetailEditing => const _RadicalTaskEditMock(),
+        DesignLabMock.accountSignedOut => const _RadicalAccountAccessMock(),
+        DesignLabMock.taskActions => const _RadicalActionSheetMock(),
+        DesignLabMock.dueDateSheet => const _RadicalDueDateSheetMock(),
+        DesignLabMock.systemStates => const _RadicalSystemStatesMock(),
+        DesignLabMock.onboarding => _RadicalOnboardingMock(onContinue: () {}),
       },
     );
   }

@@ -500,10 +500,17 @@ class _RadicalBranchPainter extends CustomPainter {
 }
 
 class _RadicalDetailMock extends StatelessWidget {
-  const _RadicalDetailMock({this.onBack, this.onBeginFocus});
+  const _RadicalDetailMock({
+    this.onBack,
+    this.onBeginFocus,
+    this.onEdit,
+    this.onActions,
+  });
 
   final VoidCallback? onBack;
   final VoidCallback? onBeginFocus;
+  final VoidCallback? onEdit;
+  final VoidCallback? onActions;
 
   @override
   Widget build(BuildContext context) {
@@ -513,9 +520,9 @@ class _RadicalDetailMock extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 6, 24, 28),
           children: [
-            _RadicalRouteBar(onBack: onBack),
+            _RadicalRouteBar(onBack: onBack, onMore: onActions),
             const SizedBox(height: 19),
-            const _RadicalDetailTitle(),
+            _RadicalDetailTitle(onTap: onEdit),
             const SizedBox(height: 25),
             _RadicalDetailFocusLink(onTap: onBeginFocus),
             const SizedBox(height: 27),
@@ -532,9 +539,10 @@ class _RadicalDetailMock extends StatelessWidget {
 }
 
 class _RadicalRouteBar extends StatelessWidget {
-  const _RadicalRouteBar({this.onBack});
+  const _RadicalRouteBar({this.onBack, this.onMore});
 
   final VoidCallback? onBack;
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -552,7 +560,7 @@ class _RadicalRouteBar extends StatelessWidget {
         ),
         const Spacer(),
         IconButton(
-          onPressed: () {},
+          onPressed: onMore ?? () {},
           icon: const Icon(LucideIcons.moreHorizontal300, size: 21),
           color: _rInk,
           style: IconButton.styleFrom(
@@ -567,47 +575,52 @@ class _RadicalRouteBar extends StatelessWidget {
 }
 
 class _RadicalDetailTitle extends StatelessWidget {
-  const _RadicalDetailTitle();
+  const _RadicalDetailTitle({this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: EdgeInsets.only(top: 5),
-          child: _RadicalCheck(size: 23),
-        ),
-        SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Prepare launch notes',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rInk,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.7,
-                  height: 1.08,
-                ),
-              ),
-              SizedBox(height: 11),
-              Text(
-                'Capture the decisions that make the release feel calm, clear, and ready to share.',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rMuted,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-            ],
+    return InkWell(
+      onTap: onTap,
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(top: 5),
+            child: _RadicalCheck(size: 23),
           ),
-        ),
-      ],
+          SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Prepare launch notes',
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rInk,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.7,
+                    height: 1.08,
+                  ),
+                ),
+                SizedBox(height: 11),
+                Text(
+                  'Capture the decisions that make the release feel calm, clear, and ready to share.',
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rMuted,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -878,11 +891,17 @@ class _RadicalTreePainter extends CustomPainter {
 }
 
 class _RadicalListsMock extends StatelessWidget {
-  const _RadicalListsMock({this.onSearch, this.onNavSelected, this.onAdd});
+  const _RadicalListsMock({
+    this.onSearch,
+    this.onNavSelected,
+    this.onAdd,
+    this.onListTap,
+  });
 
   final VoidCallback? onSearch;
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
+  final VoidCallback? onListTap;
 
   @override
   Widget build(BuildContext context) {
@@ -927,11 +946,12 @@ class _RadicalListsMock extends StatelessWidget {
             const SizedBox(height: 27),
             const _RadicalSectionTitle(label: 'YOUR LISTS', trailing: ''),
             const SizedBox(height: 3),
-            const _RadicalListRow(
+            _RadicalListRow(
               title: 'Design',
               subtitle: 'Updated today',
               count: '7',
               marker: _rGreen,
+              onTap: onListTap,
             ),
             const _RadicalListRow(
               title: 'Work',
@@ -966,6 +986,7 @@ class _RadicalListRow extends StatelessWidget {
     required this.marker,
     this.subtitle,
     this.isLast = false,
+    this.onTap,
   });
 
   final String title;
@@ -973,66 +994,70 @@ class _RadicalListRow extends StatelessWidget {
   final Color marker;
   final String? subtitle;
   final bool isLast;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: isLast
-            ? null
-            : const Border(bottom: BorderSide(color: _rRule, width: 0.65)),
-      ),
-      child: SizedBox(
-        height: subtitle == null ? 55 : 64,
-        child: Row(
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: marker,
-                borderRadius: BorderRadius.circular(99),
+    return InkWell(
+      onTap: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: isLast
+              ? null
+              : const Border(bottom: BorderSide(color: _rRule, width: 0.65)),
+        ),
+        child: SizedBox(
+          height: subtitle == null ? 55 : 64,
+          child: Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: marker,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: const SizedBox(width: 3, height: 20),
               ),
-              child: const SizedBox(width: 3, height: 20),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: _directionSans,
-                      color: _rInk,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 3),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      subtitle!,
+                      title,
                       style: const TextStyle(
                         fontFamily: _directionSans,
-                        color: _rMuted,
-                        fontSize: 11.5,
+                        color: _rInk,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          fontFamily: _directionSans,
+                          color: _rMuted,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            Text(
-              count,
-              style: const TextStyle(
-                fontFamily: _directionSans,
-                color: _rMuted,
-                fontSize: 12.5,
+              Text(
+                count,
+                style: const TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rMuted,
+                  fontSize: 12.5,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            const Text('→', style: TextStyle(color: _rMuted, fontSize: 15)),
-          ],
+              const SizedBox(width: 8),
+              const Text('→', style: TextStyle(color: _rMuted, fontSize: 15)),
+            ],
+          ),
         ),
       ),
     );
@@ -1387,11 +1412,17 @@ class _RadicalFilterRow extends StatelessWidget {
 }
 
 class _RadicalAccountMock extends StatelessWidget {
-  const _RadicalAccountMock({this.onSearch, this.onNavSelected, this.onAdd});
+  const _RadicalAccountMock({
+    this.onSearch,
+    this.onNavSelected,
+    this.onAdd,
+    this.onAccountTap,
+  });
 
   final VoidCallback? onSearch;
   final ValueChanged<int>? onNavSelected;
   final VoidCallback? onAdd;
+  final VoidCallback? onAccountTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1414,7 +1445,7 @@ class _RadicalAccountMock extends StatelessWidget {
               onSearch: onSearch,
             ),
             const SizedBox(height: 23),
-            const _RadicalIdentity(),
+            _RadicalIdentity(onTap: onAccountTap),
             const SizedBox(height: 31),
             const _RadicalSectionTitle(
               label: 'PRIVATE SYNC',
@@ -1455,62 +1486,67 @@ class _RadicalAccountMock extends StatelessWidget {
 }
 
 class _RadicalIdentity extends StatelessWidget {
-  const _RadicalIdentity();
+  const _RadicalIdentity({this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const SizedBox.square(
-          dimension: 44,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.fromBorderSide(
-                BorderSide(color: _rGreen, width: 1),
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          const SizedBox.square(
+            dimension: 44,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.fromBorderSide(
+                  BorderSide(color: _rGreen, width: 1),
+                ),
               ),
-            ),
-            child: Center(
-              child: Text(
-                'Y',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rGreen,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
+              child: Center(
+                child: Text(
+                  'Y',
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rGreen,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 14),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Youhei',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rInk,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Youhei',
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rInk,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'youhei@example.com',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rMuted,
-                  fontSize: 12,
+                SizedBox(height: 4),
+                Text(
+                  'youhei@example.com',
+                  style: TextStyle(
+                    fontFamily: _directionSans,
+                    color: _rMuted,
+                    fontSize: 12,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const Text('→', style: TextStyle(color: _rMuted, fontSize: 15)),
-      ],
+          const Text('→', style: TextStyle(color: _rMuted, fontSize: 15)),
+        ],
+      ),
     );
   }
 }

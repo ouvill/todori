@@ -54,11 +54,13 @@ class _InteractiveDesignLabShellState
         onSearch: _openSearch,
         onNavSelected: _selectTab,
         onAdd: _openComposer,
+        onListTap: _openListTasks,
       ),
       4 => _RadicalAccountMock(
         onSearch: _openSearch,
         onNavSelected: _selectTab,
         onAdd: _openComposer,
+        onAccountTap: _openAccountAccess,
       ),
       _ => const SizedBox.shrink(),
     };
@@ -93,6 +95,78 @@ class _InteractiveDesignLabShellState
       builder: (routeContext) => _RadicalDetailMock(
         onBack: () => Navigator.of(routeContext).pop(),
         onBeginFocus: () => _openFocusSetup(routeContext),
+        onEdit: () => _openTaskEdit(routeContext),
+        onActions: () => _openTaskActions(routeContext),
+      ),
+    );
+  }
+
+  void _openListTasks() {
+    _pushLabRoute(
+      context,
+      builder: (routeContext) => _RadicalListTasksMock(
+        onBack: () => Navigator.of(routeContext).pop(),
+        onTaskTap: () => _openTaskDetailFrom(routeContext),
+        onActions: () => _openTaskActions(routeContext),
+        onDueDate: () => _openDueDate(routeContext),
+        onAdd: () => _openComposerFrom(routeContext),
+      ),
+    );
+  }
+
+  void _openTaskDetailFrom(BuildContext parentContext) {
+    _pushLabRoute(
+      parentContext,
+      builder: (routeContext) => _RadicalDetailMock(
+        onBack: () => Navigator.of(routeContext).pop(),
+        onBeginFocus: () => _openFocusSetup(routeContext),
+        onEdit: () => _openTaskEdit(routeContext),
+        onActions: () => _openTaskActions(routeContext),
+      ),
+    );
+  }
+
+  void _openTaskEdit(BuildContext parentContext) {
+    _pushLabRoute(
+      parentContext,
+      builder: (routeContext) => _RadicalTaskEditMock(
+        onClose: () => Navigator.of(routeContext).pop(),
+        onSave: () => Navigator.of(routeContext).pop(),
+      ),
+    );
+  }
+
+  Future<void> _openTaskActions(BuildContext parentContext) {
+    return showModalBottomSheet<void>(
+      context: parentContext,
+      backgroundColor: Colors.transparent,
+      barrierColor: _rInk.withValues(alpha: 0.3),
+      isScrollControlled: true,
+      builder: (sheetContext) => _RadicalActionSheetContent(
+        onDueDate: () {
+          Navigator.of(sheetContext).pop();
+          _openDueDate(parentContext);
+        },
+      ),
+    );
+  }
+
+  Future<void> _openDueDate(BuildContext parentContext) {
+    return showModalBottomSheet<void>(
+      context: parentContext,
+      backgroundColor: Colors.transparent,
+      barrierColor: _rInk.withValues(alpha: 0.3),
+      isScrollControlled: true,
+      builder: (sheetContext) => const _RadicalDueDateSheetContent(),
+    );
+  }
+
+  void _openAccountAccess() {
+    _pushLabRoute(
+      context,
+      builder: (routeContext) => _InteractiveAccountAccess(
+        onBack: () => Navigator.of(routeContext).pop(),
+        onSubmit: () => Navigator.of(routeContext).pop(),
       ),
     );
   }
@@ -119,13 +193,47 @@ class _InteractiveDesignLabShellState
   }
 
   Future<void> _openComposer() {
+    return _openComposerFrom(context);
+  }
+
+  Future<void> _openComposerFrom(BuildContext parentContext) {
     return showModalBottomSheet<void>(
-      context: context,
+      context: parentContext,
       backgroundColor: Colors.transparent,
       barrierColor: _rInk.withValues(alpha: 0.3),
       isScrollControlled: true,
       builder: (sheetContext) =>
           _RadicalComposer(onSubmit: () => Navigator.of(sheetContext).pop()),
+    );
+  }
+}
+
+class _InteractiveAccountAccess extends StatefulWidget {
+  const _InteractiveAccountAccess({
+    required this.onBack,
+    required this.onSubmit,
+  });
+
+  final VoidCallback onBack;
+  final VoidCallback onSubmit;
+
+  @override
+  State<_InteractiveAccountAccess> createState() =>
+      _InteractiveAccountAccessState();
+}
+
+class _InteractiveAccountAccessState extends State<_InteractiveAccountAccess> {
+  var _registerMode = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RadicalAccountAccessMock(
+      registerMode: _registerMode,
+      onBack: widget.onBack,
+      onSubmit: widget.onSubmit,
+      onModeChanged: (registerMode) {
+        setState(() => _registerMode = registerMode);
+      },
     );
   }
 }

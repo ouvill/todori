@@ -41,6 +41,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('YOUR LISTS'), findsOneWidget);
 
+    await tester.tap(find.text('Design'));
+    await tester.pumpAndSettle();
+    expect(find.text('MANUAL ORDER'), findsOneWidget);
+    expect(find.text('Verify reduced motion'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('design-lab-list-actions')));
+    await tester.pumpAndSettle();
+    expect(find.text('LIST ACTIONS'), findsOneWidget);
+    await tester.tap(find.text('Change a task due date'));
+    await tester.pumpAndSettle();
+    expect(find.text('DUE DATE'), findsOneWidget);
+    expect(find.text('This weekend'), findsOneWidget);
+    await tester.tapAt(const Offset(12, 100));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(LucideIcons.arrowLeft300));
+    await tester.pumpAndSettle();
+    expect(find.text('YOUR LISTS'), findsOneWidget);
+
+    await tester.tap(find.byIcon(LucideIcons.circleUserRound300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Youhei'));
+    await tester.pumpAndSettle();
+    expect(find.text('Welcome back'), findsOneWidget);
+    await tester.tap(find.text('CREATE ACCOUNT'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create account'), findsOneWidget);
+
+    await tester.tap(find.byIcon(LucideIcons.arrowLeft300));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byIcon(LucideIcons.plus300));
     await tester.pumpAndSettle();
     expect(find.text('What needs doing?'), findsOneWidget);
@@ -60,6 +91,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Begin a 25 minute focus'), findsOneWidget);
     expect(find.text('Confirm product highlights'), findsOneWidget);
+
+    await tester.tap(find.text('Prepare launch notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('NOTE'), findsOneWidget);
+    expect(find.text('Reminder'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('design-lab-save-task')));
+    await tester.pumpAndSettle();
+    expect(find.text('Begin a 25 minute focus'), findsOneWidget);
 
     await tester.tap(find.text('Begin a 25 minute focus'));
     await tester.pumpAndSettle();

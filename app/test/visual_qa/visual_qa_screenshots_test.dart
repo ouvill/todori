@@ -596,6 +596,76 @@ void main() {
     await _screenshot(tester, 'design_lab_timer_setup');
   });
 
+  testWidgets('design_lab_list_tasks: a full list in the shared task grammar', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.listTasks),
+    );
+    await _screenshot(tester, 'design_lab_list_tasks');
+  });
+
+  testWidgets('design_lab_task_detail_editing: calm document editing', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskDetailEditing),
+    );
+    await _screenshot(tester, 'design_lab_task_detail_editing');
+  });
+
+  testWidgets('design_lab_account_signed_out: private account access', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.accountSignedOut),
+    );
+    await _screenshot(tester, 'design_lab_account_signed_out');
+  });
+
+  testWidgets('design_lab_task_actions: safe action sheet composition', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskActions),
+    );
+    await _screenshot(tester, 'design_lab_task_actions');
+  });
+
+  testWidgets('design_lab_due_date_sheet: quick scheduling choices', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.dueDateSheet),
+    );
+    await _screenshot(tester, 'design_lab_due_date_sheet');
+  });
+
+  testWidgets('design_lab_system_states: empty loading and error grammar', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.systemStates),
+    );
+    await _screenshot(tester, 'design_lab_system_states');
+  });
+
+  testWidgets('design_lab_onboarding: quiet first-run direction', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.onboarding),
+    );
+    await _screenshot(tester, 'design_lab_onboarding');
+  });
+
   // Typography comparison: 4 variants x 2 screens (Today task list, Focus
   // timer). See `docs/design/ui-spec.md` セクション6 note and
   // `design_lab_mocks.dart`'s `DesignLabTypoVariant`/`DesignLabTypography`.
