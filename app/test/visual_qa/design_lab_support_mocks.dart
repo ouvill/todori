@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 part of 'design_lab_mocks.dart';
 
 class _SearchMock extends StatelessWidget {

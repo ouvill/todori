@@ -7,6 +7,7 @@ import 'package:todori/src/ui/theme.dart';
 part 'design_lab_task_create_sheet_mock.dart';
 part 'design_lab_task_detail_mock.dart';
 part 'design_lab_product_direction_mock.dart';
+part 'design_lab_product_system_mock.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
@@ -32,13 +33,13 @@ class DesignLabMockApp extends StatelessWidget {
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
         DesignLabMock.taskList => const _ProductDirectionHomeMock(),
-        DesignLabMock.listOverview => const _ListOverviewMock(),
+        DesignLabMock.listOverview => const _ProductSystemListsMock(),
         DesignLabMock.focusTimer => const _ProductDirectionFocusMock(),
         DesignLabMock.taskDetail => const _ProductDirectionDetailMock(),
-        DesignLabMock.taskCreateSheet => const _TaskCreateSheetMock(),
-        DesignLabMock.search => const _SearchMock(),
-        DesignLabMock.settings => const _SettingsMock(),
-        DesignLabMock.timerSetup => const _TimerSetupMock(),
+        DesignLabMock.taskCreateSheet => const _ProductSystemCreateMock(),
+        DesignLabMock.search => const _ProductSystemSearchMock(),
+        DesignLabMock.settings => const _ProductSystemAccountMock(),
+        DesignLabMock.timerSetup => const _ProductSystemFocusSetupMock(),
       },
     );
   }
@@ -1206,6 +1207,8 @@ class _CompletedTodayRow extends StatelessWidget {
   }
 }
 
+// Retained for the legacy comparison while the unified system is reviewed.
+// ignore: unused_element
 class _ListOverviewMock extends StatelessWidget {
   const _ListOverviewMock();
 

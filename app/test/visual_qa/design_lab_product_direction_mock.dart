@@ -72,8 +72,8 @@ class _DirectionHomeHeader extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: _directionSerif,
                   color: _directionInk,
-                  fontSize: 38,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 35,
+                  fontWeight: FontWeight.w400,
                   height: 1.02,
                   letterSpacing: -0.5,
                 ),
@@ -500,9 +500,9 @@ class _DirectionDetailHero extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: _directionSerif,
                   color: _directionInk,
-                  fontSize: 32,
-                  fontWeight: FontWeight.w500,
-                  height: 1.04,
+                  fontSize: 29,
+                  fontWeight: FontWeight.w400,
+                  height: 1.08,
                   letterSpacing: -0.35,
                 ),
               ),
@@ -811,9 +811,9 @@ class _ProductDirectionFocusMock extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 38),
+              const SizedBox(height: 34),
               const _DirectionTimer(),
-              const SizedBox(height: 39),
+              const SizedBox(height: 34),
               const _DirectionFocusActions(),
               const Spacer(),
               const _DirectionMascotMoment(),
@@ -867,7 +867,7 @@ class _DirectionTimer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox.square(
-      dimension: 286,
+      dimension: 274,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -883,8 +883,8 @@ class _DirectionTimer extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: _directionSerif,
                   color: _directionForest,
-                  fontSize: 67,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 64,
+                  fontWeight: FontWeight.w400,
                   height: 0.94,
                   letterSpacing: -1.5,
                 ),
@@ -1024,13 +1024,33 @@ class _DirectionAddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton.small(
-      onPressed: () {},
-      backgroundColor: _directionForest,
-      foregroundColor: _directionPorcelain,
-      elevation: 3,
-      shape: const CircleBorder(),
-      child: const Icon(LucideIcons.plus300, size: 22),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: _directionForest.withValues(alpha: 0.2),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: SizedBox.square(
+        dimension: 48,
+        child: Material(
+          color: _directionForest,
+          shape: const CircleBorder(),
+          child: InkWell(
+            onTap: () {},
+            customBorder: const CircleBorder(),
+            child: const Icon(
+              LucideIcons.plus300,
+              color: _directionPorcelain,
+              size: 21,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

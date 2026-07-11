@@ -506,9 +506,7 @@ void main() {
     await _screenshot(tester, 'confirm_dialog');
   });
 
-  testWidgets('design_lab_task_list: focus timer task list exploration', (
-    tester,
-  ) async {
+  testWidgets('design_lab_task_list: compact Today direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.taskList),
@@ -516,7 +514,7 @@ void main() {
     await _screenshot(tester, 'design_lab_task_list');
   });
 
-  testWidgets('design_lab_list_overview: smart and custom lists exploration', (
+  testWidgets('design_lab_list_overview: unified list management direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -526,7 +524,7 @@ void main() {
     await _screenshot(tester, 'design_lab_list_overview');
   });
 
-  testWidgets('design_lab_focus_timer: focus timer screen exploration', (
+  testWidgets('design_lab_focus_timer: dedicated focus space direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -536,7 +534,7 @@ void main() {
     await _screenshot(tester, 'design_lab_focus_timer');
   });
 
-  testWidgets('design_lab_task_detail: task detail exploration', (
+  testWidgets('design_lab_task_detail: document detail direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -546,7 +544,7 @@ void main() {
     await _screenshot(tester, 'design_lab_task_detail');
   });
 
-  testWidgets('design_lab_task_create_sheet: task create sheet exploration', (
+  testWidgets('design_lab_task_create_sheet: compact task capture direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -556,13 +554,13 @@ void main() {
     await _screenshot(tester, 'design_lab_task_create_sheet');
   });
 
-  testWidgets('design_lab_search: search exploration', (tester) async {
+  testWidgets('design_lab_search: search and filter direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(const DesignLabMockApp(mock: DesignLabMock.search));
     await _screenshot(tester, 'design_lab_search');
   });
 
-  testWidgets('design_lab_settings: settings exploration', (tester) async {
+  testWidgets('design_lab_settings: private account direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.settings),
@@ -570,9 +568,7 @@ void main() {
     await _screenshot(tester, 'design_lab_settings');
   });
 
-  testWidgets('design_lab_timer_setup: timer setup exploration', (
-    tester,
-  ) async {
+  testWidgets('design_lab_timer_setup: focus setup direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.timerSetup),
