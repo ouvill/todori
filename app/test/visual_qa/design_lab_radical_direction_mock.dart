@@ -271,23 +271,9 @@ class _RadicalTaskStream extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget visibleTask(String title, Widget child) => AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: SlideTransition(
-          position: Tween(
-            begin: const Offset(0, -0.04),
-            end: Offset.zero,
-          ).animate(animation),
-          child: child,
-        ),
-      ),
-      child: hiddenTaskTitles.contains(title)
-          ? SizedBox.shrink(key: ValueKey('hidden-$title'))
-          : KeyedSubtree(key: ValueKey('active-$title'), child: child),
+    Widget visibleTask(String title, Widget child) => _RadicalTaskSlot(
+      isVisible: !hiddenTaskTitles.contains(title),
+      child: child,
     );
 
     return Column(
@@ -362,6 +348,81 @@ class _RadicalTaskStream extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RadicalTaskSlot extends StatefulWidget {
+  const _RadicalTaskSlot({required this.isVisible, required this.child});
+
+  final bool isVisible;
+  final Widget child;
+
+  @override
+  State<_RadicalTaskSlot> createState() => _RadicalTaskSlotState();
+}
+
+class _RadicalTaskSlotState extends State<_RadicalTaskSlot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+      value: widget.isVisible ? 1 : 0,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _RadicalTaskSlot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isVisible == widget.isVisible) {
+      return;
+    }
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) {
+      _controller.value = widget.isVisible ? 1 : 0;
+    } else if (widget.isVisible) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      child: widget.child,
+      builder: (context, child) {
+        final progress = Curves.easeInOutCubic.transform(_controller.value);
+        return IgnorePointer(
+          ignoring: !widget.isVisible,
+          child: ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: progress,
+              child: Opacity(
+                opacity: progress,
+                child: Transform.translate(
+                  offset: Offset(0, -4 * (1 - progress)),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2937,9 +2998,7 @@ class _RadicalCheckPainter extends CustomPainter {
       radius * (0.78 + (fillProgress * 0.22)),
       Paint()..color = _rCheckFill.withValues(alpha: fillProgress),
     );
-    final checkProgress = Curves.easeInOutCubic.transform(
-      ((t - 0.28) / 0.72).clamp(0.0, 1.0),
-    );
+    final checkProgress = ((t - 0.28) / 0.72).clamp(0.0, 1.0);
     if (checkProgress <= 0) {
       return;
     }

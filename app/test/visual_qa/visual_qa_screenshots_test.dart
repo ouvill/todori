@@ -583,8 +583,13 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
-    await _screenshot(tester, 'design_lab_completion_midframe');
-    await tester.pump(const Duration(milliseconds: 800));
+    await _screenshotCurrentFrame(tester, 'design_lab_completion_midframe');
+    await tester.pump(const Duration(milliseconds: 580));
+    await tester.pump(const Duration(milliseconds: 180));
+    await _screenshotCurrentFrame(
+      tester,
+      'design_lab_completion_collapse_midframe',
+    );
     await tester.pumpAndSettle();
   });
 
