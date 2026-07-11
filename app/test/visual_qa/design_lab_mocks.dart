@@ -8,6 +8,7 @@ part 'design_lab_task_create_sheet_mock.dart';
 part 'design_lab_task_detail_mock.dart';
 part 'design_lab_product_direction_mock.dart';
 part 'design_lab_product_system_mock.dart';
+part 'design_lab_radical_direction_mock.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
@@ -32,14 +33,14 @@ class DesignLabMockApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
-        DesignLabMock.taskList => const _ProductDirectionHomeMock(),
-        DesignLabMock.listOverview => const _ProductSystemListsMock(),
-        DesignLabMock.focusTimer => const _ProductDirectionFocusMock(),
-        DesignLabMock.taskDetail => const _ProductDirectionDetailMock(),
-        DesignLabMock.taskCreateSheet => const _ProductSystemCreateMock(),
-        DesignLabMock.search => const _ProductSystemSearchMock(),
-        DesignLabMock.settings => const _ProductSystemAccountMock(),
-        DesignLabMock.timerSetup => const _ProductSystemFocusSetupMock(),
+        DesignLabMock.taskList => const _RadicalHomeMock(),
+        DesignLabMock.listOverview => const _RadicalListsMock(),
+        DesignLabMock.focusTimer => const _RadicalFocusMock(),
+        DesignLabMock.taskDetail => const _RadicalDetailMock(),
+        DesignLabMock.taskCreateSheet => const _RadicalCreateMock(),
+        DesignLabMock.search => const _RadicalSearchMock(),
+        DesignLabMock.settings => const _RadicalAccountMock(),
+        DesignLabMock.timerSetup => const _RadicalFocusSetupMock(),
       },
     );
   }

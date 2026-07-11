@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 part of 'design_lab_mocks.dart';
 
 const _directionForest = Color(0xFF285E46);
