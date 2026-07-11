@@ -88,7 +88,7 @@ class _InteractiveDesignLabShellState
       }
     });
     if (completed) {
-      Future<void>.delayed(const Duration(milliseconds: 800), () {
+      Future<void>.delayed(const Duration(milliseconds: 500), () {
         if (mounted && _completedTaskTitles.contains(title)) {
           setState(() => _retiredTaskTitles.add(title));
         }
