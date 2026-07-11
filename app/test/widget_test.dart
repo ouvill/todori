@@ -1958,6 +1958,35 @@ void main() {
     expect(find.text('Closed'), findsNothing);
   });
 
+  testWidgets('list completion invalidates the Home smart view', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Complete from Inbox',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Complete from Inbox'), findsOneWidget);
+
+    await _openListFromHome(tester, 'Inbox');
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Home').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Complete from Inbox'), findsNothing);
+    expect(find.text('Today'), findsOneWidget);
+  });
+
   testWidgets(
     'completion motion exposes intermediate particle and strike frame',
     (tester) async {
