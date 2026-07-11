@@ -321,11 +321,13 @@ void main() {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
     await _openListsScreen(tester);
 
-    expect(find.text('LISTS'), findsOneWidget);
+    expect(find.text('Lists'), findsWidgets);
     expect(find.text('Inbox'), findsOneWidget);
   });
 
-  testWidgets('lists screen enters from the leading edge', (tester) async {
+  testWidgets('top-level navigation uses a subtle vertical transition', (
+    tester,
+  ) async {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
     await tester.tap(find.byTooltip('Open lists'));
@@ -334,8 +336,8 @@ void main() {
 
     final slideOffsets = tester
         .widgetList<SlideTransition>(find.byType(SlideTransition))
-        .map((transition) => transition.position.value.dx);
-    expect(slideOffsets.any((dx) => dx < 0), isTrue);
+        .map((transition) => transition.position.value.dy);
+    expect(slideOffsets.any((dy) => dy > 0), isTrue);
   });
 
   testWidgets('tapping a list navigates to its task list', (tester) async {
@@ -778,7 +780,7 @@ void main() {
     expect(tasks.single.title, 'Slow capture');
   });
 
-  testWidgets('lists screen puts Home first and Home row returns home', (
+  testWidgets('global navigation returns home and list actions stay ordered', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -797,8 +799,8 @@ void main() {
     await _openListsScreen(tester);
 
     expect(
-      tester.getTopLeft(find.text('Home')).dy,
-      lessThan(tester.getTopLeft(find.text('Inbox')).dy),
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
+      1,
     );
     expect(
       tester.getTopLeft(find.text('Work')).dy,

@@ -147,6 +147,33 @@ ThemeData buildTodoriTheme(Brightness brightness) {
       highlightElevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 72,
+      elevation: 0,
+      backgroundColor: colorScheme.surface,
+      indicatorColor: colorScheme.primaryContainer,
+      indicatorShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        return IconThemeData(
+          size: 21,
+          color: states.contains(WidgetState.selected)
+              ? colorScheme.primary
+              : colorScheme.onSurfaceVariant,
+        );
+      }),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        return base.textTheme.labelSmall?.copyWith(
+          color: states.contains(WidgetState.selected)
+              ? colorScheme.primary
+              : colorScheme.onSurfaceVariant,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+        );
+      }),
+    ),
     inputDecorationTheme: InputDecorationTheme(
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.md),

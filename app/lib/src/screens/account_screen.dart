@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -52,26 +51,20 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           error: (error, stackTrace) =>
               AppErrorState(message: l10n.accountLoadFailed),
           data: (account) => ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.xl,
+            ),
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(LucideIcons.arrowLeft300),
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).backButtonTooltip,
-                    onPressed: () =>
-                        context.canPop() ? context.pop() : context.go('/lists'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
               Text(
                 l10n.accountTitle,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w700,
+                style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 42,
+                  fontWeight: FontWeight.w600,
+                  height: 1.02,
                 ),
               ),
               const SizedBox(height: AppSpacing.xl),

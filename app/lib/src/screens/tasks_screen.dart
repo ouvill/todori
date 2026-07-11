@@ -1290,6 +1290,7 @@ class _TaskSwipeActions extends StatelessWidget {
   Future<void> _showDueDateSheet(BuildContext context) async {
     final selection = await showModalBottomSheet<_DueDateSelection>(
       context: context,
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (context) => _DueDateSheet(task: task),
     );
@@ -1489,21 +1490,32 @@ class _HomeTasksHeader extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final today = formatHomeHeaderDate(locale, DateTime.now());
+    final showCompactBrand = MediaQuery.sizeOf(context).width < 720;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            IconButton(
-              icon: const Icon(LucideIcons.menu300),
-              tooltip: l10n.homeListMenuTooltip,
-              onPressed: () => context.push('/lists'),
-              style: IconButton.styleFrom(
-                backgroundColor: colorScheme.surface,
-                side: BorderSide(color: colorScheme.outlineVariant),
+            if (showCompactBrand)
+              Semantics(
+                image: true,
+                label: l10n.appTitle,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(11),
+                    child: Icon(
+                      LucideIcons.sprout300,
+                      size: 20,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ),
               ),
-            ),
             const Spacer(),
             ?listActionsMenu,
             sortMenu,

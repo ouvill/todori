@@ -229,6 +229,7 @@ class _QuickAddBarState extends State<QuickAddBar> {
   Future<void> _openSheet() async {
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       useSafeArea: true,
       barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
@@ -498,6 +499,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
   Future<void> _showDueOptions() async {
     final selection = await showModalBottomSheet<_TaskCreateDueSelection>(
       context: context,
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (context) => const _TaskCreateDueSheet(),
     );

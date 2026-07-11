@@ -98,41 +98,8 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
         AppSpacing.xl,
       ),
       children: [
-        Row(
-          children: [
-            IconButton(
-              icon: const Icon(LucideIcons.arrowLeft300),
-              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-              onPressed: () =>
-                  context.canPop() ? context.pop() : context.go('/'),
-            ),
-            const Spacer(),
-            PopupMenuButton<String>(
-              tooltip: l10n.listsMoreMenuTooltip,
-              icon: const Icon(LucideIcons.ellipsisVertical300),
-              onSelected: (value) {
-                if (value == 'account') {
-                  context.push('/account');
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'account',
-                  child: Row(
-                    children: [
-                      const Icon(LucideIcons.userCircle300),
-                      const SizedBox(width: AppSpacing.sm),
-                      Text(l10n.accountTitle),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
         Text(
-          l10n.appTitle,
+          l10n.listsTitle,
           style: theme.textTheme.displayMedium?.copyWith(
             color: colorScheme.onSurface,
             fontSize: 42,
@@ -150,23 +117,6 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _ListManagementRow(
-                icon: LucideIcons.house300,
-                color: colorScheme.primary,
-                title: l10n.homeTitle,
-                tooltip: l10n.homeSmartListTooltip,
-                onTap: () => context.go('/'),
-              ),
-              Divider(color: colorScheme.outlineVariant),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                ),
-                child: _SectionLabel(label: l10n.listsSectionTitle),
-              ),
               if (widget.lists.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.lg),
@@ -219,25 +169,6 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      label.toUpperCase(),
-      style: theme.textTheme.labelLarge?.copyWith(
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.8,
-      ),
     );
   }
 }
@@ -311,20 +242,18 @@ class _ListManagementRow extends StatelessWidget {
     required this.color,
     required this.title,
     required this.onTap,
-    this.tooltip,
   });
 
   final IconData icon;
   final Color color;
   final String title;
   final VoidCallback onTap;
-  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final row = InkWell(
+    return InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -360,14 +289,6 @@ class _ListManagementRow extends StatelessWidget {
           ],
         ),
       ),
-    );
-    final tooltip = this.tooltip;
-    if (tooltip == null) {
-      return row;
-    }
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(label: tooltip, button: true, child: row),
     );
   }
 }

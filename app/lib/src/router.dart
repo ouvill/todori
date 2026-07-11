@@ -5,6 +5,7 @@ import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
+import 'package:todori/src/ui/app_navigation_shell.dart';
 
 /// Centralizes all route definitions for the app in one place.
 ///
@@ -13,66 +14,139 @@ import 'package:todori/src/screens/tasks_screen.dart';
 /// second (higher-functionality) UI mode should mean adding new top-level
 /// routes/branches here, not scattering routing logic across screens.
 ///
-/// Route tree (Phase 1 "simple UI", F-02):
-///   /                                   -> [HomeScreen] (initial route)
-///   /account                            -> [AccountScreen]
-///   /lists                              -> [ListsScreen]
-///   /lists/:listId/tasks                -> [TasksScreen]
-///   /lists/:listId/tasks/:taskId        -> [TaskDetailScreen]
+/// Home, Lists, and Account live in a persistent product shell. List task
+/// screens stay in that shell; task detail becomes an immersive route and
+/// hides the global navigation.
 GoRouter buildAppRouter() {
   return GoRouter(
     initialLocation: '/',
     routes: [
-      GoRoute(
-        path: '/',
-        name: 'home',
-        builder: (context, state) => const HomeScreen(),
-      ),
-      GoRoute(
-        path: '/account',
-        name: 'account',
-        builder: (context, state) => const AccountScreen(),
-      ),
-      GoRoute(
-        path: '/lists',
-        name: 'lists',
-        pageBuilder: (context, state) => CustomTransitionPage<void>(
-          key: state.pageKey,
-          child: const ListsScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final curved = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
-            );
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(-1, 0),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            );
-          },
-        ),
+      ShellRoute(
+        builder: (context, state, child) => AppNavigationShell(child: child),
         routes: [
           GoRoute(
-            path: ':listId/tasks',
-            name: 'tasks',
-            builder: (context, state) =>
-                TasksScreen(listId: state.pathParameters['listId']!),
+            path: '/',
+            name: 'home',
+            pageBuilder: (context, state) =>
+                _topLevelPage(state: state, child: const HomeScreen()),
+          ),
+          GoRoute(
+            path: '/account',
+            name: 'account',
+            pageBuilder: (context, state) =>
+                _topLevelPage(state: state, child: const AccountScreen()),
+          ),
+          GoRoute(
+            path: '/lists',
+            name: 'lists',
+            pageBuilder: (context, state) =>
+                _topLevelPage(state: state, child: const ListsScreen()),
             routes: [
               GoRoute(
-                path: ':taskId',
-                name: 'taskDetail',
-                builder: (context, state) => TaskDetailScreen(
-                  listId: state.pathParameters['listId']!,
-                  taskId: state.pathParameters['taskId']!,
+                path: ':listId/tasks',
+                name: 'tasks',
+                pageBuilder: (context, state) => _listPage(
+                  state: state,
+                  child: TasksScreen(listId: state.pathParameters['listId']!),
                 ),
+                routes: [
+                  GoRoute(
+                    path: ':taskId',
+                    name: 'taskDetail',
+                    pageBuilder: (context, state) => _detailPage(
+                      state: state,
+                      child: TaskDetailScreen(
+                        listId: state.pathParameters['listId']!,
+                        taskId: state.pathParameters['taskId']!,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ],
       ),
     ],
+  );
+}
+
+CustomTransitionPage<void> _topLevelPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.018),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+CustomTransitionPage<void> _listPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 260),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.08, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: FadeTransition(opacity: curved, child: child),
+      );
+    },
+  );
+}
+
+CustomTransitionPage<void> _detailPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 240),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
+          alignment: Alignment.topCenter,
+          child: child,
+        ),
+      );
+    },
   );
 }

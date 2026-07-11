@@ -35,6 +35,8 @@ bool get _visualQaEnabled => Platform.environment[_visualQaEnvFlag] == '1';
 const _outputDir = 'build/visual_qa';
 const _mobileLogicalSize = Size(390, 844);
 const _mobileDevicePixelRatio = 3.0;
+const _wideLogicalSize = Size(1100, 760);
+const _wideDevicePixelRatio = 2.0;
 
 /// Downloaded (not committed) by `tool/fetch_lab_fonts.sh`; used only by the
 /// `design_lab_typo_d_ja_mincho_*` screenshots (D案). See
@@ -104,6 +106,22 @@ void main() {
       findsOneWidget,
     );
     await _screenshot(tester, 'home_tasks');
+  });
+
+  testWidgets('home_tasks_wide: responsive navigation rail', (tester) async {
+    _setWideViewport(tester);
+    await _seedRealisticData(tester);
+    await _screenshot(tester, 'home_tasks_wide');
+  });
+
+  testWidgets('lists_wide: list management with navigation rail', (
+    tester,
+  ) async {
+    _setWideViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'lists_wide');
   });
 
   testWidgets(
@@ -367,11 +385,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('More'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Account'));
+    await tester.tap(find.byTooltip('Account'));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'account_signed_out');
   });
@@ -872,6 +886,18 @@ void _setMobileViewport(WidgetTester tester) {
     _mobileLogicalSize.height * _mobileDevicePixelRatio,
   );
   tester.view.devicePixelRatio = _mobileDevicePixelRatio;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+}
+
+void _setWideViewport(WidgetTester tester) {
+  tester.view.physicalSize = Size(
+    _wideLogicalSize.width * _wideDevicePixelRatio,
+    _wideLogicalSize.height * _wideDevicePixelRatio,
+  );
+  tester.view.devicePixelRatio = _wideDevicePixelRatio;
   addTearDown(() {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
