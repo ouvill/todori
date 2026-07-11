@@ -612,7 +612,7 @@ class _RadicalAnimatedTaskTitleState extends State<_RadicalAnimatedTaskTitle>
     _controller =
         AnimationController(
           vsync: this,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 420),
         )..addStatusListener((status) {
           if (status == AnimationStatus.completed && mounted) {
             setState(() => _animatingStrike = false);
@@ -669,7 +669,9 @@ class _RadicalAnimatedTaskTitleState extends State<_RadicalAnimatedTaskTitle>
                   textScaler: MediaQuery.textScalerOf(context),
                   progress: reduceMotion || !_animatingStrike
                       ? 1
-                      : Curves.easeOutCubic.transform(_controller.value),
+                      : Curves.easeInOutCubic.transform(
+                          ((_controller.value - 0.25) / 0.75).clamp(0.0, 1.0),
+                        ),
                 ),
               ),
             ),
@@ -2816,7 +2818,7 @@ class _RadicalCheckState extends State<_RadicalCheck>
     super.initState();
     _haloController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 360),
+      duration: const Duration(milliseconds: 520),
     );
   }
 
@@ -2848,9 +2850,9 @@ class _RadicalCheckState extends State<_RadicalCheck>
       duration: reduceMotion
           ? Duration.zero
           : widget.isDone
-          ? const Duration(milliseconds: 250)
+          ? const Duration(milliseconds: 460)
           : const Duration(milliseconds: 150),
-      curve: widget.isDone ? Curves.easeOutBack : Curves.easeOutCubic,
+      curve: widget.isDone ? Curves.linear : Curves.easeOutCubic,
       builder: (context, progress, child) => CustomPaint(
         size: Size.square(widget.size),
         painter: _RadicalCheckPainter(progress: progress),
@@ -2914,6 +2916,9 @@ class _RadicalCheckPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final t = progress.clamp(0.0, 1.0);
+    final fillProgress = Curves.easeOutCubic.transform(
+      (t / 0.45).clamp(0.0, 1.0),
+    );
     final center = size.center(Offset.zero);
     final radius = (math.min(size.width, size.height) - 1) / 2;
     canvas.drawCircle(
@@ -2922,17 +2927,19 @@ class _RadicalCheckPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = _rGreen.withValues(alpha: 1 - (t * 0.42)),
+        ..color = _rGreen.withValues(alpha: 1 - (fillProgress * 0.42)),
     );
-    if (t <= 0) {
+    if (fillProgress <= 0) {
       return;
     }
     canvas.drawCircle(
       center,
-      radius * (0.78 + (t * 0.22)),
-      Paint()..color = _rCheckFill.withValues(alpha: t),
+      radius * (0.78 + (fillProgress * 0.22)),
+      Paint()..color = _rCheckFill.withValues(alpha: fillProgress),
     );
-    final checkProgress = ((t - 0.16) / 0.84).clamp(0.0, 1.0);
+    final checkProgress = Curves.easeInOutCubic.transform(
+      ((t - 0.28) / 0.72).clamp(0.0, 1.0),
+    );
     if (checkProgress <= 0) {
       return;
     }
@@ -2964,11 +2971,11 @@ class _RadicalCompletionHaloPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = progress.clamp(0.0, 1.0);
-    if (t <= 0) {
+    final raw = ((progress - 0.22) / 0.78).clamp(0.0, 1.0);
+    if (raw <= 0) {
       return;
     }
-    final travel = Curves.easeOutCubic.transform(t);
+    final travel = Curves.easeOutCubic.transform(raw);
     final baseRadius = math.min(size.width, size.height) / 2;
     canvas.drawCircle(
       size.center(Offset.zero),
@@ -2976,7 +2983,7 @@ class _RadicalCompletionHaloPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
-        ..color = _rCheckFill.withValues(alpha: 0.55 * (1 - t)),
+        ..color = _rCheckFill.withValues(alpha: 0.55 * (1 - raw)),
     );
   }
 

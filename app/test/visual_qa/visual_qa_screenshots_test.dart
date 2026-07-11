@@ -582,7 +582,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 220));
     await _screenshot(tester, 'design_lab_completion_midframe');
     await tester.pump(const Duration(milliseconds: 800));
     await tester.pumpAndSettle();
