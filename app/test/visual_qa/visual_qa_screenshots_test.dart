@@ -20,6 +20,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/ui/task_components.dart';
@@ -604,6 +605,13 @@ void main() {
       const DesignLabMockApp(mock: DesignLabMock.listTasks),
     );
     await _screenshot(tester, 'design_lab_list_tasks');
+    final menuPress = await tester.startGesture(
+      tester.getCenter(find.byIcon(LucideIcons.moreHorizontal300)),
+    );
+    await tester.pump(const Duration(milliseconds: 120));
+    await _screenshot(tester, 'design_lab_list_tasks_menu_press');
+    await menuPress.up();
+    await tester.pumpAndSettle();
     await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'design_lab_list_tasks_timer_reveal');

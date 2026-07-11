@@ -10,6 +10,7 @@ void main() {
   ) async {
     _setDesignLabViewport(tester);
     await tester.pumpWidget(const InteractiveDesignLabApp());
+    _expectIconCentered(tester, LucideIcons.search300);
     expect(find.text('Verify reduced motion'), findsOneWidget);
     expect(find.text('Completed'), findsOneWidget);
     expect(find.text('See the rest of the week'), findsNothing);
@@ -45,6 +46,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('MANUAL ORDER'), findsOneWidget);
     expect(find.text('Verify reduced motion'), findsOneWidget);
+    _expectIconCentered(tester, LucideIcons.arrowLeft300);
+    _expectIconCentered(tester, LucideIcons.moreHorizontal300);
 
     await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
     await tester.pumpAndSettle();
@@ -149,4 +152,14 @@ void _setDesignLabViewport(WidgetTester tester) {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+void _expectIconCentered(WidgetTester tester, IconData icon) {
+  final iconFinder = find.byIcon(icon).first;
+  final buttonFinder = find
+      .ancestor(of: iconFinder, matching: find.byType(IconButton))
+      .first;
+  final iconCenter = tester.getCenter(iconFinder);
+  final buttonCenter = tester.getCenter(buttonFinder);
+  expect((iconCenter - buttonCenter).distance, lessThan(0.01));
 }

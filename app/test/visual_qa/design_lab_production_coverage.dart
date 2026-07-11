@@ -115,30 +115,22 @@ class _CoverageRouteBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        IconButton(
+        _RadicalEdgeIconButton(
           onPressed: onBack ?? () {},
-          icon: const Icon(LucideIcons.arrowLeft300, size: 21),
+          icon: LucideIcons.arrowLeft300,
           color: _rInk,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerLeft,
-          ),
+          edge: _RadicalButtonEdge.leading,
         ),
         const Spacer(),
         if (trailing != null)
           trailing!
         else
-          IconButton(
+          _RadicalEdgeIconButton(
             key: moreKey,
             onPressed: onMore ?? () {},
-            icon: const Icon(LucideIcons.moreHorizontal300, size: 21),
+            icon: LucideIcons.moreHorizontal300,
             color: _rInk,
-            style: IconButton.styleFrom(
-              minimumSize: const Size.square(44),
-              padding: EdgeInsets.zero,
-              alignment: Alignment.centerRight,
-            ),
+            edge: _RadicalButtonEdge.trailing,
           ),
       ],
     );

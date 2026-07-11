@@ -111,14 +111,53 @@ class _RadicalSearchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    return _RadicalEdgeIconButton(
       onPressed: onSearch ?? () {},
-      icon: const Icon(LucideIcons.search300, size: 20),
+      icon: LucideIcons.search300,
+      iconSize: 20,
       color: _rInk,
-      style: IconButton.styleFrom(
-        minimumSize: const Size.square(44),
-        padding: EdgeInsets.zero,
-        alignment: Alignment.centerRight,
+      edge: _RadicalButtonEdge.trailing,
+    );
+  }
+}
+
+enum _RadicalButtonEdge { leading, trailing }
+
+class _RadicalEdgeIconButton extends StatelessWidget {
+  const _RadicalEdgeIconButton({
+    required this.onPressed,
+    required this.icon,
+    required this.color,
+    required this.edge,
+    this.iconSize = 21,
+    super.key,
+  });
+
+  final VoidCallback onPressed;
+  final IconData icon;
+  final Color color;
+  final _RadicalButtonEdge edge;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final textDirection = Directionality.of(context);
+    final isLeadingLeft = textDirection == TextDirection.ltr;
+    final moveLeft = edge == _RadicalButtonEdge.leading
+        ? isLeadingLeft
+        : !isLeadingLeft;
+    return Transform.translate(
+      offset: Offset(moveLeft ? -11.5 : 11.5, 0),
+      transformHitTests: true,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: iconSize),
+        color: color,
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(44),
+          padding: EdgeInsets.zero,
+          alignment: Alignment.center,
+        ),
       ),
     );
   }
@@ -646,26 +685,18 @@ class _RadicalRouteBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        IconButton(
+        _RadicalEdgeIconButton(
           onPressed: onBack ?? () {},
-          icon: const Icon(LucideIcons.arrowLeft300, size: 21),
+          icon: LucideIcons.arrowLeft300,
           color: _rInk,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerLeft,
-          ),
+          edge: _RadicalButtonEdge.leading,
         ),
         const Spacer(),
-        IconButton(
+        _RadicalEdgeIconButton(
           onPressed: onMore ?? () {},
-          icon: const Icon(LucideIcons.moreHorizontal300, size: 21),
+          icon: LucideIcons.moreHorizontal300,
           color: _rInk,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerRight,
-          ),
+          edge: _RadicalButtonEdge.trailing,
         ),
       ],
     );
@@ -1349,15 +1380,12 @@ class _RadicalSearchLine extends StatelessWidget {
         height: 55,
         child: Row(
           children: [
-            IconButton(
+            _RadicalEdgeIconButton(
               onPressed: onBack ?? () {},
-              icon: const Icon(LucideIcons.arrowLeft300, size: 20),
+              icon: LucideIcons.arrowLeft300,
+              iconSize: 20,
               color: _rInk,
-              style: IconButton.styleFrom(
-                minimumSize: const Size.square(44),
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerLeft,
-              ),
+              edge: _RadicalButtonEdge.leading,
             ),
             const Icon(LucideIcons.search300, size: 18, color: _rMuted),
             const SizedBox(width: 9),
@@ -1371,15 +1399,12 @@ class _RadicalSearchLine extends StatelessWidget {
                 ),
               ),
             ),
-            IconButton(
+            _RadicalEdgeIconButton(
               onPressed: () {},
-              icon: const Icon(LucideIcons.slidersHorizontal300, size: 18),
+              icon: LucideIcons.slidersHorizontal300,
+              iconSize: 18,
               color: _rInk,
-              style: IconButton.styleFrom(
-                minimumSize: const Size.square(44),
-                padding: EdgeInsets.zero,
-                alignment: Alignment.centerRight,
-              ),
+              edge: _RadicalButtonEdge.trailing,
             ),
           ],
         ),
@@ -2199,15 +2224,11 @@ class _RadicalFocusBar extends StatelessWidget {
     final muted = inverse ? _rNightMuted : _rMuted;
     return Row(
       children: [
-        IconButton(
+        _RadicalEdgeIconButton(
           onPressed: onClose ?? () {},
-          icon: const Icon(LucideIcons.x300, size: 21),
+          icon: LucideIcons.x300,
           color: color,
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            padding: EdgeInsets.zero,
-            alignment: Alignment.centerLeft,
-          ),
+          edge: _RadicalButtonEdge.leading,
         ),
         Expanded(
           child: Text(
