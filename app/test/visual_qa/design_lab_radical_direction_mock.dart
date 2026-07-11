@@ -48,18 +48,6 @@ class _RadicalBrandBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(LucideIcons.bird300, size: 18, color: _rGreen),
-        const SizedBox(width: 8),
-        const Text(
-          'TODORI',
-          style: TextStyle(
-            fontFamily: _directionSans,
-            color: _rGreen,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.8,
-          ),
-        ),
         const Spacer(),
         IconButton(
           onPressed: () {},
@@ -1655,11 +1643,11 @@ class _RadicalHorizon extends StatelessWidget {
             child: Container(width: 228, height: 2, color: _rSage),
           ),
           const Positioned(
-            left: 218,
-            top: 0,
+            left: 202,
+            top: -13,
             child: Column(
               children: [
-                Icon(LucideIcons.bird300, size: 20, color: _rSage),
+                _RadicalFlyingTsugumidori(),
                 SizedBox(height: 2),
                 DecoratedBox(
                   decoration: BoxDecoration(
@@ -1673,6 +1661,24 @@ class _RadicalHorizon extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RadicalFlyingTsugumidori extends StatelessWidget {
+  const _RadicalFlyingTsugumidori();
+
+  static const _asset =
+      'assets/brand/generated/todori-mascot-ui-sprites-v1.png';
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      _asset,
+      width: 44,
+      height: 42,
+      fit: BoxFit.cover,
+      alignment: Alignment.centerLeft,
     );
   }
 }

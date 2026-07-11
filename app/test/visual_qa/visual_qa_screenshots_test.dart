@@ -533,6 +533,7 @@ void main() {
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.focusTimer),
     );
+    await _precacheDesignLabMascot(tester);
     await _screenshot(tester, 'design_lab_focus_timer');
   });
 
@@ -942,6 +943,19 @@ void _useJaLocale(WidgetTester tester) {
 Future<void> _screenshot(WidgetTester tester, String name) async {
   await tester.pumpAndSettle();
   await _writeScreenshot(tester, name);
+}
+
+Future<void> _precacheDesignLabMascot(WidgetTester tester) async {
+  final context = tester.element(find.byType(MaterialApp));
+  await tester.runAsync(
+    () => precacheImage(
+      const AssetImage(
+        'assets/brand/generated/todori-mascot-ui-sprites-v1.png',
+      ),
+      context,
+    ),
+  );
+  await tester.pump();
 }
 
 Future<void> _screenshotCurrentFrame(WidgetTester tester, String name) async {
