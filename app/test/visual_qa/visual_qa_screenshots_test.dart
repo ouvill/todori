@@ -1250,6 +1250,12 @@ Future<void> _pumpFocusVisual(
       tester.getSize(find.byKey(const ValueKey('focus-screen'))),
       tester.view.physicalSize / tester.view.devicePixelRatio,
     );
+    // The paused key appears on the first rebuild, before the pressed-state
+    // ink and inherited theme repaint have necessarily completed. Capture a
+    // stable post-transition frame so batch Visual QA cannot retain a partial
+    // transparent surface from the preceding running case.
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
   }
 }
 
