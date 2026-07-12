@@ -1839,14 +1839,16 @@ impl TaskRepository for SqliteTaskRepository {
                  INNER JOIN lists ON lists.id = tasks.list_id
                  WHERE lists.archived_at IS NULL
                    AND (
-                       tasks.due_kind IS NOT NULL
-                       OR (
-                           tasks.scheduled_at >= ?1
-                           AND tasks.scheduled_at < ?2
+                       (
+                           tasks.status IN ('todo', 'in_progress')
+                           AND (
+                               tasks.due_kind IS NOT NULL
+                               OR (
+                                   tasks.scheduled_at >= ?1
+                                   AND tasks.scheduled_at < ?2
+                               )
+                           )
                        )
-                   )
-                   AND (
-                       tasks.status IN ('todo', 'in_progress')
                        OR (
                            tasks.status IN ('done', 'wont_do')
                            AND tasks.completed_at >= ?1
@@ -7439,6 +7441,7 @@ mod tests {
         )
         .unwrap();
         due_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
+        due_today.scheduled_at = Some(today_start + 500);
         let no_due_child = new_task(
             inbox.id,
             Some(due_today.id),
@@ -7534,7 +7537,6 @@ mod tests {
             today_start,
         )
         .unwrap();
-        closed_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         closed_today =
             transition_task(closed_today, TaskStatus::Done, None, today_start + 1_000).unwrap();
         let mut closed_yesterday = new_task(
@@ -7561,7 +7563,6 @@ mod tests {
             today_start,
         )
         .unwrap();
-        wont_do_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         wont_do_today = transition_task(
             wont_do_today,
             TaskStatus::WontDo,
@@ -7613,15 +7614,30 @@ mod tests {
                 "Overdue",
                 "Due today",
                 "Due child",
-                "Closed today",
-                "Wont do today",
                 "Tomorrow",
                 "Upcoming",
                 "No due child",
+                "Closed today",
+                "Wont do today",
                 "No due parent",
                 "Scheduled today"
             ]
         );
+        assert_eq!(
+            titles.iter().filter(|title| **title == "Due today").count(),
+            1,
+            "a dual due/scheduled target remains one Home row"
+        );
+        for title in ["Closed today", "Wont do today"] {
+            assert!(
+                home_tasks
+                    .iter()
+                    .find(|entry| entry.task.title == title)
+                    .unwrap()
+                    .is_home_target,
+                "today's completed achievement is independent of planning fields"
+            );
+        }
         assert!(
             home_tasks
                 .iter()
