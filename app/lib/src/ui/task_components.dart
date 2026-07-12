@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -25,8 +26,41 @@ const _taskCheckboxVisualSize = 22.0;
 const _taskCheckboxVisualCenterOffset = _taskCheckboxTapSize / 2;
 const _taskCheckboxVisualRadius = _taskCheckboxVisualSize / 2;
 const _taskHierarchyHorizontalEndGap = 4.0;
-const _taskCompletionParticlesKey = ValueKey('task-completion-particles');
+const _taskCompletionHaloKey = ValueKey('task-completion-halo');
 const _taskStrikethroughOverlayKey = ValueKey('task-strikethrough-overlay');
+
+typedef TaskCreateCallback =
+    Future<void> Function({
+      required String listId,
+      required String title,
+      required String note,
+      required TaskDueDto? due,
+    });
+
+Future<void> showTaskCreateSheet({
+  required BuildContext context,
+  required List<ListDto> listOptions,
+  required String initialListId,
+  required TaskDueDto? initialDue,
+  required String errorMessage,
+  required TaskCreateCallback onCreate,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    useSafeArea: true,
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
+    backgroundColor: Colors.transparent,
+    builder: (context) => TaskCreateSheet(
+      listOptions: listOptions,
+      initialListId: initialListId,
+      initialDue: initialDue,
+      errorMessage: errorMessage,
+      onCreate: onCreate,
+    ),
+  );
+}
 
 class TaskMetadataItem {
   const TaskMetadataItem({
@@ -83,14 +117,99 @@ class TaskMetadata extends StatelessWidget {
             semanticLabel: prioritySemanticLabel,
             isMuted: isPriorityMuted,
           ),
-        for (final item in items)
-          _MetadataPill(
-            icon: item.icon,
-            label: item.label,
-            semanticLabel: item.semanticLabel,
-            emphasisColor: item.emphasisColor,
-          ),
+        for (final item in items) _TaskMetadataLabel(item: item),
       ],
+    );
+  }
+}
+
+class _TaskMetadataLabel extends StatelessWidget {
+  const _TaskMetadataLabel({required this.item});
+
+  final TaskMetadataItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label = Text(
+      item.label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.labelMedium?.copyWith(
+        color: item.emphasisColor ?? theme.colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    return item.semanticLabel == null
+        ? label
+        : Semantics(label: item.semanticLabel, child: label);
+  }
+}
+
+class CircularCaptureAction extends StatelessWidget {
+  const CircularCaptureAction({
+    super.key,
+    required this.listOptions,
+    required this.initialListId,
+    required this.initialDue,
+    required this.errorMessage,
+    required this.onCreate,
+    this.size = 52,
+  });
+
+  final List<ListDto> listOptions;
+  final String? initialListId;
+  final TaskDueDto? initialDue;
+  final String errorMessage;
+  final TaskCreateCallback onCreate;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final enabled =
+        initialListId != null &&
+        listOptions.any((list) => list.id == initialListId);
+    return Tooltip(
+      message: l10n.quickAddOpenTooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: l10n.quickAddOpenSemantics,
+        child: Material(
+          color: enabled
+              ? colorScheme.primary
+              : colorScheme.surfaceContainerHighest,
+          elevation: 2,
+          shadowColor: colorScheme.shadow.withValues(alpha: 0.14),
+          shape: const CircleBorder(),
+          child: InkWell(
+            key: const ValueKey('quick-add-open'),
+            customBorder: const CircleBorder(),
+            onTap: !enabled
+                ? null
+                : () => showTaskCreateSheet(
+                    context: context,
+                    listOptions: listOptions,
+                    initialListId: initialListId!,
+                    initialDue: initialDue,
+                    errorMessage: errorMessage,
+                    onCreate: onCreate,
+                  ),
+            child: SizedBox.square(
+              dimension: size,
+              child: Icon(
+                LucideIcons.plus300,
+                size: 20,
+                color: enabled
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -124,82 +243,14 @@ class QuickAddBar extends StatefulWidget {
 class _QuickAddBarState extends State<QuickAddBar> {
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final viewInsets = MediaQuery.viewInsetsOf(context);
-    final enabled =
-        widget.initialListId != null &&
-        widget.listOptions.any((list) => list.id == widget.initialListId);
-    final iconOnly = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: viewInsets.bottom),
-      child: Tooltip(
-        message: l10n.quickAddOpenTooltip,
-        child: Semantics(
-          button: true,
-          enabled: enabled,
-          label: l10n.quickAddOpenSemantics,
-          child: Material(
-            color: enabled
-                ? colorScheme.primary
-                : colorScheme.surfaceContainerHighest,
-            elevation: 2,
-            shadowColor: colorScheme.shadow.withValues(alpha: 0.18),
-            borderRadius: BorderRadius.circular(999),
-            child: InkWell(
-              key: const ValueKey('quick-add-open'),
-              borderRadius: BorderRadius.circular(999),
-              onTap: enabled ? _openSheet : null,
-              child: Padding(
-                padding: iconOnly
-                    ? const EdgeInsets.all(14)
-                    : const EdgeInsetsDirectional.fromSTEB(16, 12, 18, 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      LucideIcons.plus300,
-                      size: 19,
-                      color: enabled
-                          ? colorScheme.onPrimary
-                          : colorScheme.onSurfaceVariant,
-                    ),
-                    if (!iconOnly) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        l10n.quickAddHint,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: enabled
-                              ? colorScheme.onPrimary
-                              : colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      useSafeArea: true,
-      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
-      backgroundColor: Colors.transparent,
-      builder: (context) => _TaskCreateSheet(
+      child: CircularCaptureAction(
         listOptions: widget.listOptions,
-        initialListId: widget.initialListId!,
+        initialListId: widget.initialListId,
         initialDue: widget.initialDue,
         errorMessage: widget.errorMessage,
         onCreate: widget.onCreate,
@@ -208,8 +259,9 @@ class _QuickAddBarState extends State<QuickAddBar> {
   }
 }
 
-class _TaskCreateSheet extends StatefulWidget {
-  const _TaskCreateSheet({
+class TaskCreateSheet extends StatefulWidget {
+  const TaskCreateSheet({
+    super.key,
     required this.listOptions,
     required this.initialListId,
     required this.initialDue,
@@ -230,10 +282,10 @@ class _TaskCreateSheet extends StatefulWidget {
   onCreate;
 
   @override
-  State<_TaskCreateSheet> createState() => _TaskCreateSheetState();
+  State<TaskCreateSheet> createState() => _TaskCreateSheetState();
 }
 
-class _TaskCreateSheetState extends State<_TaskCreateSheet> {
+class _TaskCreateSheetState extends State<TaskCreateSheet> {
   late String _selectedListId;
   late TaskDueDto? _due;
   final TextEditingController _titleController = TextEditingController();
@@ -319,23 +371,21 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: viewInsets.bottom),
-      child: SafeArea(
-        top: false,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border.all(
-              color: colorScheme.primary.withValues(alpha: 0.18),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+          border: Border.all(color: colorScheme.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.shadow.withValues(alpha: 0.10),
+              blurRadius: 24,
+              offset: const Offset(0, -8),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.12),
-                blurRadius: 28,
-                offset: const Offset(0, -12),
-              ),
-            ],
-          ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.sizeOf(context).height * 0.86,
@@ -763,74 +813,12 @@ class _TaskCreateDueSheet extends StatelessWidget {
 
 enum _TaskCreateDueSelection { today, tomorrow, pickDate, pickDateTime, clear }
 
-class _MetadataPill extends StatelessWidget {
-  const _MetadataPill({
-    required this.icon,
-    required this.label,
-    this.semanticLabel,
-    this.emphasisColor,
-  });
-
-  final IconData icon;
-  final String label;
-  final String? semanticLabel;
-  final Color? emphasisColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final tint = emphasisColor ?? colorScheme.primary;
-    final maxWidth = math.max(96.0, MediaQuery.sizeOf(context).width - 96);
-    final pill = ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: emphasisColor != null
-                ? emphasisColor!.withValues(alpha: 0.6)
-                : colorScheme.outlineVariant.withValues(alpha: 0.72),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(
-            AppSpacing.sm,
-            AppSpacing.xs,
-            AppSpacing.sm,
-            AppSpacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: tint),
-              const SizedBox(width: AppSpacing.xs),
-              Flexible(
-                child: Text(
-                  label,
-                  softWrap: true,
-                  style: theme.textTheme.labelMedium?.copyWith(color: tint),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (semanticLabel == null) {
-      return pill;
-    }
-    return Semantics(label: semanticLabel, child: pill);
-  }
-}
-
-/// Builds the metadata pills shown below a task title.
+/// Builds the compact metadata labels shown below a task title.
 ///
 /// Row/subtask-row usage (the default) intentionally omits status and
-/// priority pills: status is conveyed by the checkbox/strikethrough, and
-/// priority by the dot next to the title. Pass [includeStatus] for the task
-/// detail header, which keeps a short (unprefixed) status pill.
+/// priority labels: status is conveyed by the checkbox/strikethrough, and
+/// priority by the metadata dot. Pass [includeStatus] where status text is
+/// explicitly required.
 List<TaskMetadataItem> taskMetadataItemsFor({
   required AppLocalizations l10n,
   required String locale,
@@ -1058,7 +1046,7 @@ class AppHomeTaskRow extends StatelessWidget {
                   bottom: AppSpacing.xs,
                 ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     AppTaskCheckbox(
                       checkboxKey: checkboxKey,
@@ -1068,51 +1056,49 @@ class AppHomeTaskRow extends StatelessWidget {
                     ),
                     const SizedBox(width: AppSpacing.xs),
                     Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AppAnimatedTaskTitle(
-                            title,
-                            isDone: isDone,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              decoration: isDone
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                              color: isDone
-                                  ? colorScheme.onSurfaceVariant
-                                  : colorScheme.onSurface,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 13, bottom: 3),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppAnimatedTaskTitle(
+                              title,
+                              isDone: isDone,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                decoration: isDone
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                color: isDone
+                                    ? colorScheme.onSurfaceVariant
+                                    : colorScheme.onSurface,
+                              ),
                             ),
-                          ),
-                          if (parentTaskName != null) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            _HomeParentLabel(
-                              parentTaskName: parentTaskName!,
-                              semanticLabel: parentTaskSemanticLabel,
-                              isMuted: isDone,
-                            ),
-                          ] else if (listName.isNotEmpty) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            _HomeListLabel(listName: listName, isMuted: isDone),
+                            if (parentTaskName != null ||
+                                listName.isNotEmpty ||
+                                priority > 0 ||
+                                dueLabel != null) ...[
+                              const SizedBox(height: AppSpacing.xs),
+                              _HomeTaskMetadata(
+                                priority: priority,
+                                priorityDotKey: priorityDotKey,
+                                prioritySemanticLabel: prioritySemanticLabel,
+                                parentTaskName: parentTaskName,
+                                parentTaskSemanticLabel:
+                                    parentTaskSemanticLabel,
+                                listName: listName,
+                                dueLabel: dueLabel,
+                                dueSemanticLabel: dueSemanticLabel,
+                                dueTone: dueTone,
+                                isMuted: isDone,
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                    if (priority > 0 || dueLabel != null) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      _HomeTaskTrailingMetadata(
-                        priority: priority,
-                        priorityDotKey: priorityDotKey,
-                        prioritySemanticLabel: prioritySemanticLabel,
-                        isPriorityMuted: isDone,
-                        dueLabel: dueLabel,
-                        dueSemanticLabel: dueSemanticLabel,
-                        dueTone: dueTone,
-                        isDueMuted: isDone,
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -1124,186 +1110,92 @@ class AppHomeTaskRow extends StatelessWidget {
   }
 }
 
-class _HomeParentLabel extends StatelessWidget {
-  const _HomeParentLabel({
-    required this.parentTaskName,
-    required this.semanticLabel,
-    required this.isMuted,
-  });
-
-  final String parentTaskName;
-  final String? semanticLabel;
-  final bool isMuted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurfaceVariant.withValues(
-      alpha: isMuted ? 0.72 : 1,
-    );
-    final label = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(LucideIcons.gitBranch300, size: 14, color: color),
-        const SizedBox(width: AppSpacing.xs),
-        Flexible(
-          child: Text(
-            parentTaskName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(color: color),
-          ),
-        ),
-      ],
-    );
-    if (semanticLabel == null) {
-      return label;
-    }
-    return Semantics(container: true, label: semanticLabel, child: label);
-  }
-}
-
-class _HomeListLabel extends StatelessWidget {
-  const _HomeListLabel({required this.listName, required this.isMuted});
-
-  final String listName;
-  final bool isMuted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurfaceVariant.withValues(
-      alpha: isMuted ? 0.72 : 1,
-    );
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(LucideIcons.listTodo300, size: 14, color: color),
-        const SizedBox(width: AppSpacing.xs),
-        Flexible(
-          child: Text(
-            listName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelMedium?.copyWith(color: color),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HomeTaskTrailingMetadata extends StatelessWidget {
-  const _HomeTaskTrailingMetadata({
+class _HomeTaskMetadata extends StatelessWidget {
+  const _HomeTaskMetadata({
     required this.priority,
-    required this.isPriorityMuted,
+    required this.parentTaskName,
+    required this.parentTaskSemanticLabel,
+    required this.listName,
     required this.dueLabel,
     required this.dueTone,
-    required this.isDueMuted,
+    required this.isMuted,
     this.priorityDotKey,
     this.prioritySemanticLabel,
     this.dueSemanticLabel,
   });
 
   final int priority;
-  final bool isPriorityMuted;
+  final String? parentTaskName;
+  final String? parentTaskSemanticLabel;
+  final String listName;
   final String? dueLabel;
   final HomeDueDateTone dueTone;
-  final bool isDueMuted;
+  final bool isMuted;
   final Key? priorityDotKey;
   final String? prioritySemanticLabel;
   final String? dueSemanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 132),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          if (priority > 0) ...[
-            PriorityDot(
-              key: priorityDotKey,
-              priority: priority,
-              semanticLabel: prioritySemanticLabel,
-              isMuted: isPriorityMuted,
-            ),
-            const SizedBox(width: AppSpacing.xs),
-          ],
-          if (dueLabel != null)
-            Flexible(
-              child: _HomeDueDatePill(
-                label: dueLabel!,
-                semanticLabel: dueSemanticLabel,
-                tone: dueTone,
-                isMuted: isDueMuted,
+    final theme = Theme.of(context);
+    final defaultColor = theme.colorScheme.onSurfaceVariant.withValues(
+      alpha: isMuted ? 0.78 : 1,
+    );
+    final contextLabel = parentTaskName ?? (listName.isEmpty ? null : listName);
+    final contextSemantics = parentTaskName == null
+        ? null
+        : parentTaskSemanticLabel;
+    final dueColor = isMuted
+        ? defaultColor
+        : switch (dueTone) {
+            HomeDueDateTone.overdue => _priorityHighCoral,
+            _ => defaultColor,
+          };
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: 2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (priority > 0)
+          PriorityDot(
+            key: priorityDotKey,
+            priority: priority,
+            semanticLabel: prioritySemanticLabel,
+            isMuted: isMuted,
+          ),
+        if (contextLabel != null)
+          Semantics(
+            label: contextSemantics,
+            child: Text(
+              contextLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: defaultColor,
+                fontWeight: FontWeight.w500,
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HomeDueDatePill extends StatelessWidget {
-  const _HomeDueDatePill({
-    required this.label,
-    required this.tone,
-    required this.isMuted,
-    this.semanticLabel,
-  });
-
-  final String label;
-  final HomeDueDateTone tone;
-  final bool isMuted;
-  final String? semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final (background, foreground) = isMuted
-        ? (
-            colorScheme.onSurfaceVariant.withValues(alpha: 0.10),
-            colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
-          )
-        : switch (tone) {
-            HomeDueDateTone.overdue => (
-              _priorityHighCoral.withValues(alpha: 0.14),
-              _priorityHighCoral,
-            ),
-            HomeDueDateTone.today => (
-              _priorityLowSoftSage.withValues(alpha: 0.26),
-              colorScheme.primary,
-            ),
-            HomeDueDateTone.future => (
-              _priorityMediumAmber.withValues(alpha: 0.18),
-              _priorityMediumAmber,
-            ),
-          };
-    final pill = DecoratedBox(
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsetsDirectional.fromSTEB(7, 2, 7, 2),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: foreground,
-            fontWeight: FontWeight.w600,
           ),
-        ),
-      ),
+        if (contextLabel != null && dueLabel != null)
+          Text(
+            '·',
+            style: theme.textTheme.labelMedium?.copyWith(color: defaultColor),
+          ),
+        if (dueLabel != null)
+          Semantics(
+            label: dueSemanticLabel,
+            child: Text(
+              dueLabel!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: dueColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+      ],
     );
-    if (semanticLabel == null) {
-      return pill;
-    }
-    return Semantics(label: semanticLabel, child: pill);
   }
 }
 
@@ -1356,21 +1248,8 @@ class AppTaskRow extends StatelessWidget {
     final effectiveDepth = math.min(depth, 4);
 
     return Material(
-      color: !framed
-          ? Colors.transparent
-          : isDone
-          ? colorScheme.surface.withValues(alpha: 0.72)
-          : colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: framed
-            ? BorderSide(
-                color: isDone
-                    ? colorScheme.outlineVariant.withValues(alpha: 0.7)
-                    : colorScheme.outlineVariant,
-              )
-            : BorderSide.none,
-      ),
+      color: Colors.transparent,
+      shape: const RoundedRectangleBorder(),
       child: Stack(
         children: [
           if (effectiveDepth > 0)
@@ -1391,7 +1270,6 @@ class AppTaskRow extends StatelessWidget {
             button: true,
             label: semanticLabel,
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
               onTap: onTap,
               child: Padding(
                 padding: EdgeInsetsDirectional.only(
@@ -1403,7 +1281,7 @@ class AppTaskRow extends StatelessWidget {
                   bottom: AppSpacing.xs,
                 ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     AppTaskCheckbox(
                       checkboxKey: checkboxKey,
@@ -1413,50 +1291,54 @@ class AppTaskRow extends StatelessWidget {
                     ),
                     const SizedBox(width: AppSpacing.xs),
                     Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: AppAnimatedTaskTitle(
-                                  title,
-                                  isDone: isDone,
-                                  softWrap: true,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    decoration: isDone
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                    color: isDone
-                                        ? colorScheme.onSurfaceVariant
-                                        : colorScheme.onSurface,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 13, bottom: 3),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: AppAnimatedTaskTitle(
+                                    title,
+                                    isDone: isDone,
+                                    softWrap: true,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          decoration: isDone
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                          color: isDone
+                                              ? colorScheme.onSurfaceVariant
+                                              : colorScheme.onSurface,
+                                        ),
                                   ),
                                 ),
+                              ],
+                            ),
+                            if (metadata.isNotEmpty) ...[
+                              const SizedBox(height: AppSpacing.xs),
+                              TaskMetadata(
+                                items: metadata,
+                                priority: priority,
+                                priorityDotKey: priorityDotKey,
+                                prioritySemanticLabel: prioritySemanticLabel,
+                                isPriorityMuted: isDone,
+                              ),
+                            ] else if (priority > 0) ...[
+                              const SizedBox(height: AppSpacing.xs),
+                              TaskMetadata(
+                                items: const [],
+                                priority: priority,
+                                priorityDotKey: priorityDotKey,
+                                prioritySemanticLabel: prioritySemanticLabel,
+                                isPriorityMuted: isDone,
                               ),
                             ],
-                          ),
-                          if (metadata.isNotEmpty) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            TaskMetadata(
-                              items: metadata,
-                              priority: priority,
-                              priorityDotKey: priorityDotKey,
-                              prioritySemanticLabel: prioritySemanticLabel,
-                              isPriorityMuted: isDone,
-                            ),
-                          ] else if (priority > 0) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            TaskMetadata(
-                              items: const [],
-                              priority: priority,
-                              priorityDotKey: priorityDotKey,
-                              prioritySemanticLabel: prioritySemanticLabel,
-                              isPriorityMuted: isDone,
-                            ),
                           ],
-                        ],
+                        ),
                       ),
                     ),
                     if (trailing != null) ...[
@@ -1615,15 +1497,21 @@ class AppTaskCheckbox extends StatefulWidget {
 }
 
 class _AppTaskCheckboxState extends State<AppTaskCheckbox>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _particlesController;
+    with TickerProviderStateMixin {
+  late final AnimationController _completionController;
+  late final AnimationController _pressController;
 
   @override
   void initState() {
     super.initState();
-    _particlesController = AnimationController(
+    _completionController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 520),
+      value: widget.isDone ? 1 : 0,
+    );
+    _pressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 90),
     );
   }
 
@@ -1633,16 +1521,20 @@ class _AppTaskCheckboxState extends State<AppTaskCheckbox>
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     if (!oldWidget.isDone && widget.isDone && !reduceMotion) {
-      _particlesController.forward(from: 0);
+      _completionController.forward(from: 0);
     } else if (oldWidget.isDone && !widget.isDone) {
-      _particlesController.stop();
-      _particlesController.value = 0;
+      _completionController
+        ..stop()
+        ..value = 0;
+    } else if (reduceMotion) {
+      _completionController.value = widget.isDone ? 1 : 0;
     }
   }
 
   @override
   void dispose() {
-    _particlesController.dispose();
+    _completionController.dispose();
+    _pressController.dispose();
     super.dispose();
   }
 
@@ -1650,20 +1542,25 @@ class _AppTaskCheckboxState extends State<AppTaskCheckbox>
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final mark = TweenAnimationBuilder<double>(
+    final mark = AnimatedBuilder(
       key: ValueKey('task-checkbox-animation-${widget.checkboxKey}'),
-      tween: Tween<double>(end: widget.isDone ? 1 : 0),
-      duration: reduceMotion
-          ? Duration.zero
-          : widget.isDone
-          ? const Duration(milliseconds: 250)
-          : const Duration(milliseconds: 150),
-      curve: widget.isDone ? Curves.easeOutBack : Curves.easeOutCubic,
-      builder: (context, progress, child) {
+      animation: Listenable.merge([_completionController, _pressController]),
+      builder: (context, child) {
+        final timeline = widget.isDone
+            ? (reduceMotion ? 1.0 : _completionController.value)
+            : 0.0;
+        final fillProgress = Curves.easeOutCubic.transform(
+          (timeline / (200 / 520)).clamp(0.0, 1.0),
+        );
+        final checkProgress = Curves.easeOutCubic.transform(
+          ((timeline - (130 / 520)) / (330 / 520)).clamp(0.0, 1.0),
+        );
         return CustomPaint(
           size: const Size.square(_taskCheckboxVisualSize),
           painter: _TaskCheckboxPainter(
-            progress: progress,
+            fillProgress: fillProgress,
+            checkProgress: checkProgress,
+            pressProgress: _pressController.value,
             checkedColor: colorScheme.primary,
             ringColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.68),
           ),
@@ -1677,20 +1574,20 @@ class _AppTaskCheckboxState extends State<AppTaskCheckbox>
       child: widget.onToggleDone == null
           ? _TaskCheckboxVisual(
               mark: mark,
-              particles: reduceMotion
+              halo: reduceMotion
                   ? null
-                  : _CompletionParticles(animation: _particlesController),
+                  : _CompletionHalo(animation: _completionController),
             )
           : InkResponse(
-              onTap: widget.onToggleDone,
+              onTap: _handleTap,
               radius: _taskCheckboxTapSize / 2,
               containedInkWell: true,
               customBorder: const CircleBorder(),
               child: _TaskCheckboxVisual(
                 mark: mark,
-                particles: reduceMotion
+                halo: reduceMotion
                     ? null
-                    : _CompletionParticles(animation: _particlesController),
+                    : _CompletionHalo(animation: _completionController),
               ),
             ),
     );
@@ -1707,20 +1604,35 @@ class _AppTaskCheckboxState extends State<AppTaskCheckbox>
     }
     return Tooltip(message: label, child: semanticControl);
   }
+
+  void _handleTap() {
+    if (widget.onToggleDone == null) {
+      return;
+    }
+    _pressController.forward(from: 0).then((_) {
+      if (mounted) {
+        _pressController.reverse();
+      }
+    });
+    if (!widget.isDone && !MediaQuery.disableAnimationsOf(context)) {
+      unawaited(HapticFeedback.lightImpact());
+    }
+    widget.onToggleDone!();
+  }
 }
 
 class _TaskCheckboxVisual extends StatelessWidget {
-  const _TaskCheckboxVisual({required this.mark, required this.particles});
+  const _TaskCheckboxVisual({required this.mark, required this.halo});
 
   final Widget mark;
-  final Widget? particles;
+  final Widget? halo;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        if (particles != null) Positioned.fill(child: particles!),
+        if (halo != null) Positioned.fill(child: halo!),
         Center(child: mark),
       ],
     );
@@ -1729,74 +1641,81 @@ class _TaskCheckboxVisual extends StatelessWidget {
 
 class _TaskCheckboxPainter extends CustomPainter {
   const _TaskCheckboxPainter({
-    required this.progress,
+    required this.fillProgress,
+    required this.checkProgress,
+    required this.pressProgress,
     required this.checkedColor,
     required this.ringColor,
   });
 
-  final double progress;
+  final double fillProgress;
+  final double checkProgress;
+  final double pressProgress;
   final Color checkedColor;
   final Color ringColor;
 
-  static const double _strokeWidth = 1.5;
+  static const double _ringStrokeWidth = 1;
+  static const double _checkStrokeWidth = 1.4;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final clampedProgress = progress.clamp(0.0, 1.0);
+    final clampedFill = fillProgress.clamp(0.0, 1.0);
+    final clampedCheck = checkProgress.clamp(0.0, 1.0);
     final center = size.center(Offset.zero);
-    final radius = (math.min(size.width, size.height) - _strokeWidth) / 2;
+    final radius = (math.min(size.width, size.height) - _ringStrokeWidth) / 2;
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = _strokeWidth
+      ..strokeWidth = _ringStrokeWidth + (pressProgress * 0.35)
       ..strokeCap = StrokeCap.round
-      ..color = ringColor.withValues(alpha: 1 - (clampedProgress * 0.42));
+      ..color = ringColor.withValues(alpha: 1 - (clampedFill * 0.42));
     canvas.drawCircle(center, radius, ringPaint);
 
-    if (progress <= 0) {
+    if (clampedFill <= 0) {
       return;
     }
 
-    final fillScale = (0.78 + (progress * 0.22)).clamp(0.0, 1.08);
+    final fillScale = (0.82 + (clampedFill * 0.18)).clamp(0.0, 1.0);
     final fillPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = checkedColor.withValues(alpha: clampedProgress);
+      ..color = checkedColor.withValues(alpha: clampedFill);
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.scale(fillScale);
     canvas.drawCircle(Offset.zero, radius, fillPaint);
     canvas.restore();
 
-    final checkProgress = ((progress - 0.16) / 0.84).clamp(0.0, 1.0);
-    if (checkProgress <= 0) {
+    if (clampedCheck <= 0) {
       return;
     }
     final checkPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
+      ..strokeWidth = _checkStrokeWidth
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..color = Colors.white.withValues(alpha: checkProgress);
+      ..color = Colors.white.withValues(alpha: clampedCheck);
     final path = Path()
       ..moveTo(size.width * 0.29, size.height * 0.52)
       ..lineTo(size.width * 0.44, size.height * 0.67)
       ..lineTo(size.width * 0.73, size.height * 0.35);
     final metric = path.computeMetrics().single;
     canvas.drawPath(
-      metric.extractPath(0, metric.length * checkProgress),
+      metric.extractPath(0, metric.length * clampedCheck),
       checkPaint,
     );
   }
 
   @override
   bool shouldRepaint(covariant _TaskCheckboxPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
+    return oldDelegate.fillProgress != fillProgress ||
+        oldDelegate.checkProgress != checkProgress ||
+        oldDelegate.pressProgress != pressProgress ||
         oldDelegate.checkedColor != checkedColor ||
         oldDelegate.ringColor != ringColor;
   }
 }
 
-class _CompletionParticles extends StatelessWidget {
-  const _CompletionParticles({required this.animation});
+class _CompletionHalo extends StatelessWidget {
+  const _CompletionHalo({required this.animation});
 
   final Animation<double> animation;
 
@@ -1805,23 +1724,14 @@ class _CompletionParticles extends StatelessWidget {
     return AnimatedBuilder(
       animation: animation,
       builder: (context, child) {
-        if (animation.value == 0) {
+        if (animation.value == 0 || animation.value == 1) {
           return const SizedBox.shrink();
         }
         return CustomPaint(
-          key: _taskCompletionParticlesKey,
-          painter: _CompletionParticlesPainter(
+          key: _taskCompletionHaloKey,
+          painter: _CompletionHaloPainter(
             progress: animation.value,
-            colors: const [
-              _priorityHighCoral,
-              _priorityMediumAmber,
-              _priorityLowSoftSage,
-              _priorityHighCoral,
-              _priorityLowSoftSage,
-              _priorityMediumAmber,
-              _priorityHighCoral,
-              _priorityLowSoftSage,
-            ],
+            color: Theme.of(context).colorScheme.primary,
           ),
         );
       },
@@ -1829,51 +1739,31 @@ class _CompletionParticles extends StatelessWidget {
   }
 }
 
-class _CompletionParticlesPainter extends CustomPainter {
-  const _CompletionParticlesPainter({
-    required this.progress,
-    required this.colors,
-  });
+class _CompletionHaloPainter extends CustomPainter {
+  const _CompletionHaloPainter({required this.progress, required this.color});
 
   final double progress;
-  final List<Color> colors;
-
-  static const List<double> _angles = [
-    -2.55,
-    -1.95,
-    -1.18,
-    -0.48,
-    0.16,
-    0.78,
-    1.46,
-    2.28,
-  ];
-  static const List<double> _radii = [18, 21, 24, 22, 20, 24, 19, 17];
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = progress.clamp(0.0, 1.0);
-    if (t <= 0) {
+    final raw = ((progress - 0.22) / 0.78).clamp(0.0, 1.0);
+    if (raw <= 0) {
       return;
     }
-    final travel = Curves.easeOutCubic.transform(t);
-    final opacity = 1 - Curves.easeInCubic.transform(t);
+    final travel = Curves.easeOutCubic.transform(raw);
+    final opacity = (1 - Curves.easeInCubic.transform(raw)) * 0.42;
     final origin = size.center(Offset.zero);
-    for (var i = 0; i < _angles.length; i += 1) {
-      final angle = _angles[i];
-      final radius = _radii[i] * travel;
-      final offset = Offset(math.cos(angle), math.sin(angle)) * radius;
-      final particleRadius = 1.45 + (1.1 * (1 - t));
-      final paint = Paint()
-        ..style = PaintingStyle.fill
-        ..color = colors[i % colors.length].withValues(alpha: opacity);
-      canvas.drawCircle(origin + offset, particleRadius, paint);
-    }
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = color.withValues(alpha: opacity);
+    canvas.drawCircle(origin, 11 + (10 * travel), paint);
   }
 
   @override
-  bool shouldRepaint(covariant _CompletionParticlesPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.colors != colors;
+  bool shouldRepaint(covariant _CompletionHaloPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }
 
@@ -1914,7 +1804,7 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
     _controller =
         AnimationController(
           vsync: this,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 460),
         )..addStatusListener((status) {
           if (status == AnimationStatus.completed && mounted) {
             setState(() => _drawingAnimatedStrike = false);
@@ -1980,7 +1870,12 @@ class _AppAnimatedTaskTitleState extends State<AppAnimatedTaskTitle>
               animation: _controller,
               builder: (context, child) {
                 final strikeProgress = drawAnimatedStrike
-                    ? Curves.easeOutCubic.transform(_controller.value)
+                    ? Curves.easeOutCubic.transform(
+                        ((_controller.value - (130 / 460)) / (330 / 460)).clamp(
+                          0.0,
+                          1.0,
+                        ),
+                      )
                     : 1.0;
                 return CustomPaint(
                   painter: _AnimatedStrikethroughPainter(

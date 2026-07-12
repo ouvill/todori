@@ -984,7 +984,7 @@ class _TasksBodyState extends State<_TasksBody> {
     });
     _pendingHomeCompletionTimers[task.id]?.cancel();
     _pendingHomeCompletionTimers[task.id] = Timer(
-      const Duration(milliseconds: 800),
+      const Duration(milliseconds: 500),
       () {
         if (!mounted || !_pendingHomeCompletions.containsKey(task.id)) {
           return;
@@ -1003,7 +1003,7 @@ class _TasksBodyState extends State<_TasksBody> {
         });
         _pendingHomeCompletionTimers[task.id]?.cancel();
         _pendingHomeCompletionTimers[task.id] = Timer(
-          const Duration(milliseconds: 200),
+          const Duration(milliseconds: 420),
           () => _cancelPendingHomeCompletion(task.id),
         );
       },
@@ -1079,7 +1079,7 @@ class _TasksBodyState extends State<_TasksBody> {
     FlattenedTaskTreeNode node,
     List<TaskDto> reorderScope, {
     required bool isCompletedSection,
-    bool framed = true,
+    bool framed = false,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final task = node.task;
@@ -1144,7 +1144,7 @@ class _TasksBodyState extends State<_TasksBody> {
           listName: widget.isTodaySmartView
               ? widget.homeListNameByTaskId[task.id]
               : null,
-        ),
+        ).take(2).toList(growable: false),
         framed: framed,
         onToggleDone: isTaskClosed(task)
             ? () => widget.onReopenTask(task)
@@ -1504,7 +1504,7 @@ class _TaskRowsSliver extends StatelessWidget {
       itemCount: nodes.length * 2 - 1,
       itemBuilder: (context, index) {
         if (index.isOdd) {
-          return SizedBox(height: separatorHeight);
+          return SizedBox(height: separatorHeight / 2);
         }
         return rowBuilder(context, nodes[index ~/ 2]);
       },
@@ -1558,11 +1558,11 @@ class _HomeTasksHeader extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     l10n.homeTitle,
-                    style: theme.textTheme.displayMedium?.copyWith(
+                    style: theme.textTheme.headlineMedium?.copyWith(
                       color: colorScheme.onSurface,
-                      fontSize: 34,
-                      fontWeight: FontWeight.w600,
-                      height: 1,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.6,
+                      height: 1.05,
                     ),
                   ),
                 ],
@@ -1589,50 +1589,40 @@ class _HomeClearState extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Icon(
-                  LucideIcons.sprout300,
-                  size: 24,
-                  color: colorScheme.primary,
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 28, 4, 30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                LucideIcons.sprout300,
+                size: 24,
+                color: colorScheme.primary,
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              l10n.homeClearTitle,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontFamily: 'Newsreader',
-                fontFamilyFallback:
-                    theme.textTheme.displayMedium?.fontFamilyFallback,
-                fontWeight: FontWeight.w600,
-              ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            l10n.homeClearTitle,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              l10n.homeClearBody,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            l10n.homeClearBody,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1729,14 +1719,20 @@ class _PendingHomeCompletionExit extends StatelessWidget {
           ? const ValueKey('home-pending-completion-exit')
           : ValueKey('home-pending-completion-exit-$taskId'),
       tween: Tween<double>(begin: 1, end: 0),
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeInOutCubic,
       builder: (context, value, child) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 4 * (1 - value)),
-            child: child,
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: value,
+            child: Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, -4 * (1 - value)),
+                child: child,
+              ),
+            ),
           ),
         );
       },
@@ -1775,7 +1771,7 @@ class _HomeSectionsPanelSliver extends StatelessWidget {
             rowBuilder: rowBuilder,
           ),
           if (index < sections.length - 1)
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
         ],
       ],
     );
@@ -1813,12 +1809,12 @@ class _HomeSectionSliver extends StatelessWidget {
         ),
         if (isExpanded && data.rows.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
             sliver: SliverList.builder(
               itemCount: data.rows.length * 2 - 1,
               itemBuilder: (context, index) {
                 if (index.isOdd) {
-                  return const SizedBox(height: AppSpacing.xs);
+                  return const SizedBox(height: 2);
                 }
                 return rowBuilder(context, data.rows[index ~/ 2], data.kind);
               },
@@ -1875,15 +1871,16 @@ class _HomeSectionHeader extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: theme.textTheme.titleMedium?.copyWith(
+                    style: theme.textTheme.labelLarge?.copyWith(
                       color: data.kind == _HomeSectionKind.overdue
                           ? const Color(0xFFE8755A)
                           : colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ),
-                _HomeCountBadge(
+                _HomeCountLabel(
                   key: ValueKey('home-section-count-${data.kind.name}'),
                   count: data.count,
                 ),
@@ -1910,8 +1907,8 @@ class _HomeSectionHeader extends StatelessWidget {
   }
 }
 
-class _HomeCountBadge extends StatelessWidget {
-  const _HomeCountBadge({super.key, required this.count});
+class _HomeCountLabel extends StatelessWidget {
+  const _HomeCountLabel({super.key, required this.count});
 
   final int count;
 
@@ -1919,21 +1916,13 @@ class _HomeCountBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Text(
-          '$count',
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Text(
+        '$count',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -2061,13 +2050,14 @@ class _CompletedSectionHeader extends StatelessWidget {
                   Expanded(
                     child: Text(
                       l10n.completedTasksTitle,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w700,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.35,
                       ),
                     ),
                   ),
-                  _HomeCountBadge(
+                  _HomeCountLabel(
                     key: const ValueKey('completed-section-count'),
                     count: count,
                   ),
