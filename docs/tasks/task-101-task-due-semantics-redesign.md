@@ -119,11 +119,12 @@ ADR-017は、期限を`未設定 / 日付のみ / 日時指定`の排他的なta
 - 互換性: v16の空DBだけをv17へ移行する。taskを持つv16 profileは値を推測せずopenを停止してprofile再作成を要求し、旧sync payloadもprotocol / envelope version gateで停止する。互換layer、dual read/write、midnight推測はない。
 - 再作成手順: アプリを終了し、開発端末のApplication Support配下にある`todori-db` profile directoryを削除して再起動する。local server dataは`docker rm -f todori-dev-postgres`後に`tool/dev_server.sh`で再作成する。本番データには適用しない。
 - 証拠: `due_values_validate_and_roundtrip_as_tagged_union`、`v16_empty_database_migrates_to_typed_due_and_rejects_mixed_shape`、`v16_profile_with_ambiguous_due_data_requires_recreation`、`due_mode_switch_merges_as_one_atomic_field`、`production_two_client_distinct_fields_and_due_mode_conflict_converge`、`task_due_test.dart`、`create sheet stores an exact deadline with IANA time zone`が成功した。server経由2-client testではAのDateとBのDateTime競合後にBの後発値へ両local DBが収束した。
+- iOS Simulator: iPhone 17 / iOS 26.5へ`flutter run --debug`でbuild・install・launchした。残存v16 profileは`replace_task_due_semantics`が設計どおり再作成要求で停止し、Simulator上のTodoriをuninstallして再install後、fresh v17 profileでnative core初期化エラーなくオンボーディングを描画し、Application Support配下へ`todori-db/todori.db`が作成された。Simulator操作を自動化するintegration test / IDB / Maestro基盤は未導入のため、これは起動・migration・fresh profileのsmoke testである。
 - Visual QA: `sh app/tool/visual_qa.sh`は57 test成功、63 PNGを全件目視した。`task_due_mode_sheet.png`とforeign IANA zoneを含むHome fixtureで、日付のみ / 日時指定、期限切れ、狭幅、日本語、dark、text scale 2.0に描画異常なし。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker統合testを含む`cargo test --workspace`、`flutter analyze`、release Rust build後の`flutter test`（143成功、visual QA harness 1件は通常実行でskip）、hardcoded strings、client boundaries、`git diff --check`が成功した。
 - FRB: `TaskDueInput` / `TaskDueDto`を`Date { dueOn }` / `DateTime { dueAt: DateTime, timeZone }`のFreezed sealed unionとして`flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`で生成した。`kind: String`、nullable product shape、`dueAtMs`はDart期限APIに存在しない。
 - Commit: `fe551af`（`feat(tasks): separate date and datetime deadlines`）。
-- 未解決: 実端末2台でのprofile再作成後同期確認は未実施。コード検証はserver経由2-client期限競合と両local DB収束testで代替した。
+- 未解決: 実端末2台でのprofile再作成後同期確認は未実施。iOS Simulator fresh profile smoke testと、server経由2-client期限競合・両local DB収束testで自動化可能範囲を確認した。
 
 ### 独立検証
 
