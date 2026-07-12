@@ -73,16 +73,6 @@ class TasksScreen extends ConsumerWidget {
     final archivedLists = archivedListsAsync.value;
     final currentList =
         _findList(listId, activeLists) ?? _findList(listId, archivedLists);
-    final defaultList = activeLists == null
-        ? null
-        : _findDefaultList(activeLists);
-    final createListOptions = _mergeListOptions(activeLists, archivedLists);
-    final createInitialListId = isTodaySmartView
-        ? defaultList?.id
-        : currentList?.id;
-    final createInitialDue = isTodaySmartView
-        ? dateOnlyDue(DateTime.now())
-        : null;
     final isDefaultInbox =
         currentList?.archivedAt == null && currentList?.isDefault == true;
 
@@ -152,41 +142,7 @@ class TasksScreen extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: QuickAddBar(
-        listOptions: createListOptions,
-        initialListId: createInitialListId,
-        initialDue: createInitialDue,
-        errorMessage: l10n.quickAddCreateError,
-        onCreate:
-            ({required listId, required title, required note, required due}) =>
-                _createTask(
-                  ref,
-                  listId: listId,
-                  title: title,
-                  note: note,
-                  due: due,
-                ),
-      ),
     );
-  }
-
-  Future<void> _createTask(
-    WidgetRef ref, {
-    required String listId,
-    required String title,
-    required String note,
-    required TaskDueDto? due,
-  }) async {
-    if (isTodaySmartView) {
-      await ref
-          .read(homeTasksProvider.notifier)
-          .createTask(listId: listId, title: title, note: note, due: due);
-      return;
-    }
-    await ref
-        .read(tasksProvider(listId).notifier)
-        .createTask(title, note: note, due: due);
   }
 
   Future<bool> _completeTask(
@@ -2162,29 +2118,6 @@ ListDto? _findList(String listId, List<ListDto>? lists) {
     }
   }
   return null;
-}
-
-ListDto? _findDefaultList(List<ListDto> lists) {
-  for (final list in lists) {
-    if (list.isDefault) {
-      return list;
-    }
-  }
-  return null;
-}
-
-List<ListDto> _mergeListOptions(
-  List<ListDto>? activeLists,
-  List<ListDto>? archivedLists,
-) {
-  final byId = <String, ListDto>{};
-  for (final list in activeLists ?? const <ListDto>[]) {
-    byId[list.id] = list;
-  }
-  for (final list in archivedLists ?? const <ListDto>[]) {
-    byId[list.id] = list;
-  }
-  return List.unmodifiable(byId.values);
 }
 
 bool _hasClosedRoot(List<TaskDto> tasks) {
