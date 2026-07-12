@@ -86,6 +86,11 @@ abstract class BridgeService {
     required int tomorrowStartMs,
   });
 
+  /// Returns typed task occurrences in a half-open calendar range.
+  Future<List<rust_api.CalendarOccurrenceDto>> getCalendarOccurrences({
+    required rust_api.CalendarRangeInput range,
+  });
+
   /// Returns the number of tasks in `listId`, including completed tasks.
   Future<int> countTasksInList({required String listId});
 
@@ -285,6 +290,11 @@ class FrbBridgeService implements BridgeService {
     todayStartMs: todayStartMs,
     tomorrowStartMs: tomorrowStartMs,
   );
+
+  @override
+  Future<List<rust_api.CalendarOccurrenceDto>> getCalendarOccurrences({
+    required rust_api.CalendarRangeInput range,
+  }) => rust_api.getCalendarOccurrences(range: range);
 
   @override
   Future<int> countTasksInList({required String listId}) =>

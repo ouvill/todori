@@ -32,6 +32,7 @@ class FakeBridgeService implements BridgeService {
   final Map<String, String> _settings;
   final List<void Function()> _pendingSyncMutations = [];
   final List<FakeReorderCall> reorderCalls = [];
+  final List<String> updateTaskCalls = [];
   int syncNowCalls = 0;
   AccountSessionStateDto _accountSession = const AccountSessionStateDto(
     loggedIn: false,
@@ -69,6 +70,7 @@ class FakeBridgeService implements BridgeService {
     _undoEntries.clear();
     _pendingSyncMutations.clear();
     reorderCalls.clear();
+    updateTaskCalls.clear();
     syncNowCalls = 0;
     _settings.clear();
     _settings[onboardingCompletedSettingKey] = '1';
@@ -618,6 +620,112 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
+  Future<List<CalendarOccurrenceDto>> getCalendarOccurrences({
+    required CalendarRangeInput range,
+  }) async {
+    final occurrences = <CalendarOccurrenceDto>[];
+    final startAt = range.startAt.toUtc();
+    final endAt = range.endAt.toUtc();
+    final listsById = {for (final list in _lists) list.id: list};
+
+    for (final task in _tasks) {
+      if (task.deletedAt != null) {
+        continue;
+      }
+      final list = listsById[task.listId];
+      if (list == null) {
+        continue;
+      }
+      final isOpen = task.status == 'todo' || task.status == 'in_progress';
+      if (isOpen) {
+        switch (task.due) {
+          case TaskDueDto_Date(:final dueOn)
+              when dueOn.compareTo(range.startOn) >= 0 &&
+                  dueOn.compareTo(range.endOn) < 0:
+            occurrences.add(
+              CalendarOccurrenceDto(
+                task: task,
+                listName: list.name,
+                listArchived: list.archivedAt != null,
+                kind: CalendarOccurrenceKindDto.dateDue(dueOn: dueOn),
+              ),
+            );
+          case TaskDueDto_DateTime(:final dueAt, :final timeZone)
+              when !dueAt.toUtc().isBefore(startAt) &&
+                  dueAt.toUtc().isBefore(endAt):
+            occurrences.add(
+              CalendarOccurrenceDto(
+                task: task,
+                listName: list.name,
+                listArchived: list.archivedAt != null,
+                kind: CalendarOccurrenceKindDto.dateTimeDue(
+                  dueAt: dueAt,
+                  timeZone: timeZone,
+                ),
+              ),
+            );
+          default:
+            break;
+        }
+        final scheduledAt = task.scheduledAt;
+        if (scheduledAt != null) {
+          final instant = DateTime.fromMillisecondsSinceEpoch(
+            scheduledAt,
+            isUtc: true,
+          );
+          if (!instant.isBefore(startAt) && instant.isBefore(endAt)) {
+            occurrences.add(
+              CalendarOccurrenceDto(
+                task: task,
+                listName: list.name,
+                listArchived: list.archivedAt != null,
+                kind: CalendarOccurrenceKindDto.scheduled(scheduledAt: instant),
+              ),
+            );
+          }
+        }
+        continue;
+      }
+
+      if (task.status == 'done' || task.status == 'wont_do') {
+        final completedAt = task.completedAt;
+        if (completedAt == null) {
+          continue;
+        }
+        final instant = DateTime.fromMillisecondsSinceEpoch(
+          completedAt,
+          isUtc: true,
+        );
+        if (!instant.isBefore(startAt) && instant.isBefore(endAt)) {
+          occurrences.add(
+            CalendarOccurrenceDto(
+              task: task,
+              listName: list.name,
+              listArchived: list.archivedAt != null,
+              kind: CalendarOccurrenceKindDto.completed(completedAt: instant),
+            ),
+          );
+        }
+      }
+    }
+    return List.unmodifiable(occurrences);
+  }
+
+  void setTaskCalendarStateForTest({
+    required String taskId,
+    String? status,
+    int? completedAt,
+    int? deletedAt,
+  }) {
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    _tasks[index] = _tasks[index]._copyWith(
+      status: status,
+      completedAt: completedAt,
+      deletedAt: deletedAt,
+    );
+  }
+
+  @override
   Future<int> countTasksInList({required String listId}) async {
     return _tasks.where((task) => task.listId == listId).length;
   }
@@ -632,6 +740,7 @@ class FakeBridgeService implements BridgeService {
     int? scheduledAt,
     int? estimatedMinutes,
   }) async {
+    updateTaskCalls.add(taskId);
     if (title.trim().isEmpty) {
       throw Exception('task title must not be empty');
     }

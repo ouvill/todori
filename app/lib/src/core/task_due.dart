@@ -41,12 +41,18 @@ TaskDueDto dateTimeDue({
     localDateTime.day,
     localDateTime.hour,
     localDateTime.minute,
+    localDateTime.second,
+    localDateTime.millisecond,
+    localDateTime.microsecond,
   );
   if (zoned.year != localDateTime.year ||
       zoned.month != localDateTime.month ||
       zoned.day != localDateTime.day ||
       zoned.hour != localDateTime.hour ||
-      zoned.minute != localDateTime.minute) {
+      zoned.minute != localDateTime.minute ||
+      zoned.second != localDateTime.second ||
+      zoned.millisecond != localDateTime.millisecond ||
+      zoned.microsecond != localDateTime.microsecond) {
     throw FormatException('Local deadline does not exist in $timeZone');
   }
   return TaskDueDto.dateTime(dueAt: zoned.toUtc(), timeZone: timeZone);

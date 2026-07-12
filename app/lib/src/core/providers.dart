@@ -9,6 +9,12 @@ import 'package:todori/src/rust/api.dart'
     show
         AccountAuthResultDto,
         AccountSessionStateDto,
+        CalendarOccurrenceDto,
+        CalendarOccurrenceKindDto_Completed,
+        CalendarOccurrenceKindDto_DateDue,
+        CalendarOccurrenceKindDto_DateTimeDue,
+        CalendarOccurrenceKindDto_Scheduled,
+        CalendarRangeInput,
         HomeTaskDto,
         ListDto,
         ReminderDto,
@@ -305,6 +311,7 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     ref.invalidate(archivedListsProvider);
     ref.invalidate(tasksProvider);
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(taskRemindersProvider);
   }
@@ -453,6 +460,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.renameList(listId: listId, name: name);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
   }
 
   /// Archives `listId` and refreshes active and archived list collections.
@@ -461,6 +469,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.archiveList(listId: listId);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
   }
 
   Future<int> countTasks(String listId) {
@@ -477,6 +486,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
         .cancelReminders(reminders);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
   }
 }
 
@@ -497,6 +507,7 @@ class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.unarchiveList(listId: listId);
     ref.invalidateSelf();
     ref.invalidate(listsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
   }
 }
 
@@ -553,6 +564,172 @@ homeLocalRangesMs({DateTime? now}) {
   );
 }
 
+/// Value identity for a Calendar query. Civil dates select date-only due
+/// occurrences while UTC instants select datetime/scheduled/completed ones.
+class CalendarRange {
+  const CalendarRange._({
+    required this.startOn,
+    required this.endOn,
+    required this.startAt,
+    required this.endAt,
+  });
+
+  factory CalendarRange.local({
+    required DateTime start,
+    required DateTime end,
+  }) {
+    if (start.isUtc || end.isUtc) {
+      throw ArgumentError('calendar range boundaries must be viewer-local');
+    }
+    if (start.hour != 0 ||
+        start.minute != 0 ||
+        start.second != 0 ||
+        start.millisecond != 0 ||
+        start.microsecond != 0 ||
+        end.hour != 0 ||
+        end.minute != 0 ||
+        end.second != 0 ||
+        end.millisecond != 0 ||
+        end.microsecond != 0) {
+      throw ArgumentError('calendar range boundaries must be local midnight');
+    }
+    if (!end.isAfter(start)) {
+      throw ArgumentError('calendar range must be non-empty');
+    }
+    final startOn = _civilDateFromFields(start);
+    final endOn = _civilDateFromFields(end);
+    if (startOn.compareTo(endOn) >= 0) {
+      throw ArgumentError('calendar civil range must be increasing');
+    }
+    return CalendarRange._(
+      startOn: startOn,
+      endOn: endOn,
+      startAt: start.toUtc(),
+      endAt: end.toUtc(),
+    );
+  }
+
+  factory CalendarRange.day(DateTime day) {
+    final local = day.toLocal();
+    return CalendarRange.local(
+      start: DateTime(local.year, local.month, local.day),
+      end: DateTime(local.year, local.month, local.day + 1),
+    );
+  }
+
+  final String startOn;
+  final String endOn;
+  final DateTime startAt;
+  final DateTime endAt;
+
+  CalendarRangeInput toInput() => CalendarRangeInput(
+    startOn: startOn,
+    endOn: endOn,
+    startAt: startAt,
+    endAt: endAt,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CalendarRange &&
+          startOn == other.startOn &&
+          endOn == other.endOn &&
+          startAt == other.startAt &&
+          endAt == other.endAt;
+
+  @override
+  int get hashCode => Object.hash(startOn, endOn, startAt, endAt);
+}
+
+String _civilDateFromFields(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';
+
+class CalendarOccurrencesNotifier
+    extends AsyncNotifier<List<CalendarOccurrenceDto>> {
+  CalendarOccurrencesNotifier(this.range);
+
+  final CalendarRange range;
+
+  @override
+  FutureOr<List<CalendarOccurrenceDto>> build() {
+    return ref
+        .watch(bridgeServiceProvider)
+        .getCalendarOccurrences(range: range.toInput());
+  }
+
+  Future<void> moveOccurrence({
+    required CalendarOccurrenceDto occurrence,
+    required DateTime targetDate,
+  }) async {
+    final task = occurrence.task;
+    var due = task.due;
+    var scheduledAt = task.scheduledAt;
+    final target = targetDate.toLocal();
+
+    switch (occurrence.kind) {
+      case CalendarOccurrenceKindDto_DateDue():
+        due = dateOnlyDue(target);
+      case CalendarOccurrenceKindDto_DateTimeDue(:final dueAt, :final timeZone):
+        final savedWallClock = taskDueDisplayDate(
+          TaskDueDto.dateTime(dueAt: dueAt, timeZone: timeZone),
+        );
+        due = dateTimeDue(
+          localDateTime: DateTime(
+            target.year,
+            target.month,
+            target.day,
+            savedWallClock.hour,
+            savedWallClock.minute,
+            savedWallClock.second,
+            savedWallClock.millisecond,
+            savedWallClock.microsecond,
+          ),
+          timeZone: timeZone,
+        );
+      case CalendarOccurrenceKindDto_Scheduled(
+        scheduledAt: final savedScheduledAt,
+      ):
+        final savedWallClock = savedScheduledAt.toLocal();
+        scheduledAt = DateTime(
+          target.year,
+          target.month,
+          target.day,
+          savedWallClock.hour,
+          savedWallClock.minute,
+          savedWallClock.second,
+          savedWallClock.millisecond,
+        ).millisecondsSinceEpoch;
+      case CalendarOccurrenceKindDto_Completed():
+        throw StateError('completed occurrences cannot be moved');
+    }
+
+    final updated = await ref
+        .read(bridgeServiceProvider)
+        .updateTask(
+          taskId: task.id,
+          title: task.title,
+          note: task.note,
+          priority: task.priority,
+          due: due == null ? null : taskDueInput(due),
+          scheduledAt: scheduledAt,
+          estimatedMinutes: task.estimatedMinutes,
+        );
+    ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+  }
+}
+
+final calendarOccurrencesProvider =
+    AsyncNotifierProvider.family<
+      CalendarOccurrencesNotifier,
+      List<CalendarOccurrenceDto>,
+      CalendarRange
+    >(CalendarOccurrencesNotifier.new);
+
 /// Manages the tasks of a single list, keyed by `listId`.
 ///
 /// Invalidate strategy: [createTask], [updateTask], [setStatus] and [deleteTask] each
@@ -597,6 +774,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -622,6 +800,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -661,6 +840,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -678,6 +858,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
         .cancelReminders(reminders);
     ref.invalidate(taskRemindersProvider(taskId));
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -735,6 +916,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(tasksProvider(listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -760,6 +942,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 
@@ -776,6 +959,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
   }
 }
@@ -823,6 +1007,7 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .undoTaskOperation(undoId: undoId);
     ref.invalidate(tasksProvider(restored.listId));
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;
