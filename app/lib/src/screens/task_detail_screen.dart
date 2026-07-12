@@ -334,8 +334,8 @@ class TaskDetailScreen extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.sm),
                   Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(LucideIcons.plus300),
+                    child: TextButton.icon(
+                      icon: const Icon(LucideIcons.plus300, size: 18),
                       label: Text(l10n.addSubtaskButton),
                       onPressed: () => _createSubtask(context, ref, task),
                     ),
@@ -974,7 +974,7 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
         button: true,
         label: widget.semanticLabel,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(8),
           onTap: _startEditing,
           child: Padding(
             padding: _inlineEditorPadding,
@@ -1136,7 +1136,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
         button: true,
         label: widget.semanticLabel,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(8),
           onTap: _startEditing,
           child: Padding(
             padding: _inlineEditorPadding,
@@ -1178,7 +1178,7 @@ class _ParentTaskLink extends StatelessWidget {
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(8),
             onTap: onTap,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 48),
@@ -1250,27 +1250,17 @@ class _EditableTaskMetadata extends StatelessWidget {
     final reminderLabel = reminder == null
         ? l10n.reminderChipEmpty
         : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
-    return Wrap(
-      spacing: AppSpacing.xs,
-      runSpacing: AppSpacing.xs,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    return Column(
       children: [
-        _DetailPill(
+        _DetailPropertyRow(
           icon: taskStatusIcon(task.status),
-          label: taskStatusLabel(l10n, task.status),
+          property: taskStatusLabel(l10n, task.status),
+          label: '',
         ),
-        if (task.priority > 0)
-          PriorityDot(
-            key: ValueKey('task-priority-dot-${task.id}'),
-            priority: task.priority,
-            semanticLabel: l10n.taskPriority(
-              taskPriorityLabel(l10n, task.priority),
-            ),
-            isMuted: isTaskClosed(task),
-          ),
-        _DetailPill(
+        _DetailPropertyRow(
           key: ValueKey('task-due-chip-${task.id}'),
           icon: LucideIcons.calendarDays300,
+          property: l10n.dueDateLabel,
           label: dueLabel,
           tooltip: task.due == null
               ? l10n.setDueDateButton
@@ -1278,22 +1268,9 @@ class _EditableTaskMetadata extends StatelessWidget {
           semanticLabel: overdue ? l10n.taskDueOverdue(dueLabel) : null,
           emphasisColor: overdue ? priorityDotColor(3) : null,
           onTap: onSelectDueDate,
-          trailing: onClearDueDate == null
-              ? null
-              : SizedBox.square(
-                  dimension: 32,
-                  child: IconButton(
-                    key: ValueKey('task-clear-due-${task.id}'),
-                    tooltip: l10n.clearDueDateButton,
-                    icon: const Icon(LucideIcons.x300, size: 16),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    onPressed: onClearDueDate,
-                  ),
-                ),
+          clearKey: ValueKey('task-clear-due-${task.id}'),
+          clearTooltip: l10n.clearDueDateButton,
+          onClear: onClearDueDate,
         ),
         PopupMenuButton<int>(
           key: ValueKey('task-priority-chip-${task.id}'),
@@ -1305,42 +1282,42 @@ class _EditableTaskMetadata extends StatelessWidget {
             PopupMenuItem(value: 2, child: Text(l10n.priorityMedium)),
             PopupMenuItem(value: 3, child: Text(l10n.priorityHigh)),
           ],
-          child: _DetailPill(
+          child: _DetailPropertyRow(
             icon: LucideIcons.flag300,
+            property: l10n.priorityLabel,
             label: taskPriorityLabel(l10n, task.priority),
             semanticLabel: l10n.taskPriority(
               taskPriorityLabel(l10n, task.priority),
             ),
+            marker: task.priority == 0
+                ? null
+                : PriorityDot(
+                    key: ValueKey('task-priority-dot-${task.id}'),
+                    priority: task.priority,
+                    semanticLabel: l10n.taskPriority(
+                      taskPriorityLabel(l10n, task.priority),
+                    ),
+                    isMuted: isTaskClosed(task),
+                  ),
           ),
         ),
-        _DetailPill(
+        _DetailPropertyRow(
           key: ValueKey('task-reminder-chip-${task.id}'),
           icon: LucideIcons.bell300,
+          property: l10n.reminderChipEmpty,
           label: reminderLabel,
           tooltip: reminder == null
               ? l10n.reminderChipTooltipSet
               : l10n.reminderChipTooltipChange,
           onTap: onSelectReminder,
-          trailing: onClearReminder == null
-              ? null
-              : SizedBox.square(
-                  dimension: 32,
-                  child: IconButton(
-                    key: ValueKey('task-clear-reminder-${task.id}'),
-                    tooltip: l10n.clearReminderButton,
-                    icon: const Icon(LucideIcons.x300, size: 16),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    onPressed: onClearReminder,
-                  ),
-                ),
+          clearKey: ValueKey('task-clear-reminder-${task.id}'),
+          clearTooltip: l10n.clearReminderButton,
+          onClear: onClearReminder,
         ),
         if (stats.hasDescendants)
-          _DetailPill(
+          _DetailPropertyRow(
             icon: LucideIcons.gitBranch300,
+            property: l10n.subtasksTitle,
             label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
           ),
       ],
@@ -1348,25 +1325,33 @@ class _EditableTaskMetadata extends StatelessWidget {
   }
 }
 
-class _DetailPill extends StatelessWidget {
-  const _DetailPill({
+class _DetailPropertyRow extends StatelessWidget {
+  const _DetailPropertyRow({
     super.key,
     required this.icon,
+    required this.property,
     required this.label,
     this.tooltip,
     this.semanticLabel,
     this.emphasisColor,
     this.onTap,
-    this.trailing,
+    this.clearKey,
+    this.clearTooltip,
+    this.onClear,
+    this.marker,
   });
 
   final IconData icon;
+  final String property;
   final String label;
   final String? tooltip;
   final String? semanticLabel;
   final Color? emphasisColor;
   final VoidCallback? onTap;
-  final Widget? trailing;
+  final Key? clearKey;
+  final String? clearTooltip;
+  final VoidCallback? onClear;
+  final Widget? marker;
 
   @override
   Widget build(BuildContext context) {
@@ -1375,35 +1360,59 @@ class _DetailPill extends StatelessWidget {
     final tint =
         emphasisColor ??
         (onTap == null ? colorScheme.onSurfaceVariant : colorScheme.primary);
-    final content = ConstrainedBox(
-      constraints: BoxConstraints(
-        minHeight: 40,
-        maxWidth: MediaQuery.sizeOf(context).width - 64,
+    final content = DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.7),
+        ),
       ),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(),
-        child: Padding(
-          padding: EdgeInsetsDirectional.only(
-            start: AppSpacing.sm,
-            top: AppSpacing.xs,
-            end: trailing == null ? AppSpacing.sm : 0,
-            bottom: AppSpacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: tint),
-              const SizedBox(width: AppSpacing.xs),
-              Flexible(
-                child: Text(
-                  label,
-                  softWrap: true,
-                  style: theme.textTheme.labelMedium?.copyWith(color: tint),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 36,
+              child: Icon(icon, size: 17, color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              flex: 4,
+              child: Text(
+                property,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
-              ?trailing,
+            ),
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: AppSpacing.sm),
+              if (marker != null) ...[
+                marker!,
+                const SizedBox(width: AppSpacing.xs),
+              ],
+              Flexible(
+                flex: 5,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.end,
+                  softWrap: true,
+                  style: theme.textTheme.bodyMedium?.copyWith(color: tint),
+                ),
+              ),
             ],
-          ),
+            if (onClear != null)
+              IconButton(
+                key: clearKey,
+                tooltip: clearTooltip,
+                icon: const Icon(LucideIcons.x300, size: 16),
+                onPressed: onClear,
+              )
+            else if (onTap != null)
+              const SizedBox(
+                width: 40,
+                child: Icon(LucideIcons.chevronRight300, size: 16),
+              ),
+          ],
         ),
       ),
     );
@@ -1411,11 +1420,7 @@ class _DetailPill extends StatelessWidget {
         ? content
         : Material(
             type: MaterialType.transparency,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onTap,
-              child: content,
-            ),
+            child: InkWell(onTap: onTap, child: content),
           );
     final effectiveSemanticLabel =
         semanticLabel ?? (onTap == null ? null : label);

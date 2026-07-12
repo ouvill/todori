@@ -111,68 +111,59 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: colorScheme.outlineVariant),
-                  bottom: BorderSide(color: colorScheme.outlineVariant),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (widget.lists.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: AppEmptyState(
-                        icon: LucideIcons.listTodo300,
-                        title: l10n.listsEmptyTitle,
-                        body: l10n.listsEmptyBody,
-                      ),
-                    )
-                  else
-                    for (var index = 0; index < widget.lists.length; index += 1)
-                      _ListManagementRow(
-                        icon: LucideIcons.circle300,
-                        color: _listAccent(colorScheme, index),
-                        title: widget.lists[index].name,
-                        onTap: () => context.push(
-                          '/lists/${widget.lists[index].id}/tasks',
-                        ),
-                      ),
-                  Divider(color: colorScheme.outlineVariant),
-                  _ListManagementRow(
-                    icon: LucideIcons.plus300,
-                    color: colorScheme.primary,
-                    title: l10n.homeNewListButton,
-                    onTap: widget.onCreateList,
-                  ),
-                  if (widget.archivedLists.isNotEmpty) ...[
-                    Divider(color: colorScheme.outlineVariant),
-                    _ArchivedListsHeader(
-                      count: widget.archivedLists.length,
-                      expanded: _archivedExpanded,
-                      onTap: () => setState(
-                        () => _archivedExpanded = !_archivedExpanded,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.lists.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: AppEmptyState(
+                      icon: LucideIcons.listTodo300,
+                      title: l10n.listsEmptyTitle,
+                      body: l10n.listsEmptyBody,
+                    ),
+                  )
+                else
+                  for (var index = 0; index < widget.lists.length; index += 1)
+                    _ListManagementRow(
+                      icon: LucideIcons.circle300,
+                      color: _listAccent(colorScheme, index),
+                      title: widget.lists[index].name,
+                      onTap: () => context.push(
+                        '/lists/${widget.lists[index].id}/tasks',
                       ),
                     ),
-                    if (_archivedExpanded)
-                      for (
-                        var index = 0;
-                        index < widget.archivedLists.length;
-                        index += 1
-                      )
-                        _ListManagementRow(
-                          icon: LucideIcons.archive300,
-                          color: colorScheme.onSurfaceVariant,
-                          title: widget.archivedLists[index].name,
-                          onTap: () => context.push(
-                            '/lists/${widget.archivedLists[index].id}/tasks',
-                          ),
+                const SizedBox(height: AppSpacing.sm),
+                _ListManagementRow(
+                  icon: LucideIcons.plus300,
+                  color: colorScheme.primary,
+                  title: l10n.homeNewListButton,
+                  onTap: widget.onCreateList,
+                ),
+                if (widget.archivedLists.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _ArchivedListsHeader(
+                    count: widget.archivedLists.length,
+                    expanded: _archivedExpanded,
+                    onTap: () =>
+                        setState(() => _archivedExpanded = !_archivedExpanded),
+                  ),
+                  if (_archivedExpanded)
+                    for (
+                      var index = 0;
+                      index < widget.archivedLists.length;
+                      index += 1
+                    )
+                      _ListManagementRow(
+                        icon: LucideIcons.archive300,
+                        color: colorScheme.onSurfaceVariant,
+                        title: widget.archivedLists[index].name,
+                        onTap: () => context.push(
+                          '/lists/${widget.archivedLists[index].id}/tasks',
                         ),
-                  ],
+                      ),
                 ],
-              ),
+              ],
             ),
           ],
         ),
@@ -263,38 +254,48 @@ class _ListManagementRow extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return InkWell(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.7),
+          ),
         ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 34,
-              height: 34,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            child: Row(
+              children: [
+                if (icon == LucideIcons.circle300)
+                  Container(
+                    width: 3,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  )
+                else
+                  SizedBox.square(
+                    dimension: 24,
+                    child: Icon(icon, color: color, size: 18),
+                  ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                child: Icon(icon, color: color, size: 18),
-              ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                softWrap: true,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
