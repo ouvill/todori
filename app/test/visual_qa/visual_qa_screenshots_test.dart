@@ -26,6 +26,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart'
     show CalendarOccurrenceDto, CalendarRangeInput, TaskDto;
 import 'package:todori/src/screens/calendar_screen.dart';
@@ -102,6 +103,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Make room for what matters'), findsOneWidget);
     await _screenshot(tester, 'onboarding_text_scale_2');
+  });
+
+  testWidgets('focus_setup: warm immersive setup', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester);
+    await _screenshot(tester, 'focus_setup');
+  });
+
+  testWidgets('focus_running: dark inverse work session', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.running);
+    await _screenshot(tester, 'focus_running');
+  });
+
+  testWidgets('focus_paused: dark inverse paused controls', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.paused);
+    await _screenshot(tester, 'focus_paused');
+  });
+
+  testWidgets('focus_320_ja_text_scale_2: narrow accessible setup', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    await _pumpFocusVisual(tester, taskTitle: '静かな集中画面を日本語で確認する');
+    await _screenshot(tester, 'focus_320_ja_text_scale_2');
+  });
+
+  testWidgets('focus_720_setup: compact wide setup', (tester) async {
+    _setLogicalViewport(tester, const Size(720, 760), devicePixelRatio: 2);
+    await _pumpFocusVisual(tester);
+    await _screenshot(tester, 'focus_720_setup');
+  });
+
+  testWidgets('focus_1024_running: centered wide timer', (tester) async {
+    _setLogicalViewport(tester, const Size(1024, 760), devicePixelRatio: 2);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.running);
+    await _screenshot(tester, 'focus_1024_running');
   });
 
   testWidgets('home_tasks: root with a realistic mixed task list', (
@@ -613,24 +654,28 @@ void main() {
     await _screenshot(tester, 'task_swipe_complete_leading');
   });
 
-  testWidgets('task_swipe_due_trailing: trailing due action exposed', (
+  testWidgets('task_swipe_focus_trailing: trailing Focus action exposed', (
     tester,
   ) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
     await tester.drag(find.text('地図アプリのUI微調整を仕上げる'), const Offset(-280, 0));
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'task_swipe_due_trailing');
+    expect(find.text('Focus'), findsWidgets);
+    await _screenshot(tester, 'task_swipe_focus_trailing');
   });
 
   testWidgets('task_due_mode_sheet: date-only and exact deadline choices', (
     tester,
   ) async {
     _setMobileViewport(tester);
-    await _seedRealisticData(tester);
-    await tester.drag(find.text('地図アプリのUI微調整を仕上げる'), const Offset(-280, 0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Change due date'));
+    final seed = await _seedRealisticData(tester);
+    await _openTask(tester, '地図アプリのUI微調整を仕上げる');
+    final dueProperty = find.byKey(
+      ValueKey('task-due-chip-${seed.focusTaskId}'),
+    );
+    await _ensureVisible(tester, dueProperty);
+    await tester.tap(dueProperty);
     await tester.pumpAndSettle();
     expect(find.text('Set date'), findsOneWidget);
     expect(find.text('Set date and time'), findsOneWidget);
@@ -1155,6 +1200,59 @@ void main() {
   }
 }
 
+enum _FocusVisualState { setup, running, paused }
+
+Future<void> _pumpFocusVisual(
+  WidgetTester tester, {
+  _FocusVisualState state = _FocusVisualState.setup,
+  String taskTitle = 'Shape the next release with care',
+}) async {
+  final fake = FakeBridgeService();
+  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final listId = (await fake.getLists()).single.id;
+  final task = await fake.createTask(
+    listId: listId,
+    title: taskTitle,
+    estimatedMinutes: 25,
+  );
+  final router = buildAppRouter();
+  await tester.pumpWidget(
+    TodoriApp(
+      router: router,
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    ),
+  );
+  await tester.pumpAndSettle();
+  router.go('/focus/$listId/${task.id}');
+  await tester.pumpAndSettle();
+  if (state == _FocusVisualState.setup) {
+    return;
+  }
+  final start = find.byKey(const ValueKey('focus-start'));
+  await tester.scrollUntilVisible(start, 160);
+  await tester.tap(start);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 120));
+  if (state == _FocusVisualState.paused) {
+    await tester.tap(find.byKey(const ValueKey('focus-pause')));
+    for (var attempt = 0; attempt < 4; attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 80));
+      if (find.byKey(const ValueKey('focus-paused')).evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byKey(const ValueKey('focus-paused')), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(
+      find.byKey(const ValueKey('focus-screen')),
+    );
+    expect(scaffold.backgroundColor, AppFocusColors.surface);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('focus-screen'))),
+      tester.view.physicalSize / tester.view.devicePixelRatio,
+    );
+  }
+}
+
 const _typoVariantIds = {
   DesignLabTypoVariant.newsreaderA: 'a_newsreader',
   DesignLabTypoVariant.loraB: 'b_lora',
@@ -1170,10 +1268,15 @@ const _typoScreenIds = {
 /// Handles produced by [_seedRealisticData] so individual screenshot tests
 /// can navigate to a specific seeded task without hardcoding titles twice.
 class _SeedData {
-  const _SeedData({required this.fake, required this.parentWithSubtasksTitle});
+  const _SeedData({
+    required this.fake,
+    required this.parentWithSubtasksTitle,
+    required this.focusTaskId,
+  });
 
   final FakeBridgeService fake;
   final String parentWithSubtasksTitle;
+  final String focusTaskId;
 }
 
 /// Seeds two lists ("Inbox" as the home list, "仕事" as a second list) with a
@@ -1386,6 +1489,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   return _SeedData(
     fake: fake,
     parentWithSubtasksTitle: parentWithSubtasksTitle,
+    focusTaskId: uiTweaks.id,
   );
 }
 

@@ -842,6 +842,181 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get focusTitle => 'Focus';
+
+  @override
+  String get focusSetupTitle => 'Choose how to focus';
+
+  @override
+  String get focusSetupBody => 'Stay with one task. The rest can wait.';
+
+  @override
+  String get focusPomodoroMode => 'Pomodoro';
+
+  @override
+  String get focusStopwatchMode => 'Stopwatch';
+
+  @override
+  String focusPomodoroSummary(int work, int breakMinutes) {
+    return '$work min focus · $breakMinutes min break';
+  }
+
+  @override
+  String get focusStopwatchSummary => 'Open-ended, with pause and resume';
+
+  @override
+  String get focusStartButton => 'Start focus';
+
+  @override
+  String get focusSettingsButton => 'Pomodoro settings';
+
+  @override
+  String get focusSettingsTitle => 'Pomodoro rhythm';
+
+  @override
+  String get focusWorkMinutesLabel => 'Focus';
+
+  @override
+  String get focusShortBreakMinutesLabel => 'Short break';
+
+  @override
+  String get focusLongBreakMinutesLabel => 'Long break';
+
+  @override
+  String get focusLongBreakEveryLabel => 'Long break after';
+
+  @override
+  String get focusNotificationsLabel => 'Completion notification';
+
+  @override
+  String get focusNotificationsBody =>
+      'Best effort while Todori is in the background';
+
+  @override
+  String focusWorkIntervals(int count) {
+    return '$count focus sessions';
+  }
+
+  @override
+  String get focusRestoring => 'Restoring your focus session…';
+
+  @override
+  String get focusLoadFailed => 'Todori couldn\'t restore this focus session.';
+
+  @override
+  String get focusActiveConflictTitle => 'Another focus session is active';
+
+  @override
+  String get focusActiveConflictBody =>
+      'Finish or discard the current session before starting this task.';
+
+  @override
+  String get focusRunningState => 'Focusing';
+
+  @override
+  String get focusPausedState => 'Paused';
+
+  @override
+  String get focusWorkPhase => 'Focus session';
+
+  @override
+  String get focusShortBreakPhase => 'Short break';
+
+  @override
+  String get focusLongBreakPhase => 'Long break';
+
+  @override
+  String get focusBreakPrompt => 'Take a breath.';
+
+  @override
+  String focusElapsedLabel(String time) {
+    return 'Elapsed $time';
+  }
+
+  @override
+  String get focusPauseButton => 'Pause';
+
+  @override
+  String get focusResumeButton => 'Resume';
+
+  @override
+  String get focusAddTimeButton => 'Add 5 minutes';
+
+  @override
+  String get focusFinishButton => 'Finish';
+
+  @override
+  String get focusSaveAndExitButton => 'Save and exit';
+
+  @override
+  String get focusDiscardButton => 'Discard';
+
+  @override
+  String get focusDiscardTitle => 'Discard this session?';
+
+  @override
+  String get focusDiscardBody =>
+      'This session will end without saving work time.';
+
+  @override
+  String get focusCompleteTaskButton => 'Complete task';
+
+  @override
+  String get focusFinishedTitle => 'Focus recorded';
+
+  @override
+  String focusFinishedBody(String time) {
+    return '$time of focused work is safely recorded.';
+  }
+
+  @override
+  String get focusBreakFinishedTitle => 'Break complete';
+
+  @override
+  String get focusBreakFinishedBody =>
+      'Return when you\'re ready for the next focus session.';
+
+  @override
+  String get focusStartBreakButton => 'Start break';
+
+  @override
+  String get focusKeepSessionButton => 'Keep focusing';
+
+  @override
+  String get focusDoneButton => 'Done';
+
+  @override
+  String get focusActionFailed =>
+      'Couldn\'t update this focus session. Try again.';
+
+  @override
+  String get focusTaskCompleteFailed =>
+      'The session was saved, but the task could not be completed. Try completing it again.';
+
+  @override
+  String get focusEstimateActualLabel => 'Focus time';
+
+  @override
+  String focusEstimateActualValue(String actual, String estimate) {
+    return '$actual actual · $estimate estimated';
+  }
+
+  @override
+  String focusActualOnlyValue(String actual) {
+    return '$actual recorded';
+  }
+
+  @override
+  String get focusNoActualValue => 'No work recorded yet';
+
+  @override
+  String get timerNotificationTitle => 'Focus time is complete';
+
+  @override
+  String get timerNotificationBody =>
+      'Open Todori to continue your focus rhythm.';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }

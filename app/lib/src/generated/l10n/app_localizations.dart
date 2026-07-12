@@ -1561,6 +1561,318 @@ abstract class AppLocalizations {
   /// **'Page {current} of {total}'**
   String onboardingPagePosition(int current, int total);
 
+  /// No description provided for @focusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus'**
+  String get focusTitle;
+
+  /// No description provided for @focusSetupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how to focus'**
+  String get focusSetupTitle;
+
+  /// No description provided for @focusSetupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Stay with one task. The rest can wait.'**
+  String get focusSetupBody;
+
+  /// No description provided for @focusPomodoroMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro'**
+  String get focusPomodoroMode;
+
+  /// No description provided for @focusStopwatchMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopwatch'**
+  String get focusStopwatchMode;
+
+  /// No description provided for @focusPomodoroSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{work} min focus · {breakMinutes} min break'**
+  String focusPomodoroSummary(int work, int breakMinutes);
+
+  /// No description provided for @focusStopwatchSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Open-ended, with pause and resume'**
+  String get focusStopwatchSummary;
+
+  /// No description provided for @focusStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start focus'**
+  String get focusStartButton;
+
+  /// No description provided for @focusSettingsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro settings'**
+  String get focusSettingsButton;
+
+  /// No description provided for @focusSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro rhythm'**
+  String get focusSettingsTitle;
+
+  /// No description provided for @focusWorkMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus'**
+  String get focusWorkMinutesLabel;
+
+  /// No description provided for @focusShortBreakMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Short break'**
+  String get focusShortBreakMinutesLabel;
+
+  /// No description provided for @focusLongBreakMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break'**
+  String get focusLongBreakMinutesLabel;
+
+  /// No description provided for @focusLongBreakEveryLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break after'**
+  String get focusLongBreakEveryLabel;
+
+  /// No description provided for @focusNotificationsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Completion notification'**
+  String get focusNotificationsLabel;
+
+  /// No description provided for @focusNotificationsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Best effort while Todori is in the background'**
+  String get focusNotificationsBody;
+
+  /// No description provided for @focusWorkIntervals.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} focus sessions'**
+  String focusWorkIntervals(int count);
+
+  /// No description provided for @focusRestoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Restoring your focus session…'**
+  String get focusRestoring;
+
+  /// No description provided for @focusLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Todori couldn\'t restore this focus session.'**
+  String get focusLoadFailed;
+
+  /// No description provided for @focusActiveConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Another focus session is active'**
+  String get focusActiveConflictTitle;
+
+  /// No description provided for @focusActiveConflictBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish or discard the current session before starting this task.'**
+  String get focusActiveConflictBody;
+
+  /// No description provided for @focusRunningState.
+  ///
+  /// In en, this message translates to:
+  /// **'Focusing'**
+  String get focusRunningState;
+
+  /// No description provided for @focusPausedState.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get focusPausedState;
+
+  /// No description provided for @focusWorkPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus session'**
+  String get focusWorkPhase;
+
+  /// No description provided for @focusShortBreakPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Short break'**
+  String get focusShortBreakPhase;
+
+  /// No description provided for @focusLongBreakPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break'**
+  String get focusLongBreakPhase;
+
+  /// No description provided for @focusBreakPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Take a breath.'**
+  String get focusBreakPrompt;
+
+  /// No description provided for @focusElapsedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Elapsed {time}'**
+  String focusElapsedLabel(String time);
+
+  /// No description provided for @focusPauseButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get focusPauseButton;
+
+  /// No description provided for @focusResumeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get focusResumeButton;
+
+  /// No description provided for @focusAddTimeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add 5 minutes'**
+  String get focusAddTimeButton;
+
+  /// No description provided for @focusFinishButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish'**
+  String get focusFinishButton;
+
+  /// No description provided for @focusSaveAndExitButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and exit'**
+  String get focusSaveAndExitButton;
+
+  /// No description provided for @focusDiscardButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get focusDiscardButton;
+
+  /// No description provided for @focusDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard this session?'**
+  String get focusDiscardTitle;
+
+  /// No description provided for @focusDiscardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This session will end without saving work time.'**
+  String get focusDiscardBody;
+
+  /// No description provided for @focusCompleteTaskButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete task'**
+  String get focusCompleteTaskButton;
+
+  /// No description provided for @focusFinishedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus recorded'**
+  String get focusFinishedTitle;
+
+  /// No description provided for @focusFinishedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} of focused work is safely recorded.'**
+  String focusFinishedBody(String time);
+
+  /// No description provided for @focusBreakFinishedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Break complete'**
+  String get focusBreakFinishedTitle;
+
+  /// No description provided for @focusBreakFinishedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Return when you\'re ready for the next focus session.'**
+  String get focusBreakFinishedBody;
+
+  /// No description provided for @focusStartBreakButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start break'**
+  String get focusStartBreakButton;
+
+  /// No description provided for @focusKeepSessionButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep focusing'**
+  String get focusKeepSessionButton;
+
+  /// No description provided for @focusDoneButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get focusDoneButton;
+
+  /// No description provided for @focusActionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t update this focus session. Try again.'**
+  String get focusActionFailed;
+
+  /// No description provided for @focusTaskCompleteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The session was saved, but the task could not be completed. Try completing it again.'**
+  String get focusTaskCompleteFailed;
+
+  /// No description provided for @focusEstimateActualLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus time'**
+  String get focusEstimateActualLabel;
+
+  /// No description provided for @focusEstimateActualValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{actual} actual · {estimate} estimated'**
+  String focusEstimateActualValue(String actual, String estimate);
+
+  /// No description provided for @focusActualOnlyValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{actual} recorded'**
+  String focusActualOnlyValue(String actual);
+
+  /// No description provided for @focusNoActualValue.
+  ///
+  /// In en, this message translates to:
+  /// **'No work recorded yet'**
+  String get focusNoActualValue;
+
+  /// No description provided for @timerNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus time is complete'**
+  String get timerNotificationTitle;
+
+  /// No description provided for @timerNotificationBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Todori to continue your focus rhythm.'**
+  String get timerNotificationBody;
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

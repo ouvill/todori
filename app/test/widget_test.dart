@@ -1456,22 +1456,11 @@ void main() {
       const Offset(-280, 0),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(ValueKey('task-swipe-due-${noDueChild.id}')));
+    await tester.tap(find.byKey(ValueKey('task-swipe-focus-${noDueChild.id}')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('due-sheet-tomorrow')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
+    expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('focus-close')));
     await tester.pumpAndSettle();
-    final updatedNoDueChild = (await fake.getTasks(
-      listId: inbox.id,
-    )).singleWhere((task) => task.id == noDueChild.id);
-    expect(
-      taskDueCivilDate(updatedNoDueChild.due),
-      civilDateFromLocal(
-        DateTime.fromMillisecondsSinceEpoch(
-          today + const Duration(days: 1).inMilliseconds,
-        ),
-      ),
-    );
 
     await tester.ensureVisible(find.text('No due child under home parent'));
     await tester.pumpAndSettle();
@@ -2940,73 +2929,32 @@ void main() {
     expect(tasks.singleWhere((task) => task.id == parent.id).status, 'todo');
   });
 
-  testWidgets(
-    'trailing swipe opens due sheet and updates today tomorrow and picked date',
-    (tester) async {
-      final fake = FakeBridgeService();
-      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
-      final listId = (await fake.getLists()).first.id;
-      final task = await fake.createTask(listId: listId, title: 'Swipe due');
-      final today = _todayStartMs();
-      final tomorrow = today + const Duration(days: 1).inMilliseconds;
+  testWidgets('trailing swipe opens immersive Focus and leaves due unchanged', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).first.id;
+    final task = await fake.createTask(listId: listId, title: 'Swipe due');
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListFromHome(tester, 'Inbox');
 
-      await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
-      );
-      await tester.pumpAndSettle();
-      await _openListFromHome(tester, 'Inbox');
+    await tester.drag(
+      find.byKey(ValueKey('task-row-${task.id}')),
+      const Offset(-280, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('task-swipe-focus-${task.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
+    expect(find.text('Lists'), findsNothing);
+    expect((await fake.getTasks(listId: listId)).single.due, isNull);
+  });
 
-      await tester.drag(
-        find.byKey(ValueKey('task-row-${task.id}')),
-        const Offset(-280, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Due'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('due-sheet-today')));
-      await tester.pumpAndSettle();
-      var tasks = await fake.getTasks(listId: listId);
-      expect(
-        taskDueCivilDate(tasks.single.due),
-        civilDateFromLocal(DateTime.fromMillisecondsSinceEpoch(today)),
-      );
-
-      await tester.drag(
-        find.byKey(ValueKey('task-row-${task.id}')),
-        const Offset(-280, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
-      await tester.pumpAndSettle();
-      tasks = await fake.getTasks(listId: listId);
-      expect(
-        taskDueCivilDate(tasks.single.due),
-        civilDateFromLocal(DateTime.fromMillisecondsSinceEpoch(tomorrow)),
-      );
-
-      await tester.drag(
-        find.byKey(ValueKey('task-row-${task.id}')),
-        const Offset(-280, 0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('due-sheet-pick-date')));
-      await tester.pumpAndSettle();
-      expect(find.byType(DatePickerDialog), findsOneWidget);
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
-      tasks = await fake.getTasks(listId: listId);
-      expect(taskDueCivilDate(tasks.single.due), isNotNull);
-      expect(find.text('Task saved.'), findsOneWidget);
-    },
-  );
-
-  testWidgets('home due swipe removes a future task from Today', (
+  testWidgets('closed task trailing swipe does not expose Focus', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -3017,28 +2965,21 @@ void main() {
       title: 'Home today task',
       due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
+    await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(ValueKey('task-row-${task.id}')),
       const Offset(-280, 0),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
-    await tester.pumpAndSettle();
-
-    final tasks = await fake.getTasks(listId: listId);
-    expect(
-      taskDueCivilDate(tasks.single.due),
-      civilDateFromLocal(DateTime.now().add(const Duration(days: 1))),
-    );
-    expect(find.text('Home today task'), findsNothing);
+    expect(find.byKey(ValueKey('task-swipe-focus-${task.id}')), findsNothing);
   });
 
   testWidgets('done root row leading control reopens without undo', (
@@ -4006,6 +3947,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
+      await _scrollUntilVisible(tester, childCheckbox);
       expect(find.text('Task detail'), findsNothing);
       expect(find.text('Parent detail task'), findsOneWidget);
       expect(find.text('Detail child task'), findsOneWidget);

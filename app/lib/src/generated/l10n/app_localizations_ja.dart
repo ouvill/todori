@@ -825,6 +825,175 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get focusTitle => '集中';
+
+  @override
+  String get focusSetupTitle => '集中のしかたを選ぶ';
+
+  @override
+  String get focusSetupBody => 'ひとつのタスクに向き合う時間です。ほかのことは、いったん置いておきましょう。';
+
+  @override
+  String get focusPomodoroMode => 'ポモドーロ';
+
+  @override
+  String get focusStopwatchMode => 'ストップウォッチ';
+
+  @override
+  String focusPomodoroSummary(int work, int breakMinutes) {
+    return '集中 $work分・休憩 $breakMinutes分';
+  }
+
+  @override
+  String get focusStopwatchSummary => '終了時刻を決めず、休止と再開ができます';
+
+  @override
+  String get focusStartButton => '集中を始める';
+
+  @override
+  String get focusSettingsButton => 'ポモドーロ設定';
+
+  @override
+  String get focusSettingsTitle => 'ポモドーロのリズム';
+
+  @override
+  String get focusWorkMinutesLabel => '集中';
+
+  @override
+  String get focusShortBreakMinutesLabel => '短い休憩';
+
+  @override
+  String get focusLongBreakMinutesLabel => '長い休憩';
+
+  @override
+  String get focusLongBreakEveryLabel => '長い休憩まで';
+
+  @override
+  String get focusNotificationsLabel => '終了時に通知';
+
+  @override
+  String get focusNotificationsBody => 'Todoriがバックグラウンド中は可能な範囲で通知します';
+
+  @override
+  String focusWorkIntervals(int count) {
+    return '集中 $count回';
+  }
+
+  @override
+  String get focusRestoring => '集中セッションを復元しています…';
+
+  @override
+  String get focusLoadFailed => '集中セッションを復元できませんでした。';
+
+  @override
+  String get focusActiveConflictTitle => '別の集中セッションが進行中です';
+
+  @override
+  String get focusActiveConflictBody => '現在のセッションを終了または破棄してから、このタスクを始めてください。';
+
+  @override
+  String get focusRunningState => '集中しています';
+
+  @override
+  String get focusPausedState => '一時停止中';
+
+  @override
+  String get focusWorkPhase => '集中セッション';
+
+  @override
+  String get focusShortBreakPhase => '短い休憩';
+
+  @override
+  String get focusLongBreakPhase => '長い休憩';
+
+  @override
+  String get focusBreakPrompt => 'ひと息つきましょう。';
+
+  @override
+  String focusElapsedLabel(String time) {
+    return '経過 $time';
+  }
+
+  @override
+  String get focusPauseButton => '一時停止';
+
+  @override
+  String get focusResumeButton => '再開';
+
+  @override
+  String get focusAddTimeButton => '5分追加';
+
+  @override
+  String get focusFinishButton => '終了';
+
+  @override
+  String get focusSaveAndExitButton => '保存して終了';
+
+  @override
+  String get focusDiscardButton => '破棄';
+
+  @override
+  String get focusDiscardTitle => 'このセッションを破棄しますか？';
+
+  @override
+  String get focusDiscardBody => '作業時間を保存せずにセッションを終了します。';
+
+  @override
+  String get focusCompleteTaskButton => 'タスクを完了';
+
+  @override
+  String get focusFinishedTitle => '集中時間を記録しました';
+
+  @override
+  String focusFinishedBody(String time) {
+    return '$timeの作業時間を保存しました。';
+  }
+
+  @override
+  String get focusBreakFinishedTitle => '休憩が終わりました';
+
+  @override
+  String get focusBreakFinishedBody => '準備ができたら、次の集中を始めましょう。';
+
+  @override
+  String get focusStartBreakButton => '休憩を始める';
+
+  @override
+  String get focusKeepSessionButton => '集中を続ける';
+
+  @override
+  String get focusDoneButton => '完了';
+
+  @override
+  String get focusActionFailed => '集中セッションを更新できませんでした。もう一度お試しください。';
+
+  @override
+  String get focusTaskCompleteFailed =>
+      '集中時間は保存されましたが、タスクを完了できませんでした。もう一度タスクを完了してください。';
+
+  @override
+  String get focusEstimateActualLabel => '集中時間';
+
+  @override
+  String focusEstimateActualValue(String actual, String estimate) {
+    return '実績 $actual・見積 $estimate';
+  }
+
+  @override
+  String focusActualOnlyValue(String actual) {
+    return '実績 $actual';
+  }
+
+  @override
+  String get focusNoActualValue => '作業時間はまだありません';
+
+  @override
+  String get timerNotificationTitle => '集中時間が終わりました';
+
+  @override
+  String get timerNotificationBody => 'Todoriを開いて、次のリズムへ進みましょう。';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }

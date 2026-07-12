@@ -488,6 +488,76 @@
       }
     }
   },
+  "focusTitle": "Focus",
+  "focusSetupTitle": "Choose how to focus",
+  "focusSetupBody": "Stay with one task. The rest can wait.",
+  "focusPomodoroMode": "Pomodoro",
+  "focusStopwatchMode": "Stopwatch",
+  "focusPomodoroSummary": "{work} min focus · {breakMinutes} min break",
+  "@focusPomodoroSummary": {
+    "placeholders": {
+      "work": {"type": "int"},
+      "breakMinutes": {"type": "int"}
+    }
+  },
+  "focusStopwatchSummary": "Open-ended, with pause and resume",
+  "focusStartButton": "Start focus",
+  "focusSettingsButton": "Pomodoro settings",
+  "focusSettingsTitle": "Pomodoro rhythm",
+  "focusWorkMinutesLabel": "Focus",
+  "focusShortBreakMinutesLabel": "Short break",
+  "focusLongBreakMinutesLabel": "Long break",
+  "focusLongBreakEveryLabel": "Long break after",
+  "focusNotificationsLabel": "Completion notification",
+  "focusNotificationsBody": "Best effort while Todori is in the background",
+  "focusWorkIntervals": "{count} focus sessions",
+  "@focusWorkIntervals": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "focusRestoring": "Restoring your focus session…",
+  "focusLoadFailed": "Todori couldn't restore this focus session.",
+  "focusActiveConflictTitle": "Another focus session is active",
+  "focusActiveConflictBody": "Finish or discard the current session before starting this task.",
+  "focusRunningState": "Focusing",
+  "focusPausedState": "Paused",
+  "focusWorkPhase": "Focus session",
+  "focusShortBreakPhase": "Short break",
+  "focusLongBreakPhase": "Long break",
+  "focusBreakPrompt": "Take a breath.",
+  "focusElapsedLabel": "Elapsed {time}",
+  "@focusElapsedLabel": {"placeholders": {"time": {"type": "String"}}},
+  "focusPauseButton": "Pause",
+  "focusResumeButton": "Resume",
+  "focusAddTimeButton": "Add 5 minutes",
+  "focusFinishButton": "Finish",
+  "focusSaveAndExitButton": "Save and exit",
+  "focusDiscardButton": "Discard",
+  "focusDiscardTitle": "Discard this session?",
+  "focusDiscardBody": "This session will end without saving work time.",
+  "focusCompleteTaskButton": "Complete task",
+  "focusFinishedTitle": "Focus recorded",
+  "focusFinishedBody": "{time} of focused work is safely recorded.",
+  "@focusFinishedBody": {"placeholders": {"time": {"type": "String"}}},
+  "focusBreakFinishedTitle": "Break complete",
+  "focusBreakFinishedBody": "Return when you're ready for the next focus session.",
+  "focusStartBreakButton": "Start break",
+  "focusKeepSessionButton": "Keep focusing",
+  "focusDoneButton": "Done",
+  "focusActionFailed": "Couldn't update this focus session. Try again.",
+  "focusTaskCompleteFailed": "The session was saved, but the task could not be completed. Try completing it again.",
+  "focusEstimateActualLabel": "Focus time",
+  "focusEstimateActualValue": "{actual} actual · {estimate} estimated",
+  "@focusEstimateActualValue": {
+    "placeholders": {
+      "actual": {"type": "String"},
+      "estimate": {"type": "String"}
+    }
+  },
+  "focusActualOnlyValue": "{actual} recorded",
+  "@focusActualOnlyValue": {"placeholders": {"actual": {"type": "String"}}},
+  "focusNoActualValue": "No work recorded yet",
+  "timerNotificationTitle": "Focus time is complete",
+  "timerNotificationBody": "Open Todori to continue your focus rhythm.",
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

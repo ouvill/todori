@@ -132,7 +132,6 @@ class TasksScreen extends ConsumerWidget {
             homeTaskEntries: homeTaskEntries,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
-            onChangeDue: (task, due) => _changeDue(ref, task, due),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
                   .read(tasksProvider(listId).notifier)
@@ -191,13 +190,6 @@ class TasksScreen extends ConsumerWidget {
       return ref.read(homeTasksProvider.notifier).setStatus(task.id, 'todo');
     }
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
-  }
-
-  Future<void> _changeDue(WidgetRef ref, TaskDto task, TaskDueDto? due) {
-    if (isTodaySmartView) {
-      return ref.read(homeTasksProvider.notifier).updateDue(task, due);
-    }
-    return ref.read(tasksProvider(task.listId).notifier).updateDue(task, due);
   }
 
   Future<void> _renameList(
@@ -276,7 +268,6 @@ class _TasksBody extends StatefulWidget {
     required this.homeTaskEntries,
     required this.onCompleteTask,
     required this.onReopenTask,
-    required this.onChangeDue,
     required this.onMoveTask,
   });
 
@@ -292,7 +283,6 @@ class _TasksBody extends StatefulWidget {
   final List<HomeTaskDto> homeTaskEntries;
   final Future<bool> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
-  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Future<void> Function({
     required TaskDto task,
     required String? previousTaskId,
@@ -810,7 +800,6 @@ class _TasksBodyState extends State<_TasksBody> {
               parentTaskName: parentTaskName,
               countsInSection: countsInSection,
             ),
-      onChangeDue: widget.onChangeDue,
       child: effectiveRow,
     );
     return IgnorePointer(
@@ -1120,7 +1109,6 @@ class _TasksBodyState extends State<_TasksBody> {
       onLeadingAction: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : () => widget.onCompleteTask(task),
-      onChangeDue: widget.onChangeDue,
       child: row,
     );
 
@@ -1201,14 +1189,12 @@ class _TaskSwipeActions extends StatelessWidget {
     required this.task,
     required this.isClosed,
     required this.onLeadingAction,
-    required this.onChangeDue,
     required this.child,
   });
 
   final TaskDto task;
   final bool isClosed;
   final Future<void> Function() onLeadingAction;
-  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Widget child;
 
   @override
@@ -1233,163 +1219,24 @@ class _TaskSwipeActions extends StatelessWidget {
           ),
         ],
       ),
-      endActionPane: ActionPane(
-        motion: const DrawerMotion(),
-        extentRatio: 0.34,
-        children: [
-          SlidableAction(
-            key: ValueKey('task-swipe-due-${task.id}'),
-            onPressed: (_) => unawaited(_showDueDateSheet(context)),
-            backgroundColor: colorScheme.secondaryContainer,
-            foregroundColor: colorScheme.onSecondaryContainer,
-            icon: LucideIcons.calendarDays300,
-            label: l10n.changeDueDateTooltip,
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-
-  Future<void> _showDueDateSheet(BuildContext context) async {
-    final selection = await showModalBottomSheet<_DueDateSelection>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _DueDateSheet(task: task),
-    );
-    if (!context.mounted || selection == null) {
-      return;
-    }
-
-    TaskDueDto due;
-    switch (selection.kind) {
-      case _DueDateSelectionKind.today:
-        due = dateOnlyDue(DateTime.now());
-        break;
-      case _DueDateSelectionKind.tomorrow:
-        due = dateOnlyDue(DateTime.now().add(const Duration(days: 1)));
-        break;
-      case _DueDateSelectionKind.pickDate:
-        final initialDate = task.due == null
-            ? DateTime.now()
-            : taskDueDisplayDate(task.due!);
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: initialDate,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (!context.mounted || picked == null) {
-          return;
-        }
-        due = dateOnlyDue(picked);
-        break;
-      case _DueDateSelectionKind.pickDateTime:
-        final initial = task.due == null
-            ? DateTime.now()
-            : taskDueDisplayDate(task.due!);
-        final pickedDate = await showDatePicker(
-          context: context,
-          initialDate: initial,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (!context.mounted || pickedDate == null) {
-          return;
-        }
-        final pickedTime = await showTimePicker(
-          context: context,
-          initialTime: TimeOfDay.fromDateTime(initial),
-        );
-        if (!context.mounted || pickedTime == null) {
-          return;
-        }
-        final localDateTime = DateTime(
-          pickedDate.year,
-          pickedDate.month,
-          pickedDate.day,
-          pickedTime.hour,
-          pickedTime.minute,
-        );
-        final savedTimeZone = taskDueSavedTimeZone(task.due);
-        final timeZone =
-            savedTimeZone ??
-            await ProviderScope.containerOf(
-              context,
-              listen: false,
-            ).read(bridgeServiceProvider).getLocalTimeZone();
-        try {
-          due = dateTimeDue(localDateTime: localDateTime, timeZone: timeZone);
-        } on FormatException {
-          return;
-        }
-        break;
-    }
-    await onChangeDue(task, due);
-    if (!context.mounted) {
-      return;
-    }
-    await _showLatestUndoSnackBar(context);
-  }
-}
-
-class _DueDateSheet extends StatelessWidget {
-  const _DueDateSheet({required this.task});
-
-  final TaskDto task;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-        children: [
-          ListTile(
-            title: Text(l10n.dueDateLabel),
-            subtitle: Text(
-              task.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+      endActionPane: isClosed
+          ? null
+          : ActionPane(
+              motion: const DrawerMotion(),
+              extentRatio: 0.34,
+              children: [
+                SlidableAction(
+                  key: ValueKey('task-swipe-focus-${task.id}'),
+                  onPressed: (_) =>
+                      context.push('/focus/${task.listId}/${task.id}'),
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                  icon: LucideIcons.timer300,
+                  label: l10n.focusTitle,
+                ),
+              ],
             ),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-today'),
-            leading: const Icon(LucideIcons.calendarCheck300),
-            title: Text(l10n.dueToday),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.today)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-tomorrow'),
-            leading: const Icon(LucideIcons.calendarPlus300),
-            title: Text(l10n.dueTomorrow),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.tomorrow)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-pick-date'),
-            leading: const Icon(LucideIcons.calendarDays300),
-            title: Text(l10n.setDueDateButton),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDate)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-pick-date-time'),
-            leading: const Icon(LucideIcons.calendarClock300),
-            title: Text(l10n.setDueDateTimeButton),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDateTime)),
-          ),
-        ],
-      ),
+      child: child,
     );
   }
 }
@@ -1471,14 +1318,6 @@ class _TaskRowsSliver extends StatelessWidget {
       },
     );
   }
-}
-
-enum _DueDateSelectionKind { today, tomorrow, pickDate, pickDateTime }
-
-class _DueDateSelection {
-  const _DueDateSelection(this.kind);
-
-  final _DueDateSelectionKind kind;
 }
 
 class _HomeTasksHeader extends StatelessWidget {

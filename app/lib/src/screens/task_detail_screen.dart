@@ -94,6 +94,18 @@ class TaskDetailScreen extends ConsumerWidget {
           final locale = Localizations.localeOf(context).toLanguageTag();
           final remindersAsync = ref.watch(taskRemindersProvider(task.id));
           final reminder = remindersAsync.asData?.value.firstOrNull;
+          final completedSessionsAsync = ref.watch(
+            completedTimerSessionsProvider(task.id),
+          );
+          final completedSessions =
+              completedSessionsAsync.asData?.value ??
+              const <CompletedTimerSessionDto>[];
+          final actualDuration = Duration(
+            milliseconds: completedSessions.fold<int>(
+              0,
+              (total, session) => total + session.activeDurationMs.toInt(),
+            ),
+          );
           return Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
@@ -191,7 +203,13 @@ class TaskDetailScreen extends ConsumerWidget {
                           task: task,
                           reminder: reminder,
                           stats: stats,
+                          actualDuration: actualDuration,
                           locale: locale,
+                          onStartFocus: isTaskClosed(task)
+                              ? null
+                              : () => context.push(
+                                  '/focus/${task.listId}/${task.id}',
+                                ),
                           onSelectDueDate: () => _selectDue(context, ref, task),
                           onClearDueDate: task.due == null
                               ? null
@@ -843,6 +861,36 @@ String formatReminderDateTime(String locale, int epochMs) {
       '${DateFormat.jm(locale).format(dateTime)}';
 }
 
+String _focusSummaryLabel(
+  AppLocalizations l10n, {
+  required int? estimatedMinutes,
+  required Duration actualDuration,
+}) {
+  final hasActual = actualDuration > Duration.zero;
+  final hasEstimate = estimatedMinutes != null;
+  if (!hasActual && !hasEstimate) {
+    return l10n.focusNoActualValue;
+  }
+  final actual = _compactDuration(actualDuration);
+  if (!hasEstimate) {
+    return l10n.focusActualOnlyValue(actual);
+  }
+  return l10n.focusEstimateActualValue(
+    hasActual ? actual : _compactDuration(Duration.zero),
+    _compactDuration(Duration(minutes: estimatedMinutes)),
+  );
+}
+
+String _compactDuration(Duration duration) {
+  final minutes = duration.inMinutes;
+  if (minutes < 60) {
+    return '${minutes}m';
+  }
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  return remainder == 0 ? '${hours}h' : '${hours}h ${remainder}m';
+}
+
 TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
   for (final task in tasks) {
     if (task.id == taskId) {
@@ -1273,7 +1321,9 @@ class _EditableTaskMetadata extends StatelessWidget {
     required this.task,
     required this.reminder,
     required this.stats,
+    required this.actualDuration,
     required this.locale,
+    required this.onStartFocus,
     required this.onSelectDueDate,
     required this.onClearDueDate,
     required this.onSelectPlan,
@@ -1285,7 +1335,9 @@ class _EditableTaskMetadata extends StatelessWidget {
   final TaskDto task;
   final ReminderDto? reminder;
   final SubtaskStats stats;
+  final Duration actualDuration;
   final String locale;
+  final VoidCallback? onStartFocus;
   final VoidCallback onSelectDueDate;
   final VoidCallback? onClearDueDate;
   final VoidCallback onSelectPlan;
@@ -1303,6 +1355,25 @@ class _EditableTaskMetadata extends StatelessWidget {
         : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
     return Column(
       children: [
+        if (onStartFocus != null)
+          _DetailPropertyRow(
+            key: ValueKey('task-focus-row-${task.id}'),
+            icon: LucideIcons.timer300,
+            property: l10n.focusTitle,
+            label: l10n.focusStartButton,
+            tooltip: l10n.focusStartButton,
+            onTap: onStartFocus,
+          ),
+        _DetailPropertyRow(
+          key: ValueKey('task-focus-summary-${task.id}'),
+          icon: LucideIcons.clock300,
+          property: l10n.focusEstimateActualLabel,
+          label: _focusSummaryLabel(
+            l10n,
+            estimatedMinutes: task.estimatedMinutes,
+            actualDuration: actualDuration,
+          ),
+        ),
         _DetailPropertyRow(
           icon: taskStatusIcon(task.status),
           property: taskStatusLabel(l10n, task.status),
