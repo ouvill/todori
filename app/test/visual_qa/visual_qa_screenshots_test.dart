@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
@@ -32,13 +33,17 @@ import 'package:todori/src/rust/api.dart'
         ActiveTimerSessionDto,
         CalendarOccurrenceDto,
         CalendarRangeInput,
+        HomeTaskDto,
+        ListDto,
         TaskDto,
         TimerModeDto,
         TimerPhaseDto,
         TimerRunStateDto;
 import 'package:todori/src/screens/calendar_screen.dart';
+import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/timer/timer_engine.dart' show TimerClock;
+import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -50,6 +55,7 @@ const _visualQaEnvFlag = 'TODORI_VISUAL_QA';
 bool get _visualQaEnabled => Platform.environment[_visualQaEnvFlag] == '1';
 
 const _outputDir = 'build/visual_qa';
+const _manifestPath = '$_outputDir/current-manifest.txt';
 const _mobileLogicalSize = Size(390, 844);
 const _mobileDevicePixelRatio = 3.0;
 const _wideLogicalSize = Size(1100, 760);
@@ -61,6 +67,9 @@ const _wideDevicePixelRatio = 2.0;
 const _zenOldMinchoFontPath = 'build/lab_fonts/ZenOldMincho-SemiBold.ttf';
 
 bool get _zenOldMinchoFontAvailable => File(_zenOldMinchoFontPath).existsSync();
+
+final _generatedScreenshotNames = <String>{};
+late bool _previousDebugBannerOverride;
 
 void main() {
   if (!_visualQaEnabled) {
@@ -74,7 +83,19 @@ void main() {
     return;
   }
 
-  setUpAll(_loadRealFonts);
+  setUpAll(() async {
+    _previousDebugBannerOverride = WidgetsApp.debugAllowBannerOverride;
+    WidgetsApp.debugAllowBannerOverride = false;
+    await _loadRealFonts();
+  });
+  tearDownAll(() async {
+    WidgetsApp.debugAllowBannerOverride = _previousDebugBannerOverride;
+    Directory(_outputDir).createSync(recursive: true);
+    final names = _generatedScreenshotNames.toList()..sort();
+    await File(_manifestPath).writeAsString(
+      names.map((name) => '$name.png').join('\n') + (names.isEmpty ? '' : '\n'),
+    );
+  });
 
   testWidgets('onboarding_en: first-run welcome', (tester) async {
     _setMobileViewport(tester);
@@ -151,6 +172,30 @@ void main() {
     await _screenshot(tester, 'focus_error');
   });
 
+  testWidgets('focus_restoring: durable state is still loading', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusRestoringVisual(tester);
+    await _screenshotCurrentFrame(tester, 'focus_restoring');
+  });
+
+  testWidgets('focus_conflict: another task owns the active session', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusConflictVisual(tester);
+    await _screenshot(tester, 'focus_conflict');
+  });
+
+  testWidgets('focus_break_running: local short break controls', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.breakRunning);
+    await _screenshot(tester, 'focus_break_running');
+  });
+
   testWidgets('focus_320_ja_text_scale_2: narrow accessible setup', (
     tester,
   ) async {
@@ -159,6 +204,21 @@ void main() {
     _useTextScale(tester, 2);
     await _pumpFocusVisual(tester, taskTitle: '静かな集中画面を日本語で確認する');
     await _screenshot(tester, 'focus_320_ja_text_scale_2');
+  });
+
+  testWidgets('focus_paused_320_ja_scale_2: active controls stay reachable', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    await _pumpFocusVisual(
+      tester,
+      state: _FocusVisualState.paused,
+      taskTitle: '長い日本語タイトルの集中を一時停止する',
+    );
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'focus_paused_320_ja_scale_2');
   });
 
   testWidgets('focus_720_setup: compact wide setup', (tester) async {
@@ -247,6 +307,59 @@ void main() {
     await _screenshot(tester, 'home_tasks_empty');
   });
 
+  testWidgets('home_loading: production pending state', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _PendingHomeVisualBridge();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    for (var attempt = 0; attempt < 10; attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.text('Home').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byType(AppLoadingState), findsWidgets);
+    await tester.pump(const Duration(milliseconds: 300));
+    await _screenshotCurrentFrame(tester, 'home_loading');
+  });
+
+  testWidgets('lists_error: production recoverable state', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _ErrorListsVisualBridge();
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/lists');
+    await tester.pumpAndSettle();
+    expect(find.byType(AppErrorState), findsOneWidget);
+    await _screenshot(tester, 'lists_error');
+  });
+
+  testWidgets('tasks_empty: production list empty state', (tester) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/lists/${inbox.id}/tasks');
+    await tester.pumpAndSettle();
+    expect(find.byType(AppEmptyState), findsOneWidget);
+    await _screenshot(tester, 'tasks_empty');
+  });
+
   testWidgets('home_tasks_text_scale_2: Home at Dynamic Type 2.0', (
     tester,
   ) async {
@@ -254,6 +367,117 @@ void main() {
     _useTextScale(tester, 2.0);
     await _seedRealisticData(tester);
     await _screenshot(tester, 'home_tasks_text_scale_2');
+  });
+
+  testWidgets('shell_home_720: exact rail breakpoint', (tester) async {
+    _setLogicalViewport(tester, const Size(720, 760), devicePixelRatio: 2);
+    await _seedRealisticData(tester);
+    expect(find.text('Calendar'), findsOneWidget);
+    await _screenshot(tester, 'shell_home_720');
+  });
+
+  testWidgets('shell_you_1024: exact wide account shell', (tester) async {
+    _setLogicalViewport(tester, const Size(1024, 760), devicePixelRatio: 2);
+    final router = buildAppRouter();
+    await _seedRealisticData(tester, router: router);
+    router.go('/account');
+    await tester.pumpAndSettle();
+    expect(find.text('Account'), findsOneWidget);
+    await _screenshot(tester, 'shell_you_1024');
+  });
+
+  testWidgets('shell_home_rtl: navigation and task actions mirror safely', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final task = await fake.createTask(
+      listId: inbox.id,
+      title: 'RTL task row keeps every action reachable',
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
+    );
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp.router(
+          debugShowCheckedModeBanner: false,
+          theme: buildTodoriTheme(Brightness.light),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+          builder: (context, child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      Directionality.of(tester.element(find.text(task.title))),
+      TextDirection.rtl,
+    );
+    _expectMinimumTapTarget(tester, find.byTooltip('Search tasks'));
+    _expectMinimumTapTarget(
+      tester,
+      find.byKey(ValueKey('task-done-${task.id}')),
+    );
+    _expectMinimumTapTarget(
+      tester,
+      find.byKey(const ValueKey('quick-add-open')),
+    );
+    await _screenshot(tester, 'shell_home_rtl');
+  });
+
+  testWidgets('home_320_ja_scale_2: narrow localized shell', (tester) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    await _seedRealisticData(tester);
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'home_320_ja_scale_2');
+  });
+
+  testWidgets('tasks_tree_320_ja_scale_2: deep tree remains readable', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    final router = buildAppRouter();
+    final seed = await _seedRealisticData(tester, router: router);
+    router.go('/lists/${seed.homeListId}/tasks');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'tasks_tree_320_ja_scale_2');
+  });
+
+  testWidgets('detail_320_ja_scale_2: properties and hierarchy survive', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    final router = buildAppRouter();
+    final seed = await _seedRealisticData(tester, router: router);
+    router.go('/lists/${seed.homeListId}/tasks/${seed.parentWithSubtasksId}');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'detail_320_ja_scale_2');
+  });
+
+  testWidgets('account_320_ja_scale_2: authentication remains reachable', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(320, 844), devicePixelRatio: 2);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    final router = buildAppRouter();
+    await _seedRealisticData(tester, router: router);
+    router.go('/account');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'account_320_ja_scale_2');
   });
 
   testWidgets('calendar_week_390: production Week route', (tester) async {
@@ -431,7 +655,11 @@ void main() {
   testWidgets('search_empty: immersive empty-query state', (tester) async {
     _setMobileViewport(tester);
     await _pumpSearchVisual(tester, await _searchVisualData());
-    await _screenshot(tester, 'search_empty');
+    await _screenshot(
+      tester,
+      'search_empty',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_loading: quiet in-progress state', (tester) async {
@@ -440,7 +668,11 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await _pumpSearchVisual(tester, fake, query: 'review', settle: false);
     await tester.pump(const Duration(milliseconds: 80));
-    await _screenshotCurrentFrame(tester, 'search_loading');
+    await _screenshotCurrentFrame(
+      tester,
+      'search_loading',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_results: active results with title and note', (
@@ -448,7 +680,11 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
-    await _screenshot(tester, 'search_results');
+    await _screenshot(
+      tester,
+      'search_results',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_zero: explicit no-result state', (tester) async {
@@ -458,7 +694,11 @@ void main() {
       await _searchVisualData(),
       query: 'unfindable',
     );
-    await _screenshot(tester, 'search_zero');
+    await _screenshot(
+      tester,
+      'search_zero',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_error: recoverable search failure', (tester) async {
@@ -466,7 +706,11 @@ void main() {
     final fake = _ErrorVisualSearchBridge();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await _pumpSearchVisual(tester, fake, query: 'review');
-    await _screenshot(tester, 'search_error');
+    await _screenshot(
+      tester,
+      'search_error',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_archived_closed: archived list and closed statuses', (
@@ -478,13 +722,21 @@ void main() {
       await _searchVisualData(),
       query: 'archive',
     );
-    await _screenshot(tester, 'search_archived_closed');
+    await _screenshot(
+      tester,
+      'search_archived_closed',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_narrow_320: results at 320px', (tester) async {
     _setNarrowViewport(tester);
     await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
-    await _screenshot(tester, 'search_narrow_320');
+    await _screenshot(
+      tester,
+      'search_narrow_320',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_text_scale_2: results at Dynamic Type 2.0', (
@@ -493,14 +745,22 @@ void main() {
     _setMobileViewport(tester);
     _useTextScale(tester, 2.0);
     await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
-    await _screenshot(tester, 'search_text_scale_2');
+    await _screenshot(
+      tester,
+      'search_text_scale_2',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_ja: localized result context', (tester) async {
     _setMobileViewport(tester);
     _useJaLocale(tester);
     await _pumpSearchVisual(tester, await _searchVisualData(), query: 'レビュー');
-    await _screenshot(tester, 'search_ja');
+    await _screenshot(
+      tester,
+      'search_ja',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('search_rtl: directional padding and actions mirror', (
@@ -528,7 +788,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'review');
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'search_rtl');
+    _expectMinimumTapTarget(tester, find.byType(BackButton));
+    _expectMinimumTapTarget(tester, find.byTooltip('Clear search'));
+    await _screenshot(
+      tester,
+      'search_rtl',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('quick_add_home_normal: Home quick add bar', (tester) async {
@@ -708,6 +974,95 @@ void main() {
     expect(find.text('Set date'), findsOneWidget);
     expect(find.text('Set date and time'), findsOneWidget);
     await _screenshot(tester, 'task_due_mode_sheet');
+  });
+
+  testWidgets('home_completion_timeline: hold collapse and final layout', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final seed = await _seedRealisticData(tester);
+    final checkbox = find.byKey(
+      ValueKey('task-done-${seed.visibleRootTaskId}'),
+    );
+    await tester.tap(checkbox);
+    await tester.pump();
+    for (var attempt = 0; attempt < 8; attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 30));
+      if (find
+          .byKey(const ValueKey('task-completion-halo'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
+    await _screenshotCurrentFrame(tester, 'home_completion_midframe');
+    await tester.pump(const Duration(milliseconds: 430));
+    await _screenshotCurrentFrame(tester, 'home_completion_collapse');
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(checkbox, findsNothing);
+    await _screenshotCurrentFrame(tester, 'home_completion_postcollapse');
+  });
+
+  testWidgets('list_completion_midframe: tree row retains its place', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final parent = await fake.createTask(
+      listId: inbox.id,
+      title: 'Prepare the release handoff',
+    );
+    final child = await fake.createTask(
+      listId: inbox.id,
+      parentTaskId: parent.id,
+      title: 'Confirm the final handoff note',
+    );
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/lists/${inbox.id}/tasks');
+    await tester.pumpAndSettle();
+    final checkbox = find.byKey(ValueKey('task-done-${child.id}'));
+    await tester.tap(checkbox);
+    await tester.pump();
+    for (var attempt = 0; attempt < 16; attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 20));
+      if (find
+          .byKey(const ValueKey('task-completion-halo'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
+    await _screenshotCurrentFrame(tester, 'list_completion_midframe');
+  });
+
+  testWidgets('home_completion_reduce_motion: immediate final layout', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(
+      tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+    );
+    final seed = await _seedRealisticData(tester);
+    final checkbox = find.byKey(
+      ValueKey('task-done-${seed.visibleRootTaskId}'),
+    );
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(checkbox, findsNothing);
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsNothing);
+    await _screenshotCurrentFrame(tester, 'home_completion_reduce_motion');
   });
 
   testWidgets(
@@ -1228,7 +1583,7 @@ void main() {
   }
 }
 
-enum _FocusVisualState { setup, running, paused, finished }
+enum _FocusVisualState { setup, running, paused, finished, breakRunning }
 
 Future<void> _pumpFocusVisual(
   WidgetTester tester, {
@@ -1304,6 +1659,15 @@ Future<void> _pumpFocusVisual(
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
+  } else if (state == _FocusVisualState.breakRunning) {
+    clock.advance(const Duration(minutes: 12));
+    await tester.tap(find.byKey(const ValueKey('focus-finish')));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.byKey(const ValueKey('focus-start-break')));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-complete-task')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 300));
   }
 }
 
@@ -1394,6 +1758,78 @@ class _FocusErrorVisualBridge extends FakeBridgeService {
   }
 }
 
+class _PendingFocusVisualBridge extends FakeBridgeService {
+  final Completer<ActiveTimerSessionDto?> _pending =
+      Completer<ActiveTimerSessionDto?>();
+
+  @override
+  Future<ActiveTimerSessionDto?> getActiveTimerSession() => _pending.future;
+}
+
+Future<void> _pumpFocusRestoringVisual(WidgetTester tester) async {
+  final fake = _PendingFocusVisualBridge();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final task = await fake.createTask(
+    listId: inbox.id,
+    title: 'Restore the quiet focus session',
+  );
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: buildTodoriTheme(Brightness.light),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FocusScreen(listId: inbox.id, taskId: task.id),
+      ),
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 300));
+  expect(find.byKey(const ValueKey('focus-screen')), findsOneWidget);
+  expect(find.byType(AppLoadingState), findsOneWidget);
+}
+
+Future<void> _pumpFocusConflictVisual(WidgetTester tester) async {
+  final fake = FakeBridgeService();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final target = await fake.createTask(
+    listId: inbox.id,
+    title: 'Review this task after the current focus',
+  );
+  final owner = await fake.createTask(
+    listId: inbox.id,
+    title: 'Task already in focus',
+  );
+  final now = DateTime.now().toUtc();
+  await fake.startActiveTimerSession(
+    session: ActiveTimerSessionDto(
+      sessionId: '00000000-0000-4000-8000-000000000107',
+      taskId: owner.id,
+      mode: TimerModeDto.stopwatch,
+      phase: TimerPhaseDto.work,
+      state: TimerRunStateDto.running,
+      startedAt: now.subtract(const Duration(minutes: 3)),
+      lastResumedAt: now.subtract(const Duration(minutes: 3)),
+      accumulatedActiveMs: 0,
+    ),
+  );
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: buildTodoriTheme(Brightness.light),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: FocusScreen(listId: inbox.id, taskId: target.id),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  expect(find.text('Another focus session is active'), findsOneWidget);
+}
+
 const _typoVariantIds = {
   DesignLabTypoVariant.newsreaderA: 'a_newsreader',
   DesignLabTypoVariant.loraB: 'b_lora',
@@ -1411,12 +1847,18 @@ const _typoScreenIds = {
 class _SeedData {
   const _SeedData({
     required this.fake,
+    required this.homeListId,
     required this.parentWithSubtasksTitle,
+    required this.parentWithSubtasksId,
+    required this.visibleRootTaskId,
     required this.focusTaskId,
   });
 
   final FakeBridgeService fake;
+  final String homeListId;
   final String parentWithSubtasksTitle;
+  final String parentWithSubtasksId;
+  final String visibleRootTaskId;
   final String focusTaskId;
 }
 
@@ -1430,7 +1872,10 @@ class _SeedData {
 /// - one task ("Plan the product launch event") has three subtasks, one of
 ///   which is completed after an overdue due date.
 /// - titles mix Japanese and English, and one title is long enough to wrap.
-Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
+Future<_SeedData> _seedRealisticData(
+  WidgetTester tester, {
+  GoRouter? router,
+}) async {
   final fake = FakeBridgeService();
   await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
   await fake.createList(name: '仕事', sortOrder: 'a1');
@@ -1623,13 +2068,19 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
   );
 
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TodoriApp(
+      router: router,
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    ),
   );
   await tester.pumpAndSettle();
 
   return _SeedData(
     fake: fake,
+    homeListId: homeListId,
     parentWithSubtasksTitle: parentWithSubtasksTitle,
+    parentWithSubtasksId: launch.id,
+    visibleRootTaskId: uiTweaks.id,
     focusTaskId: uiTweaks.id,
   );
 }
@@ -1691,6 +2142,16 @@ Future<void> _pumpSearchVisual(
       : find.byTooltip('タスクを検索');
   await tester.tap(searchAction);
   await tester.pumpAndSettle();
+  final search = find.byType(SearchScreen);
+  expect(search, findsOneWidget);
+  expect(
+    tester.getSize(search),
+    tester.view.physicalSize / tester.view.devicePixelRatio,
+  );
+  final scaffold = find.descendant(of: search, matching: find.byType(Scaffold));
+  expect(scaffold, findsOneWidget);
+  expect(tester.getSize(scaffold), tester.getSize(search));
+  expect(tester.widget<Scaffold>(scaffold).backgroundColor, AppColors.canvas);
   if (query != null) {
     await tester.enterText(find.byType(TextField), query);
     if (settle) {
@@ -1712,6 +2173,22 @@ class _ErrorVisualSearchBridge extends FakeBridgeService {
   @override
   Future<List<TaskDto>> searchTasks({required String query}) =>
       Future<List<TaskDto>>.error(StateError('visual search failure'));
+}
+
+class _PendingHomeVisualBridge extends FakeBridgeService {
+  final Completer<List<HomeTaskDto>> _pending = Completer<List<HomeTaskDto>>();
+
+  @override
+  Future<List<HomeTaskDto>> getHomeTasks({
+    required int todayStartMs,
+    required int tomorrowStartMs,
+  }) => _pending.future;
+}
+
+class _ErrorListsVisualBridge extends FakeBridgeService {
+  @override
+  Future<List<ListDto>> getLists() =>
+      Future<List<ListDto>>.error(StateError('visual lists failure'));
 }
 
 Future<FakeBridgeService> _calendarVisualData() async {
@@ -1973,6 +2450,17 @@ void _setLogicalViewport(
   });
 }
 
+void _expectMinimumTapTarget(
+  WidgetTester tester,
+  Finder finder, {
+  double minimum = 44,
+}) {
+  expect(finder, findsOneWidget);
+  final size = tester.getSize(finder);
+  expect(size.width, greaterThanOrEqualTo(minimum));
+  expect(size.height, greaterThanOrEqualTo(minimum));
+}
+
 void _useTextScale(WidgetTester tester, double textScaleFactor) {
   tester.platformDispatcher.textScaleFactorTestValue = textScaleFactor;
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -2032,9 +2520,17 @@ void _useJaLocale(WidgetTester tester) {
 /// `build/visual_qa/$name.png`. Deliberately does *not* use
 /// [matchesGoldenFile]; there is no reference image to diff against, this is
 /// a one-way export for human review.
-Future<void> _screenshot(WidgetTester tester, String name) async {
+Future<void> _screenshot(
+  WidgetTester tester,
+  String name, {
+  Color? expectedBottomCenter,
+}) async {
   await tester.pumpAndSettle();
-  await _writeScreenshot(tester, name);
+  await _writeScreenshot(
+    tester,
+    name,
+    expectedBottomCenter: expectedBottomCenter,
+  );
 }
 
 Future<void> _precacheDesignLabMascot(WidgetTester tester) async {
@@ -2050,15 +2546,52 @@ Future<void> _precacheDesignLabMascot(WidgetTester tester) async {
   await tester.pump();
 }
 
-Future<void> _screenshotCurrentFrame(WidgetTester tester, String name) async {
-  await _writeScreenshot(tester, name);
+Future<void> _screenshotCurrentFrame(
+  WidgetTester tester,
+  String name, {
+  Color? expectedBottomCenter,
+}) async {
+  await _writeScreenshot(
+    tester,
+    name,
+    expectedBottomCenter: expectedBottomCenter,
+  );
 }
 
-Future<void> _writeScreenshot(WidgetTester tester, String name) async {
+Future<void> _writeScreenshot(
+  WidgetTester tester,
+  String name, {
+  Color? expectedBottomCenter,
+}) async {
   await tester.runAsync(() async {
-    final element = tester.element(find.byType(MaterialApp));
-    final image = await captureImage(element);
+    final materialApps = find.byType(MaterialApp).evaluate();
+    final element = materialApps.isNotEmpty
+        ? materialApps.first
+        : tester.binding.rootElement;
+    if (element == null) {
+      throw StateError('Visual QA root element is unavailable.');
+    }
+    final capturedImage = await captureImage(element);
+    final image = await _flattenOnCanvas(capturedImage);
+    capturedImage.dispose();
     try {
+      final expectedWidth = tester.view.physicalSize.width.round();
+      final expectedHeight = tester.view.physicalSize.height.round();
+      if (image.width != expectedWidth || image.height != expectedHeight) {
+        throw StateError(
+          '$name.png captured ${image.width}x${image.height}; '
+          'expected full viewport ${expectedWidth}x$expectedHeight.',
+        );
+      }
+      if (expectedBottomCenter != null) {
+        await _expectPixelColor(
+          image,
+          x: image.width ~/ 2,
+          y: image.height - 8,
+          expected: expectedBottomCenter,
+          name: name,
+        );
+      }
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) {
         throw StateError('Failed to encode $name.png as PNG.');
@@ -2069,10 +2602,87 @@ Future<void> _writeScreenshot(WidgetTester tester, String name) async {
       }
       final file = File('${directory.path}/$name.png');
       await file.writeAsBytes(byteData.buffer.asUint8List());
+      _generatedScreenshotNames.add(name);
     } finally {
       image.dispose();
     }
   });
+}
+
+Future<ui.Image> _flattenOnCanvas(ui.Image source) async {
+  final pixels = await source.toByteData(format: ui.ImageByteFormat.rawRgba);
+  if (pixels == null) {
+    throw StateError('Failed to inspect visual QA root capture.');
+  }
+  final bytes = Uint8List.fromList(pixels.buffer.asUint8List());
+  final canvasArgb = AppColors.canvas.toARGB32();
+  final canvasRed = (canvasArgb >> 16) & 0xff;
+  final canvasGreen = (canvasArgb >> 8) & 0xff;
+  final canvasBlue = canvasArgb & 0xff;
+  for (var offset = 0; offset < bytes.length; offset += 4) {
+    final isRenderViewBackdrop =
+        bytes[offset] == 0 &&
+        bytes[offset + 1] == 0 &&
+        bytes[offset + 2] == 0 &&
+        bytes[offset + 3] == 0xff;
+    if (bytes[offset + 3] == 0 || isRenderViewBackdrop) {
+      bytes[offset] = canvasRed;
+      bytes[offset + 1] = canvasGreen;
+      bytes[offset + 2] = canvasBlue;
+      bytes[offset + 3] = 0xff;
+    }
+  }
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  final descriptor = ui.ImageDescriptor.raw(
+    buffer,
+    width: source.width,
+    height: source.height,
+    pixelFormat: ui.PixelFormat.rgba8888,
+  );
+  final codec = await descriptor.instantiateCodec();
+  final frame = await codec.getNextFrame();
+  codec.dispose();
+  descriptor.dispose();
+  buffer.dispose();
+
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawColor(AppColors.canvas, BlendMode.src);
+  canvas.drawImage(frame.image, Offset.zero, Paint());
+  final picture = recorder.endRecording();
+  try {
+    return await picture.toImage(source.width, source.height);
+  } finally {
+    frame.image.dispose();
+    picture.dispose();
+  }
+}
+
+Future<void> _expectPixelColor(
+  ui.Image image, {
+  required int x,
+  required int y,
+  required Color expected,
+  required String name,
+}) async {
+  final pixels = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  if (pixels == null) {
+    throw StateError('Failed to inspect $name.png pixels.');
+  }
+  final offset = (y * image.width + x) * 4;
+  final actual = Color.fromARGB(
+    pixels.getUint8(offset + 3),
+    pixels.getUint8(offset),
+    pixels.getUint8(offset + 1),
+    pixels.getUint8(offset + 2),
+  );
+  if (actual != expected) {
+    throw StateError(
+      '$name.png bottom-center pixel is '
+      '0x${actual.toARGB32().toRadixString(16).padLeft(8, '0')}; '
+      'expected 0x${expected.toARGB32().toRadixString(16).padLeft(8, '0')}.',
+    );
+  }
 }
 
 /// Loads real fonts so screenshots show legible glyphs instead of the

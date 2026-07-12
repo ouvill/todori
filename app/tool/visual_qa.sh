@@ -13,6 +13,19 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+output_dir="build/visual_qa"
+mkdir -p "$output_dir"
+# Remove only artifacts owned by this harness. This keeps a filtered or failed
+# run from leaving screenshots from an older production contract beside the
+# current evidence.
+find "$output_dir" -maxdepth 1 -type f \
+  \( -name '*.png' -o -name 'current-manifest.txt' \) -delete
+
 sh tool/fetch_lab_fonts.sh || echo "visual_qa: WARNING: tool/fetch_lab_fonts.sh failed; continuing without it." >&2
 
 TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
+
+test -s "$output_dir/current-manifest.txt"
+png_count=$(find "$output_dir" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')
+manifest_count=$(wc -l < "$output_dir/current-manifest.txt" | tr -d ' ')
+test "$png_count" -eq "$manifest_count"
