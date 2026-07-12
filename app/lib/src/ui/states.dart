@@ -7,7 +7,18 @@ class AppLoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(child: CircularProgressIndicator());
+    return Center(
+      child: Semantics(
+        liveRegion: true,
+        child: const SizedBox.square(
+          dimension: 22,
+          child: CircularProgressIndicator(
+            color: AppColors.forest,
+            strokeWidth: 1.5,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -18,27 +29,11 @@ class AppErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              LucideIcons.alertCircle300,
-              color: colorScheme.error,
-              size: 32,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: colorScheme.error),
-            ),
-          ],
-        ),
-      ),
+    return _AppStateLayout(
+      icon: LucideIcons.cloudOff300,
+      iconColor: AppColors.coral,
+      title: message,
+      isError: true,
     );
   }
 }
@@ -59,49 +54,77 @@ class AppEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _AppStateLayout(
+      icon: icon,
+      iconColor: AppColors.forest,
+      title: title,
+      body: body,
+      action: action,
+    );
+  }
+}
+
+class _AppStateLayout extends StatelessWidget {
+  const _AppStateLayout({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    this.body,
+    this.action,
+    this.isError = false,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String? body;
+  final Widget? action;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: colorScheme.surface.withValues(alpha: 0.78),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.72),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, color: colorScheme.primary, size: 36),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium,
+          child: Semantics(
+            liveRegion: isError,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox.square(
+                  dimension: 38,
+                  child: Icon(icon, color: iconColor, size: 21),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(title, style: theme.textTheme.titleMedium),
+                      if (body != null) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          body!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                      if (action != null) ...[
+                        const SizedBox(height: AppSpacing.md),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: action!,
+                        ),
+                      ],
+                    ],
                   ),
-                  if (body != null) ...[
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      body!,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                  if (action != null) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    action!,
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
