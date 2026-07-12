@@ -6,7 +6,7 @@
 
 ## 現在
 
-- 進行中: なし。
+- 進行中: **task-107 Integrated Product Finish** — 新UI、Capture、Search、Calendar、Focusを単一のproduct contractへ統合し、遷移・cache・motion・Visual QAを仕上げる。
 - 保留: なし。
 - 最新の完了: **task-106 Pomodoro / Stopwatch / Focus Experience** — wall-clock engine、restart-safe Pomodoro cadence、Stopwatch、通知、専用Focus routeを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
