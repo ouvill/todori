@@ -601,12 +601,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           ),
       ],
     );
-    if (!movingAllowed) {
-      return content;
-    }
     return LongPressDraggable<CalendarOccurrenceDto>(
       key: ValueKey('calendar-draggable-$key'),
       data: occurrence,
+      maxSimultaneousDrags: movingAllowed ? 1 : 0,
       feedback: _CalendarDragFeedback(
         title: task.title,
         detail: '$kindLabel · $timeLabel',

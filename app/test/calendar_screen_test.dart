@@ -102,6 +102,14 @@ void main() {
         isTrue,
       );
       expect(
+        find.byKey(const ValueKey('task-completion-halo')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.byKey(const ValueKey('task-strikethrough-overlay')),
+        findsNWidgets(2),
+      );
+      expect(
         find.byKey(const ValueKey('calendar-completed-toggle')),
         findsNothing,
       );
@@ -435,6 +443,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byKey(ValueKey('calendar-completion-exit-$key')), findsNothing);
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsNothing);
     expect(
       find.byKey(const ValueKey('calendar-completed-toggle')),
       findsOneWidget,
