@@ -307,13 +307,16 @@ class _SearchResultRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final task = result.task;
     final status = taskStatusLabel(l10n, task.status);
+    final priority = l10n.taskPriority(taskPriorityLabel(l10n, task.priority));
     final listContext = result.listArchived
         ? l10n.searchArchivedListLabel(result.listName)
         : result.listName;
     final note = task.note.trim();
     return Semantics(
       button: true,
-      label: l10n.searchResultSemantics(task.title, listContext, status),
+      label:
+          '${l10n.searchResultSemantics(task.title, listContext, status)}, '
+          '$priority',
       child: ExcludeSemantics(
         child: InkWell(
           onTap: onTap,

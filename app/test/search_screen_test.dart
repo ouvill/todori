@@ -103,7 +103,10 @@ void main() {
       expect(find.text('History · Archived'), findsNWidgets(2));
 
       final semantics = tester.getSemantics(find.text('Review shipped'));
-      expect(semantics.label, 'Review shipped, History · Archived, Done');
+      expect(
+        semantics.label,
+        'Review shipped, History · Archived, Done, Priority: None',
+      );
     },
   );
 
