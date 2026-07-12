@@ -50,7 +50,8 @@ void main() {
 
     expect(await fake.getSetting(key: onboardingCompletedSettingKey), '1');
     expect(find.text('Make room for what matters'), findsNothing);
-    expect(find.byTooltip('Open lists'), findsOneWidget);
+    expect(find.text('Lists'), findsOneWidget);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -87,7 +88,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('onboarding-save-error')), findsOneWidget);
     expect(find.text('Begin with one small thing'), findsOneWidget);
-    expect(find.byTooltip('Open lists'), findsNothing);
+    expect(find.text('Lists'), findsNothing);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsNothing);
     expect(
       find.byKey(const ValueKey('onboarding-primary-action')),
       findsOneWidget,

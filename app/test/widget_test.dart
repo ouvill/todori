@@ -110,7 +110,7 @@ Future<void> _selectTaskSortMode(WidgetTester tester, String label) async {
 }
 
 Future<void> _openListsScreen(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Open lists'));
+  await tester.tap(find.text('Lists').last);
   await tester.pumpAndSettle();
 }
 
@@ -335,7 +335,7 @@ void main() {
   ) async {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
@@ -354,8 +354,8 @@ void main() {
 
     expect(find.text('Today'), findsWidgets);
     expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.byTooltip('Open lists'), findsOneWidget);
-    expect(find.text('Add task'), findsOneWidget);
+    expect(find.text('Lists'), findsOneWidget);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
     expect(find.byIcon(LucideIcons.chevronRight300), findsNothing);
 
     await _openListFromHome(tester, 'Inbox');
@@ -897,10 +897,10 @@ void main() {
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
 
-    expect(
-      tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
-      1,
-    );
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Lists'), findsWidgets);
+    expect(find.text('You'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Work')).dy,
       lessThan(tester.getTopLeft(find.text('New list')).dy),
@@ -910,10 +910,15 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Archived (1)')).dy),
     );
 
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.text('You'), findsOneWidget);
+
     await tester.tap(find.text('Home'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Open lists'), findsOneWidget);
-    expect(find.text('Add task'), findsOneWidget);
+    expect(find.text('Lists'), findsOneWidget);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
   });
 
   testWidgets('home shows standalone due subtask with parent context', (
@@ -1496,10 +1501,7 @@ void main() {
           .map((box) => box.decoration)
           .whereType<BoxDecoration>()
           .map((decoration) => decoration.color);
-      expect(
-        closedDuePillBackgrounds,
-        contains(colorScheme.onSurfaceVariant.withValues(alpha: 0.10)),
-      );
+      expect(closedDuePillBackgrounds, isEmpty);
 
       await tester.tap(find.text('Today').first);
       await tester.pumpAndSettle();
@@ -1763,6 +1765,10 @@ void main() {
     // keeps a short, unprefixed pill in the detail header.
     expect(find.text('Local protection'), findsNothing);
     expect(find.text('To do'), findsOneWidget);
+    expect(find.text('Home'), findsNothing);
+    expect(find.text('Lists'), findsNothing);
+    expect(find.text('You'), findsNothing);
+    expect(find.byKey(const ValueKey('quick-add-open')), findsNothing);
   });
 
   testWidgets('creating a list from list management updates the list', (
@@ -2090,86 +2096,78 @@ void main() {
     expect(find.text('Today'), findsOneWidget);
   });
 
-  testWidgets(
-    'completion motion exposes intermediate particle and strike frame',
-    (tester) async {
-      var isDone = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: MediaQuery(
-            data: const MediaQueryData(disableAnimations: false),
-            child: Scaffold(
-              body: StatefulBuilder(
-                builder: (context, setState) {
-                  final style = Theme.of(context).textTheme.titleMedium;
-                  return Center(
-                    child: SizedBox(
-                      width: 180,
-                      child: Row(
-                        children: [
-                          AppTaskCheckbox(
-                            checkboxKey: const ValueKey('motion-checkbox'),
+  testWidgets('completion motion exposes intermediate halo and strike frame', (
+    tester,
+  ) async {
+    var isDone = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(disableAnimations: false),
+          child: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                final style = Theme.of(context).textTheme.titleMedium;
+                return Center(
+                  child: SizedBox(
+                    width: 180,
+                    child: Row(
+                      children: [
+                        AppTaskCheckbox(
+                          checkboxKey: const ValueKey('motion-checkbox'),
+                          isDone: isDone,
+                          tooltip: 'Toggle motion task',
+                          onToggleDone: () => setState(() => isDone = !isDone),
+                        ),
+                        Expanded(
+                          child: AppAnimatedTaskTitle(
+                            'Motion title wraps to a second line',
                             isDone: isDone,
-                            tooltip: 'Toggle motion task',
-                            onToggleDone: () =>
-                                setState(() => isDone = !isDone),
-                          ),
-                          Expanded(
-                            child: AppAnimatedTaskTitle(
-                              'Motion title wraps to a second line',
-                              isDone: isDone,
-                              maxLines: 2,
-                              style: style?.copyWith(
-                                decoration: isDone
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                              ),
+                            maxLines: 2,
+                            style: style?.copyWith(
+                              decoration: isDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      expect(
-        find.byKey(const ValueKey('task-completion-particles')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('task-strikethrough-overlay')),
-        findsNothing,
-      );
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('task-strikethrough-overlay')),
+      findsNothing,
+    );
 
-      await tester.tap(find.byKey(const ValueKey('motion-checkbox')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byKey(const ValueKey('motion-checkbox')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
-      expect(
-        find.byKey(const ValueKey('task-completion-particles')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('task-strikethrough-overlay')),
-        findsOneWidget,
-      );
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('task-strikethrough-overlay')),
+      findsOneWidget,
+    );
 
-      await tester.pumpAndSettle();
-      final completedTitle = tester.widget<Text>(
-        find.text('Motion title wraps to a second line'),
-      );
-      expect(completedTitle.style?.decoration, TextDecoration.none);
-      expect(
-        find.byKey(const ValueKey('task-strikethrough-overlay')),
-        findsOneWidget,
-      );
-    },
-  );
+    await tester.pumpAndSettle();
+    final completedTitle = tester.widget<Text>(
+      find.text('Motion title wraps to a second line'),
+    );
+    expect(completedTitle.style?.decoration, TextDecoration.none);
+    expect(
+      find.byKey(const ValueKey('task-strikethrough-overlay')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('completion motion is skipped when reduce motion is enabled', (
     tester,
@@ -2216,10 +2214,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('reduce-motion-checkbox')));
     await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('task-completion-particles')),
-      findsNothing,
-    );
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsNothing);
     expect(
       find.byKey(const ValueKey('task-strikethrough-overlay')),
       findsOneWidget,
@@ -2297,27 +2292,24 @@ void main() {
 
     expect(find.text('Root due today pending exit'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
-    expect(
-      find.byKey(const ValueKey('task-completion-particles')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('task-strikethrough-overlay')),
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 749));
+    await tester.pump(const Duration(milliseconds: 449));
     expect(find.text('Root due today pending exit'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
 
-    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pump(const Duration(milliseconds: 2));
     expect(
       find.byKey(const ValueKey('home-pending-completion-exit')),
       findsOneWidget,
     );
     expect(find.text('Root due today pending exit'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pump(const Duration(milliseconds: 420));
     expect(find.text('Root due today pending exit'), findsNothing);
     expect(find.text('Closed'), findsOneWidget);
   });
@@ -2377,12 +2369,9 @@ void main() {
     expect(find.text('Pending subtree parent'), findsOneWidget);
     expect(find.text('Pending subtree child'), findsOneWidget);
     expect(find.text('Pending subtree grandchild'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('task-completion-particles')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 749));
+    await tester.pump(const Duration(milliseconds: 449));
     expect(find.text('Pending subtree parent'), findsOneWidget);
     expect(find.text('Pending subtree child'), findsOneWidget);
     expect(find.text('Pending subtree grandchild'), findsOneWidget);
@@ -2396,7 +2385,7 @@ void main() {
     expect(find.text('Pending subtree child'), findsOneWidget);
     expect(find.text('Pending subtree grandchild'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pump(const Duration(milliseconds: 420));
     await tester.pumpAndSettle();
     expect(find.text('Pending subtree parent'), findsNothing);
     expect(find.text('Pending subtree child'), findsNothing);
@@ -2509,7 +2498,7 @@ void main() {
         findsNothing,
       );
       expect(
-        find.byKey(const ValueKey('task-completion-particles')),
+        find.byKey(const ValueKey('task-completion-halo')),
         findsOneWidget,
       );
       expect(
@@ -3679,6 +3668,8 @@ void main() {
     await tester.tap(find.text('Parent task'));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('Add subtask'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Add subtask'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Child task');
@@ -3724,6 +3715,8 @@ void main() {
       expect(find.text('Detail child task'), findsOneWidget);
       expect(childCheckbox, findsOneWidget);
 
+      await tester.ensureVisible(childCheckbox);
+      await tester.pumpAndSettle();
       await tester.tap(childCheckbox);
       await tester.pump(const Duration(milliseconds: 125));
       await tester.pumpAndSettle();
@@ -3733,6 +3726,8 @@ void main() {
       expect(find.text('Parent detail task'), findsOneWidget);
       expect(find.text('Task closed.'), findsOneWidget);
 
+      await tester.ensureVisible(childCheckbox);
+      await tester.pumpAndSettle();
       await tester.tap(childCheckbox);
       await tester.pump(const Duration(milliseconds: 75));
       await tester.pumpAndSettle();
@@ -4031,6 +4026,12 @@ void main() {
 
     expect(find.text('Detail branch child'), findsOneWidget);
     expect(find.text('Detail grandchild'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Detail last child'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Detail last child'), findsOneWidget);
 
     final branchRow = tester.widget<AppTaskRow>(

@@ -120,7 +120,7 @@ void main() {
   ) async {
     _setWideViewport(tester);
     await _seedRealisticData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await _screenshot(tester, 'lists_wide');
   });
@@ -195,7 +195,7 @@ void main() {
   testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
@@ -205,7 +205,7 @@ void main() {
   testWidgets('task_create_sheet_list: list task create sheet', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
@@ -248,7 +248,7 @@ void main() {
   });
 
   testWidgets(
-    'completion_motion_midframe: check particles and animated strikethrough',
+    'completion_motion_midframe: check halo and animated strikethrough',
     (tester) async {
       _setMobileViewport(tester);
       var isDone = false;
@@ -336,7 +336,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
@@ -350,7 +350,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
@@ -369,7 +369,7 @@ void main() {
   testWidgets('lists: list management screen with two lists', (tester) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await _screenshot(tester, 'lists');
   });
@@ -380,7 +380,7 @@ void main() {
     _setMobileViewport(tester);
     _useTextScale(tester, 2.0);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await _screenshot(tester, 'lists_text_scale_2');
   });
@@ -388,7 +388,7 @@ void main() {
   testWidgets('lists_archived: archived section expanded', (tester) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Show archived lists'));
     await tester.pumpAndSettle();
@@ -400,7 +400,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Account'));
+    await tester.tap(find.text('You').last);
     await tester.pumpAndSettle();
     await _screenshot(tester, 'account_signed_out');
   });
@@ -416,7 +416,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('仕事'));
     await tester.pumpAndSettle();
@@ -483,7 +483,7 @@ void main() {
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open lists'));
+    await tester.tap(find.text('Lists').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Work'));
     await tester.pumpAndSettle();

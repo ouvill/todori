@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/screens/account_screen.dart';
+import 'package:todori/src/ui/theme.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -15,6 +16,7 @@ Future<void> _pumpAccountScreen(
     ProviderScope(
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       child: MaterialApp(
+        theme: buildTodoriTheme(Brightness.light),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: AccountScreen(key: UniqueKey()),
@@ -38,6 +40,16 @@ void main() {
     expect(find.text('Server URL'), findsOneWidget);
     expect(find.text('Log in'), findsWidgets);
     expect(find.text('Register'), findsOneWidget);
+    expect(
+      Theme.of(
+        tester.element(find.text('Account')),
+      ).textTheme.bodyMedium?.fontFamily,
+      'Inter',
+    );
+    expect(
+      Theme.of(tester.element(find.byType(Scaffold))).scaffoldBackgroundColor,
+      AppColors.canvas,
+    );
   });
 
   testWidgets('saves sync server URL', (tester) async {
