@@ -122,7 +122,7 @@ ADR-017は、期限を`未設定 / 日付のみ / 日時指定`の排他的なta
 - Visual QA: `sh app/tool/visual_qa.sh`は57 test成功、63 PNGを全件目視した。`task_due_mode_sheet.png`とforeign IANA zoneを含むHome fixtureで、日付のみ / 日時指定、期限切れ、狭幅、日本語、dark、text scale 2.0に描画異常なし。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker統合testを含む`cargo test --workspace`、`flutter analyze`、release Rust build後の`flutter test`（143成功、visual QA harness 1件は通常実行でskip）、hardcoded strings、client boundaries、`git diff --check`が成功した。
 - FRB: `TaskDueInput` / `TaskDueDto`を`Date { dueOn }` / `DateTime { dueAt: DateTime, timeZone }`のFreezed sealed unionとして`flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`で生成した。`kind: String`、nullable product shape、`dueAtMs`はDart期限APIに存在しない。
-- Commit: 未コミット。
+- Commit: `fe551af`（`feat(tasks): separate date and datetime deadlines`）。
 - 未解決: 実端末2台でのprofile再作成後同期確認は未実施。コード検証はserver経由2-client期限競合と両local DB収束testで代替した。
 
 ### 独立検証
