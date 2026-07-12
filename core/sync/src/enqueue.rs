@@ -923,7 +923,7 @@ mod tests {
             note: String::new(),
             status: TaskStatus::Todo,
             priority: 0,
-            due_at: None,
+            due: None,
             scheduled_at: None,
             estimated_minutes: None,
             sort_order: "7fffffffffffffffffffffffffffffff".to_string(),

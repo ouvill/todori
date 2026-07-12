@@ -19,6 +19,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   });
 
   @protected
+  DateTime dco_decode_Chrono_Utc(dynamic raw);
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -35,6 +38,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  TaskDueDto dco_decode_box_autoadd_task_due_dto(dynamic raw);
+
+  @protected
+  TaskDueInput dco_decode_box_autoadd_task_due_input(dynamic raw);
 
   @protected
   TaskUndoDto dco_decode_box_autoadd_task_undo_dto(dynamic raw);
@@ -76,6 +85,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
 
   @protected
+  TaskDueDto? dco_decode_opt_box_autoadd_task_due_dto(dynamic raw);
+
+  @protected
+  TaskDueInput? dco_decode_opt_box_autoadd_task_due_input(dynamic raw);
+
+  @protected
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw);
 
   @protected
@@ -88,6 +103,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskDto dco_decode_task_dto(dynamic raw);
 
   @protected
+  TaskDueDto dco_decode_task_due_dto(dynamic raw);
+
+  @protected
+  TaskDueInput dco_decode_task_due_input(dynamic raw);
+
+  @protected
   TaskUndoDto dco_decode_task_undo_dto(dynamic raw);
 
   @protected
@@ -95,6 +116,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  DateTime sse_decode_Chrono_Utc(SseDeserializer deserializer);
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
@@ -117,6 +141,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  TaskDueDto sse_decode_box_autoadd_task_due_dto(SseDeserializer deserializer);
+
+  @protected
+  TaskDueInput sse_decode_box_autoadd_task_due_input(
+    SseDeserializer deserializer,
+  );
 
   @protected
   TaskUndoDto sse_decode_box_autoadd_task_undo_dto(
@@ -160,6 +192,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
+  TaskDueDto? sse_decode_opt_box_autoadd_task_due_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TaskDueInput? sse_decode_opt_box_autoadd_task_due_input(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TaskUndoDto? sse_decode_opt_box_autoadd_task_undo_dto(
     SseDeserializer deserializer,
   );
@@ -174,6 +216,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskDto sse_decode_task_dto(SseDeserializer deserializer);
 
   @protected
+  TaskDueDto sse_decode_task_due_dto(SseDeserializer deserializer);
+
+  @protected
+  TaskDueInput sse_decode_task_due_input(SseDeserializer deserializer);
+
+  @protected
   TaskUndoDto sse_decode_task_undo_dto(SseDeserializer deserializer);
 
   @protected
@@ -181,6 +229,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  void sse_encode_Chrono_Utc(DateTime self, SseSerializer serializer);
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
@@ -206,6 +257,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_task_due_dto(
+    TaskDueDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_task_due_input(
+    TaskDueInput self,
     SseSerializer serializer,
   );
 
@@ -264,6 +327,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_task_due_dto(
+    TaskDueDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_task_due_input(
+    TaskDueInput? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_task_undo_dto(
     TaskUndoDto? self,
     SseSerializer serializer,
@@ -277,6 +352,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_task_dto(TaskDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_task_due_dto(TaskDueDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_task_due_input(TaskDueInput self, SseSerializer serializer);
 
   @protected
   void sse_encode_task_undo_dto(TaskUndoDto self, SseSerializer serializer);

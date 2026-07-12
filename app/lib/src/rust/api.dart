@@ -5,12 +5,17 @@
 
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
+part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `json_string`, `list_to_dto`, `parse_status`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_to_dto`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `json_string`, `list_to_dto`, `parse_status`, `parse_task_due`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiGreet(name: name);
+
+Future<String> getLocalTimeZone() =>
+    RustLib.instance.api.crateApiGetLocalTimeZone();
 
 Future<String> createDraftTask({required String title}) =>
     RustLib.instance.api.crateApiCreateDraftTask(title: title);
@@ -96,13 +101,13 @@ Future<TaskDto> createTask({
   required String listId,
   required String title,
   String? parentTaskId,
-  PlatformInt64? dueAt,
+  TaskDueInput? due,
   String? note,
 }) => RustLib.instance.api.crateApiCreateTask(
   listId: listId,
   title: title,
   parentTaskId: parentTaskId,
-  dueAt: dueAt,
+  due: due,
   note: note,
 );
 
@@ -141,13 +146,13 @@ Future<TaskDto> updateTask({
   required String title,
   required String note,
   required int priority,
-  PlatformInt64? dueAt,
+  TaskDueInput? due,
 }) => RustLib.instance.api.crateApiUpdateTask(
   taskId: taskId,
   title: title,
   note: note,
   priority: priority,
-  dueAt: dueAt,
+  due: due,
 );
 
 Future<TaskDto> setTaskStatus({
@@ -468,7 +473,7 @@ class TaskDto {
   final String note;
   final String status;
   final int priority;
-  final PlatformInt64? dueAt;
+  final TaskDueDto? due;
   final PlatformInt64? scheduledAt;
   final int? estimatedMinutes;
   final String sortOrder;
@@ -487,7 +492,7 @@ class TaskDto {
     required this.note,
     required this.status,
     required this.priority,
-    this.dueAt,
+    this.due,
     this.scheduledAt,
     this.estimatedMinutes,
     required this.sortOrder,
@@ -508,7 +513,7 @@ class TaskDto {
       note.hashCode ^
       status.hashCode ^
       priority.hashCode ^
-      dueAt.hashCode ^
+      due.hashCode ^
       scheduledAt.hashCode ^
       estimatedMinutes.hashCode ^
       sortOrder.hashCode ^
@@ -531,7 +536,7 @@ class TaskDto {
           note == other.note &&
           status == other.status &&
           priority == other.priority &&
-          dueAt == other.dueAt &&
+          due == other.due &&
           scheduledAt == other.scheduledAt &&
           estimatedMinutes == other.estimatedMinutes &&
           sortOrder == other.sortOrder &&
@@ -541,6 +546,28 @@ class TaskDto {
           assignee == other.assignee &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
+}
+
+@freezed
+sealed class TaskDueDto with _$TaskDueDto {
+  const TaskDueDto._();
+
+  const factory TaskDueDto.date({required String dueOn}) = TaskDueDto_Date;
+  const factory TaskDueDto.dateTime({
+    required DateTime dueAt,
+    required String timeZone,
+  }) = TaskDueDto_DateTime;
+}
+
+@freezed
+sealed class TaskDueInput with _$TaskDueInput {
+  const TaskDueInput._();
+
+  const factory TaskDueInput.date({required String dueOn}) = TaskDueInput_Date;
+  const factory TaskDueInput.dateTime({
+    required DateTime dueAt,
+    required String timeZone,
+  }) = TaskDueInput_DateTime;
 }
 
 class TaskUndoDto {

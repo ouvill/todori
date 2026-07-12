@@ -4,8 +4,8 @@ use todori_crypto::key_hierarchy::{
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
-    unarchive_list as domain_unarchive_list, update_due_at, update_note, validate_parent_for, List,
-    Task, TaskStatus, Uuid,
+    unarchive_list as domain_unarchive_list, update_due, update_note, validate_parent_for, List,
+    Task, TaskDue, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
@@ -21,7 +21,7 @@ pub struct CreateTaskInput {
     pub list_id: Uuid,
     pub title: String,
     pub parent_task_id: Option<Uuid>,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDue>,
     pub note: Option<String>,
     pub now_ms: i64,
 }
@@ -231,8 +231,8 @@ impl SqliteMutationService {
         if let Some(note) = input.note {
             task = update_note(task, note, input.now_ms)?;
         }
-        if let Some(due_at) = input.due_at {
-            task = update_due_at(task, Some(due_at), input.now_ms)?;
+        if let Some(due) = input.due {
+            task = update_due(task, Some(due), input.now_ms)?;
         }
         if let Some(parent_id) = input.parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
@@ -495,7 +495,7 @@ mod tests {
             list_id,
             title: "created".to_string(),
             parent_task_id: None,
-            due_at: Some(BASE_MS + 60_000),
+            due: Some(TaskDue::date_time(BASE_MS + 60_000, "UTC").unwrap()),
             note: Some("note".to_string()),
             now_ms: BASE_MS + 1,
         }

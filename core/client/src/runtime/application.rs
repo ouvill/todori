@@ -1,8 +1,8 @@
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
-    unarchive_list as domain_unarchive_list, update_due_at, update_note, update_priority,
-    update_title, validate_parent_for, List, Task, TaskStatus, Uuid,
+    unarchive_list as domain_unarchive_list, update_due, update_note, update_priority,
+    update_title, validate_parent_for, List, Task, TaskDue, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SqliteWriteTx,
@@ -24,7 +24,7 @@ pub struct CreateTaskCommand {
     pub list_id: Uuid,
     pub title: String,
     pub parent_task_id: Option<Uuid>,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDue>,
     pub note: Option<String>,
 }
 
@@ -41,7 +41,7 @@ pub struct UpdateTaskCommand {
     pub title: String,
     pub note: String,
     pub priority: i32,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDue>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +94,10 @@ enum CreateListMode {
 }
 
 impl TodoriClient {
+    pub fn local_time_zone(&self) -> Result<String, ClientError> {
+        iana_time_zone::get_timezone().map_err(|_| ClientError::LocalTimeZoneUnavailable)
+    }
+
     pub fn create_list(&self, name: String) -> Result<List, ClientError> {
         let _guard = self.operation_guard()?;
         let now = now_ms()?;
@@ -202,7 +206,7 @@ impl TodoriClient {
                     list_id: command.list_id,
                     title: command.title,
                     parent_task_id: command.parent_task_id,
-                    due_at: command.due_at,
+                    due: command.due,
                     note: command.note,
                     now_ms: now,
                 },
@@ -289,7 +293,7 @@ impl TodoriClient {
                     title: command.title,
                     note: command.note,
                     priority: command.priority,
-                    due_at: command.due_at,
+                    due: command.due,
                     now_ms: now,
                 },
                 &sync,
@@ -544,8 +548,8 @@ impl TodoriClient {
         if let Some(note) = command.note {
             task = update_note(task, note, now)?;
         }
-        if let Some(due_at) = command.due_at {
-            task = update_due_at(task, Some(due_at), now)?;
+        if let Some(due) = command.due {
+            task = update_due(task, Some(due), now)?;
         }
         if let Some(parent_id) = command.parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
@@ -625,7 +629,7 @@ impl TodoriClient {
         let task = update_title(before.clone(), command.title, now)?;
         let task = update_note(task, command.note, now)?;
         let task = update_priority(task, command.priority, now)?;
-        let updated = update_due_at(task, command.due_at, now)?;
+        let updated = update_due(task, command.due, now)?;
         transaction.update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now)?;
         transaction.commit()?;
         Ok(updated)
@@ -839,7 +843,7 @@ mod tests {
             title: "invalid".into(),
             note: String::new(),
             priority: 4,
-            due_at: None,
+            due: None,
         });
 
         assert!(matches!(result, Err(ClientError::InvalidPriority)));

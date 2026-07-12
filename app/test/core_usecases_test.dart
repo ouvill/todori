@@ -1,14 +1,26 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
+
+TaskDueDto testDateTimeDueFromMillis(int value, {String timeZone = 'UTC'}) =>
+    dateTimeDueFromInstant(
+      DateTime.fromMillisecondsSinceEpoch(value),
+      timeZone: timeZone,
+    );
 
 void main() {
   late Directory tempDir;
 
   setUpAll(() async {
-    await RustLib.init();
+    await RustLib.init(
+      externalLibrary: ExternalLibrary.open(
+        'rust/target/release/libtodori_app_bridge.dylib',
+      ),
+    );
     tempDir = await Directory.systemTemp.createTemp('todori_core_usecases_');
     await initCore(dbDir: tempDir.path, defaultInboxName: 'Inbox');
   });
@@ -104,33 +116,37 @@ void main() {
     final dueToday = await createTask(
       listId: todayList.id,
       title: 'Bridge due today',
-      dueAt: todayStart,
+      due: taskDueInput(testDateTimeDueFromMillis(todayStart)),
     );
     final overdue = await createTask(
       listId: otherList.id,
       title: 'Bridge overdue',
-      dueAt: todayStart - const Duration(days: 1).inMilliseconds,
+      due: taskDueInput(
+        testDateTimeDueFromMillis(
+          todayStart - const Duration(days: 1).inMilliseconds,
+        ),
+      ),
     );
     await createTask(listId: todayList.id, title: 'Bridge no due');
     final tomorrow = await createTask(
       listId: todayList.id,
       title: 'Bridge tomorrow',
-      dueAt: tomorrowStart,
+      due: taskDueInput(testDateTimeDueFromMillis(tomorrowStart)),
     );
     final upcoming = await createTask(
       listId: todayList.id,
       title: 'Bridge upcoming',
-      dueAt: dayAfterTomorrowStart,
+      due: taskDueInput(testDateTimeDueFromMillis(dayAfterTomorrowStart)),
     );
     await createTask(
       listId: archivedList.id,
       title: 'Bridge archived today',
-      dueAt: todayStart,
+      due: taskDueInput(testDateTimeDueFromMillis(todayStart)),
     );
     final closedToday = await createTask(
       listId: otherList.id,
       title: 'Bridge closed today',
-      dueAt: todayStart,
+      due: taskDueInput(testDateTimeDueFromMillis(todayStart)),
     );
     await setTaskStatus(taskId: closedToday.id, status: 'done');
 
@@ -330,14 +346,14 @@ void main() {
         title: 'Updated title',
         note: 'Updated note',
         priority: 2,
-        dueAt: dueAt,
+        due: taskDueInput(testDateTimeDueFromMillis(dueAt)),
       );
 
       expect(updated.id, task.id);
       expect(updated.title, 'Updated title');
       expect(updated.note, 'Updated note');
       expect(updated.priority, 2);
-      expect(updated.dueAt, dueAt);
+      expect(taskDueInstant(updated.due)?.millisecondsSinceEpoch, dueAt);
       expect(updated.updatedAt, greaterThanOrEqualTo(task.updatedAt));
 
       final persisted = (await getTasks(
@@ -346,20 +362,54 @@ void main() {
       expect(persisted.title, 'Updated title');
       expect(persisted.note, 'Updated note');
       expect(persisted.priority, 2);
-      expect(persisted.dueAt, dueAt);
+      expect(taskDueInstant(persisted.due)?.millisecondsSinceEpoch, dueAt);
 
       final cleared = await updateTask(
         taskId: task.id,
         title: 'Updated title',
         note: '',
         priority: 0,
-        dueAt: null,
+        due: null,
       );
       expect(cleared.note, '');
       expect(cleared.priority, 0);
-      expect(cleared.dueAt, isNull);
+      expect(taskDueInstant(cleared.due), isNull);
     },
   );
+
+  test('Rust bridge distinguishes date-only and datetime due values', () async {
+    final list = await createList(name: 'Due semantics', sortOrder: 'due0');
+    final dateTask = await createTask(
+      listId: list.id,
+      title: 'Date only',
+      due: const TaskDueInput.date(dueOn: '2026-07-12'),
+    );
+    final dateTimeTask = await createTask(
+      listId: list.id,
+      title: 'Exact deadline',
+      due: TaskDueInput.dateTime(
+        dueAt: DateTime.fromMillisecondsSinceEpoch(1783798200000, isUtc: true),
+        timeZone: 'Asia/Tokyo',
+      ),
+    );
+
+    expect(dateTask.due, isA<TaskDueDto_Date>());
+    expect(taskDueCivilDate(dateTask.due), '2026-07-12');
+    expect(dateTimeTask.due, isA<TaskDueDto_DateTime>());
+    expect(
+      taskDueInstant(dateTimeTask.due)?.millisecondsSinceEpoch,
+      1783798200000,
+    );
+    expect(taskDueSavedTimeZone(dateTimeTask.due), 'Asia/Tokyo');
+    expect(
+      () => createTask(
+        listId: list.id,
+        title: 'Invalid date due',
+        due: const TaskDueInput.date(dueOn: '2026-02-30'),
+      ),
+      throwsA(anything),
+    );
+  });
 
   test('updateTask rejects priority outside 0 through 3', () async {
     final list = await createList(name: 'Priority validation', sortOrder: 'e0');
@@ -374,7 +424,7 @@ void main() {
         title: task.title,
         note: task.note,
         priority: 4,
-        dueAt: null,
+        due: null,
       ),
       throwsA(anything),
     );
@@ -389,7 +439,7 @@ void main() {
       title: 'Edited title',
       note: 'Edited note',
       priority: 2,
-      dueAt: 1782864000000,
+      due: taskDueInput(testDateTimeDueFromMillis(1782864000000)),
     );
     final editUndo = await getLatestTaskUndo();
     expect(editUndo, isNotNull);
@@ -399,7 +449,7 @@ void main() {
     expect(editRestored.title, 'Original title');
     expect(editRestored.note, '');
     expect(editRestored.priority, 0);
-    expect(editRestored.dueAt, isNull);
+    expect(taskDueInstant(editRestored.due), isNull);
 
     final completeTask = await createTask(
       listId: list.id,
@@ -442,7 +492,7 @@ void main() {
       title: 'Edited parent',
       note: '',
       priority: 0,
-      dueAt: null,
+      due: null,
     );
 
     expect(await countTaskDescendants(taskId: parent.id), 1);
@@ -491,7 +541,7 @@ void main() {
       title: 'First edit',
       note: '',
       priority: 0,
-      dueAt: null,
+      due: null,
     );
     final staleEditUndo = (await getLatestTaskUndo())!;
     await updateTask(
@@ -499,7 +549,7 @@ void main() {
       title: 'Second edit',
       note: '',
       priority: 0,
-      dueAt: null,
+      due: null,
     );
     await expectLater(
       undoTaskOperation(undoId: staleEditUndo.id),

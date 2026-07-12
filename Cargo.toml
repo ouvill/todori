@@ -54,6 +54,8 @@ clap = { version = "4", features = ["derive"] }
 axum = "0.8"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+iana-time-zone = "0.1"
 http = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sqlx-core = { version = "0.9.0", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }

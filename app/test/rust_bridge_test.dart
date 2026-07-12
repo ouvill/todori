@@ -1,12 +1,17 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
 
 void main() {
   setUpAll(() async {
-    await RustLib.init();
+    await RustLib.init(
+      externalLibrary: ExternalLibrary.open(
+        'rust/target/release/libtodori_app_bridge.dylib',
+      ),
+    );
   });
 
   tearDownAll(RustLib.dispose);

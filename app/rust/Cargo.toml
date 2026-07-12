@@ -9,5 +9,5 @@ publish.workspace = true
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
-flutter_rust_bridge = "=2.12.0"
+flutter_rust_bridge = { version = "=2.12.0", features = ["chrono"] }
 todori-client.workspace = true

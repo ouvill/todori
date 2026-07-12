@@ -47,7 +47,11 @@ pub use runtime::{
     SetTaskStatusCommand, TaskUndoKind, TaskUndoView, TodoriClient, UpdateTaskCommand,
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
-pub use todori_domain::{List, Task, TaskStatus, Uuid};
+pub use todori_domain::{
+    CivilDate, DueValueError, IanaTimeZone, List, Task, TaskDue, TaskStatus, UtcInstant, Uuid,
+};
+
+pub use chrono;
 
 /// Unstable low-level primitives for cross-crate integration tests.
 ///

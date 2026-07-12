@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -33,7 +34,7 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   await fake.createTask(
     listId: defaultList.id,
     title: taskTitle,
-    dueAt: _todayStartMs(),
+    due: testDateOnlyDueFromMillis(_todayStartMs()),
   );
 
   await tester.pumpWidget(
@@ -77,7 +78,7 @@ class _SlowCreateFakeBridgeService extends FakeBridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
-    int? dueAt,
+    Object? due,
     String note = '',
   }) async {
     final completer = Completer<void>();
@@ -87,7 +88,7 @@ class _SlowCreateFakeBridgeService extends FakeBridgeService {
       listId: listId,
       title: title,
       parentTaskId: parentTaskId,
-      dueAt: dueAt,
+      due: due,
       note: note,
     );
   }
@@ -203,8 +204,8 @@ void main() {
 
       final en = lookupAppLocalizations(const Locale('en'));
       final ja = lookupAppLocalizations(const Locale('ja'));
-      expect(formatDueDate(en, sampleEpochMs), 'Jul 8, 2026');
-      expect(formatDueDate(ja, sampleEpochMs), '2026年7月8日');
+      expect(formatDueDate(en, dateOnlyDue(sampleDate)), 'Jul 8, 2026');
+      expect(formatDueDate(ja, dateOnlyDue(sampleDate)), '2026年7月8日');
 
       final tomorrow = DateTime.now()
           .copyWith(
@@ -216,8 +217,12 @@ void main() {
           )
           .add(const Duration(days: 1))
           .millisecondsSinceEpoch;
-      expect(formatRelativeDueDate(en, 'en', tomorrow), 'Tomorrow');
-      expect(formatRelativeDueDate(ja, 'ja', tomorrow), '明日');
+      final tomorrowDue = testDateOnlyDueFromMillis(tomorrow);
+      expect(
+        formatRelativeDueDate(en, 'en', tomorrowDue),
+        contains('Tomorrow'),
+      );
+      expect(formatRelativeDueDate(ja, 'ja', tomorrowDue), contains('明日'));
     },
   );
 
@@ -269,7 +274,7 @@ void main() {
     final task = await fake.createTask(
       listId: inbox.id,
       title: '作成日表示を確認する',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -294,7 +299,7 @@ void main() {
     final task = await fake.createTask(
       listId: inbox.id,
       title: 'Review reminder chip',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final remindAt = DateTime(2026, 7, 8, 15, 30).millisecondsSinceEpoch;
     await fake.setTaskReminder(taskId: task.id, remindAt: remindAt);
@@ -380,28 +385,49 @@ void main() {
       final inboxDueToday = await fake.createTask(
         listId: inbox.id,
         title: 'Inbox due today',
-        dueAt: today,
+        due: testDateOnlyDueFromMillis(today),
       );
       final workOverdue = await fake.createTask(
         listId: work.id,
         title: 'Work overdue',
-        dueAt: today - const Duration(days: 1).inMilliseconds,
+        due: testDateOnlyDueFromMillis(
+          today - const Duration(days: 1).inMilliseconds,
+        ),
       );
       await fake.createTask(listId: work.id, title: 'No due work');
+      final scheduledToday = await fake.createTask(
+        listId: work.id,
+        title: 'Scheduled today only',
+      );
+      fake.setScheduledAtForTest(
+        taskId: scheduledToday.id,
+        scheduledAt: today + const Duration(hours: 12).inMilliseconds,
+      );
+      final scheduledTodayDueTomorrow = await fake.createTask(
+        listId: work.id,
+        title: 'Scheduled today due tomorrow',
+        due: testDateOnlyDueFromMillis(tomorrow),
+      );
+      fake.setScheduledAtForTest(
+        taskId: scheduledTodayDueTomorrow.id,
+        scheduledAt: today + const Duration(hours: 13).inMilliseconds,
+      );
       await fake.createTask(
         listId: work.id,
         title: 'Tomorrow work',
-        dueAt: tomorrow,
+        due: testDateOnlyDueFromMillis(tomorrow),
       );
       await fake.createTask(
         listId: work.id,
         title: 'Upcoming work',
-        dueAt: tomorrow + const Duration(days: 1).inMilliseconds,
+        due: testDateOnlyDueFromMillis(
+          tomorrow + const Duration(days: 1).inMilliseconds,
+        ),
       );
       await fake.createTask(
         listId: archived.id,
         title: 'Archived today',
-        dueAt: today,
+        due: testDateOnlyDueFromMillis(today),
       );
 
       await tester.pumpWidget(
@@ -412,6 +438,20 @@ void main() {
       expect(find.text('Overdue'), findsOneWidget);
       expect(find.text('Today'), findsWidgets);
       expect(find.text('Tomorrow'), findsWidgets);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-today')),
+          matching: find.text('3'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-section-count-tomorrow')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
       await _scrollUntilVisible(tester, find.text('Work overdue'));
       expect(find.text('Work overdue'), findsOneWidget);
       expect(
@@ -423,6 +463,13 @@ void main() {
       await _scrollUntilVisible(tester, find.text('Inbox due today'));
       expect(find.text('Inbox due today'), findsOneWidget);
       expect(find.text('Inbox'), findsOneWidget);
+      await _scrollUntilVisible(tester, find.text('Scheduled today only'));
+      expect(find.text('Scheduled today only'), findsOneWidget);
+      await _scrollUntilVisible(
+        tester,
+        find.text('Scheduled today due tomorrow'),
+      );
+      expect(find.text('Scheduled today due tomorrow'), findsOneWidget);
       await _scrollUntilVisible(tester, find.text('Tomorrow work'));
       expect(find.text('Tomorrow work'), findsOneWidget);
       expect(find.text('Work'), findsWidgets);
@@ -450,11 +497,16 @@ void main() {
       await tester.tap(find.text('Due date').last);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Tomorrow').first);
+      final tomorrowHeader = find.ancestor(
+        of: find.byKey(const ValueKey('home-section-count-tomorrow')),
+        matching: find.byType(InkWell),
+      );
+      await tester.tap(tomorrowHeader.first);
       await tester.pumpAndSettle();
       expect(find.text('Tomorrow work'), findsNothing);
-      await tester.tap(find.text('Tomorrow').first);
+      await tester.tap(tomorrowHeader.first);
       await tester.pumpAndSettle();
+      await _scrollUntilVisible(tester, find.text('Tomorrow work'));
       expect(find.text('Tomorrow work'), findsOneWidget);
     },
   );
@@ -511,7 +563,10 @@ void main() {
     final tasks = await fake.getTasks(listId: defaultList.id);
     expect(tasks.single.title, 'Today capture');
     expect(tasks.single.note, 'Captured with context');
-    expect(tasks.single.dueAt, _todayStartMs());
+    expect(
+      taskDueCivilDate(tasks.single.due),
+      civilDateFromLocal(DateTime.now()),
+    );
     expect(find.text('Today capture'), findsOneWidget);
     expect(find.text('Inbox'), findsWidgets);
     expect(
@@ -556,8 +611,47 @@ void main() {
     );
     final tasks = await fake.getTasks(listId: work.id);
     expect(tasks.single.title, 'List capture');
-    expect(tasks.single.dueAt, isNull);
+    expect(tasks.single.due, isNull);
     expect(find.text('List capture'), findsOneWidget);
+  });
+
+  testWidgets('create sheet stores an exact deadline with IANA time zone', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('task-create-due-pick-date-time')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TimePickerDialog), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('task-create-title-field')),
+      'Exact deadline',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+    await tester.pumpAndSettle();
+
+    final listId = (await fake.getLists()).single.id;
+    final task = (await fake.getTasks(listId: listId)).single;
+    expect(task.due, isA<TaskDueDto_DateTime>());
+    expect(taskDueInstant(task.due), isNotNull);
+    expect(taskDueSavedTimeZone(task.due), 'UTC');
+    expect(taskDueCivilDate(task.due), isNull);
   });
 
   testWidgets(
@@ -686,7 +780,10 @@ void main() {
       var workTasks = await fake.getTasks(listId: work.id);
       expect(workTasks.single.title, 'Work tomorrow');
       expect(workTasks.single.note, 'Bring the outline');
-      expect(workTasks.single.dueAt, tomorrow);
+      expect(
+        taskDueCivilDate(workTasks.single.due),
+        civilDateFromLocal(DateTime.fromMillisecondsSinceEpoch(tomorrow)),
+      );
       expect(
         tester
             .widget<TextField>(
@@ -719,7 +816,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('task-create-due-clear')));
+      final clearDue = find.byKey(const ValueKey('task-create-due-clear'));
+      await tester.ensureVisible(clearDue);
+      await tester.tap(clearDue);
       await tester.pumpAndSettle();
       expect(find.text('Due'), findsOneWidget);
       expect(find.text('No due date'), findsOneWidget);
@@ -737,7 +836,7 @@ void main() {
         'Work tomorrow',
         'Work no due',
       ]);
-      expect(workTasks.last.dueAt, isNull);
+      expect(workTasks.last.due, isNull);
     },
   );
 
@@ -832,7 +931,7 @@ void main() {
       listId: inbox.id,
       title: 'Due child only',
       parentTaskId: parent.id,
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
 
     await tester.pumpWidget(
@@ -892,14 +991,14 @@ void main() {
     final task = await fake.createTask(
       listId: inbox.id,
       title: 'Prepare accessibility notes',
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
     await fake.updateTask(
       taskId: task.id,
       title: task.title,
       note: '',
       priority: 3,
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
 
     await tester.pumpWidget(
@@ -967,7 +1066,7 @@ void main() {
     expect(
       find.semantics.byPredicate((node) {
         final data = node.getSemanticsData();
-        return data.label.contains('Due date: Today') &&
+        return data.label.contains('Due: Today') &&
             data.flagsCollection.isButton;
       }),
       findsWidgets,
@@ -988,7 +1087,7 @@ void main() {
     final parent = await fake.createTask(
       listId: inbox.id,
       title: 'Home parent with children',
-      dueAt: tomorrow,
+      due: testDateOnlyDueFromMillis(tomorrow),
     );
     final noDueChild = await fake.createTask(
       listId: inbox.id,
@@ -999,7 +1098,7 @@ void main() {
       listId: inbox.id,
       title: 'Same section child under home parent',
       parentTaskId: parent.id,
-      dueAt: tomorrow,
+      due: testDateOnlyDueFromMillis(tomorrow),
     );
     final prunedGrandchild = await fake.createTask(
       listId: inbox.id,
@@ -1015,13 +1114,13 @@ void main() {
       listId: inbox.id,
       title: 'Today child standalone',
       parentTaskId: parent.id,
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
     final overdueGrandchild = await fake.createTask(
       listId: inbox.id,
       title: 'Overdue grandchild standalone',
       parentTaskId: earlierChild.id,
-      dueAt: overdue,
+      due: testDateOnlyDueFromMillis(overdue),
     );
     final closedChild = await fake.createTask(
       listId: inbox.id,
@@ -1267,8 +1366,12 @@ void main() {
       listId: inbox.id,
     )).singleWhere((task) => task.id == noDueChild.id);
     expect(
-      updatedNoDueChild.dueAt,
-      today + const Duration(days: 1).inMilliseconds,
+      taskDueCivilDate(updatedNoDueChild.due),
+      civilDateFromLocal(
+        DateTime.fromMillisecondsSinceEpoch(
+          today + const Duration(days: 1).inMilliseconds,
+        ),
+      ),
     );
 
     await tester.ensureVisible(find.text('No due child under home parent'));
@@ -1313,13 +1416,13 @@ void main() {
         listId: inbox.id,
         title: 'Today parent subtask',
         parentTaskId: hiddenRoot.id,
-        dueAt: today,
+        due: testDateOnlyDueFromMillis(today),
       );
       final closedOverdueGrandchild = await fake.createTask(
         listId: inbox.id,
         title: 'Closed overdue grandchild',
         parentTaskId: todayChild.id,
-        dueAt: overdue,
+        due: testDateOnlyDueFromMillis(overdue),
       );
       await fake.setTaskStatus(
         taskId: closedOverdueGrandchild.id,
@@ -1416,7 +1519,7 @@ void main() {
     final closedRoot = await fake.createTask(
       listId: inbox.id,
       title: 'Closed overdue root',
-      dueAt: overdue,
+      due: testDateOnlyDueFromMillis(overdue),
     );
     await fake.setTaskStatus(taskId: closedRoot.id, status: 'done');
 
@@ -1461,7 +1564,7 @@ void main() {
       listId: inbox.id,
       title: 'Closed child without home ancestor',
       parentTaskId: hiddenRoot.id,
-      dueAt: overdue,
+      due: testDateOnlyDueFromMillis(overdue),
     );
     await fake.setTaskStatus(taskId: closedChild.id, status: 'done');
 
@@ -1499,7 +1602,7 @@ void main() {
       title: first.title,
       note: '',
       priority: 3,
-      dueAt: 1,
+      due: testDateOnlyDueFromMillis(1),
     );
 
     await tester.pumpWidget(
@@ -1590,7 +1693,7 @@ void main() {
       title: task.title,
       note: '長いnoteでも詳細画面で読みやすく折り返すことを確認するための説明文です。',
       priority: 3,
-      dueAt: 1,
+      due: testDateOnlyDueFromMillis(1),
     );
 
     await tester.pumpWidget(
@@ -1967,7 +2070,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Complete from Inbox',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -2171,7 +2274,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Root due today pending exit',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -2228,7 +2331,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Pending subtree parent',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final child = await fake.createTask(
       listId: listId,
@@ -2312,13 +2415,13 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent due tomorrow',
-        dueAt: tomorrow,
+        due: testDateOnlyDueFromMillis(tomorrow),
       );
       final child = await fake.createTask(
         listId: listId,
         title: 'Child due today moves',
         parentTaskId: parent.id,
-        dueAt: today,
+        due: testDateOnlyDueFromMillis(today),
       );
 
       await tester.pumpWidget(
@@ -2359,7 +2462,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Visible parent today',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -2437,12 +2540,12 @@ void main() {
       final first = await fake.createTask(
         listId: listId,
         title: 'First pending reopen',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final second = await fake.createTask(
         listId: listId,
         title: 'Second pending complete',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
 
       await tester.pumpWidget(
@@ -2482,7 +2585,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Reduce motion home task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -2572,11 +2675,14 @@ void main() {
       await tester.tap(find.byKey(ValueKey('task-swipe-due-${task.id}')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Due date'), findsOneWidget);
+      expect(find.text('Due'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('due-sheet-today')));
       await tester.pumpAndSettle();
       var tasks = await fake.getTasks(listId: listId);
-      expect(tasks.single.dueAt, today);
+      expect(
+        taskDueCivilDate(tasks.single.due),
+        civilDateFromLocal(DateTime.fromMillisecondsSinceEpoch(today)),
+      );
 
       await tester.drag(
         find.byKey(ValueKey('task-row-${task.id}')),
@@ -2588,7 +2694,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('due-sheet-tomorrow')));
       await tester.pumpAndSettle();
       tasks = await fake.getTasks(listId: listId);
-      expect(tasks.single.dueAt, tomorrow);
+      expect(
+        taskDueCivilDate(tasks.single.due),
+        civilDateFromLocal(DateTime.fromMillisecondsSinceEpoch(tomorrow)),
+      );
 
       await tester.drag(
         find.byKey(ValueKey('task-row-${task.id}')),
@@ -2603,7 +2712,7 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       tasks = await fake.getTasks(listId: listId);
-      expect(tasks.single.dueAt, isNotNull);
+      expect(taskDueCivilDate(tasks.single.due), isNotNull);
       expect(find.text('Task saved.'), findsOneWidget);
     },
   );
@@ -2617,7 +2726,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Home today task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -2637,8 +2746,8 @@ void main() {
 
     final tasks = await fake.getTasks(listId: listId);
     expect(
-      tasks.single.dueAt,
-      _todayStartMs() + const Duration(days: 1).inMilliseconds,
+      taskDueCivilDate(tasks.single.due),
+      civilDateFromLocal(DateTime.now().add(const Duration(days: 1))),
     );
     expect(
       tester.getTopLeft(find.text('Home today task')).dy,
@@ -2655,7 +2764,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Done task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
@@ -2697,13 +2806,13 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Parent task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final child = await fake.createTask(
       listId: listId,
       title: 'Nested child task',
       parentTaskId: parent.id,
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -2744,13 +2853,13 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Closed root',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final child = await fake.createTask(
       listId: listId,
       title: 'Open child under closed root',
       parentTaskId: parent.id,
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: parent.id, status: 'done');
 
@@ -2780,7 +2889,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Skipped task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: task.id, status: 'wont_do');
 
@@ -2867,7 +2976,7 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Done task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
@@ -2899,7 +3008,7 @@ void main() {
     final skipped = await fake.createTask(
       listId: listId,
       title: 'Skipped task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
@@ -3082,28 +3191,28 @@ void main() {
       title: manualFirst.title,
       note: '',
       priority: 1,
-      dueAt: 300,
+      due: testDateTimeDueFromMillis(300),
     );
     await fake.updateTask(
       taskId: manualSecond.id,
       title: manualSecond.title,
       note: '',
       priority: 3,
-      dueAt: null,
+      due: null,
     );
     await fake.updateTask(
       taskId: manualThird.id,
       title: manualThird.title,
       note: '',
       priority: 2,
-      dueAt: 100,
+      due: testDateTimeDueFromMillis(100),
     );
     await fake.updateTask(
       taskId: manualFourth.id,
       title: manualFourth.title,
       note: '',
       priority: 3,
-      dueAt: 400,
+      due: testDateTimeDueFromMillis(400),
     );
 
     await tester.pumpWidget(
@@ -3444,21 +3553,21 @@ void main() {
       title: childLater.title,
       note: '',
       priority: 0,
-      dueAt: 300,
+      due: testDateTimeDueFromMillis(300),
     );
     await fake.updateTask(
       taskId: childSooner.id,
       title: childSooner.title,
       note: '',
       priority: 0,
-      dueAt: 100,
+      due: testDateTimeDueFromMillis(100),
     );
     await fake.updateTask(
       taskId: otherRoot.id,
       title: otherRoot.title,
       note: '',
       priority: 0,
-      dueAt: 50,
+      due: testDateTimeDueFromMillis(50),
     );
 
     await tester.pumpWidget(
@@ -3594,7 +3703,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent detail task',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -3686,13 +3795,13 @@ void main() {
     final done = await fake.createTask(
       listId: listId,
       title: 'Done detail task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: done.id, status: 'done');
     final wontDo = await fake.createTask(
       listId: listId,
       title: 'Wont do detail task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.setTaskStatus(taskId: wontDo.id, status: 'wont_do');
 
@@ -3747,7 +3856,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Detail parent checkbox task',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       await fake.createTask(
         listId: listId,
@@ -3790,20 +3899,20 @@ void main() {
     final grandparent = await fake.createTask(
       listId: listId,
       title: 'Grandparent task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final parent = await fake.createTask(
       listId: listId,
       title:
           'Immediate parent task with a title long enough to be ellipsized in the link row',
       parentTaskId: grandparent.id,
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.createTask(
       listId: listId,
       title: 'Child detail task',
       parentTaskId: parent.id,
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -3845,14 +3954,14 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Short title',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.updateTask(
       taskId: task.id,
       title: task.title,
       note: 'Short note',
       priority: 0,
-      dueAt: task.dueAt,
+      due: task.due,
     );
 
     await tester.pumpWidget(
@@ -3895,7 +4004,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Detail parent',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final branchChild = await fake.createTask(
       listId: listId,
@@ -3953,7 +4062,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent task',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -3997,7 +4106,7 @@ void main() {
       final parent = await fake.createTask(
         listId: listId,
         title: 'Parent task',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final child = await fake.createTask(
         listId: listId,
@@ -4114,14 +4223,14 @@ void main() {
     final task = await fake.createTask(
       listId: listId,
       title: 'Stable inline title',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.updateTask(
       taskId: task.id,
       title: task.title,
       note: 'Stable inline note',
       priority: 0,
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
 
     await tester.pumpWidget(
@@ -4291,19 +4400,21 @@ void main() {
     await tester.tap(find.byKey(ValueKey('task-due-chip-${task.id}')));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Set date'));
+    await tester.pumpAndSettle();
     expect(find.byType(DatePickerDialog), findsOneWidget);
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
 
     var active = await fake.getTasks(listId: listId);
-    expect(active.single.dueAt, isNotNull);
+    expect(taskDueCivilDate(active.single.due), isNotNull);
     expect(find.text('Task saved.'), findsOneWidget);
 
     await tester.tap(find.byKey(ValueKey('task-clear-due-${task.id}')));
     await tester.pumpAndSettle();
 
     active = await fake.getTasks(listId: listId);
-    expect(active.single.dueAt, isNull);
+    expect(active.single.due, isNull);
     expect(find.text('No due date'), findsOneWidget);
   });
 
@@ -4344,7 +4455,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Parent task',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     final child = await fake.createTask(
       listId: listId,
@@ -4384,12 +4495,12 @@ void main() {
       await fake.createTask(
         listId: listId,
         title: 'Buy milk',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
       final next = await fake.createTask(
         listId: listId,
         title: 'Next task',
-        dueAt: _todayStartMs(),
+        due: testDateOnlyDueFromMillis(_todayStartMs()),
       );
 
       await tester.pumpWidget(

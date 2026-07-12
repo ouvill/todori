@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/rust/api.dart'
     show
@@ -13,6 +14,7 @@ import 'package:todori/src/rust/api.dart'
         ReminderDto,
         SyncStatusDto,
         TaskDto,
+        TaskDueDto,
         TaskUndoDto;
 
 /// The [BridgeService] used by the app.
@@ -442,7 +444,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
   Future<void> createTask(
     String title, {
     String? parentTaskId,
-    int? dueAt,
+    TaskDueDto? due,
     String note = '',
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
@@ -450,7 +452,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       listId: listId,
       title: title,
       parentTaskId: parentTaskId,
-      dueAt: dueAt,
+      due: due == null ? null : taskDueInput(due),
       note: note,
     );
     ref.invalidate(homeTasksProvider);
@@ -463,7 +465,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     required String title,
     required String note,
     required int priority,
-    required int? dueAt,
+    required TaskDueDto? due,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.updateTask(
@@ -471,20 +473,20 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       title: title,
       note: note,
       priority: priority,
-      dueAt: dueAt,
+      due: due == null ? null : taskDueInput(due),
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
   }
 
-  Future<void> updateDueDate(TaskDto task, int dueAt) async {
+  Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
     await updateTask(
       taskId: task.id,
       title: task.title,
       note: task.note,
       priority: task.priority,
-      dueAt: dueAt,
+      due: due,
     );
     ref.invalidate(homeTasksProvider);
   }
@@ -569,14 +571,14 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
   Future<void> createTask({
     required String listId,
     required String title,
-    required int? dueAt,
+    required TaskDueDto? due,
     String note = '',
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.createTask(
       listId: listId,
       title: title,
-      dueAt: dueAt,
+      due: due == null ? null : taskDueInput(due),
       note: note,
     );
     ref.invalidate(tasksProvider(listId));
@@ -608,14 +610,14 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     ref.invalidateSelf();
   }
 
-  Future<void> updateDueDate(TaskDto task, int dueAt) async {
+  Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
     final bridge = ref.read(bridgeServiceProvider);
     final updated = await bridge.updateTask(
       taskId: task.id,
       title: task.title,
       note: task.note,
       priority: task.priority,
-      dueAt: dueAt,
+      due: due == null ? null : taskDueInput(due),
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));

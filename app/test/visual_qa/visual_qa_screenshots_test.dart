@@ -233,6 +233,20 @@ void main() {
     await _screenshot(tester, 'task_swipe_due_trailing');
   });
 
+  testWidgets('task_due_mode_sheet: date-only and exact deadline choices', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.drag(find.text('地図アプリのUI微調整を仕上げる'), const Offset(-280, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Change due date'));
+    await tester.pumpAndSettle();
+    expect(find.text('Set date'), findsOneWidget);
+    expect(find.text('Set date and time'), findsOneWidget);
+    await _screenshot(tester, 'task_due_mode_sheet');
+  });
+
   testWidgets(
     'completion_motion_midframe: check particles and animated strikethrough',
     (tester) async {
@@ -303,18 +317,18 @@ void main() {
     await fake.createTask(
       listId: listId,
       title: 'Review launch brief',
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
     final skipped = await fake.createTask(
       listId: listId,
       title: 'Replace the planning spreadsheet',
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
     await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
     final done = await fake.createTask(
       listId: listId,
       title: 'Send weekly notes',
-      dueAt: today,
+      due: testDateOnlyDueFromMillis(today),
     );
     await fake.setTaskStatus(taskId: done.id, status: 'done');
 
@@ -490,7 +504,7 @@ void main() {
     final parent = await fake.createTask(
       listId: listId,
       title: 'Ship the release notes',
-      dueAt: _todayStartMs(),
+      due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
     await fake.createTask(
       listId: listId,
@@ -757,7 +771,8 @@ class _SeedData {
 /// realistic, mixed set of tasks and pumps [TodoriApp] on top of them:
 ///
 /// - priorities: high, medium, low, and none all appear.
-/// - due dates: overdue, today, tomorrow, upcoming, and no-due-date all appear.
+/// - due values: date-only, exact datetime with a foreign IANA zone, overdue,
+///   today, tomorrow, upcoming, and no-due-date all appear.
 /// - one task is already completed and one is closed as wont_do.
 /// - one task ("Plan the product launch event") has three subtasks, one of
 ///   which is completed after an overdue due date.
@@ -774,6 +789,13 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
       DateTime(date.year, date.month, date.day);
   final now = DateTime.now();
   final today = atMidnight(now).millisecondsSinceEpoch;
+  final todayExact = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    14,
+    30,
+  ).millisecondsSinceEpoch;
   final tomorrow = atMidnight(
     now.add(const Duration(days: 1)),
   ).millisecondsSinceEpoch;
@@ -793,7 +815,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: uiTweaks.title,
     note: '',
     priority: 2,
-    dueAt: today,
+    due: testDateTimeDueFromMillis(todayExact, timeZone: 'America/New_York'),
   );
 
   const parentWithSubtasksTitle = 'Plan the product launch event';
@@ -806,7 +828,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: launch.title,
     note: '',
     priority: 2,
-    dueAt: tomorrow,
+    due: testDateOnlyDueFromMillis(tomorrow),
   );
   await fake.setTaskReminder(
     taskId: launch.id,
@@ -828,7 +850,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: checklist.title,
     note: '',
     priority: 1,
-    dueAt: today,
+    due: testDateOnlyDueFromMillis(today),
   );
   await fake.setTaskReminder(
     taskId: checklist.id,
@@ -855,7 +877,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: finalCopy.title,
     note: '',
     priority: 0,
-    dueAt: overdue,
+    due: testDateOnlyDueFromMillis(overdue),
   );
   await fake.setTaskStatus(taskId: finalCopy.id, status: 'done');
   await fake.createTask(
@@ -873,7 +895,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: roadmap.title,
     note: 'Include churn metrics and the hiring plan.',
     priority: 3,
-    dueAt: upcoming,
+    due: testDateOnlyDueFromMillis(upcoming),
   );
 
   final groceries = await fake.createTask(
@@ -885,7 +907,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: groceries.title,
     note: '',
     priority: 1,
-    dueAt: null,
+    due: null,
   );
 
   final planning = await fake.createTask(
@@ -897,7 +919,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: planning.title,
     note: '',
     priority: 1,
-    dueAt: upcoming,
+    due: testDateOnlyDueFromMillis(upcoming),
   );
 
   final passport = await fake.createTask(
@@ -909,7 +931,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: passport.title,
     note: '',
     priority: 0,
-    dueAt: overdue,
+    due: testDateOnlyDueFromMillis(overdue),
   );
 
   final standup = await fake.createTask(listId: homeListId, title: '朝会に参加する');
@@ -918,7 +940,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: standup.title,
     note: '',
     priority: 0,
-    dueAt: null,
+    due: null,
   );
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
 
@@ -931,7 +953,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: skipped.title,
     note: '',
     priority: 0,
-    dueAt: null,
+    due: null,
   );
   await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
@@ -944,7 +966,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: workReview.title,
     note: '',
     priority: 3,
-    dueAt: today,
+    due: testDateOnlyDueFromMillis(today),
   );
 
   await tester.pumpWidget(

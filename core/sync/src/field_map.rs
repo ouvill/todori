@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use todori_domain::{List, Task, TaskStatus, Uuid};
+use todori_domain::{List, Task, TaskDue, TaskStatus, Uuid};
 
 use crate::hlc::Hlc;
 
@@ -10,7 +10,7 @@ pub const TASK_FIELD_GROUPS: &[&str] = &[
     "title",
     "note",
     "priority",
-    "due_at",
+    "due",
     "scheduled_at",
     "estimated_minutes",
     "assignee",
@@ -88,7 +88,7 @@ pub struct TaskPlaintext {
     pub title: Clocked<String>,
     pub note: Clocked<String>,
     pub priority: Clocked<i32>,
-    pub due_at: Clocked<Option<i64>>,
+    pub due: Clocked<Option<TaskDue>>,
     pub scheduled_at: Clocked<Option<i64>>,
     pub estimated_minutes: Clocked<Option<i32>>,
     pub assignee: Clocked<Option<Uuid>>,
@@ -144,7 +144,7 @@ impl SyncPlaintext {
                     &task.title.hlc,
                     &task.note.hlc,
                     &task.priority.hlc,
-                    &task.due_at.hlc,
+                    &task.due.hlc,
                     &task.scheduled_at.hlc,
                     &task.estimated_minutes.hlc,
                     &task.assignee.hlc,
@@ -178,7 +178,7 @@ impl SyncPlaintext {
                 &value.title.hlc,
                 &value.note.hlc,
                 &value.priority.hlc,
-                &value.due_at.hlc,
+                &value.due.hlc,
                 &value.scheduled_at.hlc,
                 &value.estimated_minutes.hlc,
                 &value.assignee.hlc,
@@ -213,7 +213,7 @@ impl SyncPlaintext {
             title: Clocked::new(task.title.clone(), hlc.clone()),
             note: Clocked::new(task.note.clone(), hlc.clone()),
             priority: Clocked::new(task.priority, hlc.clone()),
-            due_at: Clocked::new(task.due_at, hlc.clone()),
+            due: Clocked::new(task.due.clone(), hlc.clone()),
             scheduled_at: Clocked::new(task.scheduled_at, hlc.clone()),
             estimated_minutes: Clocked::new(task.estimated_minutes, hlc.clone()),
             assignee: Clocked::new(task.assignee, hlc.clone()),
@@ -269,7 +269,7 @@ impl SyncPlaintext {
         retain_unchanged(&mut next.title, &previous.title);
         retain_unchanged(&mut next.note, &previous.note);
         retain_unchanged(&mut next.priority, &previous.priority);
-        retain_unchanged(&mut next.due_at, &previous.due_at);
+        retain_unchanged(&mut next.due, &previous.due);
         retain_unchanged(&mut next.scheduled_at, &previous.scheduled_at);
         retain_unchanged(&mut next.estimated_minutes, &previous.estimated_minutes);
         retain_unchanged(&mut next.assignee, &previous.assignee);

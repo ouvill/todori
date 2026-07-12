@@ -1543,7 +1543,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
 }
 
 #[tokio::test]
-async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
+async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() {
     const DB_KEY_A: [u8; 32] = [0xa1; 32];
     const DB_KEY_B: [u8; 32] = [0xb2; 32];
     const MASTER_KEY: [u8; 32] = [0xa3; 32];
@@ -1620,7 +1620,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
                 list_id: list.id,
                 title: "Base title".to_string(),
                 parent_task_id: None,
-                due_at: None,
+                due: None,
                 note: Some("Base note".to_string()),
                 now_ms: now + 1,
             },
@@ -1669,7 +1669,7 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
                 title: "Title from A".to_string(),
                 note: "Base note".to_string(),
                 priority: 0,
-                due_at: None,
+                due: Some(todori_domain::TaskDue::date("2026-07-12").unwrap()),
                 now_ms: now + 200,
             },
             &sync_a,
@@ -1682,7 +1682,9 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
                 title: "Base title".to_string(),
                 note: "Note from B".to_string(),
                 priority: 0,
-                due_at: None,
+                due: Some(
+                    todori_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap(),
+                ),
                 now_ms: now + 201,
             },
             &sync_b,
@@ -1725,6 +1727,27 @@ async fn production_two_client_distinct_field_crud_survives_cas_conflict() {
     };
     assert_eq!(plaintext.title.value, "Title from A");
     assert_eq!(plaintext.note.value, "Note from B");
+    let expected_due =
+        Some(todori_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap());
+    assert_eq!(plaintext.due.value, expected_due.clone());
+
+    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
+    run_sync_now(
+        context("production-client-a", sync_a.keys.clone()),
+        &mut store_a,
+        &mut ticking_now,
+    )
+    .await
+    .unwrap();
+    for (path, key) in [(&path_a, &DB_KEY_A), (&path_b, &DB_KEY_B)] {
+        assert_eq!(
+            SqliteTaskRepository::new(open_encrypted(path, key).unwrap())
+                .get(task.id)
+                .unwrap()
+                .due,
+            expected_due.clone()
+        );
+    }
 }
 
 #[tokio::test]
@@ -1805,7 +1828,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 list_id: list.id,
                 title: "reorder target".to_string(),
                 parent_task_id: None,
-                due_at: None,
+                due: None,
                 note: None,
                 now_ms: now + 1,
             },
@@ -1846,7 +1869,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 list_id: list.id,
                 title: "same gap A".to_string(),
                 parent_task_id: None,
-                due_at: None,
+                due: None,
                 note: None,
                 now_ms: now + 200,
             },
@@ -1859,7 +1882,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 list_id: list.id,
                 title: "same gap B".to_string(),
                 parent_task_id: None,
-                due_at: None,
+                due: None,
                 note: None,
                 now_ms: now + 201,
             },
@@ -2033,7 +2056,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
                 list_id: list.id,
                 title: "offline late descendant".to_string(),
                 parent_task_id: None,
-                due_at: None,
+                due: None,
                 note: None,
                 now_ms: now + 1,
             },

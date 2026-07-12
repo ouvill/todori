@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::entities::{List, Task, TaskStatus};
+use crate::entities::{List, Task, TaskDue, TaskStatus};
 
 /// domain crateのユースケースで発生する検証エラー。
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -53,7 +53,7 @@ pub fn new_task(
         note: String::new(),
         status: TaskStatus::Todo,
         priority: 0,
-        due_at: None,
+        due: None,
         scheduled_at: None,
         estimated_minutes: None,
         sort_order,
@@ -125,13 +125,9 @@ pub fn update_priority(mut task: Task, priority: i32, now_ms: i64) -> Result<Tas
     Ok(task)
 }
 
-/// タスク期限日時を更新する。
-pub fn update_due_at(
-    mut task: Task,
-    due_at: Option<i64>,
-    now_ms: i64,
-) -> Result<Task, DomainError> {
-    task.due_at = due_at;
+/// タスク期限を日付のみまたは日時指定としてatomicに更新する。
+pub fn update_due(mut task: Task, due: Option<TaskDue>, now_ms: i64) -> Result<Task, DomainError> {
+    task.due = due;
     task.updated_at = now_ms;
     Ok(task)
 }
@@ -318,7 +314,7 @@ mod tests {
         assert_eq!(task.note, "");
         assert_eq!(task.status, TaskStatus::Todo);
         assert_eq!(task.priority, 0);
-        assert_eq!(task.due_at, None);
+        assert_eq!(task.due, None);
         assert_eq!(task.scheduled_at, None);
         assert_eq!(task.estimated_minutes, None);
         assert_eq!(task.sort_order, "a0");
@@ -368,13 +364,14 @@ mod tests {
         let task = task_fixture();
         let task = update_note(task, "note".to_string(), LATER).unwrap();
         let task = update_priority(task, 3, LATER + 1).unwrap();
-        let task = update_due_at(task, Some(LATER + 2), LATER + 2).unwrap();
+        let due = TaskDue::date_time(LATER + 2, "UTC").unwrap();
+        let task = update_due(task, Some(due.clone()), LATER + 2).unwrap();
         let task = update_scheduled_at(task, Some(LATER + 3), LATER + 3).unwrap();
         let task = update_estimated_minutes(task, Some(45), LATER + 4).unwrap();
 
         assert_eq!(task.note, "note");
         assert_eq!(task.priority, 3);
-        assert_eq!(task.due_at, Some(LATER + 2));
+        assert_eq!(task.due, Some(due));
         assert_eq!(task.scheduled_at, Some(LATER + 3));
         assert_eq!(task.estimated_minutes, Some(45));
         assert_eq!(task.updated_at, LATER + 4);

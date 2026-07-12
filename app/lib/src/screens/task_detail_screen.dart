@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
 import 'package:todori/src/rust/api.dart';
@@ -189,15 +190,14 @@ class TaskDetailScreen extends ConsumerWidget {
                           reminder: reminder,
                           stats: stats,
                           locale: locale,
-                          onSelectDueDate: () =>
-                              _selectDueDate(context, ref, task),
-                          onClearDueDate: task.dueAt == null
+                          onSelectDueDate: () => _selectDue(context, ref, task),
+                          onClearDueDate: task.due == null
                               ? null
                               : () => _updateTaskFields(
                                   context,
                                   ref,
                                   task,
-                                  dueAt: null,
+                                  due: null,
                                 ),
                           onPrioritySelected: (priority) => _updateTaskFields(
                             context,
@@ -279,12 +279,12 @@ class TaskDetailScreen extends ConsumerWidget {
                                 l10n,
                                 subtask.priority,
                               ),
-                              dueLabel: subtask.dueAt == null
+                              dueLabel: subtask.due == null
                                   ? null
                                   : formatRelativeDueDate(
                                       l10n,
                                       locale,
-                                      subtask.dueAt,
+                                      subtask.due,
                                     ),
                               depth: node.depth,
                             ),
@@ -377,19 +377,19 @@ class TaskDetailScreen extends ConsumerWidget {
     String? title,
     String? note,
     int? priority,
-    Object? dueAt = _unchangedDueAt,
+    Object? due = _unchangedDue,
   }) async {
     final nextTitle = title ?? task.title;
     final nextNote = note ?? task.note;
     final nextPriority = priority ?? task.priority;
-    final nextDueAt = identical(dueAt, _unchangedDueAt)
-        ? task.dueAt
-        : dueAt as int?;
+    final nextDue = identical(due, _unchangedDue)
+        ? task.due
+        : due as TaskDueDto?;
 
     if (nextTitle == task.title &&
         nextNote == task.note &&
         nextPriority == task.priority &&
-        nextDueAt == task.dueAt) {
+        nextDue == task.due) {
       return true;
     }
 
@@ -401,7 +401,7 @@ class TaskDetailScreen extends ConsumerWidget {
             title: nextTitle,
             note: nextNote,
             priority: nextPriority,
-            dueAt: nextDueAt,
+            due: nextDue,
           );
       ref.invalidate(homeTasksProvider);
       if (context.mounted) {
@@ -422,14 +422,39 @@ class TaskDetailScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _selectDueDate(
+  Future<void> _selectDue(
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
   ) async {
-    final initialDate = task.dueAt == null
+    final l10n = AppLocalizations.of(context)!;
+    final mode = await showModalBottomSheet<_TaskDueMode>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.calendarDays300),
+              title: Text(l10n.setDueDateButton),
+              onTap: () => Navigator.of(context).pop(_TaskDueMode.date),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.calendarClock300),
+              title: Text(l10n.setDueDateTimeButton),
+              onTap: () => Navigator.of(context).pop(_TaskDueMode.dateTime),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mode == null || !context.mounted) {
+      return;
+    }
+    final initialDate = task.due == null
         ? DateTime.now()
-        : DateTime.fromMillisecondsSinceEpoch(task.dueAt!).toLocal();
+        : taskDueDisplayDate(task.due!);
     final picked = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -439,16 +464,45 @@ class TaskDetailScreen extends ConsumerWidget {
     if (picked == null || !context.mounted) {
       return;
     }
-    await _updateTaskFields(
-      context,
-      ref,
-      task,
-      dueAt: DateTime(
-        picked.year,
-        picked.month,
-        picked.day,
-      ).millisecondsSinceEpoch,
+    if (mode == _TaskDueMode.date) {
+      await _updateTaskFields(context, ref, task, due: dateOnlyDue(picked));
+      return;
+    }
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialDate),
     );
+    if (pickedTime == null || !context.mounted) {
+      return;
+    }
+    final localDateTime = DateTime(
+      picked.year,
+      picked.month,
+      picked.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+    if (localDateTime.year != picked.year ||
+        localDateTime.month != picked.month ||
+        localDateTime.day != picked.day ||
+        localDateTime.hour != pickedTime.hour ||
+        localDateTime.minute != pickedTime.minute) {
+      return;
+    }
+    final savedTimeZone = taskDueSavedTimeZone(task.due);
+    final timeZone =
+        savedTimeZone ??
+        await ref.read(bridgeServiceProvider).getLocalTimeZone();
+    if (!context.mounted) {
+      return;
+    }
+    TaskDueDto due;
+    try {
+      due = dateTimeDue(localDateTime: localDateTime, timeZone: timeZone);
+    } on FormatException {
+      return;
+    }
+    await _updateTaskFields(context, ref, task, due: due);
   }
 
   Future<void> _selectReminder(
@@ -751,7 +805,10 @@ TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
   return null;
 }
 
-const Object _unchangedDueAt = Object();
+const Object _unchangedDue = Object();
+
+enum _TaskDueMode { date, dateTime }
+
 const EdgeInsets _inlineEditorPadding = EdgeInsets.all(AppSpacing.sm);
 
 class _InlineTitleEditor extends StatefulWidget {
@@ -1189,7 +1246,7 @@ class _EditableTaskMetadata extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final overdue = isTaskOverdue(task);
-    final dueLabel = formatRelativeDueDate(l10n, locale, task.dueAt);
+    final dueLabel = formatRelativeDueDate(l10n, locale, task.due);
     final reminderLabel = reminder == null
         ? l10n.reminderChipEmpty
         : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
@@ -1215,7 +1272,7 @@ class _EditableTaskMetadata extends StatelessWidget {
           key: ValueKey('task-due-chip-${task.id}'),
           icon: LucideIcons.calendarDays300,
           label: dueLabel,
-          tooltip: task.dueAt == null
+          tooltip: task.due == null
               ? l10n.setDueDateButton
               : l10n.changeDueDateTooltip,
           semanticLabel: overdue ? l10n.taskDueOverdue(dueLabel) : null,

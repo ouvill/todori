@@ -5,7 +5,7 @@ use todori_crypto::{decrypt, encrypt, CryptoError};
 
 use crate::field_map::SyncPlaintext;
 
-pub const ENVELOPE_VERSION: u8 = 2;
+pub const ENVELOPE_VERSION: u8 = 3;
 pub const MAX_ENCRYPTED_BLOB_LEN: usize = 64 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]

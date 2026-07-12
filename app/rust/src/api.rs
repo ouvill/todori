@@ -1,8 +1,9 @@
 use std::fmt::Write as _;
 
+use todori_client::chrono::{DateTime, Utc};
 use todori_client::{
     AccountAuthResult, AccountSessionState, CreateTaskCommand, HomeTaskView, List, ReminderView,
-    ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskStatus, TaskUndoKind,
+    ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind,
     TaskUndoView, UpdateTaskCommand, Uuid,
 };
 
@@ -29,7 +30,7 @@ pub struct TaskDto {
     pub note: String,
     pub status: String,
     pub priority: i32,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDueDto>,
     pub scheduled_at: Option<i64>,
     pub estimated_minutes: Option<i32>,
     pub sort_order: String,
@@ -39,6 +40,26 @@ pub struct TaskDto {
     pub assignee: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+pub enum TaskDueInput {
+    Date {
+        due_on: String,
+    },
+    DateTime {
+        due_at: DateTime<Utc>,
+        time_zone: String,
+    },
+}
+
+pub enum TaskDueDto {
+    Date {
+        due_on: String,
+    },
+    DateTime {
+        due_at: DateTime<Utc>,
+        time_zone: String,
+    },
 }
 
 pub struct TaskUndoDto {
@@ -103,6 +124,10 @@ pub fn greet(name: String) -> String {
     format!("Hello {name} from todori-core")
 }
 
+pub fn get_local_time_zone() -> Result<String, String> {
+    client_result(client()?.local_time_zone())
+}
+
 pub fn create_draft_task(title: String) -> String {
     let id = Uuid::now_v7();
     let list_id = Uuid::now_v7();
@@ -110,7 +135,7 @@ pub fn create_draft_task(title: String) -> String {
         concat!(
             "{{\"id\":\"{}\",\"list_id\":\"{}\",\"parent_task_id\":null,",
             "\"title\":{},\"note\":\"\",\"status\":\"todo\",\"priority\":0,",
-            "\"due_at\":null,\"scheduled_at\":null,\"estimated_minutes\":null,",
+            "\"due\":null,\"scheduled_at\":null,\"estimated_minutes\":null,",
             "\"sort_order\":\"a0\",\"completed_at\":null,\"closed_reason\":null,",
             "\"deleted_at\":null,\"assignee\":null,\"created_at\":0,\"updated_at\":0}}"
         ),
@@ -226,14 +251,14 @@ pub fn create_task(
     list_id: String,
     title: String,
     parent_task_id: Option<String>,
-    due_at: Option<i64>,
+    due: Option<TaskDueInput>,
     note: Option<String>,
 ) -> Result<TaskDto, String> {
     let command = CreateTaskCommand {
         list_id: parse_uuid(&list_id)?,
         title,
         parent_task_id: parent_task_id.as_deref().map(parse_uuid).transpose()?,
-        due_at,
+        due: due.map(parse_task_due).transpose()?,
         note,
     };
     client_result(client()?.create_task(command)).map(task_to_dto)
@@ -286,14 +311,14 @@ pub fn update_task(
     title: String,
     note: String,
     priority: i32,
-    due_at: Option<i64>,
+    due: Option<TaskDueInput>,
 ) -> Result<TaskDto, String> {
     let command = UpdateTaskCommand {
         task_id: parse_uuid(&task_id)?,
         title,
         note,
         priority,
-        due_at,
+        due: due.map(parse_task_due).transpose()?,
     };
     client_result(client()?.update_task(command)).map(task_to_dto)
 }
@@ -395,6 +420,18 @@ fn parse_status(value: &str) -> Result<TaskStatus, String> {
     }
 }
 
+fn parse_task_due(input: TaskDueInput) -> Result<TaskDue, String> {
+    match input {
+        TaskDueInput::Date { due_on } => {
+            TaskDue::date(due_on).map_err(|_| "invalid date-only due value".to_string())
+        }
+        TaskDueInput::DateTime { due_at, time_zone } => {
+            TaskDue::date_time(due_at.timestamp_millis(), time_zone)
+                .map_err(|_| "invalid datetime due value".to_string())
+        }
+    }
+}
+
 fn count_to_i32(count: usize) -> Result<i32, String> {
     i32::try_from(count).map_err(|_| "count exceeds i32 range".to_string())
 }
@@ -433,7 +470,7 @@ fn task_to_dto(task: Task) -> TaskDto {
         note: task.note,
         status: status_to_string(task.status),
         priority: task.priority,
-        due_at: task.due_at,
+        due: task.due.map(task_due_to_dto),
         scheduled_at: task.scheduled_at,
         estimated_minutes: task.estimated_minutes,
         sort_order: task.sort_order,
@@ -443,6 +480,19 @@ fn task_to_dto(task: Task) -> TaskDto {
         assignee: task.assignee.map(|id| id.to_string()),
         created_at: task.created_at,
         updated_at: task.updated_at,
+    }
+}
+
+fn task_due_to_dto(due: TaskDue) -> TaskDueDto {
+    match due {
+        TaskDue::Date { due_on } => TaskDueDto::Date {
+            due_on: due_on.to_string(),
+        },
+        TaskDue::DateTime { due_at, time_zone } => TaskDueDto::DateTime {
+            due_at: DateTime::<Utc>::from_timestamp_millis(due_at.as_millis())
+                .expect("UtcInstant is validated at construction"),
+            time_zone: time_zone.to_string(),
+        },
     }
 }
 
@@ -579,7 +629,7 @@ mod tests {
             String,
             String,
             Option<String>,
-            Option<i64>,
+            Option<TaskDueInput>,
             Option<String>,
         ) -> Result<TaskDto, String> = create_task;
         let _: fn(String, Option<String>, Option<String>) -> Result<TaskDto, String> = reorder_task;
@@ -588,7 +638,7 @@ mod tests {
         let _: fn(i64, i64) -> Result<Vec<HomeTaskDto>, String> = get_home_tasks;
         let _: fn(String) -> Result<i32, String> = count_task_descendants;
         let _: fn(String) -> Result<i32, String> = count_tasks_in_list;
-        let _: fn(String, String, String, i32, Option<i64>) -> Result<TaskDto, String> =
+        let _: fn(String, String, String, i32, Option<TaskDueInput>) -> Result<TaskDto, String> =
             update_task;
         let _: fn(String, String, Option<String>) -> Result<TaskDto, String> = set_task_status;
         let _: fn(String) -> Result<(), String> = delete_task;

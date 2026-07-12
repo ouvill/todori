@@ -6,3 +6,4 @@ dart_root: app
 c_output: app/rust/frb_generated.h
 dart_entrypoint_class_name: RustLib
 web: false
+rust_preamble: "use todori_client::chrono;"

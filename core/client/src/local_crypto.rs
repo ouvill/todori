@@ -327,7 +327,7 @@ mod tests {
                     title: "after restart".to_string(),
                     note: String::new(),
                     priority: 0,
-                    due_at: None,
+                    due: None,
                     now_ms: NOW + 1,
                 },
                 &context.mutation_context(),

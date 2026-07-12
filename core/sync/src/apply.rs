@@ -1547,7 +1547,7 @@ where
         note: fields.note.value.clone(),
         status: fields.completion.value.status,
         priority: fields.priority.value,
-        due_at: fields.due_at.value,
+        due: fields.due.value.clone(),
         scheduled_at: fields.scheduled_at.value,
         estimated_minutes: fields.estimated_minutes.value,
         sort_order: fields.placement.value.rank.clone(),
@@ -2461,9 +2461,9 @@ mod tests {
 }
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
-    assert!(upgrade_block_is_active("4:2"));
-    assert!(upgrade_block_is_active("3:3"));
-    assert!(!upgrade_block_is_active("3:2"));
+    assert!(upgrade_block_is_active("5:3"));
+    assert!(upgrade_block_is_active("4:4"));
+    assert!(!upgrade_block_is_active("4:3"));
     assert!(!upgrade_block_is_active("0:0"));
     assert!(upgrade_block_is_active("invalid"));
 }
