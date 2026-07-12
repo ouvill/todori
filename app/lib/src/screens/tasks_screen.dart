@@ -130,7 +130,14 @@ class TasksScreen extends ConsumerWidget {
             listActionsMenu: listActionsMenu,
             homeListNameByTaskId: homeListNameByTaskId,
             homeTaskEntries: homeTaskEntries,
-            onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
+            onCompleteTask: (task, {descendantsConfirmed = false}) =>
+                _completeTask(
+                  context,
+                  ref,
+                  task,
+                  tasks,
+                  descendantsConfirmed: descendantsConfirmed,
+                ),
             onReopenTask: (task) => _reopenTask(ref, task),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
@@ -151,15 +158,17 @@ class TasksScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
-    List<TaskDto> tasks,
-  ) async {
+    List<TaskDto> tasks, {
+    bool descendantsConfirmed = false,
+  }) async {
     final descendantScope = isTodaySmartView
         ? await ref.read(tasksProvider(task.listId).future)
         : tasks;
     if (!context.mounted) {
       return false;
     }
-    if (hasIncompleteDescendants(task.id, descendantScope)) {
+    if (!descendantsConfirmed &&
+        hasIncompleteDescendants(task.id, descendantScope)) {
       final l10n = AppLocalizations.of(context)!;
       final confirmed = await showAppConfirmDialog(
         context: context,
@@ -281,7 +290,8 @@ class _TasksBody extends StatefulWidget {
   final Widget? listActionsMenu;
   final Map<String, String> homeListNameByTaskId;
   final List<HomeTaskDto> homeTaskEntries;
-  final Future<bool> Function(TaskDto task) onCompleteTask;
+  final Future<bool> Function(TaskDto task, {bool descendantsConfirmed})
+  onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
   final Future<void> Function({
     required TaskDto task,
@@ -298,7 +308,9 @@ class _TasksBodyState extends State<_TasksBody> {
   bool _showCompleted = false;
   bool _isTodayCollapsed = false;
   final Map<String, _PendingHomeCompletion> _pendingHomeCompletions = {};
+  final Map<String, _PendingListCompletion> _pendingListCompletions = {};
   final Map<String, Future<bool>> _homeCompletionOperations = {};
+  final Map<String, Future<bool>> _listCompletionOperations = {};
   final Set<String> _optimisticHomeCompletionIds = {};
   late final TaskCompletionRetentionController<String>
   _completionRetentionController;
@@ -318,6 +330,7 @@ class _TasksBodyState extends State<_TasksBody> {
       _showCompleted = false;
     }
     _syncPendingHomeCompletionsWithWidget();
+    _syncPendingListCompletionsWithWidget();
     _syncOptimisticHomeCompletionsWithWidget();
   }
 
@@ -336,6 +349,9 @@ class _TasksBodyState extends State<_TasksBody> {
     final retainedKeys = _completionRetentionController.keys.toSet();
     setState(() {
       _pendingHomeCompletions.removeWhere(
+        (taskId, _) => !retainedKeys.contains(taskId),
+      );
+      _pendingListCompletions.removeWhere(
         (taskId, _) => !retainedKeys.contains(taskId),
       );
     });
@@ -452,17 +468,30 @@ class _TasksBodyState extends State<_TasksBody> {
     }
 
     final roots = buildTaskTree(widget.tasks, sortMode: widget.sortMode);
-    final activeRoots = roots
-        .where((node) => !isTaskClosed(node.task))
-        .toList(growable: false);
+    final activeRoots = <TaskTreeNode>[];
+    for (final root in roots) {
+      final pending = _pendingListCompletions[root.task.id];
+      if (pending != null) {
+        activeRoots.add(pending.root);
+      } else if (!isTaskClosed(root.task)) {
+        activeRoots.add(root);
+      }
+    }
     final completedRoots = roots
-        .where((node) => isTaskClosed(node.task))
+        .where(
+          (node) =>
+              isTaskClosed(node.task) &&
+              !_pendingListCompletions.containsKey(node.task.id),
+        )
         .toList(growable: false);
     final activeNodes = flattenTaskTree(activeRoots);
     final completedNodes = flattenTaskTree(completedRoots);
     final activeReorderTasks = activeNodes
         .map((node) => node.task)
         .where((task) => !isTaskClosed(task))
+        .toList(growable: false);
+    final activeRowTasks = activeNodes
+        .map((node) => node.task)
         .toList(growable: false);
     if (activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
@@ -494,6 +523,10 @@ class _TasksBodyState extends State<_TasksBody> {
                       node,
                       activeReorderTasks,
                       isCompletedSection: false,
+                      reorderShellScope: activeRowTasks,
+                      pendingCompletionKey: _pendingListCompletionKeyForTask(
+                        node.task.id,
+                      ),
                     ),
                   ),
                 if (completedNodes.isNotEmpty) ...[
@@ -1024,21 +1057,132 @@ class _TasksBodyState extends State<_TasksBody> {
     };
   }
 
+  Future<void> _handleListCompleteTask(
+    BuildContext context,
+    FlattenedTaskTreeNode node,
+  ) async {
+    final task = node.task;
+    if (node.depth > 0 || MediaQuery.disableAnimationsOf(context)) {
+      await widget.onCompleteTask(task);
+      return;
+    }
+    if (_pendingListCompletions.containsKey(task.id)) {
+      return;
+    }
+    final needsConfirmation = hasIncompleteDescendants(task.id, widget.tasks);
+    if (needsConfirmation) {
+      final l10n = AppLocalizations.of(context)!;
+      final confirmed = await showAppConfirmDialog(
+        context: context,
+        title: l10n.completeTaskDialogTitle,
+        message: l10n.completeTaskDialogMessage,
+        cancelLabel: l10n.cancelButton,
+        confirmLabel: l10n.continueButton,
+      );
+      if (!confirmed || !mounted) {
+        return;
+      }
+    }
+
+    _startPendingListCompletion(node);
+    final operation = widget.onCompleteTask(
+      task,
+      descendantsConfirmed: needsConfirmation,
+    );
+    _listCompletionOperations[task.id] = operation;
+    try {
+      final completed = await operation;
+      _listCompletionOperations.remove(task.id);
+      if (!completed) {
+        _cancelPendingListCompletion(task.id);
+      }
+    } catch (_) {
+      _cancelPendingListCompletion(task.id);
+    }
+  }
+
+  void _startPendingListCompletion(FlattenedTaskTreeNode node) {
+    final task = node.task;
+    final completedRoot = TaskTreeNode(
+      task: _taskSnapshotWithStatus(task, 'done'),
+      depth: node.node.depth,
+      children: node.node.children,
+    );
+    setState(() {
+      _pendingListCompletions[task.id] = _PendingListCompletion(
+        root: completedRoot,
+      );
+    });
+    _completionRetentionController.retain(task.id);
+  }
+
+  void _cancelPendingListCompletion(String taskId) {
+    _listCompletionOperations.remove(taskId);
+    _completionRetentionController.cancel(taskId);
+    if (!mounted) {
+      _pendingListCompletions.remove(taskId);
+      return;
+    }
+    if (_pendingListCompletions.containsKey(taskId)) {
+      setState(() => _pendingListCompletions.remove(taskId));
+    }
+  }
+
+  void _syncPendingListCompletionsWithWidget() {
+    if (_pendingListCompletions.isEmpty) {
+      return;
+    }
+    final taskById = {for (final task in widget.tasks) task.id: task};
+    final restoredTaskIds = <String>[];
+    for (final entry in _pendingListCompletions.entries) {
+      final task = taskById[entry.key];
+      if (task != null &&
+          !isTaskClosed(task) &&
+          !_listCompletionOperations.containsKey(task.id) &&
+          task.updatedAt > entry.value.root.task.updatedAt) {
+        restoredTaskIds.add(task.id);
+      }
+    }
+    for (final taskId in restoredTaskIds) {
+      _cancelPendingListCompletion(taskId);
+    }
+  }
+
+  String? _pendingListCompletionKeyForTask(String taskId) {
+    for (final entry in _pendingListCompletions.entries) {
+      if (entry.key == taskId || _taskTreeContains(entry.value.root, taskId)) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
   Widget _buildTaskRow(
     BuildContext context,
     FlattenedTaskTreeNode node,
     List<TaskDto> reorderScope, {
     required bool isCompletedSection,
     bool framed = false,
+    List<TaskDto>? reorderShellScope,
+    String? pendingCompletionKey,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final task = node.task;
     final stats = descendantStatsOf(task.id, widget.tasks);
-    final canDragReorder =
+    final usesReorderShell =
         !widget.isHome &&
         !isCompletedSection &&
-        !isTaskClosed(task) &&
         widget.sortMode == TaskSortMode.manual;
+    final shellSiblings = usesReorderShell
+        ? _siblingsOf(task, reorderShellScope ?? reorderScope)
+        : const <TaskDto>[];
+    final shellSiblingIndex = shellSiblings.indexWhere(
+      (sibling) => sibling.id == task.id,
+    );
+    final canDragReorder =
+        usesReorderShell &&
+        !isTaskClosed(task) &&
+        pendingCompletionKey == null;
     final siblings = canDragReorder
         ? _siblingsOf(task, reorderScope)
         : const <TaskDto>[];
@@ -1096,9 +1240,11 @@ class _TasksBodyState extends State<_TasksBody> {
               : null,
         ).take(2).toList(growable: false),
         framed: framed,
-        onToggleDone: isTaskClosed(task)
+        onToggleDone: pendingCompletionKey != null
+            ? null
+            : isTaskClosed(task)
             ? () => widget.onReopenTask(task)
-            : () => widget.onCompleteTask(task),
+            : () => _handleListCompleteTask(context, node),
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
     );
@@ -1106,21 +1252,36 @@ class _TasksBodyState extends State<_TasksBody> {
       key: ValueKey('task-swipe-actions-${task.id}'),
       task: task,
       isClosed: isTaskClosed(task),
-      onLeadingAction: isTaskClosed(task)
+      onLeadingAction: pendingCompletionKey != null
+          ? () async {}
+          : isTaskClosed(task)
           ? () => widget.onReopenTask(task)
-          : () => widget.onCompleteTask(task),
+          : () => _handleListCompleteTask(context, node),
       child: row,
     );
 
-    if (!canDragReorder || siblingIndex < 0) {
-      return swipeRow;
+    final retainedRow = IgnorePointer(
+      key: ValueKey('task-list-row-shell-${task.id}'),
+      ignoring: pendingCompletionKey != null,
+      child: AppTaskCompletionExit(
+        key: ValueKey('task-list-completion-exit-${task.id}'),
+        isExiting:
+            pendingCompletionKey != null &&
+            _isCompletionExiting(pendingCompletionKey),
+        child: swipeRow,
+      ),
+    );
+
+    if (!usesReorderShell || shellSiblingIndex < 0) {
+      return retainedRow;
     }
 
     return _TaskDragReorderTarget(
       key: ValueKey('task-drop-target-${task.id}'),
+      enabled: canDragReorder && siblingIndex >= 0,
       task: task,
       siblings: siblings,
-      siblingIndex: siblingIndex,
+      siblingIndex: siblingIndex < 0 ? 0 : siblingIndex,
       dropIndicator: _dropIndicator,
       onHover: (indicator) => setState(() => _dropIndicator = indicator),
       onLeave: () => setState(() => _dropIndicator = null),
@@ -1178,7 +1339,7 @@ class _TasksBodyState extends State<_TasksBody> {
               );
             }
           : null,
-      child: swipeRow,
+      child: retainedRow,
     );
   }
 }
@@ -1472,6 +1633,12 @@ class _PendingHomeCompletion {
   final _HomeSectionKind section;
 }
 
+class _PendingListCompletion {
+  const _PendingListCompletion({required this.root});
+
+  final TaskTreeNode root;
+}
+
 class _HomeSectionsPanelSliver extends StatelessWidget {
   const _HomeSectionsPanelSliver({
     required this.sections,
@@ -1734,6 +1901,13 @@ TaskDto _taskSnapshotWithStatus(TaskDto task, String status) {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   );
+}
+
+bool _taskTreeContains(TaskTreeNode root, String taskId) {
+  if (root.task.id == taskId) {
+    return true;
+  }
+  return root.children.any((child) => _taskTreeContains(child, taskId));
 }
 
 class _CompletedSectionHeader extends StatelessWidget {
@@ -2050,6 +2224,7 @@ String _taskRowSemanticLabel({
 class _TaskDragReorderTarget extends StatelessWidget {
   const _TaskDragReorderTarget({
     super.key,
+    required this.enabled,
     required this.task,
     required this.siblings,
     required this.siblingIndex,
@@ -2062,6 +2237,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
     required this.child,
   });
 
+  final bool enabled;
   final TaskDto task;
   final List<TaskDto> siblings;
   final int siblingIndex;
@@ -2083,20 +2259,21 @@ class _TaskDragReorderTarget extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final semanticsActions = <CustomSemanticsAction, VoidCallback>{};
     final moveUp = onMoveUp;
-    if (moveUp != null) {
+    if (enabled && moveUp != null) {
       semanticsActions[CustomSemanticsAction(label: l10n.moveTaskUpTooltip)] =
           moveUp;
     }
     final moveDown = onMoveDown;
-    if (moveDown != null) {
+    if (enabled && moveDown != null) {
       semanticsActions[CustomSemanticsAction(label: l10n.moveTaskDownTooltip)] =
           moveDown;
     }
 
     return DragTarget<_TaskDragData>(
-      onWillAcceptWithDetails: (details) => _canAcceptDrop(details.data.task),
+      onWillAcceptWithDetails: (details) =>
+          enabled && _canAcceptDrop(details.data.task),
       onMove: (details) {
-        if (!_canAcceptDrop(details.data.task)) {
+        if (!enabled || !_canAcceptDrop(details.data.task)) {
           return;
         }
         onHover(
@@ -2108,7 +2285,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
       },
       onLeave: (_) => onLeave(),
       onAcceptWithDetails: (details) async {
-        if (!_canAcceptDrop(details.data.task)) {
+        if (!enabled || !_canAcceptDrop(details.data.task)) {
           onLeave();
           return;
         }
@@ -2138,7 +2315,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
         );
         return LongPressDraggable<_TaskDragData>(
           data: _TaskDragData(task),
-          maxSimultaneousDrags: siblings.length > 1 ? 1 : 0,
+          maxSimultaneousDrags: enabled && siblings.length > 1 ? 1 : 0,
           axis: Axis.vertical,
           feedback: _TaskDragFeedback(child: child),
           childWhenDragging: Opacity(opacity: 0.45, child: child),
