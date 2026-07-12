@@ -105,6 +105,105 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeTitle => 'ホーム';
 
   @override
+  String get calendarTitle => 'カレンダー';
+
+  @override
+  String get calendarWeekTab => '週';
+
+  @override
+  String get calendarMonthTab => '月';
+
+  @override
+  String get calendarPreviousPeriodTooltip => '前の期間';
+
+  @override
+  String get calendarNextPeriodTooltip => '次の期間';
+
+  @override
+  String get calendarGoToToday => '今日';
+
+  @override
+  String calendarSelectedDaySemantics(String date) {
+    return '選択中の日付: $date';
+  }
+
+  @override
+  String calendarDayTaskCount(int count) {
+    return 'タスク $count件';
+  }
+
+  @override
+  String get calendarCompletedTitle => '完了済み';
+
+  @override
+  String get calendarShowCompletedTooltip => '完了した成果を表示';
+
+  @override
+  String get calendarHideCompletedTooltip => '完了した成果を隠す';
+
+  @override
+  String get calendarEmptyTitle => '予定はありません。';
+
+  @override
+  String get calendarEmptyBody => '別の日を選ぶか、時間を使いたいことを追加できます。';
+
+  @override
+  String get calendarLoadFailed => 'カレンダーを読み込めませんでした。';
+
+  @override
+  String get calendarLoadingSemantics => 'カレンダーを読み込み中';
+
+  @override
+  String get calendarRetryButton => '再試行';
+
+  @override
+  String get calendarDueKind => '期限';
+
+  @override
+  String get calendarScheduledKind => '予定';
+
+  @override
+  String get calendarCompletedKind => '完了';
+
+  @override
+  String calendarArchivedListContext(String listName) {
+    return '$listName · アーカイブ済み';
+  }
+
+  @override
+  String calendarOccurrenceSemantics(
+    String title,
+    String listName,
+    String kind,
+    String time,
+  ) {
+    return '$title、$listName、$kind、$time';
+  }
+
+  @override
+  String get calendarMoveDueTooltip => '期限日を移動';
+
+  @override
+  String get calendarMoveScheduledTooltip => '予定日を移動';
+
+  @override
+  String calendarMoveOccurrenceSemantics(String kind, String title) {
+    return '$kind: $titleの日付を変更';
+  }
+
+  @override
+  String get calendarMoveSheetTitle => '日付を変更';
+
+  @override
+  String get calendarMoveToToday => '今日';
+
+  @override
+  String get calendarMoveToTomorrow => '明日';
+
+  @override
+  String get calendarPickDate => '日付を選択…';
+
+  @override
   String get todayTitle => '今日';
 
   @override

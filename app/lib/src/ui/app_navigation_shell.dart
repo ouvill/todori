@@ -19,12 +19,16 @@ class AppNavigationShell extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final path = GoRouterState.of(context).uri.path;
     final selectedDestination = switch (path) {
+      final value when value.startsWith('/calendar') =>
+        _AppDestination.calendar,
       final value when value.startsWith('/lists') => _AppDestination.lists,
       final value when value.startsWith('/account') => _AppDestination.you,
       _ => _AppDestination.home,
     };
     final segments = Uri.parse(path).pathSegments;
-    final isTaskDetail = segments.length >= 4 && segments.first == 'lists';
+    final isTaskDetail =
+        segments.length >= 4 &&
+        (segments.first == 'lists' || segments.first == 'calendar');
 
     if (isTaskDetail) {
       return child;
@@ -70,6 +74,8 @@ class AppNavigationShell extends ConsumerWidget {
       switch (destination) {
         case _AppDestination.home:
           context.go('/');
+        case _AppDestination.calendar:
+          context.go('/calendar');
         case _AppDestination.lists:
           context.go('/lists');
         case _AppDestination.you:
@@ -108,7 +114,7 @@ class AppNavigationShell extends ConsumerWidget {
   }
 }
 
-enum _AppDestination { home, lists, you }
+enum _AppDestination { home, calendar, lists, you }
 
 class _AppBottomNavigation extends StatelessWidget {
   const _AppBottomNavigation({
@@ -143,7 +149,14 @@ class _AppBottomNavigation extends StatelessWidget {
                   onTap: () => onSelected(_AppDestination.home),
                 ),
               ),
-              const Expanded(child: SizedBox.shrink()),
+              Expanded(
+                child: _AppNavigationItem(
+                  icon: LucideIcons.calendarDays300,
+                  label: l10n.calendarTitle,
+                  selected: selectedDestination == _AppDestination.calendar,
+                  onTap: () => onSelected(_AppDestination.calendar),
+                ),
+              ),
               Expanded(child: Center(child: capture)),
               Expanded(
                 child: _AppNavigationItem(
@@ -194,6 +207,14 @@ class _AppNavigationRail extends StatelessWidget {
               label: l10n.homeTitle,
               selected: selectedDestination == _AppDestination.home,
               onTap: () => onSelected(_AppDestination.home),
+              vertical: true,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            _AppNavigationItem(
+              icon: LucideIcons.calendarDays300,
+              label: l10n.calendarTitle,
+              selected: selectedDestination == _AppDestination.calendar,
+              onTap: () => onSelected(_AppDestination.calendar),
               vertical: true,
             ),
             const SizedBox(height: AppSpacing.md),

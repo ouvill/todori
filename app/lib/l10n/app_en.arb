@@ -57,6 +57,57 @@
   "createButton": "Create",
   "tasksTitle": "Tasks",
   "homeTitle": "Home",
+  "calendarTitle": "Calendar",
+  "calendarWeekTab": "Week",
+  "calendarMonthTab": "Month",
+  "calendarPreviousPeriodTooltip": "Previous period",
+  "calendarNextPeriodTooltip": "Next period",
+  "calendarGoToToday": "Today",
+  "calendarSelectedDaySemantics": "Selected date: {date}",
+  "@calendarSelectedDaySemantics": {
+    "placeholders": { "date": { "type": "String" } }
+  },
+  "calendarDayTaskCount": "{count, plural, =0{No tasks} =1{1 task} other{{count} tasks}}",
+  "@calendarDayTaskCount": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "calendarCompletedTitle": "Completed",
+  "calendarShowCompletedTooltip": "Show completed work",
+  "calendarHideCompletedTooltip": "Hide completed work",
+  "calendarEmptyTitle": "Nothing planned.",
+  "calendarEmptyBody": "Choose another day or capture what you want to make time for.",
+  "calendarLoadFailed": "Calendar could not be loaded.",
+  "calendarLoadingSemantics": "Loading calendar",
+  "calendarRetryButton": "Try again",
+  "calendarDueKind": "Due",
+  "calendarScheduledKind": "Planned",
+  "calendarCompletedKind": "Completed",
+  "calendarArchivedListContext": "{listName} · Archived",
+  "@calendarArchivedListContext": {
+    "placeholders": { "listName": { "type": "String" } }
+  },
+  "calendarOccurrenceSemantics": "{title}, {listName}, {kind}, {time}",
+  "@calendarOccurrenceSemantics": {
+    "placeholders": {
+      "title": { "type": "String" },
+      "listName": { "type": "String" },
+      "kind": { "type": "String" },
+      "time": { "type": "String" }
+    }
+  },
+  "calendarMoveDueTooltip": "Move due date",
+  "calendarMoveScheduledTooltip": "Move planned date",
+  "calendarMoveOccurrenceSemantics": "{kind}: change date for {title}",
+  "@calendarMoveOccurrenceSemantics": {
+    "placeholders": {
+      "kind": { "type": "String" },
+      "title": { "type": "String" }
+    }
+  },
+  "calendarMoveSheetTitle": "Change date",
+  "calendarMoveToToday": "Today",
+  "calendarMoveToTomorrow": "Tomorrow",
+  "calendarPickDate": "Choose date…",
   "todayTitle": "Today",
   "homeOverdueSectionTitle": "Overdue",
   "homeTomorrowSectionTitle": "Tomorrow",

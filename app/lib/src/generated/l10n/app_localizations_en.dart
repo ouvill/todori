@@ -105,6 +105,113 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeTitle => 'Home';
 
   @override
+  String get calendarTitle => 'Calendar';
+
+  @override
+  String get calendarWeekTab => 'Week';
+
+  @override
+  String get calendarMonthTab => 'Month';
+
+  @override
+  String get calendarPreviousPeriodTooltip => 'Previous period';
+
+  @override
+  String get calendarNextPeriodTooltip => 'Next period';
+
+  @override
+  String get calendarGoToToday => 'Today';
+
+  @override
+  String calendarSelectedDaySemantics(String date) {
+    return 'Selected date: $date';
+  }
+
+  @override
+  String calendarDayTaskCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tasks',
+      one: '1 task',
+      zero: 'No tasks',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get calendarCompletedTitle => 'Completed';
+
+  @override
+  String get calendarShowCompletedTooltip => 'Show completed work';
+
+  @override
+  String get calendarHideCompletedTooltip => 'Hide completed work';
+
+  @override
+  String get calendarEmptyTitle => 'Nothing planned.';
+
+  @override
+  String get calendarEmptyBody =>
+      'Choose another day or capture what you want to make time for.';
+
+  @override
+  String get calendarLoadFailed => 'Calendar could not be loaded.';
+
+  @override
+  String get calendarLoadingSemantics => 'Loading calendar';
+
+  @override
+  String get calendarRetryButton => 'Try again';
+
+  @override
+  String get calendarDueKind => 'Due';
+
+  @override
+  String get calendarScheduledKind => 'Planned';
+
+  @override
+  String get calendarCompletedKind => 'Completed';
+
+  @override
+  String calendarArchivedListContext(String listName) {
+    return '$listName · Archived';
+  }
+
+  @override
+  String calendarOccurrenceSemantics(
+    String title,
+    String listName,
+    String kind,
+    String time,
+  ) {
+    return '$title, $listName, $kind, $time';
+  }
+
+  @override
+  String get calendarMoveDueTooltip => 'Move due date';
+
+  @override
+  String get calendarMoveScheduledTooltip => 'Move planned date';
+
+  @override
+  String calendarMoveOccurrenceSemantics(String kind, String title) {
+    return '$kind: change date for $title';
+  }
+
+  @override
+  String get calendarMoveSheetTitle => 'Change date';
+
+  @override
+  String get calendarMoveToToday => 'Today';
+
+  @override
+  String get calendarMoveToTomorrow => 'Tomorrow';
+
+  @override
+  String get calendarPickDate => 'Choose date…';
+
+  @override
   String get todayTitle => 'Today';
 
   @override

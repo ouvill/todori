@@ -272,6 +272,179 @@ abstract class AppLocalizations {
   /// **'Home'**
   String get homeTitle;
 
+  /// No description provided for @calendarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get calendarTitle;
+
+  /// No description provided for @calendarWeekTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get calendarWeekTab;
+
+  /// No description provided for @calendarMonthTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get calendarMonthTab;
+
+  /// No description provided for @calendarPreviousPeriodTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous period'**
+  String get calendarPreviousPeriodTooltip;
+
+  /// No description provided for @calendarNextPeriodTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Next period'**
+  String get calendarNextPeriodTooltip;
+
+  /// No description provided for @calendarGoToToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get calendarGoToToday;
+
+  /// No description provided for @calendarSelectedDaySemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected date: {date}'**
+  String calendarSelectedDaySemantics(String date);
+
+  /// No description provided for @calendarDayTaskCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No tasks} =1{1 task} other{{count} tasks}}'**
+  String calendarDayTaskCount(int count);
+
+  /// No description provided for @calendarCompletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get calendarCompletedTitle;
+
+  /// No description provided for @calendarShowCompletedTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show completed work'**
+  String get calendarShowCompletedTooltip;
+
+  /// No description provided for @calendarHideCompletedTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide completed work'**
+  String get calendarHideCompletedTooltip;
+
+  /// No description provided for @calendarEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing planned.'**
+  String get calendarEmptyTitle;
+
+  /// No description provided for @calendarEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose another day or capture what you want to make time for.'**
+  String get calendarEmptyBody;
+
+  /// No description provided for @calendarLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar could not be loaded.'**
+  String get calendarLoadFailed;
+
+  /// No description provided for @calendarLoadingSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading calendar'**
+  String get calendarLoadingSemantics;
+
+  /// No description provided for @calendarRetryButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get calendarRetryButton;
+
+  /// No description provided for @calendarDueKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get calendarDueKind;
+
+  /// No description provided for @calendarScheduledKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned'**
+  String get calendarScheduledKind;
+
+  /// No description provided for @calendarCompletedKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get calendarCompletedKind;
+
+  /// No description provided for @calendarArchivedListContext.
+  ///
+  /// In en, this message translates to:
+  /// **'{listName} · Archived'**
+  String calendarArchivedListContext(String listName);
+
+  /// No description provided for @calendarOccurrenceSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, {listName}, {kind}, {time}'**
+  String calendarOccurrenceSemantics(
+    String title,
+    String listName,
+    String kind,
+    String time,
+  );
+
+  /// No description provided for @calendarMoveDueTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move due date'**
+  String get calendarMoveDueTooltip;
+
+  /// No description provided for @calendarMoveScheduledTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move planned date'**
+  String get calendarMoveScheduledTooltip;
+
+  /// No description provided for @calendarMoveOccurrenceSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{kind}: change date for {title}'**
+  String calendarMoveOccurrenceSemantics(String kind, String title);
+
+  /// No description provided for @calendarMoveSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change date'**
+  String get calendarMoveSheetTitle;
+
+  /// No description provided for @calendarMoveToToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get calendarMoveToToday;
+
+  /// No description provided for @calendarMoveToTomorrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow'**
+  String get calendarMoveToTomorrow;
+
+  /// No description provided for @calendarPickDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose date…'**
+  String get calendarPickDate;
+
   /// No description provided for @todayTitle.
   ///
   /// In en, this message translates to:
