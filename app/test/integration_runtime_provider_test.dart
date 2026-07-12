@@ -78,6 +78,59 @@ void main() {
     expect(await bridge.getActiveTimerSession(), isNotNull);
   });
 
+  test('active break is cleared before external completion', () async {
+    final bridge = _OrderingBridge();
+    final list = await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final task = await bridge.createTask(listId: list.id, title: 'Break owner');
+    final clock = _MutableClock(DateTime.utc(2026, 7, 13, 13, 30));
+    final container = _container(bridge, clock);
+    addTearDown(container.dispose);
+    await container.read(timerEngineProvider.future);
+    await container
+        .read(timerEngineProvider.notifier)
+        .startPomodoro(taskId: task.id);
+    clock.advance(const Duration(minutes: 1));
+    await container.read(timerEngineProvider.notifier).finish();
+    await container.read(timerEngineProvider.notifier).startBreak();
+    bridge.operations.clear();
+
+    await container
+        .read(tasksProvider(list.id).notifier)
+        .setStatus(task.id, 'done');
+
+    expect(bridge.operations, ['discard', 'status:done']);
+    expect((await bridge.getTasks(listId: list.id)).single.status, 'done');
+    expect(await bridge.getActiveTimerSession(), isNull);
+  });
+
+  test('break discard failure preserves external task status', () async {
+    final bridge = _OrderingBridge(failDiscard: true);
+    final list = await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final task = await bridge.createTask(listId: list.id, title: 'Keep break');
+    final clock = _MutableClock(DateTime.utc(2026, 7, 13, 13, 45));
+    final container = _container(bridge, clock);
+    addTearDown(container.dispose);
+    await container.read(timerEngineProvider.future);
+    await container
+        .read(timerEngineProvider.notifier)
+        .startPomodoro(taskId: task.id);
+    clock.advance(const Duration(minutes: 1));
+    await container.read(timerEngineProvider.notifier).finish();
+    await container.read(timerEngineProvider.notifier).startBreak();
+    bridge.operations.clear();
+
+    await expectLater(
+      container
+          .read(tasksProvider(list.id).notifier)
+          .setStatus(task.id, 'done'),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(bridge.operations, ['discard']);
+    expect((await bridge.getTasks(listId: list.id)).single.status, 'todo');
+    expect(await bridge.getActiveTimerSession(), isNotNull);
+  });
+
   test('list lifecycle refreshes Home name and membership', () async {
     final bridge = FakeBridgeService();
     await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
@@ -200,9 +253,10 @@ class _MutableClock implements TimerClock {
 }
 
 class _OrderingBridge extends FakeBridgeService {
-  _OrderingBridge({this.failFinish = false});
+  _OrderingBridge({this.failFinish = false, this.failDiscard = false});
 
   final bool failFinish;
+  final bool failDiscard;
   final operations = <String>[];
 
   @override
@@ -214,6 +268,19 @@ class _OrderingBridge extends FakeBridgeService {
       throw StateError('simulated timer save failure');
     }
     return super.finishActiveTimerSession(session: session);
+  }
+
+  @override
+  Future<bool> discardActiveTimerSession({
+    required String expectedSessionId,
+  }) async {
+    operations.add('discard');
+    if (failDiscard) {
+      throw StateError('simulated break discard failure');
+    }
+    return super.discardActiveTimerSession(
+      expectedSessionId: expectedSessionId,
+    );
   }
 
   @override

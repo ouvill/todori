@@ -504,12 +504,18 @@ class TaskCompletionCoordinator {
   }) async {
     final engine = await _ref.read(timerEngineProvider.future);
     final active = engine.active;
-    if (active?.taskId == taskId && active?.phase == TimerPhaseDto.work) {
+    final matchingWork =
+        active?.taskId == taskId && active?.phase == TimerPhaseDto.work;
+    final activeBreak = active != null && active.phase != TimerPhaseDto.work;
+    if (matchingWork || activeBreak) {
+      final activeSession = active!;
       final completed = await _ref
           .read(timerEngineProvider.notifier)
           .finish(kind: TimerFinishKindDto.completed);
       final remaining = _ref.read(timerEngineProvider).value?.active;
-      if (completed == null || remaining?.sessionId == active!.sessionId) {
+      final wasCleared = remaining?.sessionId != activeSession.sessionId;
+      final workWasSaved = !matchingWork || completed != null;
+      if (!wasCleared || !workWasSaved) {
         throw const TaskCompletionTimerSaveException();
       }
     }
