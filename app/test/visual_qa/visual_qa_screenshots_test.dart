@@ -26,7 +26,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart' show TaskDto;
+import 'package:todori/src/rust/api.dart'
+    show CalendarOccurrenceDto, CalendarRangeInput, TaskDto;
+import 'package:todori/src/screens/calendar_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
@@ -120,6 +122,18 @@ void main() {
     await _screenshot(tester, 'home_tasks_wide');
   });
 
+  testWidgets('home_tasks_completed: completed outcome disclosure', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await _ensureVisible(
+      tester,
+      find.byKey(const ValueKey('completed-section-toggle')),
+    );
+    await _screenshot(tester, 'home_tasks_completed');
+  });
+
   testWidgets('lists_wide: list management with navigation rail', (
     tester,
   ) async {
@@ -171,6 +185,178 @@ void main() {
     _useTextScale(tester, 2.0);
     await _seedRealisticData(tester);
     await _screenshot(tester, 'home_tasks_text_scale_2');
+  });
+
+  testWidgets('calendar_week_390: production Week route', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    await _screenshot(tester, 'calendar_week_390');
+  });
+
+  testWidgets('calendar_week_completed_closed: quiet disclosure', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarCompletedVisualData());
+    expect(
+      find.byKey(const ValueKey('calendar-completed-toggle')),
+      findsOneWidget,
+    );
+    await _screenshot(tester, 'calendar_week_completed_closed');
+  });
+
+  testWidgets('calendar_week_completed_open: completed outcomes expanded', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarCompletedVisualData());
+    await tester.tap(find.byKey(const ValueKey('calendar-completed-toggle')));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'calendar_week_completed_open');
+  });
+
+  testWidgets('calendar_week_ja: Japanese production Week', (tester) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    await _screenshot(tester, 'calendar_week_ja');
+  });
+
+  testWidgets('calendar_week_text_scale_2: Week at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    await _screenshot(tester, 'calendar_week_text_scale_2');
+  });
+
+  testWidgets('calendar_week_narrow_320: Week at 320px', (tester) async {
+    _setNarrowViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    await _screenshot(tester, 'calendar_week_narrow_320');
+  });
+
+  testWidgets('calendar_week_rtl: production Calendar under RTL', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final fake = await _calendarVisualData();
+    await _pumpCalendarVisualRtl(tester, fake);
+    await _screenshot(tester, 'calendar_week_rtl');
+  });
+
+  testWidgets('calendar_month_390: production Month route', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData(), month: true);
+    await _screenshot(tester, 'calendar_month_390');
+  });
+
+  testWidgets('calendar_month_selected_day: selected-day agenda', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData(), month: true);
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    await tester.tap(
+      find.byKey(ValueKey('calendar-month-day-${_visualCivilDate(tomorrow)}')),
+    );
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'calendar_month_selected_day');
+  });
+
+  testWidgets('calendar_month_narrow_320: Month at 320px', (tester) async {
+    _setNarrowViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData(), month: true);
+    await _screenshot(tester, 'calendar_month_narrow_320');
+  });
+
+  testWidgets('calendar_wide_720_single: wide single-column threshold', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(720, 760), devicePixelRatio: 2);
+    await _pumpCalendarVisual(tester, await _calendarVisualData(), month: true);
+    await _screenshot(tester, 'calendar_wide_720_single');
+  });
+
+  testWidgets('calendar_wide_1024_two_pane: Month grid and agenda', (
+    tester,
+  ) async {
+    _setLogicalViewport(tester, const Size(1024, 760), devicePixelRatio: 2);
+    await _pumpCalendarVisual(tester, await _calendarVisualData(), month: true);
+    await _screenshot(tester, 'calendar_wide_1024_two_pane');
+  });
+
+  testWidgets('calendar_empty: empty selected day', (tester) async {
+    _setMobileViewport(tester);
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpCalendarVisual(tester, fake);
+    await _screenshot(tester, 'calendar_empty');
+  });
+
+  testWidgets('calendar_loading: pending range query', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _PendingVisualCalendarBridge();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpCalendarVisual(tester, fake, settle: false);
+    await tester.pump(const Duration(milliseconds: 700));
+    await _screenshotCurrentFrame(tester, 'calendar_loading');
+  });
+
+  testWidgets('calendar_error: failed range query', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _ErrorVisualCalendarBridge();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpCalendarVisual(tester, fake);
+    await _screenshot(tester, 'calendar_error');
+  });
+
+  testWidgets('calendar_dual_occurrence: due and scheduled stay distinct', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    expect(find.text('Prepare dual-occurrence review'), findsNWidgets(2));
+    await _screenshot(tester, 'calendar_dual_occurrence');
+  });
+
+  testWidgets('calendar_datetime_zone: saved IANA deadline context', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarDateTimeZoneVisualData());
+    await _screenshot(tester, 'calendar_datetime_zone');
+  });
+
+  testWidgets('calendar_move_sheet: accessible date-change alternative', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarVisualData());
+    await tester.tap(find.byIcon(LucideIcons.calendarCog300).first);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'calendar_move_sheet');
+  });
+
+  testWidgets('calendar_completion_midframe: retained halo and strike', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpCalendarVisual(tester, await _calendarCompletedVisualData());
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith(
+              'calendar-occurrence-check-task-0:date_due:',
+            ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
+    await _screenshotCurrentFrame(tester, 'calendar_completion_midframe');
   });
 
   testWidgets('search_empty: immersive empty-query state', (tester) async {
@@ -1163,7 +1349,7 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
     title: standup.title,
     note: '',
     priority: 0,
-    due: null,
+    due: testDateOnlyDueFromMillis(today),
   );
   await fake.setTaskStatus(taskId: standup.id, status: 'done');
 
@@ -1283,6 +1469,180 @@ class _ErrorVisualSearchBridge extends FakeBridgeService {
       Future<List<TaskDto>>.error(StateError('visual search failure'));
 }
 
+Future<FakeBridgeService> _calendarVisualData() async {
+  final fake = FakeBridgeService();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final archive = await fake.createList(name: 'Archive', sortOrder: 'a1');
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final todayAt = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    10,
+    30,
+  ).millisecondsSinceEpoch;
+  final tomorrow = DateTime(now.year, now.month, now.day + 1);
+
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Finish the calendar interaction pass',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+    priority: 3,
+  );
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Prepare dual-occurrence review',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+    scheduledAt: todayAt,
+    priority: 2,
+  );
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Scheduled design critique',
+    scheduledAt: DateTime(
+      now.year,
+      now.month,
+      now.day,
+      15,
+    ).millisecondsSinceEpoch,
+    priority: 1,
+  );
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Tomorrow roadmap handoff',
+    due: testDateOnlyDueFromMillis(tomorrow.millisecondsSinceEpoch),
+  );
+  final parent = await fake.createTask(
+    listId: inbox.id,
+    title: 'Calendar launch checklist',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+  );
+  await fake.createTask(
+    listId: inbox.id,
+    parentTaskId: parent.id,
+    title: 'Verify tree connector spacing',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+  );
+  final completed = await fake.createTask(
+    listId: inbox.id,
+    title: 'Completed calendar contract',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+  );
+  await fake.setTaskStatus(taskId: completed.id, status: 'done');
+  await fake.createTask(
+    listId: archive.id,
+    title: 'Archived milestone context',
+    due: testDateOnlyDueFromMillis(today.millisecondsSinceEpoch),
+  );
+  await fake.archiveList(listId: archive.id);
+  return fake;
+}
+
+Future<FakeBridgeService> _calendarCompletedVisualData() async {
+  final fake = FakeBridgeService();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Review today agenda',
+    due: testDateOnlyDueFromMillis(today),
+    priority: 2,
+  );
+  final completed = await fake.createTask(
+    listId: inbox.id,
+    title: 'Completed range contract',
+    due: testDateOnlyDueFromMillis(today),
+  );
+  await fake.setTaskStatus(taskId: completed.id, status: 'done');
+  return fake;
+}
+
+Future<FakeBridgeService> _calendarDateTimeZoneVisualData() async {
+  final fake = FakeBridgeService();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final now = DateTime.now();
+  final deadline = DateTime(now.year, now.month, now.day, 18, 45);
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'New York partner deadline',
+    due: testDateTimeDueFromMillis(
+      deadline.millisecondsSinceEpoch,
+      timeZone: 'America/New_York',
+    ),
+    priority: 2,
+  );
+  return fake;
+}
+
+Future<void> _pumpCalendarVisual(
+  WidgetTester tester,
+  FakeBridgeService fake, {
+  bool month = false,
+  bool settle = true,
+}) async {
+  await tester.pumpWidget(
+    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byIcon(LucideIcons.calendarDays300).last);
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
+  if (month) {
+    await tester.tap(find.byKey(const ValueKey('calendar-mode-month')));
+    await tester.pumpAndSettle();
+  }
+}
+
+Future<void> _pumpCalendarVisualRtl(
+  WidgetTester tester,
+  FakeBridgeService fake,
+) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: buildTodoriTheme(Brightness.light),
+        home: const Directionality(
+          textDirection: TextDirection.rtl,
+          child: CalendarScreen(),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+class _PendingVisualCalendarBridge extends FakeBridgeService {
+  final Completer<List<CalendarOccurrenceDto>> _pending =
+      Completer<List<CalendarOccurrenceDto>>();
+
+  @override
+  Future<List<CalendarOccurrenceDto>> getCalendarOccurrences({
+    required CalendarRangeInput range,
+  }) => _pending.future;
+}
+
+class _ErrorVisualCalendarBridge extends FakeBridgeService {
+  @override
+  Future<List<CalendarOccurrenceDto>> getCalendarOccurrences({
+    required CalendarRangeInput range,
+  }) => Future<List<CalendarOccurrenceDto>>.error(
+    StateError('visual calendar failure'),
+  );
+}
+
+String _visualCivilDate(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';
+
 Future<void> _seedArchivedListData(WidgetTester tester) async {
   final fake = FakeBridgeService();
   await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
@@ -1352,6 +1712,22 @@ void _setWideViewport(WidgetTester tester) {
   });
 }
 
+void _setLogicalViewport(
+  WidgetTester tester,
+  Size logicalSize, {
+  required double devicePixelRatio,
+}) {
+  tester.view.physicalSize = Size(
+    logicalSize.width * devicePixelRatio,
+    logicalSize.height * devicePixelRatio,
+  );
+  tester.view.devicePixelRatio = devicePixelRatio;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+}
+
 void _useTextScale(WidgetTester tester, double textScaleFactor) {
   tester.platformDispatcher.textScaleFactorTestValue = textScaleFactor;
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -1376,8 +1752,17 @@ Future<void> _ensureVisible(
       delta,
       scrollable: find.byType(Scrollable).first,
     );
-  } else {
-    await tester.ensureVisible(finder.first);
+  } else if (!tester.any(finder.hitTestable())) {
+    for (var attempt = 0; attempt < 8; attempt += 1) {
+      await tester.drag(
+        find.byType(SingleChildScrollView).first,
+        Offset(0, -delta),
+      );
+      await tester.pumpAndSettle();
+      if (tester.any(finder.hitTestable())) {
+        break;
+      }
+    }
   }
   await tester.pumpAndSettle();
 }
