@@ -40,13 +40,7 @@ pub fn merge_lww(
                 &mut local_won,
                 &mut incoming_won,
             ),
-            due_at: choose(
-                "due_at",
-                &a.due_at,
-                &b.due_at,
-                &mut local_won,
-                &mut incoming_won,
-            ),
+            due: choose("due", &a.due, &b.due, &mut local_won, &mut incoming_won),
             scheduled_at: choose(
                 "scheduled_at",
                 &a.scheduled_at,
@@ -189,7 +183,7 @@ fn canonical<T: Serialize>(value: &T) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::Hlc;
-    use todori_domain::{new_task, TaskStatus, Uuid};
+    use todori_domain::{new_task, TaskDue, TaskStatus, Uuid};
     fn h(counter: u32, device: &str) -> Hlc {
         Hlc {
             wall_ms: 1,
@@ -279,5 +273,32 @@ mod tests {
             value.placement.value.rank,
             "bfffffffffffffffffffffffffffffff"
         );
+    }
+
+    #[test]
+    fn due_mode_switch_merges_as_one_atomic_field() {
+        let mut task = new_task(
+            Uuid::now_v7(),
+            None,
+            "base".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
+        task.due = Some(TaskDue::date("2026-07-12").unwrap());
+        let date = base.stamp_task_changes(&task, h(1, "a")).unwrap();
+        task.due = Some(TaskDue::date_time(1_783_798_200_000, "Asia/Tokyo").unwrap());
+        let date_time = base.stamp_task_changes(&task, h(2, "b")).unwrap();
+
+        let merged = merge_lww(&date, &date_time).unwrap().plaintext;
+        let SyncPlaintext::Task(value) = merged else {
+            unreachable!()
+        };
+        assert_eq!(
+            value.due.value,
+            Some(TaskDue::date_time(1_783_798_200_000, "Asia/Tokyo").unwrap())
+        );
+        assert_eq!(value.due.hlc, h(2, "b"));
     }
 }

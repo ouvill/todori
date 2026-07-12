@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::path::Path;
 
 use thiserror::Error;
-use todori_domain::{update_due_at, update_note, update_priority, update_title, List, Task, Uuid};
+use todori_domain::{
+    update_due, update_note, update_priority, update_title, List, Task, TaskDue, Uuid,
+};
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
@@ -49,6 +51,8 @@ pub enum ClientError {
     Busy,
     #[error("task priority must be between 0 and 3")]
     InvalidPriority,
+    #[error("local IANA time zone is unavailable")]
+    LocalTimeZoneUnavailable,
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +67,7 @@ pub struct UpdateTaskInput {
     pub title: String,
     pub note: String,
     pub priority: i32,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDue>,
     pub now_ms: i64,
 }
 
@@ -103,7 +107,7 @@ impl SqliteMutationService {
         let task = update_title(before.clone(), input.title, input.now_ms)?;
         let task = update_note(task, input.note, input.now_ms)?;
         let task = update_priority(task, input.priority, input.now_ms)?;
-        let updated = update_due_at(task, input.due_at, input.now_ms)?;
+        let updated = update_due(task, input.due, input.now_ms)?;
 
         transaction.update_with_undo(
             before,
@@ -375,7 +379,7 @@ mod tests {
             title: "after".to_string(),
             note: "atomic".to_string(),
             priority: 2,
-            due_at: Some(BASE_MS + 60_000),
+            due: Some(TaskDue::date_time(BASE_MS + 60_000, "UTC").unwrap()),
             now_ms: BASE_MS + 1_000,
         }
     }

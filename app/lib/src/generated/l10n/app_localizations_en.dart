@@ -204,7 +204,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String taskCreateDueChipSemantics(String dueAt) {
-    return 'Due date: $dueAt';
+    return 'Due: $dueAt';
   }
 
   @override
@@ -434,13 +434,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get priorityHigh => 'High';
 
   @override
-  String get dueDateLabel => 'Due date';
+  String get dueDateLabel => 'Due';
 
   @override
   String get noDueDate => 'No due date';
 
   @override
   String get setDueDateButton => 'Set date';
+
+  @override
+  String get setDueDateTimeButton => 'Set date and time';
 
   @override
   String get clearDueDateButton => 'Clear date';

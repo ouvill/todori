@@ -36,6 +36,8 @@ abstract class BridgeService {
 
   Future<void> setSyncServerUrl({required String serverUrl});
 
+  Future<String> getLocalTimeZone();
+
   /// Creates a list using the caller-provided `sortOrder`.
   Future<rust_api.ListDto> createList({
     required String name,
@@ -65,7 +67,7 @@ abstract class BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
-    int? dueAt,
+    rust_api.TaskDueInput? due,
     String note = '',
   });
 
@@ -87,7 +89,7 @@ abstract class BridgeService {
     required String title,
     required String note,
     required int priority,
-    int? dueAt,
+    rust_api.TaskDueInput? due,
   });
 
   /// Transitions a task's status.
@@ -209,6 +211,9 @@ class FrbBridgeService implements BridgeService {
       rust_api.setSyncServerUrl(serverUrl: serverUrl);
 
   @override
+  Future<String> getLocalTimeZone() => rust_api.getLocalTimeZone();
+
+  @override
   Future<rust_api.ListDto> createList({
     required String name,
     required String sortOrder,
@@ -240,13 +245,13 @@ class FrbBridgeService implements BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
-    int? dueAt,
+    rust_api.TaskDueInput? due,
     String note = '',
   }) => rust_api.createTask(
     listId: listId,
     title: title,
     parentTaskId: parentTaskId,
-    dueAt: dueAt,
+    due: due,
     note: note.isEmpty ? null : note,
   );
 
@@ -273,13 +278,13 @@ class FrbBridgeService implements BridgeService {
     required String title,
     required String note,
     required int priority,
-    int? dueAt,
+    rust_api.TaskDueInput? due,
   }) => rust_api.updateTask(
     taskId: taskId,
     title: title,
     note: note,
     priority: priority,
-    dueAt: dueAt,
+    due: due,
   );
 
   @override

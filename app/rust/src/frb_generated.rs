@@ -32,13 +32,15 @@ use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
 
+use todori_client::chrono;
+
 flutter_rust_bridge::frb_generated_boilerplate!(
     default_stream_sink_codec = SseCodec,
     default_rust_opaque = RustOpaqueMoi,
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -2142007768;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -631770909;
 
 // Section: executor
 
@@ -395,7 +397,7 @@ fn wire__crate__api__create_task_impl(
             let api_list_id = <String>::sse_decode(&mut deserializer);
             let api_title = <String>::sse_decode(&mut deserializer);
             let api_parent_task_id = <Option<String>>::sse_decode(&mut deserializer);
-            let api_due_at = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_due = <Option<crate::api::TaskDueInput>>::sse_decode(&mut deserializer);
             let api_note = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
@@ -404,7 +406,7 @@ fn wire__crate__api__create_task_impl(
                         api_list_id,
                         api_title,
                         api_parent_task_id,
-                        api_due_at,
+                        api_due,
                         api_note,
                     )?;
                     Ok(output_ok)
@@ -669,6 +671,38 @@ fn wire__crate__api__get_lists_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::get_lists()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__get_local_time_zone_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_local_time_zone",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::get_local_time_zone()?;
                     Ok(output_ok)
                 })())
             }
@@ -1376,7 +1410,7 @@ fn wire__crate__api__update_task_impl(
             let api_title = <String>::sse_decode(&mut deserializer);
             let api_note = <String>::sse_decode(&mut deserializer);
             let api_priority = <i32>::sse_decode(&mut deserializer);
-            let api_due_at = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_due = <Option<crate::api::TaskDueInput>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -1385,7 +1419,7 @@ fn wire__crate__api__update_task_impl(
                         api_title,
                         api_note,
                         api_priority,
-                        api_due_at,
+                        api_due,
                     )?;
                     Ok(output_ok)
                 })())
@@ -1395,6 +1429,19 @@ fn wire__crate__api__update_task_impl(
 }
 
 // Section: dart2rust
+
+impl SseDecode for chrono::DateTime<chrono::Utc> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i64>::sse_decode(deserializer);
+        return chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+            chrono::DateTime::from_timestamp_micros(inner)
+                .expect("invalid or out-of-range datetime")
+                .naive_utc(),
+            chrono::Utc,
+        );
+    }
+}
 
 impl SseDecode for String {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1590,6 +1637,28 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<crate::api::TaskDueDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::TaskDueDto>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::TaskDueInput> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::TaskDueInput>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::TaskUndoDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1671,7 +1740,7 @@ impl SseDecode for crate::api::TaskDto {
         let mut var_note = <String>::sse_decode(deserializer);
         let mut var_status = <String>::sse_decode(deserializer);
         let mut var_priority = <i32>::sse_decode(deserializer);
-        let mut var_dueAt = <Option<i64>>::sse_decode(deserializer);
+        let mut var_due = <Option<crate::api::TaskDueDto>>::sse_decode(deserializer);
         let mut var_scheduledAt = <Option<i64>>::sse_decode(deserializer);
         let mut var_estimatedMinutes = <Option<i32>>::sse_decode(deserializer);
         let mut var_sortOrder = <String>::sse_decode(deserializer);
@@ -1689,7 +1758,7 @@ impl SseDecode for crate::api::TaskDto {
             note: var_note,
             status: var_status,
             priority: var_priority,
-            due_at: var_dueAt,
+            due: var_due,
             scheduled_at: var_scheduledAt,
             estimated_minutes: var_estimatedMinutes,
             sort_order: var_sortOrder,
@@ -1700,6 +1769,54 @@ impl SseDecode for crate::api::TaskDto {
             created_at: var_createdAt,
             updated_at: var_updatedAt,
         };
+    }
+}
+
+impl SseDecode for crate::api::TaskDueDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_dueOn = <String>::sse_decode(deserializer);
+                return crate::api::TaskDueDto::Date { due_on: var_dueOn };
+            }
+            1 => {
+                let mut var_dueAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+                let mut var_timeZone = <String>::sse_decode(deserializer);
+                return crate::api::TaskDueDto::DateTime {
+                    due_at: var_dueAt,
+                    time_zone: var_timeZone,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
+impl SseDecode for crate::api::TaskDueInput {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut tag_ = <i32>::sse_decode(deserializer);
+        match tag_ {
+            0 => {
+                let mut var_dueOn = <String>::sse_decode(deserializer);
+                return crate::api::TaskDueInput::Date { due_on: var_dueOn };
+            }
+            1 => {
+                let mut var_dueAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+                let mut var_timeZone = <String>::sse_decode(deserializer);
+                return crate::api::TaskDueInput::DateTime {
+                    due_at: var_dueAt,
+                    time_zone: var_timeZone,
+                };
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -1762,27 +1879,28 @@ fn pde_ffi_dispatcher_primary_impl(
         16 => wire__crate__api__get_latest_task_undo_impl(port, ptr, rust_vec_len, data_len),
         17 => wire__crate__api__get_list_reminders_impl(port, ptr, rust_vec_len, data_len),
         18 => wire__crate__api__get_lists_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__get_local_time_zone_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1952,7 +2070,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::TaskDto {
             self.note.into_into_dart().into_dart(),
             self.status.into_into_dart().into_dart(),
             self.priority.into_into_dart().into_dart(),
-            self.due_at.into_into_dart().into_dart(),
+            self.due.into_into_dart().into_dart(),
             self.scheduled_at.into_into_dart().into_dart(),
             self.estimated_minutes.into_into_dart().into_dart(),
             self.sort_order.into_into_dart().into_dart(),
@@ -1969,6 +2087,56 @@ impl flutter_rust_bridge::IntoDart for crate::api::TaskDto {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TaskDto {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::TaskDto> for crate::api::TaskDto {
     fn into_into_dart(self) -> crate::api::TaskDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TaskDueDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::TaskDueDto::Date { due_on } => {
+                [0.into_dart(), due_on.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::TaskDueDto::DateTime { due_at, time_zone } => [
+                1.into_dart(),
+                due_at.into_into_dart().into_dart(),
+                time_zone.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TaskDueDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TaskDueDto> for crate::api::TaskDueDto {
+    fn into_into_dart(self) -> crate::api::TaskDueDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TaskDueInput {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            crate::api::TaskDueInput::Date { due_on } => {
+                [0.into_dart(), due_on.into_into_dart().into_dart()].into_dart()
+            }
+            crate::api::TaskDueInput::DateTime { due_at, time_zone } => [
+                1.into_dart(),
+                due_at.into_into_dart().into_dart(),
+                time_zone.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TaskDueInput {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TaskDueInput> for crate::api::TaskDueInput {
+    fn into_into_dart(self) -> crate::api::TaskDueInput {
         self
     }
 }
@@ -1990,6 +2158,13 @@ impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api:
 impl flutter_rust_bridge::IntoIntoDart<crate::api::TaskUndoDto> for crate::api::TaskUndoDto {
     fn into_into_dart(self) -> crate::api::TaskUndoDto {
         self
+    }
+}
+
+impl SseEncode for chrono::DateTime<chrono::Utc> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i64>::sse_encode(self.timestamp_micros(), serializer);
     }
 }
 
@@ -2145,6 +2320,26 @@ impl SseEncode for Option<i64> {
     }
 }
 
+impl SseEncode for Option<crate::api::TaskDueDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::TaskDueDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::TaskDueInput> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::TaskDueInput>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::TaskUndoDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2199,7 +2394,7 @@ impl SseEncode for crate::api::TaskDto {
         <String>::sse_encode(self.note, serializer);
         <String>::sse_encode(self.status, serializer);
         <i32>::sse_encode(self.priority, serializer);
-        <Option<i64>>::sse_encode(self.due_at, serializer);
+        <Option<crate::api::TaskDueDto>>::sse_encode(self.due, serializer);
         <Option<i64>>::sse_encode(self.scheduled_at, serializer);
         <Option<i32>>::sse_encode(self.estimated_minutes, serializer);
         <String>::sse_encode(self.sort_order, serializer);
@@ -2209,6 +2404,46 @@ impl SseEncode for crate::api::TaskDto {
         <Option<String>>::sse_encode(self.assignee, serializer);
         <i64>::sse_encode(self.created_at, serializer);
         <i64>::sse_encode(self.updated_at, serializer);
+    }
+}
+
+impl SseEncode for crate::api::TaskDueDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::TaskDueDto::Date { due_on } => {
+                <i32>::sse_encode(0, serializer);
+                <String>::sse_encode(due_on, serializer);
+            }
+            crate::api::TaskDueDto::DateTime { due_at, time_zone } => {
+                <i32>::sse_encode(1, serializer);
+                <chrono::DateTime<chrono::Utc>>::sse_encode(due_at, serializer);
+                <String>::sse_encode(time_zone, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
+    }
+}
+
+impl SseEncode for crate::api::TaskDueInput {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        match self {
+            crate::api::TaskDueInput::Date { due_on } => {
+                <i32>::sse_encode(0, serializer);
+                <String>::sse_encode(due_on, serializer);
+            }
+            crate::api::TaskDueInput::DateTime { due_at, time_zone } => {
+                <i32>::sse_encode(1, serializer);
+                <chrono::DateTime<chrono::Utc>>::sse_encode(due_at, serializer);
+                <String>::sse_encode(time_zone, serializer);
+            }
+            _ => {
+                unimplemented!("");
+            }
+        }
     }
 }
 
@@ -2251,6 +2486,8 @@ mod io {
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
+
+    use todori_client::chrono;
 
     flutter_rust_bridge::frb_generated_boilerplate_io!();
 }

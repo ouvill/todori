@@ -1,10 +1,20 @@
 import 'package:todori/src/core/bridge_service.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/core/providers.dart'
     show
         defaultSyncServerUrl,
         onboardingCompletedSettingKey,
         syncServerUrlSettingKey;
 import 'package:todori/src/rust/api.dart';
+
+TaskDueDto testDateOnlyDueFromMillis(int value) =>
+    dateOnlyDue(DateTime.fromMillisecondsSinceEpoch(value));
+
+TaskDueDto testDateTimeDueFromMillis(int value, {String timeZone = 'UTC'}) =>
+    dateTimeDueFromInstant(
+      DateTime.fromMillisecondsSinceEpoch(value),
+      timeZone: timeZone,
+    );
 
 /// In-memory fake [BridgeService].
 ///
@@ -167,7 +177,7 @@ class FakeBridgeService implements BridgeService {
             note: 'Seeded note ${globalIndex.toString().padLeft(5, '0')}',
             status: status,
             priority: globalIndex % 4,
-            dueAt: dueAt,
+            due: dueAt == null ? null : testDateOnlyDueFromMillis(dueAt),
             scheduledAt: dueAt == null ? null : dueAt - _fakeHourMs,
             estimatedMinutes: 15 + ((globalIndex % 6) * 10),
             sortOrder: 'a${taskIndex.toString().padLeft(4, '0')}',
@@ -287,7 +297,7 @@ class FakeBridgeService implements BridgeService {
           note: note,
           status: 'todo',
           priority: 0,
-          dueAt: dueAt,
+          due: dueAt == null ? null : testDateOnlyDueFromMillis(dueAt),
           sortOrder: 'remote-$taskSeq',
           createdAt: _fakeTimestamp(3000 + taskSeq),
           updatedAt: _fakeTimestamp(3000 + taskSeq),
@@ -305,6 +315,9 @@ class FakeBridgeService implements BridgeService {
   Future<void> setSyncServerUrl({required String serverUrl}) async {
     _settings[syncServerUrlSettingKey] = serverUrl;
   }
+
+  @override
+  Future<String> getLocalTimeZone() async => 'UTC';
 
   @override
   Future<ListDto> createList({
@@ -433,7 +446,7 @@ class FakeBridgeService implements BridgeService {
     required String listId,
     required String title,
     String? parentTaskId,
-    int? dueAt,
+    Object? due,
     String note = '',
   }) async {
     final taskSeq = _taskSeq++;
@@ -457,7 +470,7 @@ class FakeBridgeService implements BridgeService {
       note: note,
       status: 'todo',
       priority: 0,
-      dueAt: dueAt,
+      due: _normalizeFakeDue(due),
       sortOrder: sortOrder,
       createdAt: _fakeTimestamp(100 + taskSeq),
       updatedAt: _fakeTimestamp(100 + taskSeq),
@@ -473,6 +486,14 @@ class FakeBridgeService implements BridgeService {
     return tasks;
   }
 
+  void setScheduledAtForTest({
+    required String taskId,
+    required int scheduledAt,
+  }) {
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    _tasks[index] = _tasks[index]._copyWith(scheduledAt: scheduledAt);
+  }
+
   @override
   Future<List<HomeTaskDto>> getHomeTasks({
     required int todayStartMs,
@@ -484,8 +505,12 @@ class FakeBridgeService implements BridgeService {
     };
     final homeTargetIds = <String>{};
     for (final task in _tasks) {
-      final dueAt = task.dueAt;
-      if (dueAt == null || !activeListById.containsKey(task.listId)) {
+      final scheduledToday =
+          task.scheduledAt != null &&
+          task.scheduledAt! >= todayStartMs &&
+          task.scheduledAt! < tomorrowStartMs;
+      if ((task.due == null && !scheduledToday) ||
+          !activeListById.containsKey(task.listId)) {
         continue;
       }
       if (task.status == 'todo' || task.status == 'in_progress') {
@@ -566,7 +591,7 @@ class FakeBridgeService implements BridgeService {
     required String title,
     required String note,
     required int priority,
-    int? dueAt,
+    Object? due,
   }) async {
     if (title.trim().isEmpty) {
       throw Exception('task title must not be empty');
@@ -585,7 +610,7 @@ class FakeBridgeService implements BridgeService {
       note: note,
       status: task.status,
       priority: priority,
-      dueAt: dueAt,
+      due: _normalizeFakeDue(due),
       scheduledAt: task.scheduledAt,
       estimatedMinutes: task.estimatedMinutes,
       sortOrder: task.sortOrder,
@@ -1006,10 +1031,11 @@ extension _TaskDtoCopy on TaskDto {
     String? note,
     String? status,
     int? priority,
-    int? dueAt,
+    Object? due = _unchangedTaskDue,
     int? completedAt,
     String? closedReason,
     int? deletedAt,
+    int? scheduledAt,
     String? sortOrder,
     int? updatedAt,
     bool clearCompletedAt = false,
@@ -1023,8 +1049,8 @@ extension _TaskDtoCopy on TaskDto {
       note: note ?? this.note,
       status: status ?? this.status,
       priority: priority ?? this.priority,
-      dueAt: dueAt ?? this.dueAt,
-      scheduledAt: scheduledAt,
+      due: identical(due, _unchangedTaskDue) ? this.due : due as TaskDueDto?,
+      scheduledAt: scheduledAt ?? this.scheduledAt,
       estimatedMinutes: estimatedMinutes,
       sortOrder: sortOrder ?? this.sortOrder,
       completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
@@ -1048,22 +1074,21 @@ int _compareTasks(TaskDto a, TaskDto b) {
 }
 
 int _compareHomeTaskEntries(HomeTaskDto a, HomeTaskDto b) {
-  final aDueAt = a.task.dueAt;
-  final bDueAt = b.task.dueAt;
-  if (aDueAt == null && bDueAt != null) {
-    return 1;
-  }
-  if (aDueAt != null && bDueAt == null) {
-    return -1;
-  }
-  if (aDueAt != null && bDueAt != null) {
-    final dueAt = aDueAt.compareTo(bDueAt);
-    if (dueAt != 0) {
-      return dueAt;
-    }
+  final due = compareTaskDue(a.task.due, b.task.due);
+  if (due != 0) {
+    return due;
   }
   return _compareTasks(a.task, b.task);
 }
+
+const _unchangedTaskDue = Object();
+
+TaskDueDto? _normalizeFakeDue(Object? value) => switch (value) {
+  null => null,
+  TaskDueDto due => due,
+  TaskDueInput due => taskDueDto(due),
+  _ => throw ArgumentError.value(value, 'due'),
+};
 
 int _compareReminders(ReminderDto a, ReminderDto b) {
   final effectiveAt = _effectiveReminderAt(

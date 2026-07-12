@@ -1,10 +1,168 @@
 //! タスク・リストのエンティティ定義。
 //!
 //! フィールド構成は `docs/03_技術仕様書.md` §3.5 (lists) / §3.6 (tasks) に準拠する。
-//! 時刻はすべて UTC epoch milliseconds (`i64`) で保持する。
+//! 日付のみの期限はcivil date、瞬間は検証済みUTC instantとして保持する。
 
+use std::{fmt, str::FromStr};
+
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum DueValueError {
+    #[error("invalid civil date: {0}")]
+    InvalidCivilDate(String),
+    #[error("invalid UTC instant milliseconds: {0}")]
+    InvalidUtcInstant(i64),
+    #[error("invalid IANA time zone: {0}")]
+    InvalidIanaTimeZone(String),
+}
+
+/// Timezoneを持たないGregorian calendar上の日付。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct CivilDate(String);
+
+impl CivilDate {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DueValueError> {
+        let value = value.into();
+        let parsed = NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+            .map_err(|_| DueValueError::InvalidCivilDate(value.clone()))?;
+        if parsed.format("%Y-%m-%d").to_string() != value {
+            return Err(DueValueError::InvalidCivilDate(value));
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for CivilDate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for CivilDate {
+    type Err = DueValueError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for CivilDate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// UTC上の一意な瞬間。epoch millisecondsはstorage表現に限定する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct UtcInstant(i64);
+
+impl UtcInstant {
+    pub fn from_millis(value: i64) -> Result<Self, DueValueError> {
+        DateTime::<Utc>::from_timestamp_millis(value)
+            .ok_or(DueValueError::InvalidUtcInstant(value))?;
+        Ok(Self(value))
+    }
+
+    pub fn as_millis(self) -> i64 {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for UtcInstant {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = i64::deserialize(deserializer)?;
+        Self::from_millis(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// IANA timezone databaseのcanonical identifier。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct IanaTimeZone(String);
+
+impl IanaTimeZone {
+    pub fn parse(value: impl Into<String>) -> Result<Self, DueValueError> {
+        let value = value.into();
+        value
+            .parse::<Tz>()
+            .map_err(|_| DueValueError::InvalidIanaTimeZone(value.clone()))?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for IanaTimeZone {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for IanaTimeZone {
+    type Err = DueValueError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for IanaTimeZone {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// タスク期限。日付のみと日時指定は同時に成立しない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TaskDue {
+    Date {
+        due_on: CivilDate,
+    },
+    DateTime {
+        due_at: UtcInstant,
+        time_zone: IanaTimeZone,
+    },
+}
+
+impl TaskDue {
+    pub fn date(value: impl Into<String>) -> Result<Self, DueValueError> {
+        Ok(Self::Date {
+            due_on: CivilDate::parse(value)?,
+        })
+    }
+
+    pub fn date_time(due_at_ms: i64, time_zone: impl Into<String>) -> Result<Self, DueValueError> {
+        Ok(Self::DateTime {
+            due_at: UtcInstant::from_millis(due_at_ms)?,
+            time_zone: IanaTimeZone::parse(time_zone)?,
+        })
+    }
+}
 
 /// タスクのステータス。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +221,7 @@ pub struct Task {
     pub note: String,
     pub status: TaskStatus,
     pub priority: i32,
-    pub due_at: Option<i64>,
+    pub due: Option<TaskDue>,
     pub scheduled_at: Option<i64>,
     pub estimated_minutes: Option<i32>,
     /// 同一階層内でのfractional index。
@@ -124,7 +282,7 @@ mod tests {
             note: String::new(),
             status: TaskStatus::Todo,
             priority: 0,
-            due_at: None,
+            due: None,
             scheduled_at: None,
             estimated_minutes: None,
             sort_order: "a0".to_string(),
@@ -138,5 +296,29 @@ mod tests {
         let json = serde_json::to_string(&task).unwrap();
         let restored: Task = serde_json::from_str(&json).unwrap();
         assert_eq!(task, restored);
+    }
+
+    #[test]
+    fn due_values_validate_and_roundtrip_as_tagged_union() {
+        let date = TaskDue::date("2026-07-12").unwrap();
+        let date_time = TaskDue::date_time(1_783_798_200_000, "Asia/Tokyo").unwrap();
+
+        assert_eq!(
+            serde_json::from_str::<TaskDue>(&serde_json::to_string(&date).unwrap()).unwrap(),
+            date
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskDue>(&serde_json::to_string(&date_time).unwrap()).unwrap(),
+            date_time
+        );
+        assert!(TaskDue::date("2026-02-30").is_err());
+        assert!(TaskDue::date_time(1_783_798_200_000, "JST").is_err());
+        assert!(
+            serde_json::from_str::<TaskDue>(r#"{"kind":"date","due_on":"2026-02-30"}"#).is_err()
+        );
+        assert!(serde_json::from_str::<TaskDue>(
+            r#"{"kind":"date_time","due_at":1783798200000,"time_zone":"Unknown/Zone"}"#
+        )
+        .is_err());
     }
 }

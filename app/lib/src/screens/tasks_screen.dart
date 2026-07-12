@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/core/task_tree.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
@@ -79,8 +80,8 @@ class TasksScreen extends ConsumerWidget {
     final createInitialListId = isTodaySmartView
         ? defaultList?.id
         : currentList?.id;
-    final createInitialDueAt = isTodaySmartView
-        ? homeLocalRangesMs().todayStartMs
+    final createInitialDue = isTodaySmartView
+        ? dateOnlyDue(DateTime.now())
         : null;
     final isDefaultInbox =
         currentList?.archivedAt == null && currentList?.isDefault == true;
@@ -138,7 +139,7 @@ class TasksScreen extends ConsumerWidget {
             homeTaskEntries: homeTaskEntries,
             onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
             onReopenTask: (task) => _reopenTask(ref, task),
-            onChangeDueDate: (task, dueAt) => _changeDueDate(ref, task, dueAt),
+            onChangeDue: (task, due) => _changeDue(ref, task, due),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
                   .read(tasksProvider(listId).notifier)
@@ -155,21 +156,17 @@ class TasksScreen extends ConsumerWidget {
       floatingActionButton: QuickAddBar(
         listOptions: createListOptions,
         initialListId: createInitialListId,
-        initialDueAt: createInitialDueAt,
+        initialDue: createInitialDue,
         errorMessage: l10n.quickAddCreateError,
         onCreate:
-            ({
-              required listId,
-              required title,
-              required note,
-              required dueAt,
-            }) => _createTask(
-              ref,
-              listId: listId,
-              title: title,
-              note: note,
-              dueAt: dueAt,
-            ),
+            ({required listId, required title, required note, required due}) =>
+                _createTask(
+                  ref,
+                  listId: listId,
+                  title: title,
+                  note: note,
+                  due: due,
+                ),
       ),
     );
   }
@@ -179,17 +176,17 @@ class TasksScreen extends ConsumerWidget {
     required String listId,
     required String title,
     required String note,
-    required int? dueAt,
+    required TaskDueDto? due,
   }) async {
     if (isTodaySmartView) {
       await ref
           .read(homeTasksProvider.notifier)
-          .createTask(listId: listId, title: title, note: note, dueAt: dueAt);
+          .createTask(listId: listId, title: title, note: note, due: due);
       return;
     }
     await ref
         .read(tasksProvider(listId).notifier)
-        .createTask(title, note: note, dueAt: dueAt);
+        .createTask(title, note: note, due: due);
   }
 
   Future<bool> _completeTask(
@@ -237,13 +234,11 @@ class TasksScreen extends ConsumerWidget {
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
   }
 
-  Future<void> _changeDueDate(WidgetRef ref, TaskDto task, int dueAt) {
+  Future<void> _changeDue(WidgetRef ref, TaskDto task, TaskDueDto? due) {
     if (isTodaySmartView) {
-      return ref.read(homeTasksProvider.notifier).updateDueDate(task, dueAt);
+      return ref.read(homeTasksProvider.notifier).updateDue(task, due);
     }
-    return ref
-        .read(tasksProvider(task.listId).notifier)
-        .updateDueDate(task, dueAt);
+    return ref.read(tasksProvider(task.listId).notifier).updateDue(task, due);
   }
 
   Future<void> _renameList(
@@ -322,7 +317,7 @@ class _TasksBody extends StatefulWidget {
     required this.homeTaskEntries,
     required this.onCompleteTask,
     required this.onReopenTask,
-    required this.onChangeDueDate,
+    required this.onChangeDue,
     required this.onMoveTask,
   });
 
@@ -338,7 +333,7 @@ class _TasksBody extends StatefulWidget {
   final List<HomeTaskDto> homeTaskEntries;
   final Future<bool> Function(TaskDto task) onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
-  final Future<void> Function(TaskDto task, int dueAt) onChangeDueDate;
+  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Future<void> Function({
     required TaskDto task,
     required String? previousTaskId,
@@ -465,10 +460,10 @@ class _TasksBodyState extends State<_TasksBody> {
                               return _buildHomeTaskRow(
                                 context,
                                 row.node,
-                                row.node.task.dueAt == null
+                                row.node.task.due == null
                                     ? _HomeSectionKind.today
-                                    : _homeSectionForDueAt(
-                                        row.node.task.dueAt!,
+                                    : _homeSectionForDue(
+                                        row.node.task.due!,
                                         homeLocalRangesMs(),
                                       ),
                                 rootListId: row.rootListId,
@@ -618,11 +613,10 @@ class _TasksBodyState extends State<_TasksBody> {
       if (isTaskClosed(entry.task)) {
         continue;
       }
-      final dueAt = entry.task.dueAt;
-      if (dueAt == null) {
+      final section = _homeSectionForTask(entry.task, ranges);
+      if (section == null) {
         continue;
       }
-      final section = _homeSectionForDueAt(dueAt, ranges);
       targetSectionByTaskId[entry.task.id] = section;
       countBySection[section] = countBySection[section]! + 1;
     }
@@ -738,12 +732,12 @@ class _TasksBodyState extends State<_TasksBody> {
         ? _taskSnapshotWithStatus(sourceTask, 'done')
         : sourceTask;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final dueLabel = task.dueAt == null
+    final dueLabel = task.due == null
         ? null
-        : formatRelativeDueDate(l10n, locale, task.dueAt);
-    final taskDueSection = task.dueAt == null
+        : formatRelativeDueDate(l10n, locale, task.due);
+    final taskDueSection = task.due == null
         ? section
-        : _homeSectionForDueAt(task.dueAt!, homeLocalRangesMs());
+        : _homeSectionForDue(task.due!, homeLocalRangesMs());
     final row = _TaskEntryMotion(
       slide: false,
       child: AppHomeTaskRow(
@@ -833,7 +827,7 @@ class _TasksBodyState extends State<_TasksBody> {
               parentTaskName: parentTaskName,
               countsInSection: countsInSection,
             ),
-      onChangeDueDate: widget.onChangeDueDate,
+      onChangeDue: widget.onChangeDue,
       child: effectiveRow,
     );
     return IgnorePointer(
@@ -1118,12 +1112,12 @@ class _TasksBodyState extends State<_TasksBody> {
           title: task.title,
           status: taskStatusLabel(l10n, task.status),
           priority: taskPriorityLabel(l10n, task.priority),
-          dueLabel: task.dueAt == null
+          dueLabel: task.due == null
               ? null
               : formatRelativeDueDate(
                   l10n,
                   Localizations.localeOf(context).toLanguageTag(),
-                  task.dueAt,
+                  task.due,
                 ),
           listName: widget.isTodaySmartView
               ? widget.homeListNameByTaskId[task.id]
@@ -1165,7 +1159,7 @@ class _TasksBodyState extends State<_TasksBody> {
       onLeadingAction: isTaskClosed(task)
           ? () => widget.onReopenTask(task)
           : () => widget.onCompleteTask(task),
-      onChangeDueDate: widget.onChangeDueDate,
+      onChangeDue: widget.onChangeDue,
       child: row,
     );
 
@@ -1246,14 +1240,14 @@ class _TaskSwipeActions extends StatelessWidget {
     required this.task,
     required this.isClosed,
     required this.onLeadingAction,
-    required this.onChangeDueDate,
+    required this.onChangeDue,
     required this.child,
   });
 
   final TaskDto task;
   final bool isClosed;
   final Future<void> Function() onLeadingAction;
-  final Future<void> Function(TaskDto task, int dueAt) onChangeDueDate;
+  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Widget child;
 
   @override
@@ -1300,6 +1294,7 @@ class _TaskSwipeActions extends StatelessWidget {
     final selection = await showModalBottomSheet<_DueDateSelection>(
       context: context,
       useRootNavigator: true,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => _DueDateSheet(task: task),
     );
@@ -1307,18 +1302,18 @@ class _TaskSwipeActions extends StatelessWidget {
       return;
     }
 
-    final int dueAt;
+    TaskDueDto due;
     switch (selection.kind) {
       case _DueDateSelectionKind.today:
-        dueAt = homeLocalRangesMs().todayStartMs;
+        due = dateOnlyDue(DateTime.now());
         break;
       case _DueDateSelectionKind.tomorrow:
-        dueAt = homeLocalRangesMs().tomorrowStartMs;
+        due = dateOnlyDue(DateTime.now().add(const Duration(days: 1)));
         break;
       case _DueDateSelectionKind.pickDate:
-        final initialDate = task.dueAt == null
+        final initialDate = task.due == null
             ? DateTime.now()
-            : DateTime.fromMillisecondsSinceEpoch(task.dueAt!).toLocal();
+            : taskDueDisplayDate(task.due!);
         final picked = await showDatePicker(
           context: context,
           initialDate: initialDate,
@@ -1328,14 +1323,50 @@ class _TaskSwipeActions extends StatelessWidget {
         if (!context.mounted || picked == null) {
           return;
         }
-        dueAt = DateTime(
-          picked.year,
-          picked.month,
-          picked.day,
-        ).millisecondsSinceEpoch;
+        due = dateOnlyDue(picked);
+        break;
+      case _DueDateSelectionKind.pickDateTime:
+        final initial = task.due == null
+            ? DateTime.now()
+            : taskDueDisplayDate(task.due!);
+        final pickedDate = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+        );
+        if (!context.mounted || pickedDate == null) {
+          return;
+        }
+        final pickedTime = await showTimePicker(
+          context: context,
+          initialTime: TimeOfDay.fromDateTime(initial),
+        );
+        if (!context.mounted || pickedTime == null) {
+          return;
+        }
+        final localDateTime = DateTime(
+          pickedDate.year,
+          pickedDate.month,
+          pickedDate.day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+        final savedTimeZone = taskDueSavedTimeZone(task.due);
+        final timeZone =
+            savedTimeZone ??
+            await ProviderScope.containerOf(
+              context,
+              listen: false,
+            ).read(bridgeServiceProvider).getLocalTimeZone();
+        try {
+          due = dateTimeDue(localDateTime: localDateTime, timeZone: timeZone);
+        } on FormatException {
+          return;
+        }
         break;
     }
-    await onChangeDueDate(task, dueAt);
+    await onChangeDue(task, due);
     if (!context.mounted) {
       return;
     }
@@ -1352,45 +1383,51 @@ class _DueDateSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return SafeArea(
-      child: Padding(
+      child: ListView(
+        shrinkWrap: true,
         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(l10n.dueDateLabel),
-              subtitle: Text(
-                task.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+        children: [
+          ListTile(
+            title: Text(l10n.dueDateLabel),
+            subtitle: Text(
+              task.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            ListTile(
-              key: const ValueKey('due-sheet-today'),
-              leading: const Icon(LucideIcons.calendarCheck300),
-              title: Text(l10n.dueToday),
-              onTap: () => Navigator.of(
-                context,
-              ).pop(const _DueDateSelection(_DueDateSelectionKind.today)),
-            ),
-            ListTile(
-              key: const ValueKey('due-sheet-tomorrow'),
-              leading: const Icon(LucideIcons.calendarPlus300),
-              title: Text(l10n.dueTomorrow),
-              onTap: () => Navigator.of(
-                context,
-              ).pop(const _DueDateSelection(_DueDateSelectionKind.tomorrow)),
-            ),
-            ListTile(
-              key: const ValueKey('due-sheet-pick-date'),
-              leading: const Icon(LucideIcons.calendarDays300),
-              title: Text(l10n.setDueDateButton),
-              onTap: () => Navigator.of(
-                context,
-              ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDate)),
-            ),
-          ],
-        ),
+          ),
+          ListTile(
+            key: const ValueKey('due-sheet-today'),
+            leading: const Icon(LucideIcons.calendarCheck300),
+            title: Text(l10n.dueToday),
+            onTap: () => Navigator.of(
+              context,
+            ).pop(const _DueDateSelection(_DueDateSelectionKind.today)),
+          ),
+          ListTile(
+            key: const ValueKey('due-sheet-tomorrow'),
+            leading: const Icon(LucideIcons.calendarPlus300),
+            title: Text(l10n.dueTomorrow),
+            onTap: () => Navigator.of(
+              context,
+            ).pop(const _DueDateSelection(_DueDateSelectionKind.tomorrow)),
+          ),
+          ListTile(
+            key: const ValueKey('due-sheet-pick-date'),
+            leading: const Icon(LucideIcons.calendarDays300),
+            title: Text(l10n.setDueDateButton),
+            onTap: () => Navigator.of(
+              context,
+            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDate)),
+          ),
+          ListTile(
+            key: const ValueKey('due-sheet-pick-date-time'),
+            leading: const Icon(LucideIcons.calendarClock300),
+            title: Text(l10n.setDueDateTimeButton),
+            onTap: () => Navigator.of(
+              context,
+            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDateTime)),
+          ),
+        ],
       ),
     );
   }
@@ -1475,7 +1512,7 @@ class _TaskRowsSliver extends StatelessWidget {
   }
 }
 
-enum _DueDateSelectionKind { today, tomorrow, pickDate }
+enum _DueDateSelectionKind { today, tomorrow, pickDate, pickDateTime }
 
 class _DueDateSelection {
   const _DueDateSelection(this.kind);
@@ -1912,36 +1949,49 @@ String _homeSectionTitle(AppLocalizations l10n, _HomeSectionKind section) {
   };
 }
 
-_HomeSectionKind _homeSectionForDueAt(
-  int dueAt,
+_HomeSectionKind _homeSectionForDue(
+  TaskDueDto due,
   ({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs}) ranges,
 ) {
-  if (dueAt < ranges.todayStartMs) {
+  if (taskDueIsOverdue(due)) {
     return _HomeSectionKind.overdue;
   }
-  if (dueAt < ranges.tomorrowStartMs) {
+  final localDate = taskDueLocalDate(due);
+  final localMs = DateTime(
+    localDate.year,
+    localDate.month,
+    localDate.day,
+  ).millisecondsSinceEpoch;
+  if (localMs < ranges.tomorrowStartMs) {
     return _HomeSectionKind.today;
   }
-  if (dueAt < ranges.dayAfterTomorrowStartMs) {
+  if (localMs < ranges.dayAfterTomorrowStartMs) {
     return _HomeSectionKind.tomorrow;
   }
   return _HomeSectionKind.upcoming;
 }
 
+_HomeSectionKind? _homeSectionForTask(
+  TaskDto task,
+  ({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs}) ranges,
+) {
+  final due = task.due;
+  if (due != null && taskDueIsOverdue(due)) {
+    return _HomeSectionKind.overdue;
+  }
+  final scheduledAt = task.scheduledAt;
+  if (scheduledAt != null &&
+      scheduledAt >= ranges.todayStartMs &&
+      scheduledAt < ranges.tomorrowStartMs) {
+    return _HomeSectionKind.today;
+  }
+  return due == null ? null : _homeSectionForDue(due, ranges);
+}
+
 int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {
-  final aDueAt = a.task.dueAt;
-  final bDueAt = b.task.dueAt;
-  if (aDueAt == null && bDueAt != null) {
-    return 1;
-  }
-  if (aDueAt != null && bDueAt == null) {
-    return -1;
-  }
-  if (aDueAt != null && bDueAt != null) {
-    final dueAt = aDueAt.compareTo(bDueAt);
-    if (dueAt != 0) {
-      return dueAt;
-    }
+  final dueComparison = compareTaskDue(a.task.due, b.task.due);
+  if (dueComparison != 0) {
+    return dueComparison;
   }
   return compareTasksForSortMode(a.task, b.task, sortMode);
 }
@@ -1956,7 +2006,7 @@ TaskDto _taskSnapshotWithStatus(TaskDto task, String status) {
     note: task.note,
     status: status,
     priority: task.priority,
-    dueAt: task.dueAt,
+    due: task.due,
     scheduledAt: task.scheduledAt,
     estimatedMinutes: task.estimatedMinutes,
     sortOrder: task.sortOrder,

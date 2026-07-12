@@ -108,7 +108,7 @@
   "taskCreateListTooltip": "Choose list",
   "taskCreateDueChip": "Due",
   "taskCreateDueTooltip": "Choose due date",
-  "taskCreateDueChipSemantics": "Due date: {dueAt}",
+  "taskCreateDueChipSemantics": "Due: {dueAt}",
   "@taskCreateDueChipSemantics": {
     "placeholders": {
       "dueAt": {
@@ -282,9 +282,10 @@
   "priorityLow": "Low",
   "priorityMedium": "Medium",
   "priorityHigh": "High",
-  "dueDateLabel": "Due date",
+  "dueDateLabel": "Due",
   "noDueDate": "No due date",
   "setDueDateButton": "Set date",
+  "setDueDateTimeButton": "Set date and time",
   "clearDueDateButton": "Clear date",
   "saveButton": "Save",
   "titleRequiredError": "Title is required.",

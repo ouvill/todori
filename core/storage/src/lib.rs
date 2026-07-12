@@ -7,11 +7,14 @@ use std::{path::Path, str::FromStr, time::Duration};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
-use todori_domain::{fractional_index_after, new_default_list, List, Task, TaskStatus, Uuid};
+use todori_domain::{
+    fractional_index_after, new_default_list, CivilDate, IanaTimeZone, List, Task, TaskDue,
+    TaskStatus, UtcInstant, Uuid,
+};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 16;
+pub const LATEST_SCHEMA_VERSION: i32 = 17;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -89,6 +92,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 16,
         name: "add_archive_first_rebase_state",
         apply: add_archive_first_rebase_state,
+    },
+    Migration {
+        target_version: 17,
+        name: "replace_task_due_semantics",
+        apply: replace_task_due_semantics,
     },
 ];
 
@@ -1140,11 +1148,94 @@ fn add_reminders(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
 fn add_performance_indexes(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     transaction.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order
-             ON tasks(list_id, sort_order, id);
-         CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
-             ON tasks(due_at, status, completed_at, list_id)
-             WHERE due_at IS NOT NULL;",
-    )
+             ON tasks(list_id, sort_order, id);",
+    )?;
+    if table_columns_raw(transaction, "tasks")?
+        .iter()
+        .any(|column| column == "due_kind")
+    {
+        transaction.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
+                 ON tasks(due_kind, due_on, due_at_ms, status, completed_at, list_id)
+                 WHERE due_kind IS NOT NULL;",
+        )
+    } else {
+        transaction.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
+                 ON tasks(due_at, status, completed_at, list_id)
+                 WHERE due_at IS NOT NULL;",
+        )
+    }
+}
+
+fn replace_task_due_semantics(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    let columns = table_columns_raw(transaction, "tasks")?;
+    if columns.iter().any(|column| column == "due_kind") {
+        return Ok(());
+    }
+    let task_count: i64 =
+        transaction.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))?;
+    if task_count != 0 {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "task-101 requires recreating profiles that contain legacy due_at values".to_string(),
+        ));
+    }
+    transaction.execute_batch(
+        "DROP TRIGGER IF EXISTS tasks_fts_ai;
+         DROP TRIGGER IF EXISTS tasks_fts_au;
+         DROP TRIGGER IF EXISTS tasks_fts_ad;
+         DROP TABLE IF EXISTS tasks_fts;
+         DROP INDEX IF EXISTS idx_tasks_home_targets;
+         DROP INDEX IF EXISTS idx_tasks_list_id;
+         DROP INDEX IF EXISTS idx_tasks_list_sort_order;
+         DROP INDEX IF EXISTS idx_tasks_parent_task_id;
+         DROP INDEX IF EXISTS idx_tasks_deleted_at;
+         ALTER TABLE tasks RENAME TO tasks_legacy_due;
+         CREATE TABLE tasks (
+             id TEXT PRIMARY KEY NOT NULL,
+             list_id TEXT NOT NULL,
+             parent_task_id TEXT,
+             title TEXT NOT NULL,
+             note TEXT NOT NULL,
+             status TEXT NOT NULL,
+             priority INTEGER NOT NULL,
+             due_kind TEXT,
+             due_on TEXT,
+             due_at_ms INTEGER,
+             due_time_zone TEXT,
+             scheduled_at INTEGER,
+             estimated_minutes INTEGER,
+             sort_order TEXT NOT NULL,
+             completed_at INTEGER,
+             closed_reason TEXT,
+             deleted_at INTEGER,
+             assignee TEXT,
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL,
+             CHECK (
+                 (due_kind IS NULL AND due_on IS NULL AND due_at_ms IS NULL AND due_time_zone IS NULL)
+                 OR (due_kind = 'date' AND due_on IS NOT NULL AND due_at_ms IS NULL AND due_time_zone IS NULL)
+                 OR (due_kind = 'datetime' AND due_on IS NULL AND due_at_ms IS NOT NULL AND due_time_zone IS NOT NULL)
+             )
+         );
+         DROP TABLE tasks_legacy_due;
+         CREATE INDEX idx_tasks_list_id ON tasks(list_id);
+         CREATE INDEX idx_tasks_list_sort_order ON tasks(list_id, sort_order, id);
+         CREATE INDEX idx_tasks_parent_task_id ON tasks(parent_task_id);
+         CREATE INDEX idx_tasks_deleted_at ON tasks(deleted_at);
+         CREATE INDEX idx_tasks_home_targets
+             ON tasks(due_kind, due_on, due_at_ms, status, completed_at, list_id)
+             WHERE due_kind IS NOT NULL;",
+    )?;
+    rebuild_tasks_fts_triggers(transaction)
+}
+
+fn table_columns_raw(connection: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(columns)
 }
 
 fn add_sync_outbox_and_cursors(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -1486,7 +1577,10 @@ const BASELINE_V1_COLUMNS: &[(&str, &[&str])] = &[
             "note",
             "status",
             "priority",
-            "due_at",
+            "due_kind",
+            "due_on",
+            "due_at_ms",
+            "due_time_zone",
             "scheduled_at",
             "estimated_minutes",
             "sort_order",
@@ -1629,7 +1723,7 @@ impl TaskRepository for SqliteTaskRepository {
     fn list_all_for_sync(&self) -> Result<Vec<Task>, StorageError> {
         let mut statement = self.connection.prepare(
             "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_at, scheduled_at, estimated_minutes, sort_order,
+                    due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                     completed_at, closed_reason, deleted_at, assignee,
                     created_at, updated_at
              FROM tasks
@@ -1657,7 +1751,13 @@ impl TaskRepository for SqliteTaskRepository {
                  FROM tasks
                  INNER JOIN lists ON lists.id = tasks.list_id
                  WHERE lists.archived_at IS NULL
-                   AND tasks.due_at IS NOT NULL
+                   AND (
+                       tasks.due_kind IS NOT NULL
+                       OR (
+                           tasks.scheduled_at >= ?1
+                           AND tasks.scheduled_at < ?2
+                       )
+                   )
                    AND (
                        tasks.status IN ('todo', 'in_progress')
                        OR (
@@ -1691,7 +1791,7 @@ impl TaskRepository for SqliteTaskRepository {
                  SELECT id FROM home_ancestors
              )
              SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
-                    tasks.note, tasks.status, tasks.priority, tasks.due_at,
+                    tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
                     tasks.assignee, tasks.created_at, tasks.updated_at,
@@ -1701,8 +1801,10 @@ impl TaskRepository for SqliteTaskRepository {
              INNER JOIN lists ON lists.id = tasks.list_id
              INNER JOIN home_display_scope ON home_display_scope.id = tasks.id
              WHERE lists.archived_at IS NULL
-             ORDER BY tasks.due_at IS NULL ASC,
-                      tasks.due_at ASC,
+             ORDER BY tasks.due_kind IS NULL ASC,
+                      CASE tasks.due_kind WHEN 'datetime' THEN 0 WHEN 'date' THEN 1 ELSE 2 END ASC,
+                      tasks.due_at_ms ASC,
+                      tasks.due_on ASC,
                       tasks.sort_order ASC,
                       tasks.id ASC",
         )?;
@@ -1720,7 +1822,7 @@ impl TaskRepository for SqliteTaskRepository {
 
         let mut statement = self.connection.prepare(
             "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
-                    tasks.note, tasks.status, tasks.priority, tasks.due_at,
+                    tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
                     tasks.assignee, tasks.created_at, tasks.updated_at
@@ -1756,7 +1858,7 @@ fn get_task_on(connection: &Connection, id: Uuid) -> Result<Task, StorageError> 
     let task = connection
         .query_row(
             "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_at, scheduled_at, estimated_minutes, sort_order,
+                    due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                     completed_at, closed_reason, deleted_at, assignee,
                     created_at, updated_at
              FROM tasks
@@ -1791,7 +1893,7 @@ fn list_active_tasks_by_list_on(
 ) -> Result<Vec<Task>, StorageError> {
     let mut statement = connection.prepare(
         "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                due_at, scheduled_at, estimated_minutes, sort_order,
+                due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                 completed_at, closed_reason, deleted_at, assignee,
                 created_at, updated_at
          FROM tasks
@@ -1814,7 +1916,7 @@ fn list_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<Vec<Ta
              INNER JOIN subtree ON tasks.parent_task_id = subtree.id
          )
          SELECT id, list_id, parent_task_id, title, note, status, priority,
-                due_at, scheduled_at, estimated_minutes, sort_order,
+                due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                 completed_at, closed_reason, deleted_at, assignee,
                 created_at, updated_at
          FROM tasks
@@ -1828,15 +1930,16 @@ fn list_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<Vec<Ta
 }
 
 fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
+    let (due_kind, due_on, due_at_ms, due_time_zone) = task_due_parts(task.due.as_ref());
     connection.execute(
         "INSERT INTO tasks (
             id, list_id, parent_task_id, title, note, status, priority,
-            due_at, scheduled_at, estimated_minutes, sort_order,
+            due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
             completed_at, closed_reason, deleted_at, assignee,
             created_at, updated_at
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-            ?12, ?13, ?14, ?15, ?16, ?17
+            ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
         )",
         params![
             task.id.to_string(),
@@ -1846,7 +1949,10 @@ fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.note,
             status_to_str(task.status),
             task.priority,
-            task.due_at,
+            due_kind,
+            due_on,
+            due_at_ms,
+            due_time_zone,
             task.scheduled_at,
             task.estimated_minutes,
             task.sort_order,
@@ -1862,6 +1968,7 @@ fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
 }
 
 fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageError> {
+    let (due_kind, due_on, due_at_ms, due_time_zone) = task_due_parts(task.due.as_ref());
     let changed = connection.execute(
         "UPDATE tasks
          SET list_id = ?2,
@@ -1870,16 +1977,19 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
              note = ?5,
              status = ?6,
              priority = ?7,
-             due_at = ?8,
-             scheduled_at = ?9,
-             estimated_minutes = ?10,
-             sort_order = ?11,
-             completed_at = ?12,
-             closed_reason = ?13,
-             deleted_at = ?14,
-             assignee = ?15,
-             created_at = ?16,
-             updated_at = ?17
+             due_kind = ?8,
+             due_on = ?9,
+             due_at_ms = ?10,
+             due_time_zone = ?11,
+             scheduled_at = ?12,
+             estimated_minutes = ?13,
+             sort_order = ?14,
+             completed_at = ?15,
+             closed_reason = ?16,
+             deleted_at = ?17,
+             assignee = ?18,
+             created_at = ?19,
+             updated_at = ?20
          WHERE id = ?1",
         params![
             task.id.to_string(),
@@ -1889,7 +1999,10 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.note,
             status_to_str(task.status),
             task.priority,
-            task.due_at,
+            due_kind,
+            due_on,
+            due_at_ms,
+            due_time_zone,
             task.scheduled_at,
             task.estimated_minutes,
             task.sort_order,
@@ -4105,7 +4218,11 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     let list_id: String = row.get(1)?;
     let parent_task_id: Option<String> = row.get(2)?;
     let status: String = row.get(5)?;
-    let assignee: Option<String> = row.get(14)?;
+    let due_kind: Option<String> = row.get(7)?;
+    let due_on: Option<String> = row.get(8)?;
+    let due_at_ms: Option<i64> = row.get(9)?;
+    let due_time_zone: Option<String> = row.get(10)?;
+    let assignee: Option<String> = row.get(17)?;
 
     Ok(Task {
         id: parse_uuid(id, 0)?,
@@ -4121,25 +4238,88 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
             )
         })?,
         priority: row.get(6)?,
-        due_at: row.get(7)?,
-        scheduled_at: row.get(8)?,
-        estimated_minutes: row.get(9)?,
-        sort_order: row.get(10)?,
-        completed_at: row.get(11)?,
-        closed_reason: row.get(12)?,
-        deleted_at: row.get(13)?,
-        assignee: parse_optional_uuid(assignee, 14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        due: task_due_from_columns(due_kind, due_on, due_at_ms, due_time_zone)?,
+        scheduled_at: row.get(11)?,
+        estimated_minutes: row.get(12)?,
+        sort_order: row.get(13)?,
+        completed_at: row.get(14)?,
+        closed_reason: row.get(15)?,
+        deleted_at: row.get(16)?,
+        assignee: parse_optional_uuid(assignee, 17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
 fn row_to_home_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<HomeTask> {
     Ok(HomeTask {
         task: row_to_task(row)?,
-        list_name: row.get(17)?,
-        is_home_target: row.get(18)?,
+        list_name: row.get(20)?,
+        is_home_target: row.get(21)?,
     })
+}
+
+fn task_due_parts(
+    due: Option<&TaskDue>,
+) -> (Option<&str>, Option<&str>, Option<i64>, Option<&str>) {
+    match due {
+        None => (None, None, None, None),
+        Some(TaskDue::Date { due_on }) => (Some("date"), Some(due_on.as_str()), None, None),
+        Some(TaskDue::DateTime { due_at, time_zone }) => (
+            Some("datetime"),
+            None,
+            Some(due_at.as_millis()),
+            Some(time_zone.as_str()),
+        ),
+    }
+}
+
+fn task_due_from_columns(
+    kind: Option<String>,
+    due_on: Option<String>,
+    due_at_ms: Option<i64>,
+    due_time_zone: Option<String>,
+) -> rusqlite::Result<Option<TaskDue>> {
+    let invalid_shape = || {
+        rusqlite::Error::FromSqlConversionFailure(
+            7,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid task due column shape",
+            )),
+        )
+    };
+    match (kind.as_deref(), due_on, due_at_ms, due_time_zone) {
+        (None, None, None, None) => Ok(None),
+        (Some("date"), Some(value), None, None) => CivilDate::from_str(&value)
+            .map(|due_on| Some(TaskDue::Date { due_on }))
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    8,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            }),
+        (Some("datetime"), None, Some(value), Some(zone)) => {
+            let due_at = UtcInstant::from_millis(value).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    9,
+                    rusqlite::types::Type::Integer,
+                    Box::new(error),
+                )
+            })?;
+            let time_zone = IanaTimeZone::from_str(&zone).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    10,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
+            Ok(Some(TaskDue::DateTime { due_at, time_zone }))
+        }
+        _ => Err(invalid_shape()),
+    }
 }
 
 fn row_to_reminder(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reminder> {
@@ -4315,7 +4495,7 @@ mod tests {
             note: "Organic whole milk".to_string(),
             status: TaskStatus::Todo,
             priority: 2,
-            due_at: Some(1_800_000_000_000),
+            due: Some(TaskDue::date_time(1_800_000_000_000, "UTC").unwrap()),
             scheduled_at: Some(1_799_900_000_000),
             estimated_minutes: Some(15),
             sort_order: "a0".to_string(),
@@ -4746,12 +4926,12 @@ mod tests {
                 .prepare(
                     "INSERT INTO tasks (
                         id, list_id, parent_task_id, title, note, status, priority,
-                        due_at, scheduled_at, estimated_minutes, sort_order,
+                        due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                         completed_at, closed_reason, deleted_at, assignee,
                         created_at, updated_at
                     ) VALUES (
                         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                        ?12, ?13, ?14, ?15, ?16, ?17
+                        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
                     )",
                 )
                 .unwrap();
@@ -4821,7 +5001,10 @@ mod tests {
                             format!("Seeded note {global_index:05} for {keyword} project"),
                             status,
                             (global_index % 4) as i32,
+                            due_at.map(|_| "datetime"),
+                            Option::<String>::None,
                             due_at,
+                            due_at.map(|_| "UTC"),
                             due_at.map(|value| value - 3_600_000),
                             Some(15 + (global_index % 6) as i32 * 10),
                             format!("a{task_index:04}"),
@@ -7060,7 +7243,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        due_today.due_at = Some(today_start);
+        due_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         let no_due_child = new_task(
             inbox.id,
             Some(due_today.id),
@@ -7085,7 +7268,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        due_child.due_at = Some(today_start);
+        due_child.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         let mut overdue_task = new_task(
             work.id,
             None,
@@ -7094,7 +7277,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        overdue_task.due_at = Some(overdue);
+        overdue_task.due = Some(TaskDue::date_time(overdue, "UTC").unwrap());
         let mut tomorrow_task = new_task(
             inbox.id,
             None,
@@ -7103,7 +7286,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        tomorrow_task.due_at = Some(tomorrow);
+        tomorrow_task.due = Some(TaskDue::date_time(tomorrow, "UTC").unwrap());
         let mut upcoming_task = new_task(
             inbox.id,
             None,
@@ -7112,7 +7295,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        upcoming_task.due_at = Some(upcoming);
+        upcoming_task.due = Some(TaskDue::date_time(upcoming, "UTC").unwrap());
         let no_due = new_task(
             inbox.id,
             None,
@@ -7121,6 +7304,24 @@ mod tests {
             today_start,
         )
         .unwrap();
+        let mut scheduled_today = new_task(
+            work.id,
+            None,
+            "Scheduled today".to_string(),
+            "a4".to_string(),
+            today_start,
+        )
+        .unwrap();
+        scheduled_today.scheduled_at = Some(today_start + 3_600_000);
+        let mut scheduled_tomorrow = new_task(
+            work.id,
+            None,
+            "Scheduled tomorrow".to_string(),
+            "a5".to_string(),
+            today_start,
+        )
+        .unwrap();
+        scheduled_tomorrow.scheduled_at = Some(tomorrow_start + 3_600_000);
         let mut archived_task = new_task(
             archived.id,
             None,
@@ -7129,7 +7330,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        archived_task.due_at = Some(today_start);
+        archived_task.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         let mut closed_today = new_task(
             work.id,
             None,
@@ -7138,7 +7339,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        closed_today.due_at = Some(today_start);
+        closed_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         closed_today =
             transition_task(closed_today, TaskStatus::Done, None, today_start + 1_000).unwrap();
         let mut closed_yesterday = new_task(
@@ -7149,7 +7350,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        closed_yesterday.due_at = Some(today_start);
+        closed_yesterday.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         closed_yesterday = transition_task(
             closed_yesterday,
             TaskStatus::Done,
@@ -7165,7 +7366,7 @@ mod tests {
             today_start,
         )
         .unwrap();
-        wont_do_today.due_at = Some(today_start);
+        wont_do_today.due = Some(TaskDue::date_time(today_start, "UTC").unwrap());
         wont_do_today = transition_task(
             wont_do_today,
             TaskStatus::WontDo,
@@ -7190,6 +7391,8 @@ mod tests {
             tomorrow_task,
             upcoming_task,
             no_due,
+            scheduled_today,
+            scheduled_tomorrow,
             archived_task,
             closed_today,
             closed_yesterday,
@@ -7220,7 +7423,8 @@ mod tests {
                 "Tomorrow",
                 "Upcoming",
                 "No due child",
-                "No due parent"
+                "No due parent",
+                "Scheduled today"
             ]
         );
         assert!(
@@ -7260,6 +7464,7 @@ mod tests {
             "Work"
         );
         assert!(!titles.contains(&"No due"));
+        assert!(!titles.contains(&"Scheduled tomorrow"));
         assert!(!titles.contains(&"Archived"));
         assert!(!titles.contains(&"Closed yesterday"));
     }
@@ -8494,5 +8699,75 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         assert!(get_task_on(&connection, task.id).is_ok());
         assert!(has_outbox_head_on(&connection, "tasks", task.id).unwrap());
+    }
+
+    #[test]
+    fn v16_empty_database_migrates_to_typed_due_and_rejects_mixed_shape() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_raw_encrypted(file.path(), &KEY);
+        connection
+            .execute_batch(
+                "CREATE TABLE tasks (
+                    id TEXT PRIMARY KEY NOT NULL, list_id TEXT NOT NULL,
+                    parent_task_id TEXT, title TEXT NOT NULL, note TEXT NOT NULL,
+                    status TEXT NOT NULL, priority INTEGER NOT NULL, due_at INTEGER,
+                    scheduled_at INTEGER, estimated_minutes INTEGER, sort_order TEXT NOT NULL,
+                    completed_at INTEGER, closed_reason TEXT, deleted_at INTEGER,
+                    assignee TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 16;",
+            )
+            .unwrap();
+        drop(connection);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(read_user_version(&connection).unwrap(), 17);
+        assert!(table_columns_raw(&connection, "tasks")
+            .unwrap()
+            .iter()
+            .any(|column| column == "due_kind"));
+        assert!(connection
+            .execute(
+                "INSERT INTO tasks (
+                    id, list_id, title, note, status, priority,
+                    due_kind, due_on, sort_order, created_at, updated_at
+                 ) VALUES ('task', 'list', 'title', '', 'todo', 0,
+                           'datetime', '2026-07-12', 'a0', 1, 1)",
+                [],
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn v16_profile_with_ambiguous_due_data_requires_recreation() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = open_raw_encrypted(file.path(), &KEY);
+        connection
+            .execute_batch(
+                "CREATE TABLE tasks (
+                    id TEXT PRIMARY KEY NOT NULL, list_id TEXT NOT NULL,
+                    parent_task_id TEXT, title TEXT NOT NULL, note TEXT NOT NULL,
+                    status TEXT NOT NULL, priority INTEGER NOT NULL, due_at INTEGER,
+                    scheduled_at INTEGER, estimated_minutes INTEGER, sort_order TEXT NOT NULL,
+                    completed_at INTEGER, closed_reason TEXT, deleted_at INTEGER,
+                    assignee TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                 );
+                 INSERT INTO tasks (
+                    id, list_id, title, note, status, priority, due_at,
+                    sort_order, created_at, updated_at
+                 ) VALUES ('task', 'list', 'title', '', 'todo', 0, 0, 'a0', 1, 1);
+                 PRAGMA user_version = 16;",
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(matches!(
+            open_encrypted(file.path(), &KEY),
+            Err(StorageError::MigrationFailed {
+                target_version: 17,
+                migration: "replace_task_due_semantics",
+                ..
+            })
+        ));
     }
 }

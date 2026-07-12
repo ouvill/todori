@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
@@ -98,20 +100,20 @@ class QuickAddBar extends StatefulWidget {
     super.key,
     required this.listOptions,
     required this.initialListId,
-    required this.initialDueAt,
+    required this.initialDue,
     required this.errorMessage,
     required this.onCreate,
   });
 
   final List<ListDto> listOptions;
   final String? initialListId;
-  final int? initialDueAt;
+  final TaskDueDto? initialDue;
   final String errorMessage;
   final Future<void> Function({
     required String listId,
     required String title,
     required String note,
-    required int? dueAt,
+    required TaskDueDto? due,
   })
   onCreate;
 
@@ -198,7 +200,7 @@ class _QuickAddBarState extends State<QuickAddBar> {
       builder: (context) => _TaskCreateSheet(
         listOptions: widget.listOptions,
         initialListId: widget.initialListId!,
-        initialDueAt: widget.initialDueAt,
+        initialDue: widget.initialDue,
         errorMessage: widget.errorMessage,
         onCreate: widget.onCreate,
       ),
@@ -210,20 +212,20 @@ class _TaskCreateSheet extends StatefulWidget {
   const _TaskCreateSheet({
     required this.listOptions,
     required this.initialListId,
-    required this.initialDueAt,
+    required this.initialDue,
     required this.errorMessage,
     required this.onCreate,
   });
 
   final List<ListDto> listOptions;
   final String initialListId;
-  final int? initialDueAt;
+  final TaskDueDto? initialDue;
   final String errorMessage;
   final Future<void> Function({
     required String listId,
     required String title,
     required String note,
-    required int? dueAt,
+    required TaskDueDto? due,
   })
   onCreate;
 
@@ -233,7 +235,7 @@ class _TaskCreateSheet extends StatefulWidget {
 
 class _TaskCreateSheetState extends State<_TaskCreateSheet> {
   late String _selectedListId;
-  late int? _dueAt;
+  late TaskDueDto? _due;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
   final FocusNode _titleFocusNode = FocusNode();
@@ -253,7 +255,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
   void initState() {
     super.initState();
     _selectedListId = widget.initialListId;
-    _dueAt = widget.initialDueAt;
+    _due = widget.initialDue;
     _titleController.addListener(_onTitleChanged);
   }
 
@@ -281,7 +283,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
         listId: _selectedListId,
         title: _titleController.text.trim(),
         note: _noteController.text.trim(),
-        dueAt: _dueAt,
+        due: _due,
       );
       if (!mounted) {
         return;
@@ -423,7 +425,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
                         ),
                         const SizedBox(width: AppSpacing.xs),
                         _TaskCreateDueChip(
-                          dueAt: _dueAt,
+                          due: _due,
                           onTap: _submitting ? null : _showDueOptions,
                         ),
                       ],
@@ -461,6 +463,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
     final selection = await showModalBottomSheet<_TaskCreateDueSelection>(
       context: context,
       useRootNavigator: true,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => const _TaskCreateDueSheet(),
     );
@@ -469,15 +472,17 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
     }
     switch (selection) {
       case _TaskCreateDueSelection.today:
-        setState(() => _dueAt = homeLocalRangesMs().todayStartMs);
+        setState(() => _due = dateOnlyDue(DateTime.now()));
         break;
       case _TaskCreateDueSelection.tomorrow:
-        setState(() => _dueAt = homeLocalRangesMs().tomorrowStartMs);
+        setState(
+          () => _due = dateOnlyDue(DateTime.now().add(const Duration(days: 1))),
+        );
         break;
       case _TaskCreateDueSelection.pickDate:
-        final initialDate = _dueAt == null
+        final initialDate = _due == null
             ? DateTime.now()
-            : DateTime.fromMillisecondsSinceEpoch(_dueAt!).toLocal();
+            : taskDueDisplayDate(_due!);
         final picked = await showDatePicker(
           context: context,
           initialDate: initialDate,
@@ -487,16 +492,65 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
         if (!mounted || picked == null) {
           return;
         }
-        setState(
-          () => _dueAt = DateTime(
-            picked.year,
-            picked.month,
-            picked.day,
-          ).millisecondsSinceEpoch,
+        setState(() => _due = dateOnlyDue(picked));
+        break;
+      case _TaskCreateDueSelection.pickDateTime:
+        final initial = _due == null
+            ? DateTime.now()
+            : taskDueDisplayDate(_due!);
+        final pickedDate = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
         );
+        if (!mounted || pickedDate == null) {
+          return;
+        }
+        final pickedTime = await showTimePicker(
+          context: context,
+          initialTime: TimeOfDay.fromDateTime(initial),
+        );
+        if (!mounted || pickedTime == null) {
+          return;
+        }
+        final localDateTime = DateTime(
+          pickedDate.year,
+          pickedDate.month,
+          pickedDate.day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+        if (localDateTime.year != pickedDate.year ||
+            localDateTime.month != pickedDate.month ||
+            localDateTime.day != pickedDate.day ||
+            localDateTime.hour != pickedTime.hour ||
+            localDateTime.minute != pickedTime.minute) {
+          return;
+        }
+        final savedTimeZone = taskDueSavedTimeZone(_due);
+        final timeZone =
+            savedTimeZone ??
+            await ProviderScope.containerOf(
+              context,
+              listen: false,
+            ).read(bridgeServiceProvider).getLocalTimeZone();
+        if (!mounted) {
+          return;
+        }
+        TaskDueDto exactDue;
+        try {
+          exactDue = dateTimeDue(
+            localDateTime: localDateTime,
+            timeZone: timeZone,
+          );
+        } on FormatException {
+          return;
+        }
+        setState(() => _due = exactDue);
         break;
       case _TaskCreateDueSelection.clear:
-        setState(() => _dueAt = null);
+        setState(() => _due = null);
         break;
     }
     _titleFocusNode.requestFocus();
@@ -541,16 +595,16 @@ class _TaskCreateListChip extends StatelessWidget {
 }
 
 class _TaskCreateDueChip extends StatelessWidget {
-  const _TaskCreateDueChip({required this.dueAt, required this.onTap});
+  const _TaskCreateDueChip({required this.due, required this.onTap});
 
-  final int? dueAt;
+  final TaskDueDto? due;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final value = formatRelativeDueDate(l10n, locale, dueAt);
+    final value = formatRelativeDueDate(l10n, locale, due);
     return Tooltip(
       message: l10n.taskCreateDueTooltip,
       child: Semantics(
@@ -565,7 +619,7 @@ class _TaskCreateDueChip extends StatelessWidget {
             icon: LucideIcons.calendarDays300,
             label: l10n.taskCreateDueChip,
             value: value,
-            selected: dueAt != null,
+            selected: due != null,
           ),
         ),
       ),
@@ -661,48 +715,53 @@ class _TaskCreateDueSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return SafeArea(
-      child: Padding(
+      child: ListView(
+        shrinkWrap: true,
         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(title: Text(l10n.dueDateLabel)),
-            ListTile(
-              key: const ValueKey('task-create-due-today'),
-              leading: const Icon(LucideIcons.calendarCheck300),
-              title: Text(l10n.dueToday),
-              onTap: () =>
-                  Navigator.of(context).pop(_TaskCreateDueSelection.today),
-            ),
-            ListTile(
-              key: const ValueKey('task-create-due-tomorrow'),
-              leading: const Icon(LucideIcons.calendarPlus300),
-              title: Text(l10n.dueTomorrow),
-              onTap: () =>
-                  Navigator.of(context).pop(_TaskCreateDueSelection.tomorrow),
-            ),
-            ListTile(
-              key: const ValueKey('task-create-due-pick-date'),
-              leading: const Icon(LucideIcons.calendarDays300),
-              title: Text(l10n.setDueDateButton),
-              onTap: () =>
-                  Navigator.of(context).pop(_TaskCreateDueSelection.pickDate),
-            ),
-            ListTile(
-              key: const ValueKey('task-create-due-clear'),
-              leading: const Icon(LucideIcons.calendarX300),
-              title: Text(l10n.clearDueDateButton),
-              onTap: () =>
-                  Navigator.of(context).pop(_TaskCreateDueSelection.clear),
-            ),
-          ],
-        ),
+        children: [
+          ListTile(title: Text(l10n.dueDateLabel)),
+          ListTile(
+            key: const ValueKey('task-create-due-today'),
+            leading: const Icon(LucideIcons.calendarCheck300),
+            title: Text(l10n.dueToday),
+            onTap: () =>
+                Navigator.of(context).pop(_TaskCreateDueSelection.today),
+          ),
+          ListTile(
+            key: const ValueKey('task-create-due-tomorrow'),
+            leading: const Icon(LucideIcons.calendarPlus300),
+            title: Text(l10n.dueTomorrow),
+            onTap: () =>
+                Navigator.of(context).pop(_TaskCreateDueSelection.tomorrow),
+          ),
+          ListTile(
+            key: const ValueKey('task-create-due-pick-date'),
+            leading: const Icon(LucideIcons.calendarDays300),
+            title: Text(l10n.setDueDateButton),
+            onTap: () =>
+                Navigator.of(context).pop(_TaskCreateDueSelection.pickDate),
+          ),
+          ListTile(
+            key: const ValueKey('task-create-due-pick-date-time'),
+            leading: const Icon(LucideIcons.calendarClock300),
+            title: Text(l10n.setDueDateTimeButton),
+            onTap: () =>
+                Navigator.of(context).pop(_TaskCreateDueSelection.pickDateTime),
+          ),
+          ListTile(
+            key: const ValueKey('task-create-due-clear'),
+            leading: const Icon(LucideIcons.calendarX300),
+            title: Text(l10n.clearDueDateButton),
+            onTap: () =>
+                Navigator.of(context).pop(_TaskCreateDueSelection.clear),
+          ),
+        ],
       ),
     );
   }
 }
 
-enum _TaskCreateDueSelection { today, tomorrow, pickDate, clear }
+enum _TaskCreateDueSelection { today, tomorrow, pickDate, pickDateTime, clear }
 
 class _MetadataPill extends StatelessWidget {
   const _MetadataPill({
@@ -790,15 +849,13 @@ List<TaskMetadataItem> taskMetadataItemsFor({
         icon: taskStatusIcon(task.status),
         label: taskStatusLabel(l10n, task.status),
       ),
-    if (task.dueAt != null || includeNoDueDate)
+    if (task.due != null || includeNoDueDate)
       TaskMetadataItem(
         icon: LucideIcons.calendarDays300,
-        label: formatRelativeDueDate(l10n, locale, task.dueAt),
+        label: formatRelativeDueDate(l10n, locale, task.due),
         emphasisColor: overdue ? _priorityHighCoral : null,
         semanticLabel: overdue
-            ? l10n.taskDueOverdue(
-                formatRelativeDueDate(l10n, locale, task.dueAt),
-              )
+            ? l10n.taskDueOverdue(formatRelativeDueDate(l10n, locale, task.due))
             : null,
       ),
     if (includeSubtaskProgress && stats.hasDescendants)
@@ -830,12 +887,18 @@ String taskPriorityLabel(AppLocalizations l10n, int priority) {
   };
 }
 
-String formatDueDate(AppLocalizations l10n, int? dueAt) {
-  if (dueAt == null) {
+String formatDueDate(AppLocalizations l10n, TaskDueDto? due) {
+  if (due == null) {
     return l10n.noDueDate;
   }
-  final date = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
-  return DateFormat.yMMMd(l10n.localeName).format(date);
+  final date = taskDueDisplayDate(due);
+  final dateLabel = DateFormat.yMMMd(l10n.localeName).format(date);
+  if (taskDueIsDateOnly(due)) {
+    return dateLabel;
+  }
+  final timeZone = taskDueSavedTimeZone(due)!;
+  return '$dateLabel · ${DateFormat.jm(l10n.localeName).format(date)} '
+      '$timeZone (${taskDueUtcOffsetLabel(date)})';
 }
 
 String formatHomeHeaderDate(String locale, DateTime date) {
@@ -845,39 +908,48 @@ String formatHomeHeaderDate(String locale, DateTime date) {
 /// Formats a due date as "Today"/"Tomorrow"/a short localized date (e.g.
 /// "Jul 5"), per the row Due pill convention in
 /// `docs/design/visual-direction.md`. Falls back to [AppLocalizations.noDueDate]
-/// when [dueAt] is null (used for the task detail header, which always shows
+/// when [due] is null (used for the task detail header, which always shows
 /// a due pill).
-String formatRelativeDueDate(AppLocalizations l10n, String locale, int? dueAt) {
-  if (dueAt == null) {
+String formatRelativeDueDate(
+  AppLocalizations l10n,
+  String locale,
+  TaskDueDto? due,
+) {
+  if (due == null) {
     return l10n.noDueDate;
   }
-  final due = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
-  final dueDate = DateTime(due.year, due.month, due.day);
+  final dueDateTime = taskDueDisplayDate(due);
+  final dueDate = DateTime(
+    dueDateTime.year,
+    dueDateTime.month,
+    dueDateTime.day,
+  );
   final today = DateTime.now();
   final todayDate = DateTime(today.year, today.month, today.day);
-  final dayDiff = dueDate.difference(todayDate).inDays;
-  if (dayDiff == 0) {
-    return l10n.dueToday;
+  final dayDiff = DateTime.utc(dueDate.year, dueDate.month, dueDate.day)
+      .difference(DateTime.utc(todayDate.year, todayDate.month, todayDate.day))
+      .inDays;
+  final dateLabel = switch (dayDiff) {
+    0 => l10n.dueToday,
+    1 => l10n.dueTomorrow,
+    _ => DateFormat.MMMd(locale).format(dueDate),
+  };
+  if (taskDueIsDateOnly(due)) {
+    return dateLabel;
   }
-  if (dayDiff == 1) {
-    return l10n.dueTomorrow;
-  }
-  return DateFormat.MMMd(locale).format(dueDate);
+  final timeZone = taskDueSavedTimeZone(due)!;
+  return '$dateLabel · ${DateFormat.jm(locale).format(dueDateTime)} '
+      '$timeZone (${taskDueUtcOffsetLabel(dueDateTime)})';
 }
 
 /// Whether [task] has a due date in the past and is not yet done. Used to
 /// tint the Due pill coral without relying on color alone (see
 /// [TaskMetadataItem.semanticLabel]).
 bool isTaskOverdue(TaskDto task) {
-  final dueAt = task.dueAt;
-  if (dueAt == null || isTaskClosed(task)) {
+  if (task.due == null || isTaskClosed(task)) {
     return false;
   }
-  final due = DateTime.fromMillisecondsSinceEpoch(dueAt).toLocal();
-  final dueDate = DateTime(due.year, due.month, due.day);
-  final today = DateTime.now();
-  final todayDate = DateTime(today.year, today.month, today.day);
-  return dueDate.isBefore(todayDate);
+  return taskDueIsOverdue(task.due);
 }
 
 bool isTaskClosed(TaskDto task) =>

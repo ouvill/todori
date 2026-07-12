@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -2142007768;
+  int get rustContentHash => -631770909;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -113,7 +113,7 @@ abstract class RustLibApi extends BaseApi {
     required String listId,
     required String title,
     String? parentTaskId,
-    PlatformInt64? dueAt,
+    TaskDueInput? due,
     String? note,
   });
 
@@ -135,6 +135,8 @@ abstract class RustLibApi extends BaseApi {
   Future<List<ReminderDto>> crateApiGetListReminders({required String listId});
 
   Future<List<ListDto>> crateApiGetLists();
+
+  Future<String> crateApiGetLocalTimeZone();
 
   Future<String?> crateApiGetSetting({required String key});
 
@@ -205,7 +207,7 @@ abstract class RustLibApi extends BaseApi {
     required String title,
     required String note,
     required int priority,
-    PlatformInt64? dueAt,
+    TaskDueInput? due,
   });
 }
 
@@ -508,7 +510,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String listId,
     required String title,
     String? parentTaskId,
-    PlatformInt64? dueAt,
+    TaskDueInput? due,
     String? note,
   }) {
     return handler.executeNormal(
@@ -518,7 +520,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(listId, serializer);
           sse_encode_String(title, serializer);
           sse_encode_opt_String(parentTaskId, serializer);
-          sse_encode_opt_box_autoadd_i_64(dueAt, serializer);
+          sse_encode_opt_box_autoadd_task_due_input(due, serializer);
           sse_encode_opt_String(note, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -532,7 +534,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, parentTaskId, dueAt, note],
+        argValues: [listId, title, parentTaskId, due, note],
         apiImpl: this,
       ),
     );
@@ -540,7 +542,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "parentTaskId", "dueAt", "note"],
+    argNames: ["listId", "title", "parentTaskId", "due", "note"],
   );
 
   @override
@@ -772,6 +774,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_lists", argNames: []);
 
   @override
+  Future<String> crateApiGetLocalTimeZone() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetLocalTimeZoneConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetLocalTimeZoneConstMeta =>
+      const TaskConstMeta(debugName: "get_local_time_zone", argNames: []);
+
+  @override
   Future<String?> crateApiGetSetting({required String key}) {
     return handler.executeNormal(
       NormalTask(
@@ -781,7 +810,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -808,7 +837,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -835,7 +864,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -863,7 +892,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -895,7 +924,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -926,7 +955,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -954,7 +983,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -986,7 +1015,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1018,7 +1047,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1053,7 +1082,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1089,7 +1118,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1119,7 +1148,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1151,7 +1180,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1179,7 +1208,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1213,7 +1242,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1249,7 +1278,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1283,7 +1312,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1312,7 +1341,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1340,7 +1369,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1368,7 +1397,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1394,7 +1423,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String title,
     required String note,
     required int priority,
-    PlatformInt64? dueAt,
+    TaskDueInput? due,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1404,11 +1433,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(title, serializer);
           sse_encode_String(note, serializer);
           sse_encode_i_32(priority, serializer);
-          sse_encode_opt_box_autoadd_i_64(dueAt, serializer);
+          sse_encode_opt_box_autoadd_task_due_input(due, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1417,7 +1446,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiUpdateTaskConstMeta,
-        argValues: [taskId, title, note, priority, dueAt],
+        argValues: [taskId, title, note, priority, due],
         apiImpl: this,
       ),
     );
@@ -1425,8 +1454,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUpdateTaskConstMeta => const TaskConstMeta(
     debugName: "update_task",
-    argNames: ["taskId", "title", "note", "priority", "dueAt"],
+    argNames: ["taskId", "title", "note", "priority", "due"],
   );
+
+  @protected
+  DateTime dco_decode_Chrono_Utc(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeTimestamp(ts: dco_decode_i_64(raw).toInt(), isUtc: true);
+  }
 
   @protected
   String dco_decode_String(dynamic raw) {
@@ -1477,6 +1512,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
+  }
+
+  @protected
+  TaskDueDto dco_decode_box_autoadd_task_due_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_task_due_dto(raw);
+  }
+
+  @protected
+  TaskDueInput dco_decode_box_autoadd_task_due_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_task_due_input(raw);
   }
 
   @protected
@@ -1579,6 +1626,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TaskDueDto? dco_decode_opt_box_autoadd_task_due_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_task_due_dto(raw);
+  }
+
+  @protected
+  TaskDueInput? dco_decode_opt_box_autoadd_task_due_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_task_due_input(raw);
+  }
+
+  @protected
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_task_undo_dto(raw);
@@ -1640,7 +1699,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       note: dco_decode_String(arr[4]),
       status: dco_decode_String(arr[5]),
       priority: dco_decode_i_32(arr[6]),
-      dueAt: dco_decode_opt_box_autoadd_i_64(arr[7]),
+      due: dco_decode_opt_box_autoadd_task_due_dto(arr[7]),
       scheduledAt: dco_decode_opt_box_autoadd_i_64(arr[8]),
       estimatedMinutes: dco_decode_opt_box_autoadd_i_32(arr[9]),
       sortOrder: dco_decode_String(arr[10]),
@@ -1651,6 +1710,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: dco_decode_i_64(arr[15]),
       updatedAt: dco_decode_i_64(arr[16]),
     );
+  }
+
+  @protected
+  TaskDueDto dco_decode_task_due_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return TaskDueDto_Date(dueOn: dco_decode_String(raw[1]));
+      case 1:
+        return TaskDueDto_DateTime(
+          dueAt: dco_decode_Chrono_Utc(raw[1]),
+          timeZone: dco_decode_String(raw[2]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  TaskDueInput dco_decode_task_due_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return TaskDueInput_Date(dueOn: dco_decode_String(raw[1]));
+      case 1:
+        return TaskDueInput_DateTime(
+          dueAt: dco_decode_Chrono_Utc(raw[1]),
+          timeZone: dco_decode_String(raw[2]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
   }
 
   @protected
@@ -1679,6 +1770,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void dco_decode_unit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return;
+  }
+
+  @protected
+  DateTime sse_decode_Chrono_Utc(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_64(deserializer);
+    return DateTime.fromMicrosecondsSinceEpoch(inner.toInt(), isUtc: true);
   }
 
   @protected
@@ -1736,6 +1834,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
+  }
+
+  @protected
+  TaskDueDto sse_decode_box_autoadd_task_due_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_task_due_dto(deserializer));
+  }
+
+  @protected
+  TaskDueInput sse_decode_box_autoadd_task_due_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_task_due_input(deserializer));
   }
 
   @protected
@@ -1889,6 +2001,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TaskDueDto? sse_decode_opt_box_autoadd_task_due_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_task_due_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  TaskDueInput? sse_decode_opt_box_autoadd_task_due_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_task_due_input(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   TaskUndoDto? sse_decode_opt_box_autoadd_task_undo_dto(
     SseDeserializer deserializer,
   ) {
@@ -1969,7 +2107,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_note = sse_decode_String(deserializer);
     var var_status = sse_decode_String(deserializer);
     var var_priority = sse_decode_i_32(deserializer);
-    var var_dueAt = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_due = sse_decode_opt_box_autoadd_task_due_dto(deserializer);
     var var_scheduledAt = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_estimatedMinutes = sse_decode_opt_box_autoadd_i_32(deserializer);
     var var_sortOrder = sse_decode_String(deserializer);
@@ -1987,7 +2125,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       note: var_note,
       status: var_status,
       priority: var_priority,
-      dueAt: var_dueAt,
+      due: var_due,
       scheduledAt: var_scheduledAt,
       estimatedMinutes: var_estimatedMinutes,
       sortOrder: var_sortOrder,
@@ -1998,6 +2136,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: var_createdAt,
       updatedAt: var_updatedAt,
     );
+  }
+
+  @protected
+  TaskDueDto sse_decode_task_due_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_dueOn = sse_decode_String(deserializer);
+        return TaskDueDto_Date(dueOn: var_dueOn);
+      case 1:
+        var var_dueAt = sse_decode_Chrono_Utc(deserializer);
+        var var_timeZone = sse_decode_String(deserializer);
+        return TaskDueDto_DateTime(dueAt: var_dueAt, timeZone: var_timeZone);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  TaskDueInput sse_decode_task_due_input(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_dueOn = sse_decode_String(deserializer);
+        return TaskDueInput_Date(dueOn: var_dueOn);
+      case 1:
+        var var_dueAt = sse_decode_Chrono_Utc(deserializer);
+        var var_timeZone = sse_decode_String(deserializer);
+        return TaskDueInput_DateTime(dueAt: var_dueAt, timeZone: var_timeZone);
+      default:
+        throw UnimplementedError('');
+    }
   }
 
   @protected
@@ -2028,6 +2202,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_decode_unit(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_Chrono_Utc(DateTime self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_64(
+      PlatformInt64Util.from(self.microsecondsSinceEpoch),
+      serializer,
+    );
   }
 
   @protected
@@ -2078,6 +2261,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_task_due_dto(
+    TaskDueDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_task_due_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_task_due_input(
+    TaskDueInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_task_due_input(self, serializer);
   }
 
   @protected
@@ -2210,6 +2411,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_task_due_dto(
+    TaskDueDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_task_due_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_task_due_input(
+    TaskDueInput? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_task_due_input(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_task_undo_dto(
     TaskUndoDto? self,
     SseSerializer serializer,
@@ -2267,7 +2494,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.note, serializer);
     sse_encode_String(self.status, serializer);
     sse_encode_i_32(self.priority, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.dueAt, serializer);
+    sse_encode_opt_box_autoadd_task_due_dto(self.due, serializer);
     sse_encode_opt_box_autoadd_i_64(self.scheduledAt, serializer);
     sse_encode_opt_box_autoadd_i_32(self.estimatedMinutes, serializer);
     sse_encode_String(self.sortOrder, serializer);
@@ -2277,6 +2504,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.assignee, serializer);
     sse_encode_i_64(self.createdAt, serializer);
     sse_encode_i_64(self.updatedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_task_due_dto(TaskDueDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case TaskDueDto_Date(dueOn: final dueOn):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(dueOn, serializer);
+      case TaskDueDto_DateTime(dueAt: final dueAt, timeZone: final timeZone):
+        sse_encode_i_32(1, serializer);
+        sse_encode_Chrono_Utc(dueAt, serializer);
+        sse_encode_String(timeZone, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_task_due_input(TaskDueInput self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case TaskDueInput_Date(dueOn: final dueOn):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(dueOn, serializer);
+      case TaskDueInput_DateTime(dueAt: final dueAt, timeZone: final timeZone):
+        sse_encode_i_32(1, serializer);
+        sse_encode_Chrono_Utc(dueAt, serializer);
+        sse_encode_String(timeZone, serializer);
+    }
   }
 
   @protected

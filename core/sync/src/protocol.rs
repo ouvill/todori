@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub const SYNC_PROTOCOL_VERSION: u16 = 3;
+pub const SYNC_PROTOCOL_VERSION: u16 = 4;
 pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-todori-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

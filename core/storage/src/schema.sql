@@ -6,7 +6,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     note TEXT NOT NULL,
     status TEXT NOT NULL,
     priority INTEGER NOT NULL,
-    due_at INTEGER,
+    due_kind TEXT,
+    due_on TEXT,
+    due_at_ms INTEGER,
+    due_time_zone TEXT,
     scheduled_at INTEGER,
     estimated_minutes INTEGER,
     sort_order TEXT NOT NULL,
@@ -15,7 +18,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     deleted_at INTEGER,
     assignee TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    CHECK (
+        (due_kind IS NULL AND due_on IS NULL AND due_at_ms IS NULL AND due_time_zone IS NULL)
+        OR (due_kind = 'date' AND due_on IS NOT NULL AND due_at_ms IS NULL AND due_time_zone IS NULL)
+        OR (due_kind = 'datetime' AND due_on IS NULL AND due_at_ms IS NOT NULL AND due_time_zone IS NOT NULL)
+    )
 );
 
 CREATE TABLE IF NOT EXISTS lists (
@@ -79,8 +87,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_list_sort_order ON tasks(list_id, sort_orde
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_home_targets
-    ON tasks(due_at, status, completed_at, list_id)
-    WHERE due_at IS NOT NULL;
+    ON tasks(due_kind, due_on, due_at_ms, status, completed_at, list_id)
+    WHERE due_kind IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_lists_sort_order ON lists(sort_order);
 CREATE INDEX IF NOT EXISTS idx_task_undo_entries_latest
     ON task_undo_entries(consumed_at, created_at);

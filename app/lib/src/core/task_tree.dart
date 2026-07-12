@@ -1,4 +1,5 @@
 import 'package:todori/src/rust/api.dart';
+import 'package:todori/src/core/task_due.dart';
 
 enum TaskSortMode { manual, dueDate, priority, createdAt }
 
@@ -245,19 +246,9 @@ int compareTasksForSortMode(TaskDto a, TaskDto b, TaskSortMode sortMode) {
 }
 
 int _compareDueDate(TaskDto a, TaskDto b) {
-  final aDueAt = a.dueAt;
-  final bDueAt = b.dueAt;
-  if (aDueAt == null && bDueAt != null) {
-    return 1;
-  }
-  if (aDueAt != null && bDueAt == null) {
-    return -1;
-  }
-  if (aDueAt != null && bDueAt != null) {
-    final dueAt = aDueAt.compareTo(bDueAt);
-    if (dueAt != 0) {
-      return dueAt;
-    }
+  final due = compareTaskDue(a.due, b.due);
+  if (due != 0) {
+    return due;
   }
   return _compareManual(a, b);
 }

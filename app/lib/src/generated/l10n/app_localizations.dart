@@ -455,7 +455,7 @@ abstract class AppLocalizations {
   /// No description provided for @taskCreateDueChipSemantics.
   ///
   /// In en, this message translates to:
-  /// **'Due date: {dueAt}'**
+  /// **'Due: {dueAt}'**
   String taskCreateDueChipSemantics(String dueAt);
 
   /// No description provided for @tasksEmpty.
@@ -851,7 +851,7 @@ abstract class AppLocalizations {
   /// No description provided for @dueDateLabel.
   ///
   /// In en, this message translates to:
-  /// **'Due date'**
+  /// **'Due'**
   String get dueDateLabel;
 
   /// No description provided for @noDueDate.
@@ -865,6 +865,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Set date'**
   String get setDueDateButton;
+
+  /// No description provided for @setDueDateTimeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Set date and time'**
+  String get setDueDateTimeButton;
 
   /// No description provided for @clearDueDateButton.
   ///

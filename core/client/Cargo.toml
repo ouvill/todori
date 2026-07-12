@@ -16,6 +16,8 @@ todori-domain.workspace = true
 todori-storage.workspace = true
 todori-sync.workspace = true
 zeroize.workspace = true
+iana-time-zone.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
