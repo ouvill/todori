@@ -333,12 +333,14 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   }
 
   Future<void> _completeTask(TaskDto task) async {
-    final saved = await _runEngine(
-      () => ref
+    CompletedTimerSessionDto? completion;
+    final saved = await _runEngine(() async {
+      completion = await ref
           .read(timerEngineProvider.notifier)
-          .finish(kind: TimerFinishKindDto.completed),
-    );
-    if (!saved || !mounted) {
+          .finish(kind: TimerFinishKindDto.completed);
+      return completion;
+    });
+    if (!saved || completion == null || !mounted) {
       return;
     }
     if (ref.read(timerEngineProvider).value?.active != null) {

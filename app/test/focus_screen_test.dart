@@ -198,6 +198,41 @@ void main() {
     expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
     expect(find.byKey(const ValueKey('focus-start-break')), findsNothing);
   });
+
+  testWidgets('Complete task requires a saved non-zero work session', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Do not complete before work is saved',
+    );
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          timerClockProvider.overrideWithValue(
+            _MutableTimerClock(DateTime.utc(2026, 7, 13, 11)),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey('focus-complete-task')));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect((await fake.getTasks(listId: listId)).single.status, 'todo');
+    expect(await fake.getActiveTimerSession(), isNull);
+    expect(await fake.getCompletedTimerSessions(taskId: task.id), isEmpty);
+  });
 }
 
 class _MutableTimerClock implements TimerClock {
