@@ -15,12 +15,14 @@ import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/task_completion_motion.dart';
 
 import 'support/fake_bridge_service.dart';
 
 const _taskCheckboxVisualCenterOffset = 24.0;
 const _taskCheckboxVisualRadius = 11.0;
 const _taskHierarchyHorizontalEndGap = 4.0;
+typedef _TestOccurrenceKey = ({String taskId, String kind});
 
 Future<FakeBridgeService> _pumpAppWithSeedData(
   WidgetTester tester, {
@@ -2535,6 +2537,41 @@ void main() {
     );
     expect(completedTitle.style?.decoration, TextDecoration.none);
   });
+
+  testWidgets(
+    'completion retention supports occurrence keys and independent cancel',
+    (tester) async {
+      final controller =
+          TaskCompletionRetentionController<_TestOccurrenceKey>();
+      addTearDown(controller.dispose);
+      const due = (taskId: 'task-1', kind: 'due');
+      const scheduled = (taskId: 'task-1', kind: 'scheduled');
+
+      controller.retain(due);
+      controller.retain(scheduled);
+
+      expect(controller.phaseOf(due), TaskCompletionRetentionPhase.holding);
+      expect(
+        controller.phaseOf(scheduled),
+        TaskCompletionRetentionPhase.holding,
+      );
+
+      await tester.pump(const Duration(milliseconds: 499));
+      expect(controller.phaseOf(due), TaskCompletionRetentionPhase.holding);
+
+      controller.cancel(scheduled);
+      expect(controller.contains(scheduled), isFalse);
+      expect(controller.contains(due), isTrue);
+
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(controller.phaseOf(due), TaskCompletionRetentionPhase.exiting);
+
+      await tester.pump(const Duration(milliseconds: 419));
+      expect(controller.contains(due), isTrue);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(controller.contains(due), isFalse);
+    },
+  );
 
   testWidgets('task checkbox keeps 48px hit area centered on visual mark', (
     tester,

@@ -14,6 +14,7 @@ import 'package:todori/src/ui/dialogs.dart';
 import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/task_completion_motion.dart';
 import 'package:todori/src/ui/theme.dart';
 
 /// The task list screen for a single list (route
@@ -307,10 +308,18 @@ class _TasksBodyState extends State<_TasksBody> {
   bool _showCompleted = false;
   final Set<_HomeSectionKind> _collapsedHomeSections = {};
   final Map<String, _PendingHomeCompletion> _pendingHomeCompletions = {};
-  final Map<String, Timer> _pendingHomeCompletionTimers = {};
   final Map<String, Future<bool>> _homeCompletionOperations = {};
   final Set<String> _optimisticHomeCompletionIds = {};
+  late final TaskCompletionRetentionController<String>
+  _completionRetentionController;
   _TaskDropIndicator? _dropIndicator;
+
+  @override
+  void initState() {
+    super.initState();
+    _completionRetentionController = TaskCompletionRetentionController<String>()
+      ..addListener(_handleCompletionRetentionChanged);
+  }
 
   @override
   void didUpdateWidget(covariant _TasksBody oldWidget) {
@@ -324,10 +333,22 @@ class _TasksBodyState extends State<_TasksBody> {
 
   @override
   void dispose() {
-    for (final timer in _pendingHomeCompletionTimers.values) {
-      timer.cancel();
-    }
+    _completionRetentionController
+      ..removeListener(_handleCompletionRetentionChanged)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleCompletionRetentionChanged() {
+    if (!mounted) {
+      return;
+    }
+    final retainedKeys = _completionRetentionController.keys.toSet();
+    setState(() {
+      _pendingHomeCompletions.removeWhere(
+        (taskId, _) => !retainedKeys.contains(taskId),
+      );
+    });
   }
 
   @override
@@ -389,8 +410,12 @@ class _TasksBodyState extends State<_TasksBody> {
                                 rootListId: row.rootListId,
                                 parentTaskName: row.parentTaskName,
                                 countsInSection: row.countsInSection,
-                                pendingExitPhase: row.pendingExitPhase,
-                                disableInteractions: row.disableInteractions,
+                                pendingCompletionKey: row.pendingCompletionKey,
+                                disableInteractions:
+                                    row.disableInteractions ||
+                                    _isCompletionExiting(
+                                      row.pendingCompletionKey,
+                                    ),
                                 isPendingRoot: row.isPendingRoot,
                               ),
                         ),
@@ -628,9 +653,8 @@ class _TasksBodyState extends State<_TasksBody> {
                     ? taskById[node.task.parentTaskId]?.title
                     : null),
             countsInSection: node.depth == 0,
-            pendingExitPhase:
-                pendingRowsByTaskId[node.task.id]?.pendingExitPhase ??
-                _PendingHomeExitPhase.none,
+            pendingCompletionKey:
+                pendingRowsByTaskId[node.task.id]?.pendingCompletionKey,
             disableInteractions:
                 pendingRowsByTaskId[node.task.id]?.disableInteractions ?? false,
             isPendingRoot: pendingRootIds.contains(node.task.id),
@@ -678,7 +702,7 @@ class _TasksBodyState extends State<_TasksBody> {
     required String rootListId,
     required String? parentTaskName,
     bool countsInSection = false,
-    _PendingHomeExitPhase pendingExitPhase = _PendingHomeExitPhase.none,
+    String? pendingCompletionKey,
     bool disableInteractions = false,
     bool isPendingRoot = false,
   }) {
@@ -762,11 +786,14 @@ class _TasksBodyState extends State<_TasksBody> {
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
     );
-    final effectiveRow = pendingExitPhase != _PendingHomeExitPhase.exiting
+    final isExiting = _isCompletionExiting(pendingCompletionKey);
+    final effectiveRow = !isExiting
         ? row
-        : _PendingHomeCompletionExit(
-            taskId: task.id,
-            useGenericKey: isPendingRoot,
+        : AppTaskCompletionExit(
+            key: isPendingRoot
+                ? const ValueKey('home-pending-completion-exit')
+                : ValueKey('home-pending-completion-exit-${task.id}'),
+            isExiting: true,
             child: row,
           );
     final swipeRow = _TaskSwipeActions(
@@ -928,7 +955,7 @@ class _TasksBodyState extends State<_TasksBody> {
             rootListId: rootListId,
             parentTaskName: entry.key == 0 ? parentTaskName : null,
             countsInSection: entry.key == 0 && countsInSection,
-            pendingExitPhase: _PendingHomeExitPhase.holding,
+            pendingCompletionKey: task.id,
             disableInteractions: entry.key != 0,
             isPendingRoot: entry.key == 0,
           ),
@@ -940,47 +967,19 @@ class _TasksBodyState extends State<_TasksBody> {
         section: section,
       );
     });
-    _pendingHomeCompletionTimers[task.id]?.cancel();
-    _pendingHomeCompletionTimers[task.id] = Timer(
-      const Duration(milliseconds: 500),
-      () {
-        if (!mounted || !_pendingHomeCompletions.containsKey(task.id)) {
-          return;
-        }
-        setState(() {
-          final current = _pendingHomeCompletions[task.id]!;
-          _pendingHomeCompletions[task.id] = current.copyWith(
-            rows: [
-              for (final row in current.rows)
-                row.copyWith(
-                  pendingExitPhase: _PendingHomeExitPhase.exiting,
-                  disableInteractions: true,
-                ),
-            ],
-          );
-        });
-        _pendingHomeCompletionTimers[task.id]?.cancel();
-        _pendingHomeCompletionTimers[task.id] = Timer(
-          const Duration(milliseconds: 420),
-          () => _cancelPendingHomeCompletion(task.id),
-        );
-      },
-    );
+    _completionRetentionController.retain(task.id);
   }
 
   void _cancelPendingHomeCompletion(String taskId) {
-    _pendingHomeCompletionTimers.remove(taskId)?.cancel();
     _homeCompletionOperations.remove(taskId);
-    if (!_pendingHomeCompletions.containsKey(taskId)) {
-      return;
-    }
+    _completionRetentionController.cancel(taskId);
     if (!mounted) {
       _pendingHomeCompletions.remove(taskId);
       return;
     }
-    setState(() {
-      _pendingHomeCompletions.remove(taskId);
-    });
+    if (_pendingHomeCompletions.containsKey(taskId)) {
+      setState(() => _pendingHomeCompletions.remove(taskId));
+    }
   }
 
   void _syncPendingHomeCompletionsWithWidget() {
@@ -1023,6 +1022,12 @@ class _TasksBodyState extends State<_TasksBody> {
       for (final pending in _pendingHomeCompletions.values)
         for (final row in pending.rows) row.node.task.id,
     };
+  }
+
+  bool _isCompletionExiting(String? key) {
+    return key != null &&
+        _completionRetentionController.phaseOf(key) ==
+            TaskCompletionRetentionPhase.exiting;
   }
 
   Map<String, _HomeSectionRowData> _pendingHomeCompletionRowsByTaskId() {
@@ -1607,7 +1612,7 @@ class _HomeSectionRowData {
     required this.rootListId,
     required this.parentTaskName,
     this.countsInSection = false,
-    this.pendingExitPhase = _PendingHomeExitPhase.none,
+    this.pendingCompletionKey,
     this.disableInteractions = false,
     this.isPendingRoot = false,
   });
@@ -1616,88 +1621,16 @@ class _HomeSectionRowData {
   final String rootListId;
   final String? parentTaskName;
   final bool countsInSection;
-  final _PendingHomeExitPhase pendingExitPhase;
+  final String? pendingCompletionKey;
   final bool disableInteractions;
   final bool isPendingRoot;
-
-  _HomeSectionRowData copyWith({
-    FlattenedTaskTreeNode? node,
-    String? rootListId,
-    String? parentTaskName,
-    bool? countsInSection,
-    _PendingHomeExitPhase? pendingExitPhase,
-    bool? disableInteractions,
-    bool? isPendingRoot,
-  }) {
-    return _HomeSectionRowData(
-      node: node ?? this.node,
-      rootListId: rootListId ?? this.rootListId,
-      parentTaskName: parentTaskName ?? this.parentTaskName,
-      countsInSection: countsInSection ?? this.countsInSection,
-      pendingExitPhase: pendingExitPhase ?? this.pendingExitPhase,
-      disableInteractions: disableInteractions ?? this.disableInteractions,
-      isPendingRoot: isPendingRoot ?? this.isPendingRoot,
-    );
-  }
 }
-
-enum _PendingHomeExitPhase { none, holding, exiting }
 
 class _PendingHomeCompletion {
   const _PendingHomeCompletion({required this.rows, required this.section});
 
   final List<_HomeSectionRowData> rows;
   final _HomeSectionKind section;
-
-  _PendingHomeCompletion copyWith({
-    List<_HomeSectionRowData>? rows,
-    _HomeSectionKind? section,
-  }) {
-    return _PendingHomeCompletion(
-      rows: rows ?? this.rows,
-      section: section ?? this.section,
-    );
-  }
-}
-
-class _PendingHomeCompletionExit extends StatelessWidget {
-  const _PendingHomeCompletionExit({
-    required this.taskId,
-    required this.useGenericKey,
-    required this.child,
-  });
-
-  final String taskId;
-  final bool useGenericKey;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      key: useGenericKey
-          ? const ValueKey('home-pending-completion-exit')
-          : ValueKey('home-pending-completion-exit-$taskId'),
-      tween: Tween<double>(begin: 1, end: 0),
-      duration: const Duration(milliseconds: 420),
-      curve: Curves.easeInOutCubic,
-      builder: (context, value, child) {
-        return ClipRect(
-          child: Align(
-            alignment: Alignment.topCenter,
-            heightFactor: value,
-            child: Opacity(
-              opacity: value,
-              child: Transform.translate(
-                offset: Offset(0, -4 * (1 - value)),
-                child: child,
-              ),
-            ),
-          ),
-        );
-      },
-      child: child,
-    );
-  }
 }
 
 class _HomeSectionsPanelSliver extends StatelessWidget {
