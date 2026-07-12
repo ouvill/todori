@@ -233,6 +233,33 @@ void main() {
     expect(await fake.getActiveTimerSession(), isNull);
     expect(await fake.getCompletedTimerSessions(taskId: task.id), isEmpty);
   });
+
+  testWidgets('missing Focus task exposes a visible exit to Home', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final list = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/${list.id}/missing-task');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text("Todori couldn't restore this focus session."),
+      findsOneWidget,
+    );
+    final back = find.byTooltip('Back');
+    expect(back, findsOneWidget);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(find.text('Home'), findsWidgets);
+  });
 }
 
 class _MutableTimerClock implements TimerClock {

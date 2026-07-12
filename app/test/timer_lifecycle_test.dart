@@ -8,7 +8,7 @@ import 'support/fake_bridge_service.dart';
 
 void main() {
   testWidgets(
-    'resume settlement failure is never an unhandled lifecycle error',
+    'resume retries a fail-once restore without an unhandled lifecycle error',
     (tester) async {
       final bridge = _FailingRestoreBridge();
       await tester.pumpWidget(
@@ -21,13 +21,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 10));
 
       expect(tester.takeException(), isNull);
+      expect(bridge.restoreCalls, greaterThanOrEqualTo(2));
     },
   );
 }
 
 class _FailingRestoreBridge extends FakeBridgeService {
+  int restoreCalls = 0;
+
   @override
   Future<ActiveTimerSessionDto?> getActiveTimerSession() {
-    throw StateError('simulated restore failure');
+    restoreCalls += 1;
+    if (restoreCalls == 1) {
+      throw StateError('simulated restore failure');
+    }
+    return super.getActiveTimerSession();
   }
 }

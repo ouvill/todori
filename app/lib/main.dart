@@ -191,6 +191,7 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
       // Resume settlement is retried on the next foreground/restart. Never
       // surface session details or turn a recoverable timer failure into an
       // unhandled lifecycle exception.
+      ref.invalidate(timerEngineProvider);
     }
   }
 

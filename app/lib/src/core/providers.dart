@@ -25,7 +25,9 @@ import 'package:todori/src/rust/api.dart'
         SyncStatusDto,
         TaskDto,
         TaskDueDto,
-        TaskUndoDto;
+        TaskUndoDto,
+        TimerFinishKindDto,
+        TimerPhaseDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -314,6 +316,7 @@ final accountProvider =
 
 class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
   Timer? _pollTimer;
+  Future<void>? _syncInFlight;
 
   @override
   FutureOr<SyncStatusDto> build() async {
@@ -323,28 +326,58 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     final status = await bridge.getSyncStatus();
     if (account.loggedIn && status.loggedIn) {
       _startPolling();
-      unawaited(syncNow());
+      _runAutomaticSync();
     }
     return status;
   }
 
-  Future<void> syncNow() async {
+  Future<void> syncNow() {
+    final inFlight = _syncInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+    late final Future<void> operation;
+    operation = _performSync().whenComplete(() {
+      if (identical(_syncInFlight, operation)) {
+        _syncInFlight = null;
+      }
+    });
+    _syncInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _performSync() async {
     final current = state.value;
     if (current != null) {
       state = AsyncData(_copySyncStatus(current, running: true));
     }
-    final status = await ref.read(bridgeServiceProvider).syncNow();
-    state = AsyncData(status);
-    ref.invalidate(listsProvider);
-    ref.invalidate(archivedListsProvider);
-    ref.invalidate(tasksProvider);
-    ref.invalidate(homeTasksProvider);
-    ref.invalidate(calendarOccurrencesProvider);
-    ref.invalidate(latestTaskUndoProvider);
-    ref.invalidate(taskRemindersProvider);
-    ref.invalidate(completedTimerSessionsProvider);
-    ref.invalidate(timerEngineProvider);
-    ref.read(taskSearchProvider.notifier).refresh();
+    try {
+      final status = await ref.read(bridgeServiceProvider).syncNow();
+      state = AsyncData(status);
+      ref.invalidate(listsProvider);
+      ref.invalidate(archivedListsProvider);
+      ref.invalidate(tasksProvider);
+      ref.invalidate(homeTasksProvider);
+      ref.invalidate(calendarOccurrencesProvider);
+      ref.invalidate(latestTaskUndoProvider);
+      ref.invalidate(taskRemindersProvider);
+      ref.invalidate(completedTimerSessionsProvider);
+      ref.invalidate(timerEngineProvider);
+      ref.read(taskSearchProvider.notifier).refresh();
+    } catch (_) {
+      final failed = state.value;
+      if (failed != null) {
+        state = AsyncData(_copySyncStatus(failed, running: false));
+      }
+      try {
+        final recovered = await ref.read(bridgeServiceProvider).getSyncStatus();
+        state = AsyncData(_copySyncStatus(recovered, running: false));
+      } catch (_) {
+        // Preserve the non-running snapshot above when status recovery also
+        // fails. Sync failures are represented by SyncStatus, never by an
+        // unhandled Future from automatic polling or a button callback.
+      }
+    }
   }
 
   Future<void> syncOnResume() async {
@@ -362,9 +395,13 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       final status = state.value;
       if (status != null && status.loggedIn && !status.running) {
-        unawaited(syncNow());
+        _runAutomaticSync();
       }
     });
+  }
+
+  void _runAutomaticSync() {
+    unawaited(syncNow().catchError((_) {}));
   }
 }
 
@@ -450,6 +487,40 @@ final timerEngineProvider =
       ),
     );
 
+class TaskCompletionTimerSaveException implements Exception {
+  const TaskCompletionTimerSaveException();
+}
+
+/// Serializes the one cross-feature completion invariant shared by every UI:
+/// matching Focus work must be durably saved before the task becomes done.
+class TaskCompletionCoordinator {
+  TaskCompletionCoordinator(this._ref);
+
+  final Ref _ref;
+
+  Future<T> complete<T>({
+    required String taskId,
+    required Future<T> Function() setDone,
+  }) async {
+    final engine = await _ref.read(timerEngineProvider.future);
+    final active = engine.active;
+    if (active?.taskId == taskId && active?.phase == TimerPhaseDto.work) {
+      final completed = await _ref
+          .read(timerEngineProvider.notifier)
+          .finish(kind: TimerFinishKindDto.completed);
+      final remaining = _ref.read(timerEngineProvider).value?.active;
+      if (completed == null || remaining?.sessionId == active!.sessionId) {
+        throw const TaskCompletionTimerSaveException();
+      }
+    }
+    return setDone();
+  }
+}
+
+final taskCompletionCoordinatorProvider = Provider<TaskCompletionCoordinator>(
+  (ref) => TaskCompletionCoordinator(ref),
+);
+
 /// Provides the reserved F-01 UI mode setting.
 ///
 /// Phase 1 exposes only the persistence port. Selection/onboarding UI is a
@@ -531,6 +602,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
     ref.read(taskSearchProvider.notifier).refresh();
   }
 
@@ -541,6 +613,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
     ref.read(taskSearchProvider.notifier).refresh();
   }
 
@@ -560,6 +633,8 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidate(completedTimerSessionsProvider);
+    ref.invalidate(homeTasksProvider);
+    ref.invalidate(timerEngineProvider);
     ref.read(taskSearchProvider.notifier).refresh();
   }
 }
@@ -582,6 +657,7 @@ class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(listsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
     ref.read(taskSearchProvider.notifier).refresh();
   }
 }
@@ -905,11 +981,21 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     final reminders = status == 'done' || status == 'wont_do'
         ? await bridge.getTaskReminders(taskId: taskId)
         : const <ReminderDto>[];
-    await bridge.setTaskStatus(
-      taskId: taskId,
-      status: status,
-      closedReason: closedReason,
-    );
+    Future<void> persistStatus() async {
+      await bridge.setTaskStatus(
+        taskId: taskId,
+        status: status,
+        closedReason: closedReason,
+      );
+    }
+
+    if (status == 'done') {
+      await ref
+          .read(taskCompletionCoordinatorProvider)
+          .complete(taskId: taskId, setDone: persistStatus);
+    } else {
+      await persistStatus();
+    }
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)
@@ -937,6 +1023,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
         .cancelReminders(reminders);
     ref.invalidate(taskRemindersProvider(taskId));
     ref.invalidate(completedTimerSessionsProvider(taskId));
+    ref.invalidate(timerEngineProvider);
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
@@ -1011,11 +1098,16 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     final reminders = status == 'done' || status == 'wont_do'
         ? await bridge.getTaskReminders(taskId: taskId)
         : const <ReminderDto>[];
-    final updated = await bridge.setTaskStatus(
+    Future<TaskDto> persistStatus() => bridge.setTaskStatus(
       taskId: taskId,
       status: status,
       closedReason: closedReason,
     );
+    final updated = status == 'done'
+        ? await ref
+              .read(taskCompletionCoordinatorProvider)
+              .complete(taskId: taskId, setDone: persistStatus)
+        : await persistStatus();
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)

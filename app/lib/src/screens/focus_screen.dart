@@ -65,6 +65,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
             error: (error, stackTrace) => _FocusErrorState(
               inverse: isImmersive,
               onRetry: () => ref.invalidate(tasksProvider(widget.listId)),
+              onExit: _leaveFocus,
             ),
             data: (tasks) {
               final task = tasks
@@ -74,6 +75,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                 return _FocusErrorState(
                   inverse: isImmersive,
                   onRetry: () => ref.invalidate(tasksProvider(widget.listId)),
+                  onExit: _leaveFocus,
                 );
               }
               return engineAsync.when(
@@ -88,6 +90,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                 error: (error, stackTrace) => _FocusErrorState(
                   inverse: isImmersive,
                   onRetry: () => ref.invalidate(timerEngineProvider),
+                  onExit: _leaveFocus,
                 ),
                 data: (engine) {
                   final belongsToTask =
@@ -180,6 +183,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                     error: (error, stackTrace) => _FocusErrorState(
                       inverse: false,
                       onRetry: () => ref.invalidate(timerSettingsProvider),
+                      onExit: _leaveFocus,
                     ),
                     data: (settings) => _FocusSetupView(
                       task: task,
@@ -333,33 +337,20 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   }
 
   Future<void> _completeTask(TaskDto task) async {
-    CompletedTimerSessionDto? completion;
-    final saved = await _runEngine(() async {
-      completion = await ref
-          .read(timerEngineProvider.notifier)
-          .finish(kind: TimerFinishKindDto.completed);
-      return completion;
-    });
-    if (!saved || completion == null || !mounted) {
+    final completed = await _runEngine(
+      () => ref
+          .read(tasksProvider(task.listId).notifier)
+          .setStatus(task.id, 'done'),
+    );
+    if (!completed || !mounted) {
       return;
     }
     if (ref.read(timerEngineProvider).value?.active != null) {
       return;
     }
     ref.invalidate(completedTimerSessionsProvider(task.id));
-    try {
-      await ref
-          .read(tasksProvider(task.listId).notifier)
-          .setStatus(task.id, 'done');
-      if (!mounted) return;
-      setState(() => _taskCompleted = true);
-      await _showUndo();
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_l10n.focusTaskCompleteFailed)));
-    }
+    setState(() => _taskCompleted = true);
+    await _showUndo();
   }
 
   Future<void> _showUndo() async {
@@ -971,9 +962,14 @@ class _FocusCenteredState extends StatelessWidget {
 }
 
 class _FocusErrorState extends StatelessWidget {
-  const _FocusErrorState({required this.inverse, required this.onRetry});
+  const _FocusErrorState({
+    required this.inverse,
+    required this.onRetry,
+    required this.onExit,
+  });
   final bool inverse;
   final VoidCallback onRetry;
+  final VoidCallback onExit;
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -986,6 +982,12 @@ class _FocusErrorState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              IconButton(
+                onPressed: onExit,
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                icon: const Icon(LucideIcons.arrowLeft300),
+                color: foreground,
+              ),
               Icon(LucideIcons.cloudOff300, color: AppColors.coral),
               const SizedBox(height: AppSpacing.sm),
               Text(
