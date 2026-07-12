@@ -9,9 +9,9 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use thiserror::Error;
 use todori_domain::{
     fractional_index_after, new_default_list, validate_active_timer_session,
-    validate_completed_timer_session, ActiveTimerSession, CivilDate, CompletedTimerSession,
-    IanaTimeZone, List, Task, TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase,
-    TimerRunState, UtcInstant, Uuid,
+    validate_active_timer_update, validate_completed_timer_session, ActiveTimerSession, CivilDate,
+    CompletedTimerSession, DomainError, IanaTimeZone, List, Task, TaskDue, TaskStatus,
+    TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
@@ -111,6 +111,10 @@ const MIGRATIONS: &[Migration] = &[
 pub enum StorageError {
     #[error("record not found: {0}")]
     NotFound(Uuid),
+    #[error("another active timer already exists: {0}")]
+    ActiveTimerConflict(Uuid),
+    #[error("invalid active timer update: {0}")]
+    InvalidActiveTimerUpdate(#[source] DomainError),
     #[error("invalid task status in database: {0}")]
     InvalidStatus(String),
     #[error("invalid undo operation in database: {0}")]
@@ -502,12 +506,17 @@ pub trait TaskRepository {
 /// Device-local active Timer and immutable completed work sessions.
 pub trait TimerSessionRepository {
     fn load_active(&self) -> Result<Option<ActiveTimerSession>, StorageError>;
-    fn put_active(
+    fn start_active(
         &mut self,
         session: ActiveTimerSession,
         updated_at: i64,
     ) -> Result<(), StorageError>;
-    fn clear_active(&mut self) -> Result<bool, StorageError>;
+    fn update_active(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError>;
+    fn clear_active(&mut self, expected_session_id: Uuid) -> Result<bool, StorageError>;
     fn clear_active_for_task(&mut self, task_id: Uuid) -> Result<bool, StorageError>;
     fn get_completed(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError>;
     /// Returns false for an exact immutable replay and rejects differing data.
@@ -645,6 +654,22 @@ impl<'connection> SqliteWriteTx<'connection> {
 
     pub fn get_timer_session(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
         get_completed_timer_session_on(&self.transaction, id)
+    }
+
+    pub fn start_active_timer_session(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        start_active_timer_session_on(&self.transaction, session, updated_at)
+    }
+
+    pub fn update_active_timer_session(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        update_active_timer_session_on(&self.transaction, session, updated_at)
     }
 
     pub fn list_timer_sessions_by_task(
@@ -2905,53 +2930,27 @@ impl TimerSessionRepository for SqliteTimerSessionRepository {
             .transpose()
     }
 
-    fn put_active(
+    fn start_active(
         &mut self,
         session: ActiveTimerSession,
         updated_at: i64,
     ) -> Result<(), StorageError> {
-        validate_active_timer_session(&session)
-            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
-        if let Some(task_id) = session.task_id {
-            require_existing_timer_task(&self.connection, task_id)?;
-        }
-        self.connection.execute(
-            "INSERT INTO active_timer_session (
-                 singleton, session_id, task_id, mode, phase, state, started_at,
-                 last_resumed_at, accumulated_active_ms, target_duration_ms, updated_at
-             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(singleton) DO UPDATE SET
-                 session_id = excluded.session_id,
-                 task_id = excluded.task_id,
-                 mode = excluded.mode,
-                 phase = excluded.phase,
-                 state = excluded.state,
-                 started_at = excluded.started_at,
-                 last_resumed_at = excluded.last_resumed_at,
-                 accumulated_active_ms = excluded.accumulated_active_ms,
-                 target_duration_ms = excluded.target_duration_ms,
-                 updated_at = excluded.updated_at",
-            params![
-                session.session_id.to_string(),
-                session.task_id.map(|id| id.to_string()),
-                timer_mode_str(session.mode),
-                timer_phase_str(session.phase),
-                timer_run_state_str(session.state),
-                session.started_at,
-                session.last_resumed_at,
-                session.accumulated_active_ms,
-                session.target_duration_ms,
-                updated_at,
-            ],
-        )?;
-        Ok(())
+        start_active_timer_session_on(&self.connection, session, updated_at)
     }
 
-    fn clear_active(&mut self) -> Result<bool, StorageError> {
-        Ok(self
-            .connection
-            .execute("DELETE FROM active_timer_session WHERE singleton = 1", [])?
-            == 1)
+    fn update_active(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        update_active_timer_session_on(&self.connection, session, updated_at)
+    }
+
+    fn clear_active(&mut self, expected_session_id: Uuid) -> Result<bool, StorageError> {
+        Ok(self.connection.execute(
+            "DELETE FROM active_timer_session WHERE singleton = 1 AND session_id = ?1",
+            [expected_session_id.to_string()],
+        )? == 1)
     }
 
     fn clear_active_for_task(&mut self, task_id: Uuid) -> Result<bool, StorageError> {
@@ -3013,6 +3012,87 @@ impl TimerSessionRepository for SqliteTimerSessionRepository {
             .execute("DELETE FROM timer_sessions WHERE id = ?1", [id.to_string()])?
             == 1)
     }
+}
+
+fn start_active_timer_session_on(
+    connection: &Connection,
+    session: ActiveTimerSession,
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    validate_active_timer_session(&session).map_err(StorageError::InvalidActiveTimerUpdate)?;
+    if let Some(task_id) = session.task_id {
+        require_existing_timer_task(connection, task_id)?;
+    }
+    let changed = connection.execute(
+        "INSERT INTO active_timer_session (
+             singleton, session_id, task_id, mode, phase, state, started_at,
+             last_resumed_at, accumulated_active_ms, target_duration_ms, updated_at
+         ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(singleton) DO NOTHING",
+        params![
+            session.session_id.to_string(),
+            session.task_id.map(|id| id.to_string()),
+            timer_mode_str(session.mode),
+            timer_phase_str(session.phase),
+            timer_run_state_str(session.state),
+            session.started_at,
+            session.last_resumed_at,
+            session.accumulated_active_ms,
+            session.target_duration_ms,
+            updated_at,
+        ],
+    )?;
+    if changed == 0 {
+        let existing = load_active_timer_session_on(connection)?.ok_or_else(|| {
+            StorageError::IncompatibleSchema("active timer conflict without row".to_string())
+        })?;
+        return Err(StorageError::ActiveTimerConflict(existing.session_id));
+    }
+    Ok(())
+}
+
+fn update_active_timer_session_on(
+    connection: &Connection,
+    session: ActiveTimerSession,
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    let current = load_active_timer_session_on(connection)?
+        .ok_or(StorageError::NotFound(session.session_id))?;
+    validate_active_timer_update(&current, &session)
+        .map_err(StorageError::InvalidActiveTimerUpdate)?;
+    let changed = connection.execute(
+        "UPDATE active_timer_session
+         SET state = ?1, last_resumed_at = ?2, accumulated_active_ms = ?3,
+             target_duration_ms = ?4, updated_at = ?5
+         WHERE singleton = 1 AND session_id = ?6",
+        params![
+            timer_run_state_str(session.state),
+            session.last_resumed_at,
+            session.accumulated_active_ms,
+            session.target_duration_ms,
+            updated_at,
+            session.session_id.to_string(),
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::NotFound(session.session_id));
+    }
+    Ok(())
+}
+
+fn load_active_timer_session_on(
+    connection: &Connection,
+) -> Result<Option<ActiveTimerSession>, StorageError> {
+    connection
+        .query_row(
+            "SELECT session_id, task_id, mode, phase, state, started_at,
+                    last_resumed_at, accumulated_active_ms, target_duration_ms
+             FROM active_timer_session WHERE singleton = 1",
+            [],
+            row_to_active_timer_session,
+        )
+        .optional()?
+        .transpose()
 }
 
 fn list_completed_timer_sessions_on<P: rusqlite::Params>(
@@ -6749,7 +6829,7 @@ mod tests {
                 18
             );
             let mut repository = SqliteTimerSessionRepository::new(connection);
-            repository.put_active(active.clone(), 1_200).unwrap();
+            repository.start_active(active.clone(), 1_200).unwrap();
             assert!(repository.insert_completed(completed.clone()).unwrap());
             assert!(!repository.insert_completed(completed.clone()).unwrap());
             let mut conflicting = completed.clone();
@@ -6762,7 +6842,7 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTimerSessionRepository::new(connection);
-        assert_eq!(repository.load_active().unwrap(), Some(active));
+        assert_eq!(repository.load_active().unwrap(), Some(active.clone()));
         assert_eq!(repository.get_completed(completed.id).unwrap(), completed);
         let paused = ActiveTimerSession {
             session_id: Uuid::now_v7(),
@@ -6775,9 +6855,12 @@ mod tests {
             accumulated_active_ms: 2_000,
             target_duration_ms: Some(25 * 60 * 1_000),
         };
-        repository.put_active(paused.clone(), 12_000).unwrap();
-        assert_eq!(repository.load_active().unwrap(), Some(paused));
-        assert!(repository.clear_active().unwrap());
+        assert!(repository.clear_active(active.session_id).unwrap());
+        repository.start_active(paused.clone(), 12_000).unwrap();
+        assert_eq!(repository.load_active().unwrap(), Some(paused.clone()));
+        assert!(!repository.clear_active(Uuid::now_v7()).unwrap());
+        assert_eq!(repository.load_active().unwrap(), Some(paused.clone()));
+        assert!(repository.clear_active(paused.session_id).unwrap());
         assert_eq!(repository.load_active().unwrap(), None);
 
         assert!(repository
@@ -6841,7 +6924,7 @@ mod tests {
             target_duration_ms: None,
         };
         SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
-            .put_active(active.clone(), 3_000)
+            .start_active(active.clone(), 3_000)
             .unwrap();
         let completed = CompletedTimerSession {
             id: active.session_id,
@@ -6884,6 +6967,75 @@ mod tests {
             SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
         assert_eq!(repository.load_active().unwrap(), None);
         assert_eq!(repository.get_completed(completed.id).unwrap(), completed);
+    }
+
+    #[test]
+    fn active_timer_start_conflicts_and_update_preserves_session_contract() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Timer".into(), "a0".into(), 1_000).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), 1_000).unwrap();
+        SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(list)
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let running = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Pomodoro,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Running,
+            started_at: 2_000,
+            last_resumed_at: Some(2_000),
+            accumulated_active_ms: 0,
+            target_duration_ms: Some(25_000),
+        };
+        let mut repository =
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        repository.start_active(running.clone(), 2_000).unwrap();
+
+        let mut competing = running.clone();
+        competing.session_id = Uuid::now_v7();
+        assert!(matches!(
+            repository.start_active(competing, 2_001),
+            Err(StorageError::ActiveTimerConflict(id)) if id == running.session_id
+        ));
+        assert_eq!(repository.load_active().unwrap(), Some(running.clone()));
+
+        let mut changed_identity = running.clone();
+        changed_identity.session_id = Uuid::now_v7();
+        assert!(matches!(
+            repository.update_active(changed_identity, 2_002),
+            Err(StorageError::InvalidActiveTimerUpdate(
+                DomainError::ActiveTimerIdentityChanged
+            ))
+        ));
+
+        let mut paused = running.clone();
+        paused.state = TimerRunState::Paused;
+        paused.last_resumed_at = None;
+        paused.accumulated_active_ms = 500;
+        repository.update_active(paused.clone(), 2_500).unwrap();
+        assert_eq!(repository.load_active().unwrap(), Some(paused.clone()));
+
+        let mut injected = paused.clone();
+        injected.accumulated_active_ms += 1;
+        assert!(matches!(
+            repository.update_active(injected, 2_501),
+            Err(StorageError::InvalidActiveTimerUpdate(
+                DomainError::ActiveTimerProgressChangedOutsidePause
+            ))
+        ));
+
+        let mut reduced_target = paused;
+        reduced_target.target_duration_ms = Some(20_000);
+        assert!(matches!(
+            repository.update_active(reduced_target, 2_502),
+            Err(StorageError::InvalidActiveTimerUpdate(
+                DomainError::ActiveTimerTargetRegressed
+            ))
+        ));
     }
 
     #[test]

@@ -317,21 +317,41 @@ impl TodoriClient {
         self.with_timer_repository(|repository| Ok(repository.load_active()?))
     }
 
-    pub fn save_active_timer_session(
+    pub fn start_active_timer_session(
         &self,
         session: ActiveTimerSession,
     ) -> Result<(), ClientError> {
         let _guard = self.operation_guard()?;
         let updated_at = now_ms()?;
         self.with_timer_repository(|repository| {
-            repository.put_active(session, updated_at)?;
+            match repository.start_active(session, updated_at) {
+                Ok(()) => Ok(()),
+                Err(StorageError::ActiveTimerConflict(active_id)) => {
+                    Err(ClientError::ActiveTimerConflict(active_id))
+                }
+                Err(error) => Err(error.into()),
+            }
+        })
+    }
+
+    pub fn update_active_timer_session(
+        &self,
+        session: ActiveTimerSession,
+    ) -> Result<(), ClientError> {
+        let _guard = self.operation_guard()?;
+        let updated_at = now_ms()?;
+        self.with_timer_repository(|repository| {
+            repository.update_active(session, updated_at)?;
             Ok(())
         })
     }
 
-    pub fn clear_active_timer_session(&self) -> Result<bool, ClientError> {
+    pub fn discard_active_timer_session(
+        &self,
+        expected_session_id: Uuid,
+    ) -> Result<bool, ClientError> {
         let _guard = self.operation_guard()?;
-        self.with_timer_repository(|repository| Ok(repository.clear_active()?))
+        self.with_timer_repository(|repository| Ok(repository.clear_active(expected_session_id)?))
     }
 
     pub fn get_completed_timer_sessions(
@@ -1041,6 +1061,71 @@ mod tests {
     const BASE_MS: i64 = 1_799_500_000_000;
 
     #[test]
+    fn timer_start_and_update_are_conditional_and_never_change_task_status() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("timer-lifecycle.sqlite3");
+        let list = new_list("Timer".into(), "a0".into(), BASE_MS).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list)
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+        let running = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Running,
+            started_at: BASE_MS + 1_000,
+            last_resumed_at: Some(BASE_MS + 1_000),
+            accumulated_active_ms: 0,
+            target_duration_ms: None,
+        };
+        client.start_active_timer_session(running.clone()).unwrap();
+        let mut competing = running.clone();
+        competing.session_id = Uuid::now_v7();
+        assert!(matches!(
+            client.start_active_timer_session(competing),
+            Err(ClientError::ActiveTimerConflict(id)) if id == running.session_id
+        ));
+
+        let mut paused = running;
+        paused.state = TimerRunState::Paused;
+        paused.last_resumed_at = None;
+        paused.accumulated_active_ms = 1_000;
+        client.update_active_timer_session(paused.clone()).unwrap();
+        assert_eq!(client.get_active_timer_session().unwrap(), Some(paused));
+        assert!(!client.discard_active_timer_session(Uuid::now_v7()).unwrap());
+        let active_id = client
+            .get_active_timer_session()
+            .unwrap()
+            .expect("active remains after stale discard")
+            .session_id;
+        assert_eq!(
+            SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+                .get(task.id)
+                .unwrap()
+                .status,
+            task.status
+        );
+        assert!(client.discard_active_timer_session(active_id).unwrap());
+    }
+
+    #[test]
     fn finish_active_timer_enqueue_failure_rolls_back_without_changing_task_status() {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("timer-finish.sqlite3");
@@ -1064,7 +1149,7 @@ mod tests {
             target_duration_ms: None,
         };
         SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
-            .put_active(active.clone(), BASE_MS + 31_000)
+            .start_active(active.clone(), BASE_MS + 31_000)
             .unwrap();
         let completed = CompletedTimerSession {
             id: active.session_id,
@@ -1158,7 +1243,7 @@ mod tests {
             target_duration_ms: None,
         };
         SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
-            .put_active(active.clone(), BASE_MS + 31_000)
+            .start_active(active.clone(), BASE_MS + 31_000)
             .unwrap();
         let completed = CompletedTimerSession {
             id: active.session_id,

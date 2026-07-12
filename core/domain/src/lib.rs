@@ -15,10 +15,10 @@ pub use sort_order::{
     MAX_RANK, MIN_RANK,
 };
 pub use usecases::{
-    archive_list, new_default_list, new_list, new_task, rename_list, restored_active_duration_ms,
-    transition_task, unarchive_list, update_due, update_estimated_minutes, update_note,
-    update_priority, update_scheduled_at, update_title, validate_active_timer_session,
-    validate_completed_timer_session, validate_parent, validate_parent_for, DomainError,
-    MAX_TIMER_SESSION_DURATION_MS,
+    archive_list, new_default_list, new_list, new_task, pomodoro_target_reached_at, rename_list,
+    restored_active_duration_ms, transition_task, unarchive_list, update_due,
+    update_estimated_minutes, update_note, update_priority, update_scheduled_at, update_title,
+    validate_active_timer_session, validate_active_timer_update, validate_completed_timer_session,
+    validate_parent, validate_parent_for, DomainError, MAX_TIMER_SESSION_DURATION_MS,
 };
 pub use uuid::Uuid;

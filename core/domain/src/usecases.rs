@@ -54,6 +54,22 @@ pub enum DomainError {
     InvalidTimerDuration,
     #[error("timer duration arithmetic overflowed")]
     TimerDurationOverflow,
+    #[error("active timer identity fields cannot change")]
+    ActiveTimerIdentityChanged,
+    #[error("active timer accumulated duration cannot decrease")]
+    ActiveTimerProgressRegressed,
+    #[error("active timer accumulated duration can advance only when running becomes paused")]
+    ActiveTimerProgressChangedOutsidePause,
+    #[error("active timer target duration cannot decrease or be removed")]
+    ActiveTimerTargetRegressed,
+    #[error("timer target instant is available only for targeted Pomodoro sessions")]
+    TimerTargetUnavailable,
+    #[error("Pomodoro requires a target and Stopwatch must not have one")]
+    InvalidTimerTarget,
+    #[error("paused timer has no running target instant")]
+    TimerTargetPaused,
+    #[error("timer target has already been reached")]
+    TimerTargetAlreadyReached,
 }
 
 /// Active Timerの永続値がADR-018の復元契約を満たすか検証する。
@@ -65,6 +81,9 @@ pub fn validate_active_timer_session(session: &ActiveTimerSession) -> Result<(),
     }
     if session.mode == TimerMode::Stopwatch && session.phase != TimerPhase::Work {
         return Err(DomainError::InvalidTimerModePhase);
+    }
+    if (session.mode == TimerMode::Pomodoro) != session.target_duration_ms.is_some() {
+        return Err(DomainError::InvalidTimerTarget);
     }
     let task_link_is_valid = match session.phase {
         TimerPhase::Work => session.task_id.is_some(),
@@ -119,6 +138,75 @@ pub fn restored_active_duration_ms(
         return Err(DomainError::InvalidTimerDuration);
     }
     Ok(duration)
+}
+
+/// Validates a same-session durable update without allowing a new Timer to
+/// overwrite the device's current active identity.
+pub fn validate_active_timer_update(
+    current: &ActiveTimerSession,
+    updated: &ActiveTimerSession,
+) -> Result<(), DomainError> {
+    validate_active_timer_session(current)?;
+    validate_active_timer_session(updated)?;
+    if current.session_id != updated.session_id
+        || current.task_id != updated.task_id
+        || current.mode != updated.mode
+        || current.phase != updated.phase
+        || current.started_at != updated.started_at
+    {
+        return Err(DomainError::ActiveTimerIdentityChanged);
+    }
+    if updated.accumulated_active_ms < current.accumulated_active_ms {
+        return Err(DomainError::ActiveTimerProgressRegressed);
+    }
+    let progress_may_advance =
+        current.state == TimerRunState::Running && updated.state == TimerRunState::Paused;
+    if !progress_may_advance && updated.accumulated_active_ms != current.accumulated_active_ms {
+        return Err(DomainError::ActiveTimerProgressChangedOutsidePause);
+    }
+    if current.state == TimerRunState::Running
+        && updated.state == TimerRunState::Running
+        && current.last_resumed_at != updated.last_resumed_at
+    {
+        return Err(DomainError::InvalidTimerRunState);
+    }
+    match (current.target_duration_ms, updated.target_duration_ms) {
+        (Some(_), None) => return Err(DomainError::ActiveTimerTargetRegressed),
+        (Some(current), Some(updated)) if updated < current => {
+            return Err(DomainError::ActiveTimerTargetRegressed);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Returns the exact wall-clock instant when a running Pomodoro reaches its
+/// target, excluding active time accumulated before the latest resume.
+pub fn pomodoro_target_reached_at(session: &ActiveTimerSession) -> Result<i64, DomainError> {
+    validate_active_timer_session(session)?;
+    if session.mode != TimerMode::Pomodoro {
+        return Err(DomainError::TimerTargetUnavailable);
+    }
+    let target = session
+        .target_duration_ms
+        .ok_or(DomainError::TimerTargetUnavailable)?;
+    if session.state == TimerRunState::Paused {
+        return Err(DomainError::TimerTargetPaused);
+    }
+    let remaining = target
+        .checked_sub(session.accumulated_active_ms)
+        .ok_or(DomainError::TimerDurationOverflow)?;
+    if remaining <= 0 {
+        return Err(DomainError::TimerTargetAlreadyReached);
+    }
+    let last_resumed_at = session
+        .last_resumed_at
+        .ok_or(DomainError::InvalidTimerRunState)?;
+    let reached_at = last_resumed_at
+        .checked_add(remaining)
+        .ok_or(DomainError::TimerDurationOverflow)?;
+    UtcInstant::from_millis(reached_at).map_err(|_| DomainError::TimerDurationOverflow)?;
+    Ok(reached_at)
 }
 
 /// 同期対象のimmutable work実績を厳密検証する。
@@ -504,7 +592,22 @@ mod tests {
 
         let mut work = active_timer(TimerRunState::Paused, TimerPhase::Work);
         work.mode = TimerMode::Stopwatch;
+        work.target_duration_ms = None;
         assert_eq!(validate_active_timer_session(&work), Ok(()));
+
+        let mut pomodoro_without_target = active_timer(TimerRunState::Paused, TimerPhase::Work);
+        pomodoro_without_target.target_duration_ms = None;
+        assert_eq!(
+            validate_active_timer_session(&pomodoro_without_target),
+            Err(DomainError::InvalidTimerTarget)
+        );
+
+        let mut stopwatch_with_target = work;
+        stopwatch_with_target.target_duration_ms = Some(25_000);
+        assert_eq!(
+            validate_active_timer_session(&stopwatch_with_target),
+            Err(DomainError::InvalidTimerTarget)
+        );
     }
 
     #[test]
@@ -521,6 +624,76 @@ mod tests {
         assert_eq!(
             validate_active_timer_session(&paused),
             Err(DomainError::InvalidTimerRunState)
+        );
+    }
+
+    #[test]
+    fn active_timer_update_preserves_identity_progress_and_target() {
+        let current = active_timer(TimerRunState::Running, TimerPhase::Work);
+        let mut paused = current.clone();
+        paused.state = TimerRunState::Paused;
+        paused.last_resumed_at = None;
+        paused.accumulated_active_ms += 1_000;
+        assert_eq!(validate_active_timer_update(&current, &paused), Ok(()));
+
+        let mut changed_identity = paused.clone();
+        changed_identity.session_id = Uuid::now_v7();
+        assert_eq!(
+            validate_active_timer_update(&paused, &changed_identity),
+            Err(DomainError::ActiveTimerIdentityChanged)
+        );
+
+        let mut regressed = paused.clone();
+        regressed.accumulated_active_ms -= 1;
+        assert_eq!(
+            validate_active_timer_update(&paused, &regressed),
+            Err(DomainError::ActiveTimerProgressRegressed)
+        );
+
+        let mut target_removed = paused.clone();
+        target_removed.target_duration_ms = Some(20_000);
+        assert_eq!(
+            validate_active_timer_update(&paused, &target_removed),
+            Err(DomainError::ActiveTimerTargetRegressed)
+        );
+
+        let mut injected_progress = paused.clone();
+        injected_progress.accumulated_active_ms += 1_000;
+        assert_eq!(
+            validate_active_timer_update(&paused, &injected_progress),
+            Err(DomainError::ActiveTimerProgressChangedOutsidePause)
+        );
+    }
+
+    #[test]
+    fn pomodoro_target_instant_excludes_paused_time_and_types_terminal_states() {
+        let mut running = active_timer(TimerRunState::Running, TimerPhase::Work);
+        running.accumulated_active_ms = 5_000;
+        running.target_duration_ms = Some(25_000);
+        running.last_resumed_at = Some(NOW + 100_000);
+        assert_eq!(pomodoro_target_reached_at(&running), Ok(NOW + 120_000));
+
+        let mut paused = running.clone();
+        paused.state = TimerRunState::Paused;
+        paused.last_resumed_at = None;
+        assert_eq!(
+            pomodoro_target_reached_at(&paused),
+            Err(DomainError::TimerTargetPaused)
+        );
+
+        let mut reached = running.clone();
+        reached.accumulated_active_ms = 25_000;
+        assert_eq!(
+            pomodoro_target_reached_at(&reached),
+            Err(DomainError::TimerTargetAlreadyReached)
+        );
+
+        let mut overflow = running;
+        overflow.last_resumed_at =
+            Some(chrono::DateTime::<chrono::Utc>::MAX_UTC.timestamp_millis() - 10);
+        assert_eq!(
+            pomodoro_target_reached_at(&overflow),
+            Err(DomainError::TimerDurationOverflow)
         );
     }
 

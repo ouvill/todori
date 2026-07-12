@@ -133,11 +133,22 @@ Future<List<TaskDto>> getTasks({required String listId}) =>
 Future<ActiveTimerSessionDto?> getActiveTimerSession() =>
     RustLib.instance.api.crateApiGetActiveTimerSession();
 
-Future<void> saveActiveTimerSession({required ActiveTimerSessionDto session}) =>
-    RustLib.instance.api.crateApiSaveActiveTimerSession(session: session);
+Future<ActiveTimerStartOutcomeDto> startActiveTimerSession({
+  required ActiveTimerSessionDto session,
+}) => RustLib.instance.api.crateApiStartActiveTimerSession(session: session);
 
-Future<bool> discardActiveTimerSession() =>
-    RustLib.instance.api.crateApiDiscardActiveTimerSession();
+Future<void> updateActiveTimerSession({
+  required ActiveTimerSessionDto session,
+}) => RustLib.instance.api.crateApiUpdateActiveTimerSession(session: session);
+
+Future<DateTime> pomodoroTargetReachedAt({
+  required ActiveTimerSessionDto session,
+}) => RustLib.instance.api.crateApiPomodoroTargetReachedAt(session: session);
+
+Future<bool> discardActiveTimerSession({required String expectedSessionId}) =>
+    RustLib.instance.api.crateApiDiscardActiveTimerSession(
+      expectedSessionId: expectedSessionId,
+    );
 
 Future<bool> finishActiveTimerSession({
   required CompletedTimerSessionDto session,
@@ -349,6 +360,8 @@ class ActiveTimerSessionDto {
           accumulatedActiveMs == other.accumulatedActiveMs &&
           targetDurationMs == other.targetDurationMs;
 }
+
+enum ActiveTimerStartOutcomeDto { started, conflict }
 
 class CalendarOccurrenceDto {
   final TaskDto task;

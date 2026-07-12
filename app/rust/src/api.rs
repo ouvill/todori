@@ -2,11 +2,12 @@ use std::fmt::Write as _;
 
 use todori_client::chrono::{DateTime, Utc};
 use todori_client::{
-    AccountAuthResult, AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind,
-    CalendarOccurrenceView, CalendarRange, CivilDate, CompletedTimerSession, CreateTaskCommand,
-    HomeTaskView, List, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task,
-    TaskDue, TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase,
-    TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
+    pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
+    AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind, CalendarOccurrenceView,
+    CalendarRange, CivilDate, ClientError, CompletedTimerSession, CreateTaskCommand, HomeTaskView,
+    List, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue,
+    TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase, TimerRunState,
+    UpdateTaskCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -128,6 +129,11 @@ pub enum TimerRunStateDto {
 pub enum TimerFinishKindDto {
     Completed,
     Interrupted,
+}
+
+pub enum ActiveTimerStartOutcomeDto {
+    Started,
+    Conflict,
 }
 
 pub struct ActiveTimerSessionDto {
@@ -371,12 +377,29 @@ pub fn get_active_timer_session() -> Result<Option<ActiveTimerSessionDto>, Strin
         .map(|session| session.map(active_timer_to_dto))
 }
 
-pub fn save_active_timer_session(session: ActiveTimerSessionDto) -> Result<(), String> {
-    client_result(client()?.save_active_timer_session(parse_active_timer(session)?))
+pub fn start_active_timer_session(
+    session: ActiveTimerSessionDto,
+) -> Result<ActiveTimerStartOutcomeDto, String> {
+    match client()?.start_active_timer_session(parse_active_timer(session)?) {
+        Ok(()) => Ok(ActiveTimerStartOutcomeDto::Started),
+        Err(ClientError::ActiveTimerConflict(_)) => Ok(ActiveTimerStartOutcomeDto::Conflict),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
-pub fn discard_active_timer_session() -> Result<bool, String> {
-    client_result(client()?.clear_active_timer_session())
+pub fn update_active_timer_session(session: ActiveTimerSessionDto) -> Result<(), String> {
+    client_result(client()?.update_active_timer_session(parse_active_timer(session)?))
+}
+
+pub fn pomodoro_target_reached_at(session: ActiveTimerSessionDto) -> Result<DateTime<Utc>, String> {
+    let reached_at = domain_pomodoro_target_reached_at(&parse_active_timer(session)?)
+        .map_err(|error| error.to_string())?;
+    DateTime::<Utc>::from_timestamp_millis(reached_at)
+        .ok_or_else(|| "timer target instant is out of range".to_string())
+}
+
+pub fn discard_active_timer_session(expected_session_id: String) -> Result<bool, String> {
+    client_result(client()?.discard_active_timer_session(parse_uuid(&expected_session_id)?))
 }
 
 pub fn finish_active_timer_session(session: CompletedTimerSessionDto) -> Result<bool, String> {
@@ -919,8 +942,12 @@ mod tests {
         let _: fn(String, Option<String>, Option<String>) -> Result<TaskDto, String> = reorder_task;
         let _: fn(String) -> Result<Vec<TaskDto>, String> = get_tasks;
         let _: fn() -> Result<Option<ActiveTimerSessionDto>, String> = get_active_timer_session;
-        let _: fn(ActiveTimerSessionDto) -> Result<(), String> = save_active_timer_session;
-        let _: fn() -> Result<bool, String> = discard_active_timer_session;
+        let _: fn(ActiveTimerSessionDto) -> Result<ActiveTimerStartOutcomeDto, String> =
+            start_active_timer_session;
+        let _: fn(ActiveTimerSessionDto) -> Result<(), String> = update_active_timer_session;
+        let _: fn(ActiveTimerSessionDto) -> Result<DateTime<Utc>, String> =
+            pomodoro_target_reached_at;
+        let _: fn(String) -> Result<bool, String> = discard_active_timer_session;
         let _: fn(CompletedTimerSessionDto) -> Result<bool, String> = finish_active_timer_session;
         let _: fn(String) -> Result<Vec<CompletedTimerSessionDto>, String> =
             get_completed_timer_sessions;

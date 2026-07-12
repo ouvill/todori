@@ -34,6 +34,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ActiveTimerSessionDto dco_decode_active_timer_session_dto(dynamic raw);
 
   @protected
+  ActiveTimerStartOutcomeDto dco_decode_active_timer_start_outcome_dto(
+    dynamic raw,
+  );
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -198,6 +203,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ActiveTimerSessionDto sse_decode_active_timer_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ActiveTimerStartOutcomeDto sse_decode_active_timer_start_outcome_dto(
     SseDeserializer deserializer,
   );
 
@@ -389,6 +399,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_active_timer_session_dto(
     ActiveTimerSessionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_active_timer_start_outcome_dto(
+    ActiveTimerStartOutcomeDto self,
     SseSerializer serializer,
   );
 

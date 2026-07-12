@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 412714176;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -425077568;
 
 // Section: executor
 
@@ -509,10 +509,12 @@ fn wire__crate__api__discard_active_timer_session_impl(
             };
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_expected_session_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
-                    let output_ok = crate::api::discard_active_timer_session()?;
+                    let output_ok =
+                        crate::api::discard_active_timer_session(api_expected_session_id)?;
                     Ok(output_ok)
                 })())
             }
@@ -1174,6 +1176,39 @@ fn wire__crate__api__list_pending_reminders_impl(
         },
     )
 }
+fn wire__crate__api__pomodoro_target_reached_at_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "pomodoro_target_reached_at",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session = <crate::api::ActiveTimerSessionDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::pomodoro_target_reached_at(api_session)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__rename_list_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1241,39 +1276,6 @@ fn wire__crate__api__reorder_task_impl(
                         api_previous_task_id,
                         api_next_task_id,
                     )?;
-                    Ok(output_ok)
-                })())
-            }
-        },
-    )
-}
-fn wire__crate__api__save_active_timer_session_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "save_active_timer_session",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_session = <crate::api::ActiveTimerSessionDto>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| {
-                transform_result_sse::<_, String>((move || {
-                    let output_ok = crate::api::save_active_timer_session(api_session)?;
                     Ok(output_ok)
                 })())
             }
@@ -1485,6 +1487,39 @@ fn wire__crate__api__snooze_reminder_impl(
         },
     )
 }
+fn wire__crate__api__start_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "start_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session = <crate::api::ActiveTimerSessionDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::start_active_timer_session(api_session)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__sync_now_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1580,6 +1615,39 @@ fn wire__crate__api__undo_task_operation_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::undo_task_operation(api_undo_id)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__update_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "update_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session = <crate::api::ActiveTimerSessionDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::update_active_timer_session(api_session)?;
                     Ok(output_ok)
                 })())
             }
@@ -1710,6 +1778,18 @@ impl SseDecode for crate::api::ActiveTimerSessionDto {
             last_resumed_at: var_lastResumedAt,
             accumulated_active_ms: var_accumulatedActiveMs,
             target_duration_ms: var_targetDurationMs,
+        };
+    }
+}
+
+impl SseDecode for crate::api::ActiveTimerStartOutcomeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::ActiveTimerStartOutcomeDto::Started,
+            1 => crate::api::ActiveTimerStartOutcomeDto::Conflict,
+            _ => unreachable!("Invalid variant for ActiveTimerStartOutcomeDto: {}", inner),
         };
     }
 }
@@ -2324,19 +2404,21 @@ fn pde_ffi_dispatcher_primary_impl(
         31 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
         32 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
         33 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__save_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__pomodoro_target_reached_at_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
         37 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
         38 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
         39 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
         40 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
         41 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
         42 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__start_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__update_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2425,6 +2507,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::ActiveTimerSessionDto>
     for crate::api::ActiveTimerSessionDto
 {
     fn into_into_dart(self) -> crate::api::ActiveTimerSessionDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::ActiveTimerStartOutcomeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Started => 0.into_dart(),
+            Self::Conflict => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::ActiveTimerStartOutcomeDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::ActiveTimerStartOutcomeDto>
+    for crate::api::ActiveTimerStartOutcomeDto
+{
+    fn into_into_dart(self) -> crate::api::ActiveTimerStartOutcomeDto {
         self
     }
 }
@@ -2851,6 +2954,22 @@ impl SseEncode for crate::api::ActiveTimerSessionDto {
         <Option<chrono::DateTime<chrono::Utc>>>::sse_encode(self.last_resumed_at, serializer);
         <i64>::sse_encode(self.accumulated_active_ms, serializer);
         <Option<i64>>::sse_encode(self.target_duration_ms, serializer);
+    }
+}
+
+impl SseEncode for crate::api::ActiveTimerStartOutcomeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::ActiveTimerStartOutcomeDto::Started => 0,
+                crate::api::ActiveTimerStartOutcomeDto::Conflict => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
     }
 }
 
