@@ -6,7 +6,7 @@
 
 ## 現在
 
-- 進行中: なし。
+- 進行中: **task-106 Pomodoro / Stopwatch / Focus Experience** — conditional active、wall-clock engine、通知、専用Focus route、task swipe、見積対実績を実装する。
 - 保留: なし。
 - 最新の完了: **task-105 Timer Sync Foundation** — task statusと直交するlocal active state、Tenant Root DEK、completed work session同期、削除tombstoneを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
