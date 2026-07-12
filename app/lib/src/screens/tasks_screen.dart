@@ -306,7 +306,7 @@ class _TasksBody extends StatefulWidget {
 
 class _TasksBodyState extends State<_TasksBody> {
   bool _showCompleted = false;
-  final Set<_HomeSectionKind> _collapsedHomeSections = {};
+  bool _isTodayCollapsed = false;
   final Map<String, _PendingHomeCompletion> _pendingHomeCompletions = {};
   final Map<String, Future<bool>> _homeCompletionOperations = {};
   final Set<String> _optimisticHomeCompletionIds = {};
@@ -394,13 +394,11 @@ class _TasksBodyState extends State<_TasksBody> {
                       else
                         _HomeSectionsPanelSliver(
                           sections: visibleHomeSections,
-                          collapsedSections: _collapsedHomeSections,
+                          isTodayCollapsed: _isTodayCollapsed,
                           onToggleSection: (section) {
-                            setState(() {
-                              if (!_collapsedHomeSections.add(section)) {
-                                _collapsedHomeSections.remove(section);
-                              }
-                            });
+                            setState(
+                              () => _isTodayCollapsed = !_isTodayCollapsed,
+                            );
                           },
                           rowBuilder: (context, row, section) =>
                               _buildHomeTaskRow(
@@ -443,12 +441,7 @@ class _TasksBodyState extends State<_TasksBody> {
                               return _buildHomeTaskRow(
                                 context,
                                 row.node,
-                                row.node.task.due == null
-                                    ? _HomeSectionKind.today
-                                    : _homeSectionForDue(
-                                        row.node.task.due!,
-                                        homeLocalRangesMs(),
-                                      ),
+                                _HomeSectionKind.today,
                                 rootListId: row.rootListId,
                                 parentTaskName: row.parentTaskName,
                               );
@@ -717,9 +710,6 @@ class _TasksBodyState extends State<_TasksBody> {
     final dueLabel = task.due == null
         ? null
         : formatRelativeDueDate(l10n, locale, task.due);
-    final taskDueSection = task.due == null
-        ? section
-        : _homeSectionForDue(task.due!, homeLocalRangesMs());
     final row = _TaskEntryMotion(
       slide: false,
       child: AppHomeTaskRow(
@@ -742,13 +732,18 @@ class _TasksBodyState extends State<_TasksBody> {
             ? ''
             : widget.homeListNameByTaskId[task.id] ?? '',
         dueLabel: dueLabel,
-        dueTone: switch (taskDueSection) {
-          _HomeSectionKind.overdue => HomeDueDateTone.overdue,
-          _HomeSectionKind.today => HomeDueDateTone.today,
-          _ => HomeDueDateTone.future,
-        },
+        dueTone: task.due == null
+            ? HomeDueDateTone.today
+            : switch (_homeDueTiming(task.due!, homeLocalRangesMs())) {
+                _HomeDueTiming.overdue => HomeDueDateTone.overdue,
+                _HomeDueTiming.today => HomeDueDateTone.today,
+                _HomeDueTiming.future => HomeDueDateTone.future,
+              },
         dueSemanticLabel:
-            taskDueSection == _HomeSectionKind.overdue && dueLabel != null
+            task.due != null &&
+                _homeDueTiming(task.due!, homeLocalRangesMs()) ==
+                    _HomeDueTiming.overdue &&
+                dueLabel != null
             ? l10n.taskDueOverdue(dueLabel)
             : null,
         priority: task.priority,
@@ -1592,7 +1587,9 @@ class _HomeClearState extends StatelessWidget {
   }
 }
 
-enum _HomeSectionKind { overdue, today, tomorrow, upcoming }
+enum _HomeSectionKind { today }
+
+enum _HomeDueTiming { overdue, today, future }
 
 class _HomeSectionData {
   const _HomeSectionData({
@@ -1636,13 +1633,13 @@ class _PendingHomeCompletion {
 class _HomeSectionsPanelSliver extends StatelessWidget {
   const _HomeSectionsPanelSliver({
     required this.sections,
-    required this.collapsedSections,
+    required this.isTodayCollapsed,
     required this.onToggleSection,
     required this.rowBuilder,
   });
 
   final List<_HomeSectionData> sections;
-  final Set<_HomeSectionKind> collapsedSections;
+  final bool isTodayCollapsed;
   final ValueChanged<_HomeSectionKind> onToggleSection;
   final Widget Function(
     BuildContext context,
@@ -1658,7 +1655,7 @@ class _HomeSectionsPanelSliver extends StatelessWidget {
         for (var index = 0; index < sections.length; index += 1) ...[
           _HomeSectionSliver(
             data: sections[index],
-            isExpanded: !collapsedSections.contains(sections[index].kind),
+            isExpanded: !isTodayCollapsed,
             onToggle: () => onToggleSection(sections[index].kind),
             rowBuilder: rowBuilder,
           ),
@@ -1753,9 +1750,7 @@ class _HomeSectionHeader extends StatelessWidget {
                   width: 3,
                   height: 18,
                   decoration: BoxDecoration(
-                    color: data.kind == _HomeSectionKind.overdue
-                        ? const Color(0xFFE8755A)
-                        : colorScheme.primary,
+                    color: colorScheme.primary,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -1764,9 +1759,7 @@ class _HomeSectionHeader extends StatelessWidget {
                   child: Text(
                     title,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      color: data.kind == _HomeSectionKind.overdue
-                          ? const Color(0xFFE8755A)
-                          : colorScheme.onSurface,
+                      color: colorScheme.onSurface,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.6,
                     ),
@@ -1823,19 +1816,16 @@ class _HomeCountLabel extends StatelessWidget {
 
 String _homeSectionTitle(AppLocalizations l10n, _HomeSectionKind section) {
   return switch (section) {
-    _HomeSectionKind.overdue => l10n.homeOverdueSectionTitle,
     _HomeSectionKind.today => l10n.todayTitle,
-    _HomeSectionKind.tomorrow => l10n.homeTomorrowSectionTitle,
-    _HomeSectionKind.upcoming => l10n.homeUpcomingSectionTitle,
   };
 }
 
-_HomeSectionKind _homeSectionForDue(
+_HomeDueTiming _homeDueTiming(
   TaskDueDto due,
   ({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs}) ranges,
 ) {
   if (taskDueIsOverdue(due)) {
-    return _HomeSectionKind.overdue;
+    return _HomeDueTiming.overdue;
   }
   final localDate = taskDueLocalDate(due);
   final localMs = DateTime(
@@ -1844,12 +1834,9 @@ _HomeSectionKind _homeSectionForDue(
     localDate.day,
   ).millisecondsSinceEpoch;
   if (localMs < ranges.tomorrowStartMs) {
-    return _HomeSectionKind.today;
+    return _HomeDueTiming.today;
   }
-  if (localMs < ranges.dayAfterTomorrowStartMs) {
-    return _HomeSectionKind.tomorrow;
-  }
-  return _HomeSectionKind.upcoming;
+  return _HomeDueTiming.future;
 }
 
 _HomeSectionKind? _homeSectionForTask(
@@ -1858,7 +1845,7 @@ _HomeSectionKind? _homeSectionForTask(
 ) {
   final due = task.due;
   if (due != null && taskDueIsOverdue(due)) {
-    return _HomeSectionKind.overdue;
+    return _HomeSectionKind.today;
   }
   final scheduledAt = task.scheduledAt;
   if (scheduledAt != null &&
@@ -1866,7 +1853,12 @@ _HomeSectionKind? _homeSectionForTask(
       scheduledAt < ranges.tomorrowStartMs) {
     return _HomeSectionKind.today;
   }
-  return due == null ? null : _homeSectionForDue(due, ranges);
+  if (due == null) {
+    return null;
+  }
+  return _homeDueTiming(due, ranges) == _HomeDueTiming.today
+      ? _HomeSectionKind.today
+      : null;
 }
 
 int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {

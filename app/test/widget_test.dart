@@ -391,7 +391,7 @@ void main() {
   });
 
   testWidgets(
-    'home shows four due sections across active lists with list labels',
+    'home shows overdue and today in one stream and hides future tasks',
     (tester) async {
       final fake = FakeBridgeService();
       final today = _todayStartMs();
@@ -460,20 +460,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Overdue'), findsOneWidget);
       expect(find.text('Today'), findsWidgets);
-      expect(find.text('Tomorrow'), findsWidgets);
+      expect(find.text('Overdue'), findsNothing);
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('home-section-count-today')),
-          matching: find.text('3'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('home-section-count-tomorrow')),
-          matching: find.text('1'),
+          matching: find.text('4'),
         ),
         findsOneWidget,
       );
@@ -481,9 +473,11 @@ void main() {
       expect(find.text('Work overdue'), findsOneWidget);
       expect(
         tester
-            .getRect(find.byKey(ValueKey('task-done-${workOverdue.id}')))
-            .left,
-        closeTo(tester.getTopLeft(find.text('Overdue')).dx, 0.75),
+            .widget<AppHomeTaskRow>(
+              find.byKey(ValueKey('task-row-${workOverdue.id}')),
+            )
+            .dueTone,
+        HomeDueDateTone.overdue,
       );
       await _scrollUntilVisible(tester, find.text('Inbox due today'));
       expect(find.text('Inbox due today'), findsOneWidget);
@@ -495,11 +489,9 @@ void main() {
         find.text('Scheduled today due tomorrow'),
       );
       expect(find.text('Scheduled today due tomorrow'), findsOneWidget);
-      await _scrollUntilVisible(tester, find.text('Tomorrow work'));
-      expect(find.text('Tomorrow work'), findsOneWidget);
+      expect(find.text('Tomorrow work'), findsNothing);
       expect(find.text('Work'), findsWidgets);
-      await _scrollUntilVisible(tester, find.text('Upcoming work'));
-      expect(find.text('Upcoming work'), findsOneWidget);
+      expect(find.text('Upcoming work'), findsNothing);
       expect(find.text('No due work'), findsNothing);
       expect(find.text('Archived today'), findsNothing);
       expect(find.byTooltip('List actions'), findsNothing);
@@ -522,17 +514,16 @@ void main() {
       await tester.tap(find.text('Due date').last);
       await tester.pumpAndSettle();
 
-      final tomorrowHeader = find.ancestor(
-        of: find.byKey(const ValueKey('home-section-count-tomorrow')),
+      final todayHeader = find.ancestor(
+        of: find.byKey(const ValueKey('home-section-count-today')),
         matching: find.byType(InkWell),
       );
-      await tester.tap(tomorrowHeader.first);
+      await tester.tap(todayHeader.first);
       await tester.pumpAndSettle();
-      expect(find.text('Tomorrow work'), findsNothing);
-      await tester.tap(tomorrowHeader.first);
+      expect(find.text('Inbox due today'), findsNothing);
+      await tester.tap(todayHeader.first);
       await tester.pumpAndSettle();
-      await _scrollUntilVisible(tester, find.text('Tomorrow work'));
-      expect(find.text('Tomorrow work'), findsOneWidget);
+      expect(find.text('Inbox due today'), findsOneWidget);
     },
   );
 
@@ -1224,14 +1215,13 @@ void main() {
     final fake = FakeBridgeService();
     final today = _todayStartMs();
     final overdue = today - const Duration(days: 1).inMilliseconds;
-    final tomorrow = today + const Duration(days: 1).inMilliseconds;
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
     final work = await fake.createList(name: 'Work', sortOrder: 'a1');
     final parent = await fake.createTask(
       listId: inbox.id,
       title: 'Home parent with children',
-      due: testDateOnlyDueFromMillis(tomorrow),
+      due: testDateOnlyDueFromMillis(today),
     );
     final noDueChild = await fake.createTask(
       listId: inbox.id,
@@ -1242,7 +1232,7 @@ void main() {
       listId: inbox.id,
       title: 'Same section child under home parent',
       parentTaskId: parent.id,
-      due: testDateOnlyDueFromMillis(tomorrow),
+      due: testDateOnlyDueFromMillis(today),
     );
     final prunedGrandchild = await fake.createTask(
       listId: inbox.id,
@@ -1282,21 +1272,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('home-section-count-today')),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('home-section-count-overdue')),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('home-section-count-tomorrow')),
-        matching: find.text('2'),
+        matching: find.text('4'),
       ),
       findsOneWidget,
     );
@@ -1471,27 +1447,6 @@ void main() {
     );
     semantics.dispose();
 
-    await _scrollUntilVisible(tester, find.text('Tomorrow'));
-    await tester.tap(find.text('Tomorrow').first);
-    await tester.pumpAndSettle();
-    await _scrollUntilVisible(
-      tester,
-      find.byKey(ValueKey('task-row-${earlierChild.id}')),
-      delta: -220,
-    );
-    expect(find.byKey(ValueKey('task-row-${earlierChild.id}')), findsOneWidget);
-    expect(find.text('No due child under home parent'), findsNothing);
-    expect(find.byKey(ValueKey('task-row-${parent.id}')), findsNothing);
-    await _scrollUntilVisible(
-      tester,
-      find.text('Overdue grandchild standalone'),
-      delta: -220,
-    );
-    expect(find.text('Overdue grandchild standalone'), findsOneWidget);
-    await _scrollUntilVisible(tester, find.text('Tomorrow'));
-    await tester.tap(find.text('Tomorrow').first);
-    await tester.pumpAndSettle();
-
     await _scrollUntilVisible(
       tester,
       find.text('No due child under home parent'),
@@ -1586,13 +1541,6 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byKey(const ValueKey('home-section-count-overdue')),
-          matching: find.text('0'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
           of: find.byKey(const ValueKey('home-section-count-today')),
           matching: find.text('1'),
         ),
@@ -1671,7 +1619,7 @@ void main() {
 
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('home-section-count-overdue')),
+        of: find.byKey(const ValueKey('home-section-count-today')),
         matching: find.text('0'),
       ),
       findsOneWidget,
@@ -2742,7 +2690,7 @@ void main() {
   });
 
   testWidgets(
-    'home completion keeps standalone subtask before moving under ancestor',
+    'home completion retains standalone subtask before future context leaves',
     (tester) async {
       final fake = FakeBridgeService();
       await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
@@ -2771,10 +2719,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Child due today moves'), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.text('Child due today moves')).dy,
-        lessThan(tester.getTopLeft(find.text('Tomorrow').first).dy),
-      );
+      expect(find.byKey(ValueKey('task-row-${parent.id}')), findsNothing);
       expect(
         find.byKey(const ValueKey('home-pending-completion-exit')),
         findsNothing,
@@ -2782,11 +2727,8 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 1020));
 
-      expect(find.text('Child due today moves'), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.text('Child due today moves')).dy,
-        greaterThan(tester.getTopLeft(find.text('Parent due tomorrow')).dy),
-      );
+      expect(find.text('Child due today moves'), findsNothing);
+      expect(find.byKey(ValueKey('task-row-${parent.id}')), findsNothing);
     },
   );
 
@@ -3054,7 +2996,7 @@ void main() {
     },
   );
 
-  testWidgets('home due swipe moves a task into the tomorrow section', (
+  testWidgets('home due swipe removes a future task from Today', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -3086,10 +3028,7 @@ void main() {
       taskDueCivilDate(tasks.single.due),
       civilDateFromLocal(DateTime.now().add(const Duration(days: 1))),
     );
-    expect(
-      tester.getTopLeft(find.text('Home today task')).dy,
-      greaterThan(tester.getTopLeft(find.text('Tomorrow').first).dy),
-    );
+    expect(find.text('Home today task'), findsNothing);
   });
 
   testWidgets('done root row leading control reopens without undo', (
