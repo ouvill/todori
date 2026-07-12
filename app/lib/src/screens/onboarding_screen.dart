@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -63,20 +64,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final pages = [
       _OnboardingPageData(
-        icon: Icons.spa_outlined,
+        icon: LucideIcons.sprout300,
         title: l10n.onboardingWelcomeTitle,
         body: l10n.onboardingWelcomeBody,
         semanticLabel: l10n.onboardingWelcomeArtworkSemantics,
       ),
       _OnboardingPageData(
-        icon: Icons.shield_outlined,
+        icon: LucideIcons.shieldCheck300,
         title: l10n.onboardingPrivacyTitle,
         body: l10n.onboardingPrivacyBody,
         note: l10n.onboardingPrivacyNote,
         semanticLabel: l10n.onboardingPrivacyArtworkSemantics,
       ),
       _OnboardingPageData(
-        icon: Icons.check_rounded,
+        icon: LucideIcons.circleCheck300,
         title: l10n.onboardingBeginTitle,
         body: l10n.onboardingBeginBody,
         semanticLabel: l10n.onboardingBeginArtworkSemantics,
