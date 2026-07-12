@@ -1,6 +1,6 @@
 # task-107: Integrated Product Finish
 
-> ステータス: 進行中（新UI・Capture・Search・Calendar・Focusの統合仕上げ）
+> ステータス: 完了（production contract・runtime・motion・Visual QAを統合し独立検証済み）
 > 作業日: 2026-07-13
 
 ## 1. 背景とコンテキスト
@@ -61,19 +61,19 @@ task-100〜106でsingle-canvas production UI、計画属性付きCapture、Searc
 
 ## 6. 受け入れ基準
 
-- [ ] `ui-spec.md`の現在規範にCalendar完成前、Focus実装前、task-100移行中の暫定記述が残っていない。
-- [ ] HomeがToday + Overdue統合 + 小さなCompleted、CalendarがWeek / Month + day agendaとして仕様・実装・Visual QAで一致する。
-- [ ] mobileはHome / Calendar / 中央Capture / Lists / You、wideは同じIAのcompact railとなり、専用routeではglobal navigationを隠す。
-- [ ] Capture / Search / Calendar / Focusのopen・detail遷移・back / close・deep-link exitが予測可能で、sheet下端に未着色領域がない。
-- [ ] create / update / complete / reopen / date move / sync / timer finish後、Home / List / Search / Calendar / detail / actual totalの該当表示がstaleにならない。
-- [ ] Focus開始・pause・resume・通常finishでtask status不変、Focus内task completeはsession保存成功後だけdone、UndoでTimer非再開を維持する。
-- [ ] open task trailing swipeはFocus、Due / Plan / Priority / EstimateはCaptureまたはTask detail propertyから編集できる。
-- [ ] priorityは一覧の小さなdotで、due / plan / estimate / actualはplain metadataまたはproperty rowで伝わり、card / pillを増やさない。
-- [ ] completion motionがpress → fill → check → halo → strike → 500ms hold → 420ms collapseで、particle中心がcheckboxと一致し、Reduce Motionは即時確定する。
-- [ ] productionからDesign Lab / fake data importがなく、Design Labは独立して動作する。
-- [ ] semantics、44px以上のtap target、keyboard / accessible date move、色以外の情報伝達、RTLを維持する。
-- [ ] Visual QAで390×844、320px日本語text scale 2.0、720 / 1024px、empty / loading / error、Completed開閉、completion midframe、Focus各状態を確認する。
-- [ ] Cargo / release bridge / Flutter / hardcoded strings / boundary / `git diff --check`が成功し、独立検証が合格する。
+- [x] `ui-spec.md`の現在規範にCalendar完成前、Focus実装前、task-100移行中の暫定記述が残っていない。
+- [x] HomeがToday + Overdue統合 + 小さなCompleted、CalendarがWeek / Month + day agendaとして仕様・実装・Visual QAで一致する。
+- [x] mobileはHome / Calendar / 中央Capture / Lists / You、wideは同じIAのcompact railとなり、専用routeではglobal navigationを隠す。
+- [x] Capture / Search / Calendar / Focusのopen・detail遷移・back / close・deep-link exitが予測可能で、sheet下端に未着色領域がない。
+- [x] create / update / complete / reopen / date move / sync / timer finish後、Home / List / Search / Calendar / detail / actual totalの該当表示がstaleにならない。
+- [x] Focus開始・pause・resume・通常finishでtask status不変、Focus内task completeはsession保存成功後だけdone、UndoでTimer非再開を維持する。
+- [x] open task trailing swipeはFocus、Due / Plan / Priority / EstimateはCaptureまたはTask detail propertyから編集できる。
+- [x] priorityは一覧の小さなdotで、due / plan / estimate / actualはplain metadataまたはproperty rowで伝わり、card / pillを増やさない。
+- [x] completion motionがpress → fill → check → halo → strike → 500ms hold → 420ms collapseで、halo中心がcheckboxと一致し、Reduce Motionは即時確定する。
+- [x] productionからDesign Lab / fake data importがなく、Design Labは独立して動作する。
+- [x] semantics、44px以上のtap target、keyboard / accessible date move、色以外の情報伝達、RTLを維持する。
+- [x] Visual QAで390×844、320px日本語text scale 2.0、720 / 1024px、empty / loading / error、Completed開閉、completion midframe、Focus各状態を確認する。
+- [x] Cargo / release bridge / Flutter / hardcoded strings / boundary / `git diff --check`が成功し、独立検証が合格する。
 
 ## 7. 制約・注意事項
 
@@ -92,3 +92,22 @@ task-100〜106でsingle-canvas production UI、計画属性付きCapture、Searc
 - Visual QAのcase一覧、PNG保存先、目視結果。
 - Cargo / Flutter / boundary / full gate / 独立検証結果とcommit hash。
 - intentional skip、OS制約、未解決事項。
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-13
+- 結果: `ui-spec.md`をtask-106後のHome / Capture / Search / Calendar / Focus契約へ再canon化した。Search queryを保持するmutation / sync refresh、list lifecycle後のHome refresh、削除後のTimer refresh、sync single-flightと失敗復帰、foreground Timer restore retryを統合した。
+- 完了順序: Home / List / Calendar / Detailの全経路を共有completion coordinatorへ集約した。matching workは実績保存、active breakはlocal終了に成功してからだけtaskを`done`とし、失敗時はstatusを維持する。UndoはTimerを再開しない。
+- UI / motion: OnboardingをLucideへ統一し、Focus inverse error / conflict色をtoken化、task rowのdatetimeをcompact表示、Search metadataをmiddle-dot grammarへ統一した。Homeと通常List rootは同じlogical rowでcheck / halo / strikeを描き、500ms hold後420ms collapseする。nested taskは階層内motion、Reduce Motionは即時確定とした。
+- 境界: productionからDesign Lab / visual QA / fake bridgeへのimportを静的検査で禁止した。Visual harnessはDEBUG bannerを抑止し、全画面captureをwarm / inverse surfaceへ正規化、毎回生成物をcleanしてmanifest件数を検証する。
+- 証拠: Rust workspace 290件成功 / intentional ignored 2件。Flutter 221件成功 / Visual harness通常gate intentional skip 1件。専用Visual QA 120 / 120成功、`app/build/visual_qa/`の128 PNGとmanifest 128行が一致し、全PNGを目視した。
+- Commit: `9a03562`, `8d49d3c`, `cf6b028`, `73f3c16`, `f5a3393`, `a5dd87a`, `cfa2d97`, `b6f22bd`, `48fd7c3`, `a9a8570`, `83c88cb`, `2b986b8`, `dd92638`, `cf62d7f`
+- 未解決: exact alarm、background worker、Live Activity、通常画面dark modeは既定scope外。iOS / Android実機確認は人間作業として継続する。
+
+### 独立検証
+
+- 判定: 合格（P0〜P2 findingなし）
+- 根拠: 実装不参加のverifierがHEAD `cf62d7f`でCargo fmt / clippy / workspace、Docker server auth / RLS / sync、release bridge、Flutter analyze / full test、hardcoded strings、client boundary / negative self-test、diffを再実行した。初回fullでclosed `wont_do` subtaskのdisabled reorder shellを検出し、`cf62d7f`修正後にfocused、motion 4件、Flutter fullを再実行して合格した。Visual QAも120 / 120と主要PNGを独立再確認した。
+- 検証者: `/root/task107_independent_verify`（read-only）
