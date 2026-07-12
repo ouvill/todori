@@ -9,55 +9,34 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  quality-gates:
-    name: Phase 1 quality gates
-    runs-on: macos-latest
+  rust-quality:
+    name: Rust quality gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: 1.97.0
           components: rustfmt, clippy
 
       - name: Cache Cargo dependencies and targets
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-            app/rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Set up Flutter SDK
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-          cache-key: ${{ runner.os }}-flutter-stable-${{ hashFiles('app/pubspec.lock') }}
-
-      - name: Cache flutter_rust_bridge_codegen 2.12.0
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/flutter_rust_bridge_codegen
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-          key: ${{ runner.os }}-frb-codegen-2.12.0-${{ hashFiles('Cargo.lock') }}
-
-      - name: Install flutter_rust_bridge_codegen 2.12.0
-        run: |
-          if ! command -v flutter_rust_bridge_codegen >/dev/null; then
-            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
-          elif ! flutter_rust_bridge_codegen --version | grep -q '2.12.0'; then
-            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked --force
-          fi
-          flutter_rust_bridge_codegen --version
+            ${{ runner.os }}-${{ runner.arch }}-rust-1.97.0-
 
       - name: Rust fmt
         run: cargo fmt --all -- --check
@@ -71,7 +50,67 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
       - name: Rust test
-        run: cargo test --workspace --exclude todori-server
+        run: cargo test --workspace
+
+  flutter-quality:
+    name: Flutter quality gates
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+          components: rustfmt
+
+      - name: Cache Cargo dependencies and targets
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            app/rust/target
+          key: ${{ runner.os }}-${{ runner.arch }}-flutter-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-flutter-rust-1.97.0-
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.44.6
+          cache: true
+          cache-key: ${{ runner.os }}-${{ runner.arch }}-flutter-3.44.6
+          pub-cache: true
+          pub-cache-key: ${{ runner.os }}-${{ runner.arch }}-pub-${{ hashFiles('app/pubspec.lock') }}
+
+      - name: Cache FRB tooling
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/bin/flutter_rust_bridge_codegen
+            ~/.cargo/bin/cargo-expand
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: ${{ runner.os }}-${{ runner.arch }}-frb-codegen-2.12.0-cargo-expand-1.0.123
+
+      - name: Install FRB tooling
+        run: |
+          if ! command -v flutter_rust_bridge_codegen >/dev/null; then
+            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked
+          elif ! flutter_rust_bridge_codegen --version | grep -q '2.12.0'; then
+            cargo install flutter_rust_bridge_codegen --version 2.12.0 --locked --force
+          fi
+          flutter_rust_bridge_codegen --version
+          if ! command -v cargo-expand >/dev/null; then
+            cargo install cargo-expand --version 1.0.123 --locked
+          elif ! cargo expand --version | grep -q '1.0.123'; then
+            cargo install cargo-expand --version 1.0.123 --locked --force
+          fi
+          cargo expand --version
 
       - name: Flutter pub get
         working-directory: app
@@ -101,28 +140,3 @@ jobs:
 
       - name: UI hardcoded string check
         run: sh app/tool/check_hardcoded_strings.sh
-
-  server-tests:
-    name: Server integration tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.97.0
-
-      - name: Cache Cargo dependencies and targets
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Server test
-        run: cargo test -p todori-server
