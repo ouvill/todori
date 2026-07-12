@@ -6,9 +6,9 @@
 
 ## 現在
 
-- 進行中: **task-102 タスク計画属性とCapture** — 共有command / FRB契約を先行し、その統合後にproduction CaptureとTask detailを接続する。
+- 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-100 プロトタイプ感を解消するプロダクトUI再設計** — Interactive Design Labのsingle-canvas方向をproductionへ昇格し、Captureの狭幅修正後に独立Visual QAで合格した。
+- 最新の完了: **task-102 タスク計画属性とCapture** — priority / typed due / Planをatomic commandへ接続し、CaptureとTask detailを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
