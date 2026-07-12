@@ -66,4 +66,10 @@ if find "$root" -type d \( -name .git -o -name target -o -name build \) -prune -
   fail 'Cargo manifest: core dependency alias is forbidden'
 fi
 
+if [ -d "$root/app/lib" ] && grep -ERin --include='*.dart' \
+  '^[[:space:]]*import[[:space:]].*(design_lab|visual_qa|fake_bridge_service)' \
+  "$root/app/lib" >/dev/null; then
+  fail 'app/lib: production code must not import Design Lab, visual QA, or fake bridge sources'
+fi
+
 exit "$status"

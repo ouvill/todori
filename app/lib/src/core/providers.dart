@@ -105,16 +105,40 @@ class TaskSearchNotifier extends Notifier<TaskSearchState> {
 
   void setQuery(String value) {
     final query = value.trim();
-    final generation = ++_generation;
     _debounceTimer?.cancel();
     if (query.isEmpty) {
+      _generation += 1;
       state = const TaskSearchIdle();
       return;
     }
 
+    _startSearch(query, debounce: true);
+  }
+
+  /// Re-runs the current non-empty query after a task, list, or sync mutation.
+  ///
+  /// Search results are snapshots rather than a derived task provider, so
+  /// preserving and immediately refreshing the query prevents a detail edit
+  /// from leaving a stale row behind when the user returns to Search.
+  void refresh() {
+    final query = switch (state) {
+      TaskSearchLoading(:final query) => query,
+      TaskSearchData(:final query) => query,
+      TaskSearchError(:final query) => query,
+      TaskSearchIdle() => null,
+    };
+    if (query != null) {
+      _debounceTimer?.cancel();
+      _startSearch(query, debounce: false);
+    }
+  }
+
+  void _startSearch(String query, {required bool debounce}) {
+    final generation = ++_generation;
+
     state = TaskSearchLoading(query);
     final delay = ref.read(taskSearchDebounceDurationProvider);
-    if (delay == Duration.zero) {
+    if (!debounce || delay == Duration.zero) {
       unawaited(_search(query, generation));
       return;
     }
@@ -320,6 +344,7 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     ref.invalidate(taskRemindersProvider);
     ref.invalidate(completedTimerSessionsProvider);
     ref.invalidate(timerEngineProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> syncOnResume() async {
@@ -496,6 +521,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     final sortOrder = nextSortOrder(state.value?.length ?? 0);
     await bridge.createList(name: name, sortOrder: sortOrder);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Renames `listId` and refreshes [listsProvider].
@@ -505,6 +531,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Archives `listId` and refreshes active and archived list collections.
@@ -514,6 +541,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<int> countTasks(String listId) {
@@ -532,6 +560,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidate(completedTimerSessionsProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -553,6 +582,7 @@ class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(listsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -765,6 +795,7 @@ class CalendarOccurrencesNotifier
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -821,6 +852,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Updates editable task fields and refreshes the task list.
@@ -847,6 +879,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
@@ -887,6 +920,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<int> countDescendants(String taskId) {
@@ -906,6 +940,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Moves `taskId` between sibling boundaries and refreshes the task list.
@@ -964,6 +999,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     ref.invalidate(tasksProvider(listId));
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> setStatus(
@@ -990,6 +1026,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
@@ -1007,6 +1044,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -1055,6 +1093,7 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;
   }

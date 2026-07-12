@@ -157,6 +157,34 @@ void main() {
     expect(state.query, 'broken');
     expect(state.error, isA<StateError>());
   });
+
+  test('refresh preserves the current query and bypasses debounce', () async {
+    final fake = _ControlledSearchBridge();
+    final container = ProviderContainer(
+      overrides: [
+        bridgeServiceProvider.overrideWithValue(fake),
+        taskSearchDebounceDurationProvider.overrideWithValue(
+          const Duration(hours: 1),
+        ),
+      ],
+    );
+    container.listen(taskSearchProvider, (_, _) {});
+    addTearDown(container.dispose);
+    final notifier = container.read(taskSearchProvider.notifier);
+
+    notifier.setQuery('keep me');
+    expect(fake.queries, isEmpty);
+
+    notifier.refresh();
+    expect(fake.queries, ['keep me']);
+    fake.complete('keep me', const []);
+    await _flush();
+
+    expect(
+      container.read(taskSearchProvider),
+      isA<TaskSearchData>().having((state) => state.query, 'query', 'keep me'),
+    );
+  });
 }
 
 ProviderContainer _container(FakeBridgeService fake) {
