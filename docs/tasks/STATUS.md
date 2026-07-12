@@ -6,9 +6,9 @@
 
 ## 現在
 
-- 進行中: **task-100 プロトタイプ感を解消するプロダクトUI再設計** — プロダクトオーナーがInteractive Design Labのsingle-canvas方向を本番採用すると裁定。契約同期後、production UIへの昇格と独立Visual QAを行う。
+- 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-101 日付期限と日時締切の意味論再設計** — 期限を日付のみ / 日時指定のtyped unionへ分離し、DB v17、sync v4、FRB sealed union、Today / scheduled分類を統合した。独立検証でP1 / P2 / P3なし。
+- 最新の完了: **task-100 プロトタイプ感を解消するプロダクトUI再設計** — Interactive Design Labのsingle-canvas方向をproductionへ昇格し、Captureの狭幅修正後に独立Visual QAで合格した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
