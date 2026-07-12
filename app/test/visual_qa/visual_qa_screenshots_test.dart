@@ -20,6 +20,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/ui/task_components.dart';
@@ -35,6 +36,8 @@ bool get _visualQaEnabled => Platform.environment[_visualQaEnvFlag] == '1';
 const _outputDir = 'build/visual_qa';
 const _mobileLogicalSize = Size(390, 844);
 const _mobileDevicePixelRatio = 3.0;
+const _wideLogicalSize = Size(1100, 760);
+const _wideDevicePixelRatio = 2.0;
 
 /// Downloaded (not committed) by `tool/fetch_lab_fonts.sh`; used only by the
 /// `design_lab_typo_d_ja_mincho_*` screenshots (D案). See
@@ -104,6 +107,22 @@ void main() {
       findsOneWidget,
     );
     await _screenshot(tester, 'home_tasks');
+  });
+
+  testWidgets('home_tasks_wide: responsive navigation rail', (tester) async {
+    _setWideViewport(tester);
+    await _seedRealisticData(tester);
+    await _screenshot(tester, 'home_tasks_wide');
+  });
+
+  testWidgets('lists_wide: list management with navigation rail', (
+    tester,
+  ) async {
+    _setWideViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byTooltip('Open lists'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'lists_wide');
   });
 
   testWidgets(
@@ -367,11 +386,7 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.byTooltip('Open lists'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('More'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Account'));
+    await tester.tap(find.byTooltip('Account'));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'account_signed_out');
   });
@@ -492,7 +507,7 @@ void main() {
     await _screenshot(tester, 'confirm_dialog');
   });
 
-  testWidgets('design_lab_task_list: focus timer task list exploration', (
+  testWidgets('design_lab_task_list: single-canvas Today direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -502,7 +517,20 @@ void main() {
     await _screenshot(tester, 'design_lab_task_list');
   });
 
-  testWidgets('design_lab_list_overview: smart and custom lists exploration', (
+  testWidgets('design_lab_calendar: quiet completed reflection', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.calendar),
+    );
+    await _screenshot(tester, 'design_lab_calendar');
+    await tester.tap(find.text('Completed'));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'design_lab_calendar_completed');
+  });
+
+  testWidgets('design_lab_list_overview: borderless list index direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -512,17 +540,18 @@ void main() {
     await _screenshot(tester, 'design_lab_list_overview');
   });
 
-  testWidgets('design_lab_focus_timer: focus timer screen exploration', (
+  testWidgets('design_lab_focus_timer: dark horizon focus direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.focusTimer),
     );
+    await _precacheDesignLabMascot(tester);
     await _screenshot(tester, 'design_lab_focus_timer');
   });
 
-  testWidgets('design_lab_task_detail: task detail exploration', (
+  testWidgets('design_lab_task_detail: single-canvas document direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -532,7 +561,7 @@ void main() {
     await _screenshot(tester, 'design_lab_task_detail');
   });
 
-  testWidgets('design_lab_task_create_sheet: task create sheet exploration', (
+  testWidgets('design_lab_task_create_sheet: minimal task capture direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -542,13 +571,37 @@ void main() {
     await _screenshot(tester, 'design_lab_task_create_sheet');
   });
 
-  testWidgets('design_lab_search: search exploration', (tester) async {
+  testWidgets('design_lab_completion_midframe: halo and strike', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(const InteractiveDesignLabApp());
+    await tester.tap(
+      find.byKey(
+        const ValueKey('design-lab-task-check-Review onboarding copy'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+    await _screenshotCurrentFrame(tester, 'design_lab_completion_midframe');
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pump(const Duration(milliseconds: 180));
+    await _screenshotCurrentFrame(
+      tester,
+      'design_lab_completion_collapse_midframe',
+    );
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('design_lab_search: underline search direction', (tester) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(const DesignLabMockApp(mock: DesignLabMock.search));
     await _screenshot(tester, 'design_lab_search');
   });
 
-  testWidgets('design_lab_settings: settings exploration', (tester) async {
+  testWidgets('design_lab_settings: borderless account direction', (
+    tester,
+  ) async {
     _setMobileViewport(tester);
     await tester.pumpWidget(
       const DesignLabMockApp(mock: DesignLabMock.settings),
@@ -556,7 +609,7 @@ void main() {
     await _screenshot(tester, 'design_lab_settings');
   });
 
-  testWidgets('design_lab_timer_setup: timer setup exploration', (
+  testWidgets('design_lab_timer_setup: typographic focus setup direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -564,6 +617,86 @@ void main() {
       const DesignLabMockApp(mock: DesignLabMock.timerSetup),
     );
     await _screenshot(tester, 'design_lab_timer_setup');
+  });
+
+  testWidgets('design_lab_list_tasks: a full list in the shared task grammar', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.listTasks),
+    );
+    await _screenshot(tester, 'design_lab_list_tasks');
+    final menuPress = await tester.startGesture(
+      tester.getCenter(find.byIcon(LucideIcons.moreHorizontal300)),
+    );
+    await tester.pump(const Duration(milliseconds: 120));
+    await _screenshot(tester, 'design_lab_list_tasks_menu_press');
+    await menuPress.up();
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'design_lab_list_tasks_timer_reveal');
+  });
+
+  testWidgets('design_lab_task_detail_editing: calm document editing', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskDetailEditing),
+    );
+    await _screenshot(tester, 'design_lab_task_detail_editing');
+  });
+
+  testWidgets('design_lab_account_signed_out: private account access', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.accountSignedOut),
+    );
+    await _screenshot(tester, 'design_lab_account_signed_out');
+  });
+
+  testWidgets('design_lab_task_actions: safe action sheet composition', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.taskActions),
+    );
+    await _screenshot(tester, 'design_lab_task_actions');
+  });
+
+  testWidgets('design_lab_due_date_sheet: quick scheduling choices', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.dueDateSheet),
+    );
+    await _screenshot(tester, 'design_lab_due_date_sheet');
+  });
+
+  testWidgets('design_lab_system_states: empty loading and error grammar', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.systemStates),
+    );
+    await _screenshot(tester, 'design_lab_system_states');
+  });
+
+  testWidgets('design_lab_onboarding: quiet first-run direction', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await tester.pumpWidget(
+      const DesignLabMockApp(mock: DesignLabMock.onboarding),
+    );
+    await _screenshot(tester, 'design_lab_onboarding');
   });
 
   // Typography comparison: 4 variants x 2 screens (Today task list, Focus
@@ -878,6 +1011,18 @@ void _setMobileViewport(WidgetTester tester) {
   });
 }
 
+void _setWideViewport(WidgetTester tester) {
+  tester.view.physicalSize = Size(
+    _wideLogicalSize.width * _wideDevicePixelRatio,
+    _wideLogicalSize.height * _wideDevicePixelRatio,
+  );
+  tester.view.devicePixelRatio = _wideDevicePixelRatio;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+}
+
 void _useTextScale(WidgetTester tester, double textScaleFactor) {
   tester.platformDispatcher.textScaleFactorTestValue = textScaleFactor;
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -914,6 +1059,19 @@ void _useJaLocale(WidgetTester tester) {
 Future<void> _screenshot(WidgetTester tester, String name) async {
   await tester.pumpAndSettle();
   await _writeScreenshot(tester, name);
+}
+
+Future<void> _precacheDesignLabMascot(WidgetTester tester) async {
+  final context = tester.element(find.byType(MaterialApp));
+  await tester.runAsync(
+    () => precacheImage(
+      const AssetImage(
+        'assets/brand/generated/todori-mascot-ui-sprites-v1.png',
+      ),
+      context,
+    ),
+  );
+  await tester.pump();
 }
 
 Future<void> _screenshotCurrentFrame(WidgetTester tester, String name) async {
@@ -984,6 +1142,10 @@ Future<void> _loadRealFonts() async {
     family: 'Newsreader',
     weightPaths: _newsreaderWeightPaths,
   );
+  await _loadBrandFont(
+    family: 'SourceSerif4',
+    weightPaths: _sourceSerif4WeightPaths,
+  );
   await _loadZenOldMinchoFont();
   await _loadCjkFallbackFont();
   await _loadMinchoFallbackFont();
@@ -1021,6 +1183,13 @@ const _newsreaderWeightPaths = [
   'assets/fonts/Newsreader/Newsreader-Regular.ttf',
   'assets/fonts/Newsreader/Newsreader-Medium.ttf',
   'assets/fonts/Newsreader/Newsreader-SemiBold.ttf',
+];
+
+/// Design Lab-only candidate replacing Newsreader in the compact product
+/// direction. A variable font is sufficient because the exploration uses a
+/// single restrained medium weight for display text and timer numerals.
+const _sourceSerif4WeightPaths = [
+  'assets/fonts/SourceSerif4/SourceSerif4-Variable.ttf',
 ];
 
 /// Must match the first entry of `_cjkFontFamilyFallback` in

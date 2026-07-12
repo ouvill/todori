@@ -45,6 +45,8 @@
   "homeEmptyTitle": "まずリストを作成",
   "homeEmptyBody": "リストを作成すると、次回からすぐタスクに入れます。",
   "homeNewListButton": "新しいリスト",
+  "homeClearTitle": "すこし、余白ができました。",
+  "homeClearBody": "いま待っているタスクはありません。必要になったら、ここに追加できます。",
   "addTaskButton": "タスクを追加",
   "quickAddHint": "タスクを追加",
   "quickAddOpenTooltip": "タスク作成を開く",

@@ -368,6 +368,18 @@ abstract class AppLocalizations {
   /// **'New list'**
   String get homeNewListButton;
 
+  /// No description provided for @homeClearTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A little room to breathe.'**
+  String get homeClearTitle;
+
+  /// No description provided for @homeClearBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is waiting here. Add a task whenever you are ready.'**
+  String get homeClearBody;
+
   /// No description provided for @addTaskButton.
   ///
   /// In en, this message translates to:

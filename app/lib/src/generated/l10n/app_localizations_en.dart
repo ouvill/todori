@@ -160,6 +160,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeNewListButton => 'New list';
 
   @override
+  String get homeClearTitle => 'A little room to breathe.';
+
+  @override
+  String get homeClearBody =>
+      'Nothing is waiting here. Add a task whenever you are ready.';
+
+  @override
   String get addTaskButton => 'Add task';
 
   @override

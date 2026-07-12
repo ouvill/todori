@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -51,76 +50,79 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           loading: () => const AppLoadingState(),
           error: (error, stackTrace) =>
               AppErrorState(message: l10n.accountLoadFailed),
-          data: (account) => ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            children: [
-              Row(
+          data: (account) => Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.xl,
+                ),
                 children: [
-                  IconButton(
-                    icon: const Icon(LucideIcons.arrowLeft300),
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).backButtonTooltip,
-                    onPressed: () =>
-                        context.canPop() ? context.pop() : context.go('/lists'),
+                  Text(
+                    l10n.accountTitle,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  if (account.loggedIn)
+                    _SignedInSection(
+                      account: account,
+                      syncStatusAsync: syncStatusAsync,
+                      busy: _busy,
+                      onLogout: _logout,
+                      onSyncNow: _syncNow,
+                    )
+                  else
+                    _SignedOutSection(
+                      registerMode: _registerMode,
+                      busy: _busy,
+                      emailController: _emailController,
+                      passwordController: _passwordController,
+                      recoveryKey: _recoveryKey,
+                      onModeChanged: (registerMode) {
+                        setState(() {
+                          _registerMode = registerMode;
+                          _recoveryKey = null;
+                          _error = null;
+                        });
+                      },
+                      onSubmit: _submit,
+                    ),
+                  if (_recoveryKey != null && account.loggedIn) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    SelectableText(
+                      _recoveryKey!,
+                      key: const ValueKey('account-recovery-key'),
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                  if (_error != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.xl),
+                  Divider(color: Theme.of(context).colorScheme.outlineVariant),
+                  const SizedBox(height: AppSpacing.lg),
+                  _ServerUrlSection(
+                    controller: _serverUrlController,
+                    busy: _busy,
+                    onSave: _saveServerUrl,
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                l10n.accountTitle,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              _ServerUrlSection(
-                controller: _serverUrlController,
-                busy: _busy,
-                onSave: _saveServerUrl,
-              ),
-              if (_recoveryKey != null) ...[
-                const SizedBox(height: AppSpacing.lg),
-                SelectableText(
-                  _recoveryKey!,
-                  key: const ValueKey('account-recovery-key'),
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xl),
-              if (account.loggedIn)
-                _SignedInSection(
-                  account: account,
-                  syncStatusAsync: syncStatusAsync,
-                  busy: _busy,
-                  onLogout: _logout,
-                  onSyncNow: _syncNow,
-                )
-              else
-                _SignedOutSection(
-                  registerMode: _registerMode,
-                  busy: _busy,
-                  emailController: _emailController,
-                  passwordController: _passwordController,
-                  recoveryKey: _recoveryKey,
-                  onModeChanged: (registerMode) {
-                    setState(() {
-                      _registerMode = registerMode;
-                      _recoveryKey = null;
-                      _error = null;
-                    });
-                  },
-                  onSubmit: _submit,
-                ),
-            ],
+            ),
           ),
         ),
       ),
@@ -228,26 +230,19 @@ class _ServerUrlSection extends StatelessWidget {
           style: Theme.of(context).textTheme.labelLarge,
         ),
         const SizedBox(height: AppSpacing.sm),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.done,
-                decoration: InputDecoration(
-                  hintText: defaultSyncServerUrl,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            IconButton.filled(
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          onSubmitted: busy ? null : (_) => onSave(),
+          decoration: InputDecoration(
+            hintText: defaultSyncServerUrl,
+            suffixIcon: IconButton(
               tooltip: l10n.accountSaveServerUrlTooltip,
               onPressed: busy ? null : onSave,
               icon: const Icon(LucideIcons.save300),
             ),
-          ],
+          ),
         ),
       ],
     );
@@ -279,23 +274,24 @@ class _SignedOutSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SegmentedButton<bool>(
-          segments: [
-            ButtonSegment(
-              value: false,
-              icon: const Icon(LucideIcons.logIn300),
-              label: Text(l10n.accountLoginTab),
+        Row(
+          children: [
+            Expanded(
+              child: _AccountModeButton(
+                label: l10n.accountLoginTab,
+                selected: !registerMode,
+                onPressed: busy ? null : () => onModeChanged(false),
+              ),
             ),
-            ButtonSegment(
-              value: true,
-              icon: const Icon(LucideIcons.userPlus300),
-              label: Text(l10n.accountRegisterTab),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _AccountModeButton(
+                label: l10n.accountRegisterTab,
+                selected: registerMode,
+                onPressed: busy ? null : () => onModeChanged(true),
+              ),
             ),
           ],
-          selected: {registerMode},
-          onSelectionChanged: busy
-              ? null
-              : (selection) => onModeChanged(selection.single),
         ),
         const SizedBox(height: AppSpacing.lg),
         TextField(
@@ -336,6 +332,49 @@ class _SignedOutSection extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _AccountModeButton extends StatelessWidget {
+  const _AccountModeButton({
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+      ),
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: selected
+              ? colorScheme.primary
+              : colorScheme.onSurfaceVariant,
+          shape: const RoundedRectangleBorder(),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -474,6 +474,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       dueAt: dueAt,
     );
     ref.invalidate(latestTaskUndoProvider);
+    ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
   }
 
@@ -510,6 +511,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       ref.invalidate(latestTaskUndoProvider);
       ref.invalidate(taskRemindersProvider(taskId));
     }
+    ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
   }
 
@@ -526,6 +528,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
         .read(reminderNotificationServiceProvider)
         .cancelReminders(reminders);
     ref.invalidate(taskRemindersProvider(taskId));
+    ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
   }
 

@@ -159,6 +159,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeNewListButton => '新しいリスト';
 
   @override
+  String get homeClearTitle => 'すこし、余白ができました。';
+
+  @override
+  String get homeClearBody => 'いま待っているタスクはありません。必要になったら、ここに追加できます。';
+
+  @override
   String get addTaskButton => 'タスクを追加';
 
   @override

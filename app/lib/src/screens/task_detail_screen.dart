@@ -38,7 +38,7 @@ class TaskDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.taskDetailTitle),
+        title: const SizedBox.shrink(),
         actions: [
           detailAsync.maybeWhen(
             data: (task) {
@@ -91,195 +91,258 @@ class TaskDetailScreen extends ConsumerWidget {
           final locale = Localizations.localeOf(context).toLanguageTag();
           final remindersAsync = ref.watch(taskRemindersProvider(task.id));
           final reminder = remindersAsync.asData?.value.firstOrNull;
-          return ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            children: [
-              // Plain title block directly on the screen background
-              // (task-30): no bordered card, and no persistent
-              // Local-protection/lock chip (see `docs/design/
-              // visual-direction.md` Security Signal section).
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.sm,
+                  AppSpacing.md,
+                  AppSpacing.xl,
+                ),
                 children: [
-                  if (parentTask != null) ...[
-                    _ParentTaskLink(
-                      parentTask: parentTask,
-                      tooltip: l10n.parentTaskLinkTooltip(parentTask.title),
-                      semanticLabel: l10n.parentTaskLinkSemantics(
-                        parentTask.title,
-                      ),
-                      onTap: () =>
-                          context.push('/lists/$listId/tasks/${parentTask.id}'),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                  ],
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.xs),
-                        child: AppTaskCheckbox(
-                          checkboxKey: ValueKey('task-detail-done-${task.id}'),
-                          isDone: isTaskClosed(task),
-                          tooltip: isTaskClosed(task)
-                              ? l10n.reopenTaskTooltip
-                              : l10n.completeTaskTooltip,
-                          onToggleDone: () {
-                            unawaited(
-                              isTaskClosed(task)
-                                  ? _setTaskStatus(context, ref, task, 'todo')
-                                  : _setTaskStatus(context, ref, task, 'done'),
-                            );
-                          },
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 8, 0, 18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (parentTask != null) ...[
+                          _ParentTaskLink(
+                            parentTask: parentTask,
+                            tooltip: l10n.parentTaskLinkTooltip(
+                              parentTask.title,
+                            ),
+                            semanticLabel: l10n.parentTaskLinkSemantics(
+                              parentTask.title,
+                            ),
+                            onTap: () => context.push(
+                              '/lists/$listId/tasks/${parentTask.id}',
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                        ],
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                top: AppSpacing.xs,
+                              ),
+                              child: AppTaskCheckbox(
+                                checkboxKey: ValueKey(
+                                  'task-detail-done-${task.id}',
+                                ),
+                                isDone: isTaskClosed(task),
+                                tooltip: isTaskClosed(task)
+                                    ? l10n.reopenTaskTooltip
+                                    : l10n.completeTaskTooltip,
+                                onToggleDone: () {
+                                  unawaited(
+                                    isTaskClosed(task)
+                                        ? _setTaskStatus(
+                                            context,
+                                            ref,
+                                            task,
+                                            'todo',
+                                          )
+                                        : _setTaskStatus(
+                                            context,
+                                            ref,
+                                            task,
+                                            'done',
+                                          ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Expanded(
+                              child: _InlineTitleEditor(
+                                key: ValueKey('task-title-editor-${task.id}'),
+                                title: task.title,
+                                isClosed: isTaskClosed(task),
+                                semanticLabel: l10n.editTaskTitleSemantics,
+                                onSave: (title) => _updateTaskFields(
+                                  context,
+                                  ref,
+                                  task,
+                                  title: title,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Expanded(
-                        child: _InlineTitleEditor(
-                          key: ValueKey('task-title-editor-${task.id}'),
-                          title: task.title,
-                          isClosed: isTaskClosed(task),
-                          semanticLabel: l10n.editTaskTitleSemantics,
-                          onSave: (title) => _updateTaskFields(
+                        const SizedBox(height: AppSpacing.sm),
+                        _InlineNoteEditor(
+                          key: ValueKey('task-note-editor-${task.id}'),
+                          note: task.note,
+                          placeholder: l10n.addNotePlaceholder,
+                          semanticLabel: l10n.editTaskNoteSemantics,
+                          onSave: (note) =>
+                              _updateTaskFields(context, ref, task, note: note),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        _EditableTaskMetadata(
+                          task: task,
+                          reminder: reminder,
+                          stats: stats,
+                          locale: locale,
+                          onSelectDueDate: () =>
+                              _selectDueDate(context, ref, task),
+                          onClearDueDate: task.dueAt == null
+                              ? null
+                              : () => _updateTaskFields(
+                                  context,
+                                  ref,
+                                  task,
+                                  dueAt: null,
+                                ),
+                          onPrioritySelected: (priority) => _updateTaskFields(
                             context,
                             ref,
                             task,
-                            title: title,
+                            priority: priority,
+                          ),
+                          onSelectReminder: () =>
+                              _selectReminder(context, ref, task, reminder),
+                          onClearReminder: reminder == null
+                              ? null
+                              : () => _clearReminder(context, ref, task),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          l10n.taskCreatedAt(
+                            formatAbsoluteDate(locale, task.createdAt),
+                          ),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                  Divider(color: colorScheme.outlineVariant),
+                  const SizedBox(height: AppSpacing.lg),
+                  Row(
+                    children: [
+                      Container(
+                        width: 3,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        l10n.subtasksTitle,
+                        style: theme.textTheme.titleMedium,
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  _InlineNoteEditor(
-                    key: ValueKey('task-note-editor-${task.id}'),
-                    note: task.note,
-                    placeholder: l10n.addNotePlaceholder,
-                    semanticLabel: l10n.editTaskNoteSemantics,
-                    onSave: (note) =>
-                        _updateTaskFields(context, ref, task, note: note),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _EditableTaskMetadata(
-                    task: task,
-                    reminder: reminder,
-                    stats: stats,
-                    locale: locale,
-                    onSelectDueDate: () => _selectDueDate(context, ref, task),
-                    onClearDueDate: task.dueAt == null
-                        ? null
-                        : () => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            dueAt: null,
-                          ),
-                    onPrioritySelected: (priority) => _updateTaskFields(
-                      context,
-                      ref,
-                      task,
-                      priority: priority,
-                    ),
-                    onSelectReminder: () =>
-                        _selectReminder(context, ref, task, reminder),
-                    onClearReminder: reminder == null
-                        ? null
-                        : () => _clearReminder(context, ref, task),
-                  ),
+                  if (subtaskNodes.isEmpty)
+                    AppEmptyState(
+                      icon: LucideIcons.gitBranch300,
+                      title: l10n.subtasksEmpty,
+                    )
+                  else
+                    for (final node in subtaskNodes)
+                      Builder(
+                        key: ValueKey('subtask-row-${node.task.id}'),
+                        builder: (context) {
+                          final subtask = node.task;
+                          final subtaskStats = descendantStatsOf(
+                            subtask.id,
+                            tasks,
+                          );
+                          return AppTaskRow(
+                            key: ValueKey('task-row-${subtask.id}'),
+                            title: subtask.title,
+                            isDone: isTaskClosed(subtask),
+                            depth: node.depth,
+                            checkboxKey: ValueKey('task-done-${subtask.id}'),
+                            priority: subtask.priority,
+                            priorityDotKey: ValueKey(
+                              'task-priority-dot-${subtask.id}',
+                            ),
+                            prioritySemanticLabel: l10n.taskPriority(
+                              taskPriorityLabel(l10n, subtask.priority),
+                            ),
+                            semanticLabel: _detailTaskRowSemanticLabel(
+                              l10n: l10n,
+                              title: subtask.title,
+                              status: taskStatusLabel(l10n, subtask.status),
+                              priority: taskPriorityLabel(
+                                l10n,
+                                subtask.priority,
+                              ),
+                              dueLabel: subtask.dueAt == null
+                                  ? null
+                                  : formatRelativeDueDate(
+                                      l10n,
+                                      locale,
+                                      subtask.dueAt,
+                                    ),
+                              depth: node.depth,
+                            ),
+                            hierarchyGuideKey: ValueKey(
+                              'task-hierarchy-guide-${subtask.id}',
+                            ),
+                            hierarchyGuideHorizontalKey: ValueKey(
+                              'task-hierarchy-horizontal-${subtask.id}',
+                            ),
+                            isLastSibling: node.isLastSibling,
+                            ancestorLineContinuations:
+                                node.ancestorLineContinuations,
+                            toggleDoneTooltip: isTaskClosed(subtask)
+                                ? l10n.reopenTaskTooltip
+                                : l10n.completeTaskTooltip,
+                            metadata: taskMetadataItemsFor(
+                              l10n: l10n,
+                              locale: locale,
+                              task: subtask,
+                              stats: subtaskStats,
+                              includeSubtaskProgress: false,
+                            ),
+                            framed: false,
+                            onToggleDone: () {
+                              unawaited(
+                                isTaskClosed(subtask)
+                                    ? _setTaskStatus(
+                                        context,
+                                        ref,
+                                        subtask,
+                                        'todo',
+                                      )
+                                    : _setTaskStatus(
+                                        context,
+                                        ref,
+                                        subtask,
+                                        'done',
+                                      ),
+                              );
+                            },
+                            onTap: () => context.push(
+                              '/lists/$listId/tasks/${subtask.id}',
+                            ),
+                          );
+                        },
+                      ),
                   const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    l10n.taskCreatedAt(
-                      formatAbsoluteDate(locale, task.createdAt),
-                    ),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(LucideIcons.plus300),
+                      label: Text(l10n.addSubtaskButton),
+                      onPressed: () => _createSubtask(context, ref, task),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(l10n.subtasksTitle, style: theme.textTheme.titleMedium),
-              const SizedBox(height: AppSpacing.sm),
-              if (subtaskNodes.isEmpty)
-                AppEmptyState(
-                  icon: LucideIcons.gitBranch300,
-                  title: l10n.subtasksEmpty,
-                )
-              else
-                for (final node in subtaskNodes)
-                  Builder(
-                    key: ValueKey('subtask-row-${node.task.id}'),
-                    builder: (context) {
-                      final subtask = node.task;
-                      final subtaskStats = descendantStatsOf(subtask.id, tasks);
-                      return AppTaskRow(
-                        key: ValueKey('task-row-${subtask.id}'),
-                        title: subtask.title,
-                        isDone: isTaskClosed(subtask),
-                        depth: node.depth,
-                        checkboxKey: ValueKey('task-done-${subtask.id}'),
-                        priority: subtask.priority,
-                        priorityDotKey: ValueKey(
-                          'task-priority-dot-${subtask.id}',
-                        ),
-                        prioritySemanticLabel: l10n.taskPriority(
-                          taskPriorityLabel(l10n, subtask.priority),
-                        ),
-                        semanticLabel: _detailTaskRowSemanticLabel(
-                          l10n: l10n,
-                          title: subtask.title,
-                          status: taskStatusLabel(l10n, subtask.status),
-                          priority: taskPriorityLabel(l10n, subtask.priority),
-                          dueLabel: subtask.dueAt == null
-                              ? null
-                              : formatRelativeDueDate(
-                                  l10n,
-                                  locale,
-                                  subtask.dueAt,
-                                ),
-                          depth: node.depth,
-                        ),
-                        hierarchyGuideKey: ValueKey(
-                          'task-hierarchy-guide-${subtask.id}',
-                        ),
-                        hierarchyGuideHorizontalKey: ValueKey(
-                          'task-hierarchy-horizontal-${subtask.id}',
-                        ),
-                        isLastSibling: node.isLastSibling,
-                        ancestorLineContinuations:
-                            node.ancestorLineContinuations,
-                        toggleDoneTooltip: isTaskClosed(subtask)
-                            ? l10n.reopenTaskTooltip
-                            : l10n.completeTaskTooltip,
-                        metadata: taskMetadataItemsFor(
-                          l10n: l10n,
-                          locale: locale,
-                          task: subtask,
-                          stats: subtaskStats,
-                          includeSubtaskProgress: false,
-                        ),
-                        onToggleDone: () {
-                          unawaited(
-                            isTaskClosed(subtask)
-                                ? _setTaskStatus(context, ref, subtask, 'todo')
-                                : _setTaskStatus(context, ref, subtask, 'done'),
-                          );
-                        },
-                        onTap: () =>
-                            context.push('/lists/$listId/tasks/${subtask.id}'),
-                      );
-                    },
-                  ),
-              const SizedBox(height: AppSpacing.sm),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: OutlinedButton.icon(
-                  icon: const Icon(LucideIcons.plus300),
-                  label: Text(l10n.addSubtaskButton),
-                  onPressed: () => _createSubtask(context, ref, task),
-                ),
-              ),
-            ],
+            ),
           );
         },
       ),
@@ -809,6 +872,8 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final titleStyle = theme.textTheme.headlineSmall?.copyWith(
+      fontWeight: FontWeight.w500,
+      letterSpacing: -0.35,
       decoration: widget.isClosed ? TextDecoration.lineThrough : null,
       color: widget.isClosed ? colorScheme.onSurfaceVariant : null,
     );
@@ -1250,22 +1315,16 @@ class _DetailPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final tint = emphasisColor ?? colorScheme.primary;
+    final tint =
+        emphasisColor ??
+        (onTap == null ? colorScheme.onSurfaceVariant : colorScheme.primary);
     final content = ConstrainedBox(
       constraints: BoxConstraints(
-        minHeight: 32,
+        minHeight: 40,
         maxWidth: MediaQuery.sizeOf(context).width - 64,
       ),
       child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: emphasisColor != null
-                ? emphasisColor!.withValues(alpha: 0.6)
-                : colorScheme.outlineVariant.withValues(alpha: 0.72),
-          ),
-        ),
+        decoration: const BoxDecoration(),
         child: Padding(
           padding: EdgeInsetsDirectional.only(
             start: AppSpacing.sm,

@@ -94,6 +94,8 @@
   "homeEmptyTitle": "Start with a list.",
   "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",
   "homeNewListButton": "New list",
+  "homeClearTitle": "A little room to breathe.",
+  "homeClearBody": "Nothing is waiting here. Add a task whenever you are ready.",
   "addTaskButton": "Add task",
   "quickAddHint": "Add task",
   "quickAddOpenTooltip": "Open task creation",
