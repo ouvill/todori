@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/screens/calendar_screen.dart';
@@ -326,6 +328,43 @@ void main() {
     },
   );
 
+  testWidgets('datetime due shows saved timezone wall time and offset', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final listId = await _createInbox(fake);
+    final today = _today();
+    final dueAt = DateTime.utc(today.year, today.month, today.day, 12);
+    final due = testDateTimeDueFromMillis(
+      dueAt.millisecondsSinceEpoch,
+      timeZone: 'America/New_York',
+    );
+    await fake.createTask(
+      listId: listId,
+      title: 'Saved timezone deadline',
+      due: due,
+    );
+    final savedZoneDate = taskDueDisplayDate(due);
+    final expectedTime = DateFormat.jm('en').format(savedZoneDate);
+    final expectedZone =
+        'America/New_York (${taskDueUtcOffsetLabel(savedZoneDate)})';
+
+    await _pumpCalendarScreen(tester, fake, settle: true);
+
+    expect(find.textContaining(expectedTime), findsOneWidget);
+    expect(find.textContaining(expectedZone), findsOneWidget);
+    final semantics = tester.ensureSemantics();
+    expect(
+      find.semantics.byPredicate(
+        (node) =>
+            node.getSemanticsData().label.contains(expectedTime) &&
+            node.getSemanticsData().label.contains(expectedZone),
+      ),
+      findsWidgets,
+    );
+    semantics.dispose();
+  });
+
   testWidgets('Calendar uses two panes at 1024 and one pane at 720', (
     tester,
   ) async {
@@ -443,7 +482,32 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('カレンダー'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-mode-week')),
+        matching: find.text('週'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('calendar-mode-month')),
+        matching: find.text('月'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('今日'), findsOneWidget);
     expect(find.text('狭い画面でも読みやすい予定タスク'), findsOneWidget);
+    final titleRect = tester.getRect(find.text('カレンダー'));
+    expect(titleRect.left, greaterThanOrEqualTo(0));
+    expect(titleRect.right, lessThanOrEqualTo(320));
+    final modeRect = tester.getRect(
+      find.byKey(const ValueKey('calendar-header-mode-row')),
+    );
+    final periodRect = tester.getRect(
+      find.byKey(const ValueKey('calendar-header-period-row')),
+    );
+    expect(periodRect.top, greaterThanOrEqualTo(modeRect.bottom));
     expect(tester.takeException(), isNull);
   });
 

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
@@ -152,6 +153,34 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   Widget _buildHeader(BuildContext context, AppLocalizations l10n) {
     final theme = Theme.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+    final scaledUnit = MediaQuery.textScalerOf(context).scale(1);
+    final splitControls = width < 360 || scaledUnit > 1.3;
+    final modeSwitch = KeyedSubtree(
+      key: const ValueKey('calendar-header-mode-row'),
+      child: _buildModeSwitch(context, l10n),
+    );
+    final periodControls = Row(
+      key: const ValueKey('calendar-header-period-row'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _CalendarHeaderButton(
+          tooltip: l10n.calendarPreviousPeriodTooltip,
+          icon: LucideIcons.chevronLeft300,
+          onPressed: () => _movePeriod(-1),
+        ),
+        _CalendarHeaderButton(
+          tooltip: l10n.calendarGoToToday,
+          label: l10n.calendarGoToToday,
+          onPressed: _goToToday,
+        ),
+        _CalendarHeaderButton(
+          tooltip: l10n.calendarNextPeriodTooltip,
+          icon: LucideIcons.chevronRight300,
+          onPressed: () => _movePeriod(1),
+        ),
+      ],
+    );
     return Column(
       children: [
         Row(
@@ -169,27 +198,21 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
-        Row(
-          children: [
-            Expanded(child: _buildModeSwitch(context, l10n)),
-            const SizedBox(width: AppSpacing.sm),
-            _CalendarHeaderButton(
-              tooltip: l10n.calendarPreviousPeriodTooltip,
-              icon: LucideIcons.chevronLeft300,
-              onPressed: () => _movePeriod(-1),
-            ),
-            _CalendarHeaderButton(
-              tooltip: l10n.calendarGoToToday,
-              label: l10n.calendarGoToToday,
-              onPressed: _goToToday,
-            ),
-            _CalendarHeaderButton(
-              tooltip: l10n.calendarNextPeriodTooltip,
-              icon: LucideIcons.chevronRight300,
-              onPressed: () => _movePeriod(1),
-            ),
-          ],
-        ),
+        if (splitControls) ...[
+          modeSwitch,
+          const SizedBox(height: AppSpacing.xs),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: periodControls,
+          ),
+        ] else
+          Row(
+            children: [
+              Expanded(child: modeSwitch),
+              const SizedBox(width: AppSpacing.sm),
+              periodControls,
+            ],
+          ),
       ],
     );
   }
@@ -873,6 +896,9 @@ class _CalendarModeButton extends StatelessWidget {
               children: [
                 Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: color,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
@@ -1329,8 +1355,13 @@ String _occurrenceTimeLabel(
   final locale = Localizations.localeOf(context).toLanguageTag();
   return kind.when(
     dateDue: (_) => '',
-    dateTimeDue: (dueAt, timeZone) =>
-        DateFormat.jm(locale).format(dueAt.toLocal()),
+    dateTimeDue: (dueAt, timeZone) {
+      final savedZoneDate = taskDueDisplayDate(
+        TaskDueDto.dateTime(dueAt: dueAt, timeZone: timeZone),
+      );
+      return '${DateFormat.jm(locale).format(savedZoneDate)} '
+          '$timeZone (${taskDueUtcOffsetLabel(savedZoneDate)})';
+    },
     scheduled: (scheduledAt) =>
         DateFormat.jm(locale).format(scheduledAt.toLocal()),
     completed: (completedAt) =>
