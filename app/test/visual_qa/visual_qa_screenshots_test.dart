@@ -28,9 +28,17 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart'
-    show CalendarOccurrenceDto, CalendarRangeInput, TaskDto;
+    show
+        ActiveTimerSessionDto,
+        CalendarOccurrenceDto,
+        CalendarRangeInput,
+        TaskDto,
+        TimerModeDto,
+        TimerPhaseDto,
+        TimerRunStateDto;
 import 'package:todori/src/screens/calendar_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
+import 'package:todori/src/timer/timer_engine.dart' show TimerClock;
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -121,6 +129,26 @@ void main() {
     _setMobileViewport(tester);
     await _pumpFocusVisual(tester, state: _FocusVisualState.paused);
     await _screenshot(tester, 'focus_paused');
+  });
+
+  testWidgets('focus_finished: recorded work handoff', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.finished);
+    await _screenshot(tester, 'focus_finished');
+  });
+
+  testWidgets('focus_restored_running: durable background restore', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpRestoredFocusVisual(tester);
+    await _screenshot(tester, 'focus_restored_running');
+  });
+
+  testWidgets('focus_error: timer restore failure', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusErrorVisual(tester);
+    await _screenshot(tester, 'focus_error');
   });
 
   testWidgets('focus_320_ja_text_scale_2: narrow accessible setup', (
@@ -1200,7 +1228,7 @@ void main() {
   }
 }
 
-enum _FocusVisualState { setup, running, paused }
+enum _FocusVisualState { setup, running, paused, finished }
 
 Future<void> _pumpFocusVisual(
   WidgetTester tester, {
@@ -1215,11 +1243,15 @@ Future<void> _pumpFocusVisual(
     title: taskTitle,
     estimatedMinutes: 25,
   );
+  final clock = _VisualTimerClock(DateTime.utc(2026, 7, 13, 9));
   final router = buildAppRouter();
   await tester.pumpWidget(
     TodoriApp(
       router: router,
-      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      overrides: [
+        bridgeServiceProvider.overrideWithValue(fake),
+        timerClockProvider.overrideWithValue(clock),
+      ],
     ),
   );
   await tester.pumpAndSettle();
@@ -1234,6 +1266,7 @@ Future<void> _pumpFocusVisual(
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 120));
   if (state == _FocusVisualState.paused) {
+    clock.advance(const Duration(seconds: 1));
     await tester.tap(find.byKey(const ValueKey('focus-pause')));
     for (var attempt = 0; attempt < 4; attempt += 1) {
       await tester.pump(const Duration(milliseconds: 80));
@@ -1256,6 +1289,108 @@ Future<void> _pumpFocusVisual(
     // transparent surface from the preceding running case.
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
+  } else if (state == _FocusVisualState.finished) {
+    clock.advance(const Duration(minutes: 12));
+    await tester.tap(find.byKey(const ValueKey('focus-finish')));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('focus-finished')), findsOneWidget);
+    final scaffold = tester.widget<Scaffold>(
+      find.byKey(const ValueKey('focus-screen')),
+    );
+    expect(scaffold.backgroundColor, AppColors.canvas);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('focus-screen'))),
+      tester.view.physicalSize / tester.view.devicePixelRatio,
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+  }
+}
+
+class _VisualTimerClock implements TimerClock {
+  _VisualTimerClock(this.value);
+
+  DateTime value;
+
+  @override
+  DateTime now() => value;
+
+  void advance(Duration duration) {
+    value = value.add(duration);
+  }
+}
+
+Future<void> _pumpRestoredFocusVisual(WidgetTester tester) async {
+  final fake = FakeBridgeService();
+  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final listId = (await fake.getLists()).single.id;
+  final task = await fake.createTask(
+    listId: listId,
+    title: 'Continue the restored focus session',
+    estimatedMinutes: 25,
+  );
+  final now = DateTime.now().toUtc();
+  await fake.startActiveTimerSession(
+    session: ActiveTimerSessionDto(
+      sessionId: '00000000-0000-4000-8000-000000000106',
+      taskId: task.id,
+      mode: TimerModeDto.stopwatch,
+      phase: TimerPhaseDto.work,
+      state: TimerRunStateDto.running,
+      startedAt: now.subtract(const Duration(minutes: 5)),
+      lastResumedAt: now.subtract(const Duration(minutes: 5)),
+      accumulatedActiveMs: 0,
+    ),
+  );
+  final router = buildAppRouter();
+  await tester.pumpWidget(
+    TodoriApp(
+      router: router,
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    ),
+  );
+  await tester.pumpAndSettle();
+  router.go('/focus/$listId/${task.id}');
+  for (var attempt = 0; attempt < 10; attempt += 1) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (find.byKey(const ValueKey('focus-running')).evaluate().isNotEmpty) {
+      break;
+    }
+  }
+  expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+}
+
+Future<void> _pumpFocusErrorVisual(WidgetTester tester) async {
+  final fake = _FocusErrorVisualBridge();
+  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final listId = (await fake.getLists()).single.id;
+  final task = await fake.createTask(
+    listId: listId,
+    title: 'Recover the focus session',
+  );
+  final router = buildAppRouter();
+  await tester.pumpWidget(
+    TodoriApp(
+      router: router,
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    ),
+  );
+  await tester.pumpAndSettle();
+  router.go('/focus/$listId/${task.id}');
+  final errorText = find.text("Todori couldn't restore this focus session.");
+  for (var attempt = 0; attempt < 10; attempt += 1) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (errorText.evaluate().isNotEmpty) {
+      break;
+    }
+  }
+  expect(errorText, findsOneWidget);
+}
+
+class _FocusErrorVisualBridge extends FakeBridgeService {
+  @override
+  Future<ActiveTimerSessionDto?> getActiveTimerSession() {
+    throw StateError('simulated timer restore failure');
   }
 }
 
