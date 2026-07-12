@@ -706,7 +706,7 @@ class _FocusActiveView extends StatelessWidget {
           onSurface: AppFocusColors.text,
           onSurfaceVariant: AppFocusColors.muted,
           outlineVariant: AppFocusColors.hairline,
-          error: Color(0xFFF3A398),
+          error: AppFocusColors.error,
         ),
         scaffoldBackgroundColor: AppFocusColors.surface,
       ),
@@ -1089,7 +1089,7 @@ ButtonStyle _focusButtonStyle({bool primary = false}) => ButtonStyle(
 ButtonStyle _focusTextButtonStyle({bool destructive = false}) => ButtonStyle(
   minimumSize: const WidgetStatePropertyAll(Size.fromHeight(48)),
   foregroundColor: WidgetStatePropertyAll(
-    destructive ? const Color(0xFFF3A398) : AppFocusColors.muted,
+    destructive ? AppFocusColors.error : AppFocusColors.muted,
   ),
 );
 

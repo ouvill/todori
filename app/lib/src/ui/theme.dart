@@ -39,6 +39,7 @@ abstract final class AppFocusColors {
   static const text = Color(0xFFF5F0E4);
   static const muted = Color(0xFFAFC8BA);
   static const hairline = Color(0xFF416A59);
+  static const error = Color(0xFFF3A398);
 }
 
 /// Inter does not bundle CJK glyphs, so production explicitly falls back to a
