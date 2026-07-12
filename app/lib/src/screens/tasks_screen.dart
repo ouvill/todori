@@ -1172,6 +1172,9 @@ class _TasksBodyState extends State<_TasksBody> {
     final usesReorderShell =
         !widget.isHome &&
         !isCompletedSection &&
+        (!isTaskClosed(task) ||
+            task.status == 'done' ||
+            pendingCompletionKey != null) &&
         widget.sortMode == TaskSortMode.manual;
     final shellSiblings = usesReorderShell
         ? _siblingsOf(task, reorderShellScope ?? reorderScope)
@@ -1180,9 +1183,7 @@ class _TasksBodyState extends State<_TasksBody> {
       (sibling) => sibling.id == task.id,
     );
     final canDragReorder =
-        usesReorderShell &&
-        !isTaskClosed(task) &&
-        pendingCompletionKey == null;
+        usesReorderShell && !isTaskClosed(task) && pendingCompletionKey == null;
     final siblings = canDragReorder
         ? _siblingsOf(task, reorderScope)
         : const <TaskDto>[];
