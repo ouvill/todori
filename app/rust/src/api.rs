@@ -2,9 +2,10 @@ use std::fmt::Write as _;
 
 use todori_client::chrono::{DateTime, Utc};
 use todori_client::{
-    AccountAuthResult, AccountSessionState, CreateTaskCommand, HomeTaskView, List, ReminderView,
+    AccountAuthResult, AccountSessionState, CalendarOccurrenceKind, CalendarOccurrenceView,
+    CalendarRange, CivilDate, CreateTaskCommand, HomeTaskView, List, ReminderView,
     ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind,
-    TaskUndoView, UpdateTaskCommand, Uuid,
+    TaskUndoView, UpdateTaskCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -75,6 +76,36 @@ pub struct HomeTaskDto {
     pub task: TaskDto,
     pub list_name: String,
     pub is_home_target: bool,
+}
+
+pub struct CalendarRangeInput {
+    pub start_on: String,
+    pub end_on: String,
+    pub start_at: DateTime<Utc>,
+    pub end_at: DateTime<Utc>,
+}
+
+pub enum CalendarOccurrenceKindDto {
+    DateDue {
+        due_on: String,
+    },
+    DateTimeDue {
+        due_at: DateTime<Utc>,
+        time_zone: String,
+    },
+    Scheduled {
+        scheduled_at: DateTime<Utc>,
+    },
+    Completed {
+        completed_at: DateTime<Utc>,
+    },
+}
+
+pub struct CalendarOccurrenceDto {
+    pub task: TaskDto,
+    pub list_name: String,
+    pub list_archived: bool,
+    pub kind: CalendarOccurrenceKindDto,
 }
 
 pub struct ReminderDto {
@@ -303,6 +334,26 @@ pub fn get_home_tasks(
         .map(|tasks| tasks.into_iter().map(home_task_to_dto).collect())
 }
 
+pub fn get_calendar_occurrences(
+    range: CalendarRangeInput,
+) -> Result<Vec<CalendarOccurrenceDto>, String> {
+    let range = CalendarRange::new(
+        CivilDate::parse(range.start_on).map_err(|error| error.to_string())?,
+        CivilDate::parse(range.end_on).map_err(|error| error.to_string())?,
+        UtcInstant::from_millis(range.start_at.timestamp_millis())
+            .map_err(|error| error.to_string())?,
+        UtcInstant::from_millis(range.end_at.timestamp_millis())
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    client_result(client()?.get_calendar_occurrences(range)).map(|occurrences| {
+        occurrences
+            .into_iter()
+            .map(calendar_occurrence_to_dto)
+            .collect()
+    })
+}
+
 pub fn count_task_descendants(task_id: String) -> Result<i32, String> {
     let task_id = parse_uuid(&task_id)?;
     client_result(client()?.count_task_descendants(task_id)).and_then(count_to_i32)
@@ -515,6 +566,40 @@ fn home_task_to_dto(home_task: HomeTaskView) -> HomeTaskDto {
     }
 }
 
+fn calendar_occurrence_to_dto(occurrence: CalendarOccurrenceView) -> CalendarOccurrenceDto {
+    CalendarOccurrenceDto {
+        task: task_to_dto(occurrence.task),
+        list_name: occurrence.list_name,
+        list_archived: occurrence.list_archived,
+        kind: match occurrence.kind {
+            CalendarOccurrenceKind::DateDue { due_on } => CalendarOccurrenceKindDto::DateDue {
+                due_on: due_on.to_string(),
+            },
+            CalendarOccurrenceKind::DateTimeDue { due_at, time_zone } => {
+                CalendarOccurrenceKindDto::DateTimeDue {
+                    due_at: instant_to_datetime(due_at),
+                    time_zone: time_zone.to_string(),
+                }
+            }
+            CalendarOccurrenceKind::Scheduled { scheduled_at } => {
+                CalendarOccurrenceKindDto::Scheduled {
+                    scheduled_at: instant_to_datetime(scheduled_at),
+                }
+            }
+            CalendarOccurrenceKind::Completed { completed_at } => {
+                CalendarOccurrenceKindDto::Completed {
+                    completed_at: instant_to_datetime(completed_at),
+                }
+            }
+        },
+    }
+}
+
+fn instant_to_datetime(instant: UtcInstant) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_millis(instant.as_millis())
+        .expect("UtcInstant is validated at construction")
+}
+
 fn task_undo_to_dto(entry: TaskUndoView) -> TaskUndoDto {
     TaskUndoDto {
         id: entry.id.to_string(),
@@ -650,6 +735,8 @@ mod tests {
         let _: fn(String) -> Result<Vec<TaskDto>, String> = get_tasks;
         let _: fn(String) -> Result<Vec<TaskDto>, String> = search_tasks;
         let _: fn(i64, i64) -> Result<Vec<HomeTaskDto>, String> = get_home_tasks;
+        let _: fn(CalendarRangeInput) -> Result<Vec<CalendarOccurrenceDto>, String> =
+            get_calendar_occurrences;
         let _: fn(String) -> Result<i32, String> = count_task_descendants;
         let _: fn(String) -> Result<i32, String> = count_tasks_in_list;
         let _: fn(
@@ -683,5 +770,33 @@ mod tests {
         assert!(json.contains("\"title\":\"quote \\\" slash \\\\ line\\n牛乳\""));
         assert!(json.contains("\"status\":\"todo\""));
         assert!(json.ends_with("\"updated_at\":0}"));
+    }
+
+    #[test]
+    fn calendar_bridge_rejects_invalid_or_reversed_half_open_ranges_before_client_access() {
+        let start = DateTime::<Utc>::from_timestamp_millis(1_773_035_600_000).unwrap();
+        let end = DateTime::<Utc>::from_timestamp_millis(1_773_118_400_000).unwrap();
+
+        let invalid_date = get_calendar_occurrences(CalendarRangeInput {
+            start_on: "2026-03-8".into(),
+            end_on: "2026-03-09".into(),
+            start_at: start,
+            end_at: end,
+        });
+        assert!(matches!(
+            invalid_date,
+            Err(error) if error.contains("invalid civil date")
+        ));
+
+        let reversed = get_calendar_occurrences(CalendarRangeInput {
+            start_on: "2026-03-09".into(),
+            end_on: "2026-03-08".into(),
+            start_at: start,
+            end_at: end,
+        });
+        assert!(matches!(
+            reversed,
+            Err(error) if error.contains("calendar range")
+        ));
     }
 }

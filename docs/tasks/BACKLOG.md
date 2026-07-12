@@ -24,7 +24,6 @@ Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md
 | iOSリリース準備 | release build、署名、ストア提出前コンプライアンスを確認する | M5-01。人間作業を含む |
 | macOS dogfooding配布 | macOS desktop buildを配布し、既知差分をリリースノートへ記録する | M5-02。人間判断を含む |
 | クラッシュレポート方針 | F-53のオプトイン、PII除去、実送信有無を確定する | M5-03。法務・プライバシー判断を含む |
-| P2-M6 カレンダー表示 | 月 / 週表示、due / scheduled表示、日付変更、同期反映を実装する | Phase 2計画書 P2-M6 / F-13 |
 | P2-M7 タイマー / Pomodoro | Pomodoro、通常タイマー、見積対実績、Focus Timer UIを実装する | Phase 2計画書 P2-M7 / F-16〜F-18 |
 | P2-M8 テンプレート / 繰り返し | テンプレート、RRULE準拠生成、streak、重複生成防止を実装する | Phase 2計画書 P2-M8 / F-19〜F-21 |
 

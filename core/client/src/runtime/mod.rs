@@ -3,8 +3,9 @@ mod application;
 mod sync;
 
 pub use application::{
-    CreateTaskCommand, HomeTaskView, ReminderView, ReorderTaskCommand, SetTaskStatusCommand,
-    TaskUndoKind, TaskUndoView, UpdateTaskCommand,
+    CalendarOccurrenceKind, CalendarOccurrenceView, CalendarRange, CreateTaskCommand, HomeTaskView,
+    ReminderView, ReorderTaskCommand, SetTaskStatusCommand, TaskUndoKind, TaskUndoView,
+    UpdateTaskCommand,
 };
 
 use std::{

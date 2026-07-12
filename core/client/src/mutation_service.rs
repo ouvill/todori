@@ -56,6 +56,8 @@ pub enum ClientError {
     InvalidEstimatedMinutes,
     #[error("local IANA time zone is unavailable")]
     LocalTimeZoneUnavailable,
+    #[error("calendar range must contain increasing civil-date and instant bounds")]
+    InvalidCalendarRange,
 }
 
 #[derive(Debug, Clone)]

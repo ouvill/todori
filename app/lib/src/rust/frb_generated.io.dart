@@ -34,6 +34,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  CalendarRangeInput dco_decode_box_autoadd_calendar_range_input(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
 
   @protected
@@ -49,6 +52,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto dco_decode_box_autoadd_task_undo_dto(dynamic raw);
 
   @protected
+  CalendarOccurrenceDto dco_decode_calendar_occurrence_dto(dynamic raw);
+
+  @protected
+  CalendarOccurrenceKindDto dco_decode_calendar_occurrence_kind_dto(
+    dynamic raw,
+  );
+
+  @protected
+  CalendarRangeInput dco_decode_calendar_range_input(dynamic raw);
+
+  @protected
   HomeTaskDto dco_decode_home_task_dto(dynamic raw);
 
   @protected
@@ -56,6 +70,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
+
+  @protected
+  List<CalendarOccurrenceDto> dco_decode_list_calendar_occurrence_dto(
+    dynamic raw,
+  );
 
   @protected
   ListDto dco_decode_list_dto(dynamic raw);
@@ -137,6 +156,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  CalendarRangeInput sse_decode_box_autoadd_calendar_range_input(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
@@ -156,6 +180,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CalendarOccurrenceDto sse_decode_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CalendarOccurrenceKindDto sse_decode_calendar_occurrence_kind_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CalendarRangeInput sse_decode_calendar_range_input(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   HomeTaskDto sse_decode_home_task_dto(SseDeserializer deserializer);
 
   @protected
@@ -163,6 +202,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+
+  @protected
+  List<CalendarOccurrenceDto> sse_decode_list_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   ListDto sse_decode_list_dto(SseDeserializer deserializer);
@@ -252,6 +296,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -279,6 +329,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_calendar_occurrence_dto(
+    CalendarOccurrenceDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_calendar_occurrence_kind_dto(
+    CalendarOccurrenceKindDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_home_task_dto(HomeTaskDto self, SseSerializer serializer);
 
   @protected
@@ -286,6 +354,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_calendar_occurrence_dto(
+    List<CalendarOccurrenceDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_dto(ListDto self, SseSerializer serializer);

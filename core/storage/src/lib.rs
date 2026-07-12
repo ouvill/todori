@@ -207,6 +207,89 @@ pub struct HomeTask {
     pub is_home_target: bool,
 }
 
+/// Viewer-local calendar bounds represented without collapsing civil dates
+/// into synthetic instants. Both dimensions use half-open `[start, end)`
+/// intervals and are constructed by the caller from the same viewer timezone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarRange {
+    start_on: CivilDate,
+    end_on: CivilDate,
+    start_at: UtcInstant,
+    end_at: UtcInstant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CalendarRangeError {
+    #[error("calendar civil-date range must be non-empty and increasing")]
+    InvalidCivilDateRange,
+    #[error("calendar instant range must be non-empty and increasing")]
+    InvalidInstantRange,
+}
+
+impl CalendarRange {
+    pub fn new(
+        start_on: CivilDate,
+        end_on: CivilDate,
+        start_at: UtcInstant,
+        end_at: UtcInstant,
+    ) -> Result<Self, CalendarRangeError> {
+        if start_on >= end_on {
+            return Err(CalendarRangeError::InvalidCivilDateRange);
+        }
+        if start_at >= end_at {
+            return Err(CalendarRangeError::InvalidInstantRange);
+        }
+        Ok(Self {
+            start_on,
+            end_on,
+            start_at,
+            end_at,
+        })
+    }
+
+    pub fn start_on(&self) -> &CivilDate {
+        &self.start_on
+    }
+
+    pub fn end_on(&self) -> &CivilDate {
+        &self.end_on
+    }
+
+    pub fn start_at(&self) -> UtcInstant {
+        self.start_at
+    }
+
+    pub fn end_at(&self) -> UtcInstant {
+        self.end_at
+    }
+}
+
+/// The semantic reason a task appears in a calendar range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CalendarOccurrenceKind {
+    DateDue {
+        due_on: CivilDate,
+    },
+    DateTimeDue {
+        due_at: UtcInstant,
+        time_zone: IanaTimeZone,
+    },
+    Scheduled {
+        scheduled_at: UtcInstant,
+    },
+    Completed {
+        completed_at: UtcInstant,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalendarOccurrence {
+    pub task: Task,
+    pub list_name: String,
+    pub list_archived: bool,
+    pub kind: CalendarOccurrenceKind,
+}
+
 /// A local reminder scheduled on the device for a task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reminder {
@@ -386,6 +469,10 @@ pub trait TaskRepository {
         today_start_ms: i64,
         tomorrow_start_ms: i64,
     ) -> Result<Vec<HomeTask>, StorageError>;
+    fn list_calendar_occurrences(
+        &self,
+        range: &CalendarRange,
+    ) -> Result<Vec<CalendarOccurrence>, StorageError>;
     fn search_tasks(&self, query: &str) -> Result<Vec<Task>, StorageError>;
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
@@ -1813,6 +1900,114 @@ impl TaskRepository for SqliteTaskRepository {
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         Ok(tasks)
+    }
+
+    fn list_calendar_occurrences(
+        &self,
+        range: &CalendarRange,
+    ) -> Result<Vec<CalendarOccurrence>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT tasks.id, tasks.list_id, tasks.parent_task_id, tasks.title,
+                    tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
+                    tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
+                    tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
+                    tasks.assignee, tasks.created_at, tasks.updated_at,
+                    lists.name, lists.archived_at
+             FROM tasks
+             INNER JOIN lists ON lists.id = tasks.list_id
+             WHERE tasks.deleted_at IS NULL
+               AND (
+                    (tasks.status IN ('todo', 'in_progress') AND tasks.due_kind = 'date' AND tasks.due_on >= ?1 AND tasks.due_on < ?2)
+                    OR (tasks.status IN ('todo', 'in_progress') AND tasks.due_kind = 'datetime' AND tasks.due_at_ms >= ?3 AND tasks.due_at_ms < ?4)
+                    OR (tasks.status IN ('todo', 'in_progress') AND tasks.scheduled_at >= ?3 AND tasks.scheduled_at < ?4)
+                    OR (tasks.status IN ('done', 'wont_do') AND tasks.completed_at >= ?3 AND tasks.completed_at < ?4)
+               )
+             ORDER BY tasks.sort_order ASC, tasks.id ASC",
+        )?;
+        let rows = statement
+            .query_map(
+                params![
+                    range.start_on().as_str(),
+                    range.end_on().as_str(),
+                    range.start_at().as_millis(),
+                    range.end_at().as_millis(),
+                ],
+                |row| {
+                    Ok((
+                        row_to_task(row)?,
+                        row.get::<_, String>(20)?,
+                        row.get::<_, Option<i64>>(21)?.is_some(),
+                    ))
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let mut occurrences = Vec::new();
+        for (task, list_name, list_archived) in rows {
+            if matches!(task.status, TaskStatus::Todo | TaskStatus::InProgress) {
+                if let Some(due) = task.due.as_ref() {
+                    let kind = match due {
+                        TaskDue::Date { due_on }
+                            if due_on >= range.start_on() && due_on < range.end_on() =>
+                        {
+                            Some(CalendarOccurrenceKind::DateDue {
+                                due_on: due_on.clone(),
+                            })
+                        }
+                        TaskDue::DateTime { due_at, time_zone }
+                            if *due_at >= range.start_at() && *due_at < range.end_at() =>
+                        {
+                            Some(CalendarOccurrenceKind::DateTimeDue {
+                                due_at: *due_at,
+                                time_zone: time_zone.clone(),
+                            })
+                        }
+                        _ => None,
+                    };
+                    if let Some(kind) = kind {
+                        occurrences.push(CalendarOccurrence {
+                            task: task.clone(),
+                            list_name: list_name.clone(),
+                            list_archived,
+                            kind,
+                        });
+                    }
+                }
+                if let Some(value) = task.scheduled_at {
+                    let scheduled_at = UtcInstant::from_millis(value).map_err(|_| {
+                        StorageError::IncompatibleSchema(format!(
+                            "task {} contains invalid scheduled_at",
+                            task.id
+                        ))
+                    })?;
+                    if scheduled_at >= range.start_at() && scheduled_at < range.end_at() {
+                        occurrences.push(CalendarOccurrence {
+                            task: task.clone(),
+                            list_name: list_name.clone(),
+                            list_archived,
+                            kind: CalendarOccurrenceKind::Scheduled { scheduled_at },
+                        });
+                    }
+                }
+            } else if let Some(value) = task.completed_at {
+                let completed_at = UtcInstant::from_millis(value).map_err(|_| {
+                    StorageError::IncompatibleSchema(format!(
+                        "task {} contains invalid completed_at",
+                        task.id
+                    ))
+                })?;
+                if completed_at >= range.start_at() && completed_at < range.end_at() {
+                    occurrences.push(CalendarOccurrence {
+                        task,
+                        list_name,
+                        list_archived,
+                        kind: CalendarOccurrenceKind::Completed { completed_at },
+                    });
+                }
+            }
+        }
+
+        Ok(occurrences)
     }
 
     fn search_tasks(&self, query: &str) -> Result<Vec<Task>, StorageError> {
@@ -7467,6 +7662,151 @@ mod tests {
         assert!(!titles.contains(&"Scheduled tomorrow"));
         assert!(!titles.contains(&"Archived"));
         assert!(!titles.contains(&"Closed yesterday"));
+    }
+
+    #[test]
+    fn calendar_range_rejects_empty_or_reversed_dimensions() {
+        let day = CivilDate::parse("2026-03-08").unwrap();
+        let next = CivilDate::parse("2026-03-09").unwrap();
+        let start = UtcInstant::from_millis(1_773_000_000_000).unwrap();
+        let end = UtcInstant::from_millis(start.as_millis() + 1).unwrap();
+
+        assert_eq!(
+            CalendarRange::new(day.clone(), day, start, end),
+            Err(CalendarRangeError::InvalidCivilDateRange)
+        );
+        assert_eq!(
+            CalendarRange::new(next.clone(), next, end, start),
+            Err(CalendarRangeError::InvalidCivilDateRange)
+        );
+        assert_eq!(
+            CalendarRange::new(
+                CivilDate::parse("2026-03-08").unwrap(),
+                CivilDate::parse("2026-03-09").unwrap(),
+                start,
+                start,
+            ),
+            Err(CalendarRangeError::InvalidInstantRange)
+        );
+
+        for hours in [23, 25] {
+            let dst_end = UtcInstant::from_millis(start.as_millis() + hours * 3_600_000).unwrap();
+            let range = CalendarRange::new(
+                CivilDate::parse("2026-03-08").unwrap(),
+                CivilDate::parse("2026-03-09").unwrap(),
+                start,
+                dst_end,
+            )
+            .unwrap();
+            assert_eq!(
+                range.end_at().as_millis() - range.start_at().as_millis(),
+                hours * 3_600_000
+            );
+        }
+    }
+
+    #[test]
+    fn calendar_occurrences_preserve_semantics_boundaries_and_archived_context() {
+        let file = NamedTempFile::new().unwrap();
+        // America/New_York 2026 spring-forward day is 23 hours. The storage
+        // contract consumes caller-provided boundaries and never adds 24h.
+        let start_ms = 1_773_035_600_000; // 2026-03-08T05:00:00Z
+        let end_ms = start_ms + 23 * 3_600_000;
+        let range = CalendarRange::new(
+            CivilDate::parse("2026-03-08").unwrap(),
+            CivilDate::parse("2026-03-09").unwrap(),
+            UtcInstant::from_millis(start_ms).unwrap(),
+            UtcInstant::from_millis(end_ms).unwrap(),
+        )
+        .unwrap();
+        let active = new_list("Active".into(), "a0".into(), start_ms).unwrap();
+        let mut archived = new_list("Archive".into(), "a1".into(), start_ms).unwrap();
+        archived.archived_at = Some(start_ms);
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(active.clone()).unwrap();
+            lists.insert(archived.clone()).unwrap();
+        }
+
+        let mut dual = new_task(active.id, None, "Dual".into(), "a0".into(), start_ms).unwrap();
+        dual.due = Some(TaskDue::date("2026-03-08").unwrap());
+        dual.scheduled_at = Some(start_ms);
+
+        let mut datetime =
+            new_task(active.id, None, "Datetime".into(), "a1".into(), start_ms).unwrap();
+        datetime.due = Some(TaskDue::date_time(end_ms - 1, "America/New_York").unwrap());
+        datetime = transition_task(datetime, TaskStatus::InProgress, None, start_ms + 1).unwrap();
+
+        let mut completed =
+            new_task(archived.id, None, "Completed".into(), "a2".into(), start_ms).unwrap();
+        completed = transition_task(completed, TaskStatus::Done, None, end_ms - 1).unwrap();
+
+        let mut wont_do =
+            new_task(active.id, None, "Wont do".into(), "a3".into(), start_ms).unwrap();
+        wont_do.due = Some(TaskDue::date_time(start_ms, "UTC").unwrap());
+        wont_do = transition_task(
+            wont_do,
+            TaskStatus::WontDo,
+            Some("obsolete".into()),
+            start_ms + 2,
+        )
+        .unwrap();
+
+        let mut excluded_end =
+            new_task(active.id, None, "At end".into(), "a4".into(), start_ms).unwrap();
+        excluded_end.due = Some(TaskDue::date("2026-03-09").unwrap());
+        excluded_end.scheduled_at = Some(end_ms);
+
+        let mut deleted =
+            new_task(active.id, None, "Deleted".into(), "a5".into(), start_ms).unwrap();
+        deleted.due = Some(TaskDue::date("2026-03-08").unwrap());
+        deleted.deleted_at = Some(start_ms + 3);
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut tasks = SqliteTaskRepository::new(connection);
+        for task in [dual, datetime, completed, wont_do, excluded_end, deleted] {
+            tasks.insert(task).unwrap();
+        }
+
+        let occurrences = tasks.list_calendar_occurrences(&range).unwrap();
+        assert_eq!(occurrences.len(), 5);
+        assert_eq!(
+            occurrences
+                .iter()
+                .filter(|occurrence| occurrence.task.title == "Dual")
+                .count(),
+            2
+        );
+        assert!(occurrences.iter().any(|occurrence| matches!(
+            &occurrence.kind,
+            CalendarOccurrenceKind::DateDue { due_on } if due_on.as_str() == "2026-03-08"
+        )));
+        assert!(occurrences.iter().any(|occurrence| matches!(
+            occurrence.kind,
+            CalendarOccurrenceKind::DateTimeDue { due_at, .. } if due_at.as_millis() == end_ms - 1
+        )));
+        assert!(occurrences.iter().any(|occurrence| matches!(
+            occurrence.kind,
+            CalendarOccurrenceKind::Scheduled { scheduled_at } if scheduled_at.as_millis() == start_ms
+        )));
+        assert!(occurrences.iter().any(|occurrence| {
+            occurrence.list_archived
+                && occurrence.list_name == "Archive"
+                && matches!(occurrence.kind, CalendarOccurrenceKind::Completed { .. })
+        }));
+        assert!(occurrences.iter().any(|occurrence| {
+            occurrence.task.status == TaskStatus::WontDo
+                && matches!(occurrence.kind, CalendarOccurrenceKind::Completed { .. })
+        }));
+        assert!(!occurrences.iter().any(|occurrence| {
+            occurrence.task.status == TaskStatus::WontDo
+                && matches!(occurrence.kind, CalendarOccurrenceKind::DateTimeDue { .. })
+        }));
+        assert!(!occurrences
+            .iter()
+            .any(|occurrence| occurrence.task.title == "At end"
+                || occurrence.task.title == "Deleted"));
     }
 
     #[test]

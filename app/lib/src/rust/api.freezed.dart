@@ -12,6 +12,444 @@ part of 'api.dart';
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
+mixin _$CalendarOccurrenceKindDto {
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CalendarOccurrenceKindDto);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'CalendarOccurrenceKindDto()';
+}
+
+
+}
+
+/// @nodoc
+class $CalendarOccurrenceKindDtoCopyWith<$Res>  {
+$CalendarOccurrenceKindDtoCopyWith(CalendarOccurrenceKindDto _, $Res Function(CalendarOccurrenceKindDto) __);
+}
+
+
+/// Adds pattern-matching-related methods to [CalendarOccurrenceKindDto].
+extension CalendarOccurrenceKindDtoPatterns on CalendarOccurrenceKindDto {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( CalendarOccurrenceKindDto_DateDue value)?  dateDue,TResult Function( CalendarOccurrenceKindDto_DateTimeDue value)?  dateTimeDue,TResult Function( CalendarOccurrenceKindDto_Scheduled value)?  scheduled,TResult Function( CalendarOccurrenceKindDto_Completed value)?  completed,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue() when dateDue != null:
+return dateDue(_that);case CalendarOccurrenceKindDto_DateTimeDue() when dateTimeDue != null:
+return dateTimeDue(_that);case CalendarOccurrenceKindDto_Scheduled() when scheduled != null:
+return scheduled(_that);case CalendarOccurrenceKindDto_Completed() when completed != null:
+return completed(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( CalendarOccurrenceKindDto_DateDue value)  dateDue,required TResult Function( CalendarOccurrenceKindDto_DateTimeDue value)  dateTimeDue,required TResult Function( CalendarOccurrenceKindDto_Scheduled value)  scheduled,required TResult Function( CalendarOccurrenceKindDto_Completed value)  completed,}){
+final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue():
+return dateDue(_that);case CalendarOccurrenceKindDto_DateTimeDue():
+return dateTimeDue(_that);case CalendarOccurrenceKindDto_Scheduled():
+return scheduled(_that);case CalendarOccurrenceKindDto_Completed():
+return completed(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( CalendarOccurrenceKindDto_DateDue value)?  dateDue,TResult? Function( CalendarOccurrenceKindDto_DateTimeDue value)?  dateTimeDue,TResult? Function( CalendarOccurrenceKindDto_Scheduled value)?  scheduled,TResult? Function( CalendarOccurrenceKindDto_Completed value)?  completed,}){
+final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue() when dateDue != null:
+return dateDue(_that);case CalendarOccurrenceKindDto_DateTimeDue() when dateTimeDue != null:
+return dateTimeDue(_that);case CalendarOccurrenceKindDto_Scheduled() when scheduled != null:
+return scheduled(_that);case CalendarOccurrenceKindDto_Completed() when completed != null:
+return completed(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String dueOn)?  dateDue,TResult Function( DateTime dueAt,  String timeZone)?  dateTimeDue,TResult Function( DateTime scheduledAt)?  scheduled,TResult Function( DateTime completedAt)?  completed,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue() when dateDue != null:
+return dateDue(_that.dueOn);case CalendarOccurrenceKindDto_DateTimeDue() when dateTimeDue != null:
+return dateTimeDue(_that.dueAt,_that.timeZone);case CalendarOccurrenceKindDto_Scheduled() when scheduled != null:
+return scheduled(_that.scheduledAt);case CalendarOccurrenceKindDto_Completed() when completed != null:
+return completed(_that.completedAt);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String dueOn)  dateDue,required TResult Function( DateTime dueAt,  String timeZone)  dateTimeDue,required TResult Function( DateTime scheduledAt)  scheduled,required TResult Function( DateTime completedAt)  completed,}) {final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue():
+return dateDue(_that.dueOn);case CalendarOccurrenceKindDto_DateTimeDue():
+return dateTimeDue(_that.dueAt,_that.timeZone);case CalendarOccurrenceKindDto_Scheduled():
+return scheduled(_that.scheduledAt);case CalendarOccurrenceKindDto_Completed():
+return completed(_that.completedAt);}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String dueOn)?  dateDue,TResult? Function( DateTime dueAt,  String timeZone)?  dateTimeDue,TResult? Function( DateTime scheduledAt)?  scheduled,TResult? Function( DateTime completedAt)?  completed,}) {final _that = this;
+switch (_that) {
+case CalendarOccurrenceKindDto_DateDue() when dateDue != null:
+return dateDue(_that.dueOn);case CalendarOccurrenceKindDto_DateTimeDue() when dateTimeDue != null:
+return dateTimeDue(_that.dueAt,_that.timeZone);case CalendarOccurrenceKindDto_Scheduled() when scheduled != null:
+return scheduled(_that.scheduledAt);case CalendarOccurrenceKindDto_Completed() when completed != null:
+return completed(_that.completedAt);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class CalendarOccurrenceKindDto_DateDue extends CalendarOccurrenceKindDto {
+  const CalendarOccurrenceKindDto_DateDue({required this.dueOn}): super._();
+
+
+ final  String dueOn;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$CalendarOccurrenceKindDto_DateDueCopyWith<CalendarOccurrenceKindDto_DateDue> get copyWith => _$CalendarOccurrenceKindDto_DateDueCopyWithImpl<CalendarOccurrenceKindDto_DateDue>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CalendarOccurrenceKindDto_DateDue&&(identical(other.dueOn, dueOn) || other.dueOn == dueOn));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,dueOn);
+
+@override
+String toString() {
+  return 'CalendarOccurrenceKindDto.dateDue(dueOn: $dueOn)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $CalendarOccurrenceKindDto_DateDueCopyWith<$Res> implements $CalendarOccurrenceKindDtoCopyWith<$Res> {
+  factory $CalendarOccurrenceKindDto_DateDueCopyWith(CalendarOccurrenceKindDto_DateDue value, $Res Function(CalendarOccurrenceKindDto_DateDue) _then) = _$CalendarOccurrenceKindDto_DateDueCopyWithImpl;
+@useResult
+$Res call({
+ String dueOn
+});
+
+
+
+
+}
+/// @nodoc
+class _$CalendarOccurrenceKindDto_DateDueCopyWithImpl<$Res>
+    implements $CalendarOccurrenceKindDto_DateDueCopyWith<$Res> {
+  _$CalendarOccurrenceKindDto_DateDueCopyWithImpl(this._self, this._then);
+
+  final CalendarOccurrenceKindDto_DateDue _self;
+  final $Res Function(CalendarOccurrenceKindDto_DateDue) _then;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? dueOn = null,}) {
+  return _then(CalendarOccurrenceKindDto_DateDue(
+dueOn: null == dueOn ? _self.dueOn : dueOn // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class CalendarOccurrenceKindDto_DateTimeDue extends CalendarOccurrenceKindDto {
+  const CalendarOccurrenceKindDto_DateTimeDue({required this.dueAt, required this.timeZone}): super._();
+
+
+ final  DateTime dueAt;
+ final  String timeZone;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$CalendarOccurrenceKindDto_DateTimeDueCopyWith<CalendarOccurrenceKindDto_DateTimeDue> get copyWith => _$CalendarOccurrenceKindDto_DateTimeDueCopyWithImpl<CalendarOccurrenceKindDto_DateTimeDue>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CalendarOccurrenceKindDto_DateTimeDue&&(identical(other.dueAt, dueAt) || other.dueAt == dueAt)&&(identical(other.timeZone, timeZone) || other.timeZone == timeZone));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,dueAt,timeZone);
+
+@override
+String toString() {
+  return 'CalendarOccurrenceKindDto.dateTimeDue(dueAt: $dueAt, timeZone: $timeZone)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $CalendarOccurrenceKindDto_DateTimeDueCopyWith<$Res> implements $CalendarOccurrenceKindDtoCopyWith<$Res> {
+  factory $CalendarOccurrenceKindDto_DateTimeDueCopyWith(CalendarOccurrenceKindDto_DateTimeDue value, $Res Function(CalendarOccurrenceKindDto_DateTimeDue) _then) = _$CalendarOccurrenceKindDto_DateTimeDueCopyWithImpl;
+@useResult
+$Res call({
+ DateTime dueAt, String timeZone
+});
+
+
+
+
+}
+/// @nodoc
+class _$CalendarOccurrenceKindDto_DateTimeDueCopyWithImpl<$Res>
+    implements $CalendarOccurrenceKindDto_DateTimeDueCopyWith<$Res> {
+  _$CalendarOccurrenceKindDto_DateTimeDueCopyWithImpl(this._self, this._then);
+
+  final CalendarOccurrenceKindDto_DateTimeDue _self;
+  final $Res Function(CalendarOccurrenceKindDto_DateTimeDue) _then;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? dueAt = null,Object? timeZone = null,}) {
+  return _then(CalendarOccurrenceKindDto_DateTimeDue(
+dueAt: null == dueAt ? _self.dueAt : dueAt // ignore: cast_nullable_to_non_nullable
+as DateTime,timeZone: null == timeZone ? _self.timeZone : timeZone // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class CalendarOccurrenceKindDto_Scheduled extends CalendarOccurrenceKindDto {
+  const CalendarOccurrenceKindDto_Scheduled({required this.scheduledAt}): super._();
+
+
+ final  DateTime scheduledAt;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$CalendarOccurrenceKindDto_ScheduledCopyWith<CalendarOccurrenceKindDto_Scheduled> get copyWith => _$CalendarOccurrenceKindDto_ScheduledCopyWithImpl<CalendarOccurrenceKindDto_Scheduled>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CalendarOccurrenceKindDto_Scheduled&&(identical(other.scheduledAt, scheduledAt) || other.scheduledAt == scheduledAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,scheduledAt);
+
+@override
+String toString() {
+  return 'CalendarOccurrenceKindDto.scheduled(scheduledAt: $scheduledAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $CalendarOccurrenceKindDto_ScheduledCopyWith<$Res> implements $CalendarOccurrenceKindDtoCopyWith<$Res> {
+  factory $CalendarOccurrenceKindDto_ScheduledCopyWith(CalendarOccurrenceKindDto_Scheduled value, $Res Function(CalendarOccurrenceKindDto_Scheduled) _then) = _$CalendarOccurrenceKindDto_ScheduledCopyWithImpl;
+@useResult
+$Res call({
+ DateTime scheduledAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$CalendarOccurrenceKindDto_ScheduledCopyWithImpl<$Res>
+    implements $CalendarOccurrenceKindDto_ScheduledCopyWith<$Res> {
+  _$CalendarOccurrenceKindDto_ScheduledCopyWithImpl(this._self, this._then);
+
+  final CalendarOccurrenceKindDto_Scheduled _self;
+  final $Res Function(CalendarOccurrenceKindDto_Scheduled) _then;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? scheduledAt = null,}) {
+  return _then(CalendarOccurrenceKindDto_Scheduled(
+scheduledAt: null == scheduledAt ? _self.scheduledAt : scheduledAt // ignore: cast_nullable_to_non_nullable
+as DateTime,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class CalendarOccurrenceKindDto_Completed extends CalendarOccurrenceKindDto {
+  const CalendarOccurrenceKindDto_Completed({required this.completedAt}): super._();
+
+
+ final  DateTime completedAt;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$CalendarOccurrenceKindDto_CompletedCopyWith<CalendarOccurrenceKindDto_Completed> get copyWith => _$CalendarOccurrenceKindDto_CompletedCopyWithImpl<CalendarOccurrenceKindDto_Completed>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CalendarOccurrenceKindDto_Completed&&(identical(other.completedAt, completedAt) || other.completedAt == completedAt));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,completedAt);
+
+@override
+String toString() {
+  return 'CalendarOccurrenceKindDto.completed(completedAt: $completedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $CalendarOccurrenceKindDto_CompletedCopyWith<$Res> implements $CalendarOccurrenceKindDtoCopyWith<$Res> {
+  factory $CalendarOccurrenceKindDto_CompletedCopyWith(CalendarOccurrenceKindDto_Completed value, $Res Function(CalendarOccurrenceKindDto_Completed) _then) = _$CalendarOccurrenceKindDto_CompletedCopyWithImpl;
+@useResult
+$Res call({
+ DateTime completedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$CalendarOccurrenceKindDto_CompletedCopyWithImpl<$Res>
+    implements $CalendarOccurrenceKindDto_CompletedCopyWith<$Res> {
+  _$CalendarOccurrenceKindDto_CompletedCopyWithImpl(this._self, this._then);
+
+  final CalendarOccurrenceKindDto_Completed _self;
+  final $Res Function(CalendarOccurrenceKindDto_Completed) _then;
+
+/// Create a copy of CalendarOccurrenceKindDto
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? completedAt = null,}) {
+  return _then(CalendarOccurrenceKindDto_Completed(
+completedAt: null == completedAt ? _self.completedAt : completedAt // ignore: cast_nullable_to_non_nullable
+as DateTime,
+  ));
+}
+
+
+}
+
+/// @nodoc
 mixin _$TaskDueDto {
 
 
@@ -176,7 +614,7 @@ return dateTime(_that.dueAt,_that.timeZone);case _:
 
 class TaskDueDto_Date extends TaskDueDto {
   const TaskDueDto_Date({required this.dueOn}): super._();
-  
+
 
  final  String dueOn;
 
@@ -242,7 +680,7 @@ as String,
 
 class TaskDueDto_DateTime extends TaskDueDto {
   const TaskDueDto_DateTime({required this.dueAt, required this.timeZone}): super._();
-  
+
 
  final  DateTime dueAt;
  final  String timeZone;
@@ -470,7 +908,7 @@ return dateTime(_that.dueAt,_that.timeZone);case _:
 
 class TaskDueInput_Date extends TaskDueInput {
   const TaskDueInput_Date({required this.dueOn}): super._();
-  
+
 
  final  String dueOn;
 
@@ -536,7 +974,7 @@ as String,
 
 class TaskDueInput_DateTime extends TaskDueInput {
   const TaskDueInput_DateTime({required this.dueAt, required this.timeZone}): super._();
-  
+
 
  final  DateTime dueAt;
  final  String timeZone;

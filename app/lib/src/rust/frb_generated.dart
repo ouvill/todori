@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -631770909;
+  int get rustContentHash => -118347175;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -127,6 +127,10 @@ abstract class RustLibApi extends BaseApi {
   Future<AccountSessionStateDto> crateApiGetAccountSessionState();
 
   Future<List<ListDto>> crateApiGetArchivedLists();
+
+  Future<List<CalendarOccurrenceDto>> crateApiGetCalendarOccurrences({
+    required CalendarRangeInput range,
+  });
 
   Future<List<HomeTaskDto>> crateApiGetHomeTasks({
     required PlatformInt64 todayStartMs,
@@ -685,6 +689,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_archived_lists", argNames: []);
 
   @override
+  Future<List<CalendarOccurrenceDto>> crateApiGetCalendarOccurrences({
+    required CalendarRangeInput range,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_calendar_range_input(range, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 15,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_calendar_occurrence_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetCalendarOccurrencesConstMeta,
+        argValues: [range],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetCalendarOccurrencesConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_calendar_occurrences",
+        argNames: ["range"],
+      );
+
+  @override
   Future<List<HomeTaskDto>> crateApiGetHomeTasks({
     required PlatformInt64 todayStartMs,
     required PlatformInt64 tomorrowStartMs,
@@ -698,7 +735,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 16,
             port: port_,
           );
         },
@@ -727,7 +764,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -755,7 +792,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -784,7 +821,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -811,7 +848,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -839,7 +876,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -866,7 +903,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 22,
             port: port_,
           );
         },
@@ -893,7 +930,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 23,
             port: port_,
           );
         },
@@ -921,7 +958,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 24,
             port: port_,
           );
         },
@@ -953,7 +990,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 25,
             port: port_,
           );
         },
@@ -984,7 +1021,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1012,7 +1049,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1044,7 +1081,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1076,7 +1113,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1111,7 +1148,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1147,7 +1184,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1177,7 +1214,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1209,7 +1246,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1237,7 +1274,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1271,7 +1308,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1307,7 +1344,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1341,7 +1378,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1370,7 +1407,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1398,7 +1435,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1426,7 +1463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1470,7 +1507,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1552,6 +1589,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarRangeInput dco_decode_box_autoadd_calendar_range_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_calendar_range_input(raw);
+  }
+
+  @protected
   int dco_decode_box_autoadd_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1582,6 +1625,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarOccurrenceDto dco_decode_calendar_occurrence_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return CalendarOccurrenceDto(
+      task: dco_decode_task_dto(arr[0]),
+      listName: dco_decode_String(arr[1]),
+      listArchived: dco_decode_bool(arr[2]),
+      kind: dco_decode_calendar_occurrence_kind_dto(arr[3]),
+    );
+  }
+
+  @protected
+  CalendarOccurrenceKindDto dco_decode_calendar_occurrence_kind_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return CalendarOccurrenceKindDto_DateDue(
+          dueOn: dco_decode_String(raw[1]),
+        );
+      case 1:
+        return CalendarOccurrenceKindDto_DateTimeDue(
+          dueAt: dco_decode_Chrono_Utc(raw[1]),
+          timeZone: dco_decode_String(raw[2]),
+        );
+      case 2:
+        return CalendarOccurrenceKindDto_Scheduled(
+          scheduledAt: dco_decode_Chrono_Utc(raw[1]),
+        );
+      case 3:
+        return CalendarOccurrenceKindDto_Completed(
+          completedAt: dco_decode_Chrono_Utc(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  CalendarRangeInput dco_decode_calendar_range_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return CalendarRangeInput(
+      startOn: dco_decode_String(arr[0]),
+      endOn: dco_decode_String(arr[1]),
+      startAt: dco_decode_Chrono_Utc(arr[2]),
+      endAt: dco_decode_Chrono_Utc(arr[3]),
+    );
+  }
+
+  @protected
   HomeTaskDto dco_decode_home_task_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1604,6 +1703,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  List<CalendarOccurrenceDto> dco_decode_list_calendar_occurrence_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_calendar_occurrence_dto)
+        .toList();
   }
 
   @protected
@@ -1874,6 +1983,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarRangeInput sse_decode_box_autoadd_calendar_range_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_calendar_range_input(deserializer));
+  }
+
+  @protected
   int sse_decode_box_autoadd_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_32(deserializer));
@@ -1908,6 +2025,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarOccurrenceDto sse_decode_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_task = sse_decode_task_dto(deserializer);
+    var var_listName = sse_decode_String(deserializer);
+    var var_listArchived = sse_decode_bool(deserializer);
+    var var_kind = sse_decode_calendar_occurrence_kind_dto(deserializer);
+    return CalendarOccurrenceDto(
+      task: var_task,
+      listName: var_listName,
+      listArchived: var_listArchived,
+      kind: var_kind,
+    );
+  }
+
+  @protected
+  CalendarOccurrenceKindDto sse_decode_calendar_occurrence_kind_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_dueOn = sse_decode_String(deserializer);
+        return CalendarOccurrenceKindDto_DateDue(dueOn: var_dueOn);
+      case 1:
+        var var_dueAt = sse_decode_Chrono_Utc(deserializer);
+        var var_timeZone = sse_decode_String(deserializer);
+        return CalendarOccurrenceKindDto_DateTimeDue(
+          dueAt: var_dueAt,
+          timeZone: var_timeZone,
+        );
+      case 2:
+        var var_scheduledAt = sse_decode_Chrono_Utc(deserializer);
+        return CalendarOccurrenceKindDto_Scheduled(
+          scheduledAt: var_scheduledAt,
+        );
+      case 3:
+        var var_completedAt = sse_decode_Chrono_Utc(deserializer);
+        return CalendarOccurrenceKindDto_Completed(
+          completedAt: var_completedAt,
+        );
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  CalendarRangeInput sse_decode_calendar_range_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_startOn = sse_decode_String(deserializer);
+    var var_endOn = sse_decode_String(deserializer);
+    var var_startAt = sse_decode_Chrono_Utc(deserializer);
+    var var_endAt = sse_decode_Chrono_Utc(deserializer);
+    return CalendarRangeInput(
+      startOn: var_startOn,
+      endOn: var_endOn,
+      startAt: var_startAt,
+      endAt: var_endAt,
+    );
+  }
+
+  @protected
   HomeTaskDto sse_decode_home_task_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_task = sse_decode_task_dto(deserializer);
@@ -1930,6 +2114,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  List<CalendarOccurrenceDto> sse_decode_list_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CalendarOccurrenceDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_calendar_occurrence_dto(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -2298,6 +2496,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_calendar_range_input(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self, serializer);
@@ -2340,6 +2547,56 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_calendar_occurrence_dto(
+    CalendarOccurrenceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_task_dto(self.task, serializer);
+    sse_encode_String(self.listName, serializer);
+    sse_encode_bool(self.listArchived, serializer);
+    sse_encode_calendar_occurrence_kind_dto(self.kind, serializer);
+  }
+
+  @protected
+  void sse_encode_calendar_occurrence_kind_dto(
+    CalendarOccurrenceKindDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case CalendarOccurrenceKindDto_DateDue(dueOn: final dueOn):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(dueOn, serializer);
+      case CalendarOccurrenceKindDto_DateTimeDue(
+        dueAt: final dueAt,
+        timeZone: final timeZone,
+      ):
+        sse_encode_i_32(1, serializer);
+        sse_encode_Chrono_Utc(dueAt, serializer);
+        sse_encode_String(timeZone, serializer);
+      case CalendarOccurrenceKindDto_Scheduled(scheduledAt: final scheduledAt):
+        sse_encode_i_32(2, serializer);
+        sse_encode_Chrono_Utc(scheduledAt, serializer);
+      case CalendarOccurrenceKindDto_Completed(completedAt: final completedAt):
+        sse_encode_i_32(3, serializer);
+        sse_encode_Chrono_Utc(completedAt, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.startOn, serializer);
+    sse_encode_String(self.endOn, serializer);
+    sse_encode_Chrono_Utc(self.startAt, serializer);
+    sse_encode_Chrono_Utc(self.endAt, serializer);
+  }
+
+  @protected
   void sse_encode_home_task_dto(HomeTaskDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_task_dto(self.task, serializer);
@@ -2357,6 +2614,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_list_calendar_occurrence_dto(
+    List<CalendarOccurrenceDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_calendar_occurrence_dto(item, serializer);
+    }
   }
 
   @protected

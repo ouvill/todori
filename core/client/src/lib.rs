@@ -43,8 +43,9 @@ pub use model::{AccountAuthResult, AccountSessionState, SyncStatus};
 pub use mutation_service::ClientError;
 pub(crate) use mutation_service::{LocalMutationContext, SqliteMutationService, UpdateTaskInput};
 pub use runtime::{
-    CreateTaskCommand, HomeTaskView, LocalProfileConfig, ReminderView, ReorderTaskCommand,
-    SetTaskStatusCommand, TaskUndoKind, TaskUndoView, TodoriClient, UpdateTaskCommand,
+    CalendarOccurrenceKind, CalendarOccurrenceView, CalendarRange, CreateTaskCommand, HomeTaskView,
+    LocalProfileConfig, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, TaskUndoKind,
+    TaskUndoView, TodoriClient, UpdateTaskCommand,
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
 pub use todori_domain::{

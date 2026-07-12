@@ -6,8 +6,9 @@ use todori_domain::{
     TaskStatus, Uuid,
 };
 use todori_storage::{
-    open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SqliteWriteTx,
-    StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
+    open_encrypted, CalendarOccurrence, CalendarOccurrenceKind as StorageCalendarOccurrenceKind,
+    CalendarRange as StorageCalendarRange, HomeTask, ListRepository, Reminder, ReminderRepository,
+    SqliteWriteTx, StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
 };
 use zeroize::Zeroizing;
 
@@ -62,6 +63,58 @@ pub struct HomeTaskView {
     pub task: Task,
     pub list_name: String,
     pub is_home_target: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalendarRange {
+    pub start_on: todori_domain::CivilDate,
+    pub end_on: todori_domain::CivilDate,
+    pub start_at: todori_domain::UtcInstant,
+    pub end_at: todori_domain::UtcInstant,
+}
+
+impl CalendarRange {
+    pub fn new(
+        start_on: todori_domain::CivilDate,
+        end_on: todori_domain::CivilDate,
+        start_at: todori_domain::UtcInstant,
+        end_at: todori_domain::UtcInstant,
+    ) -> Result<Self, ClientError> {
+        if start_on >= end_on || start_at >= end_at {
+            return Err(ClientError::InvalidCalendarRange);
+        }
+        Ok(Self {
+            start_on,
+            end_on,
+            start_at,
+            end_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CalendarOccurrenceKind {
+    DateDue {
+        due_on: todori_domain::CivilDate,
+    },
+    DateTimeDue {
+        due_at: todori_domain::UtcInstant,
+        time_zone: todori_domain::IanaTimeZone,
+    },
+    Scheduled {
+        scheduled_at: todori_domain::UtcInstant,
+    },
+    Completed {
+        completed_at: todori_domain::UtcInstant,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalendarOccurrenceView {
+    pub task: Task,
+    pub list_name: String,
+    pub list_archived: bool,
+    pub kind: CalendarOccurrenceKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -271,6 +324,22 @@ impl TodoriClient {
                 .list_home(today_start_ms, tomorrow_start_ms)?
                 .into_iter()
                 .map(HomeTaskView::from)
+                .collect())
+        })
+    }
+
+    pub fn get_calendar_occurrences(
+        &self,
+        range: CalendarRange,
+    ) -> Result<Vec<CalendarOccurrenceView>, ClientError> {
+        let storage_range =
+            StorageCalendarRange::new(range.start_on, range.end_on, range.start_at, range.end_at)
+                .map_err(|_| ClientError::InvalidCalendarRange)?;
+        self.with_task_repository(|repository| {
+            Ok(repository
+                .list_calendar_occurrences(&storage_range)?
+                .into_iter()
+                .map(CalendarOccurrenceView::from)
                 .collect())
         })
     }
@@ -795,6 +864,30 @@ impl From<HomeTask> for HomeTaskView {
             task: value.task,
             list_name: value.list_name,
             is_home_target: value.is_home_target,
+        }
+    }
+}
+
+impl From<CalendarOccurrence> for CalendarOccurrenceView {
+    fn from(value: CalendarOccurrence) -> Self {
+        Self {
+            task: value.task,
+            list_name: value.list_name,
+            list_archived: value.list_archived,
+            kind: match value.kind {
+                StorageCalendarOccurrenceKind::DateDue { due_on } => {
+                    CalendarOccurrenceKind::DateDue { due_on }
+                }
+                StorageCalendarOccurrenceKind::DateTimeDue { due_at, time_zone } => {
+                    CalendarOccurrenceKind::DateTimeDue { due_at, time_zone }
+                }
+                StorageCalendarOccurrenceKind::Scheduled { scheduled_at } => {
+                    CalendarOccurrenceKind::Scheduled { scheduled_at }
+                }
+                StorageCalendarOccurrenceKind::Completed { completed_at } => {
+                    CalendarOccurrenceKind::Completed { completed_at }
+                }
+            },
         }
     }
 }

@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `json_string`, `list_to_dto`, `parse_status`, `parse_task_due`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `parse_status`, `parse_task_due`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -140,6 +140,10 @@ Future<List<HomeTaskDto>> getHomeTasks({
   todayStartMs: todayStartMs,
   tomorrowStartMs: tomorrowStartMs,
 );
+
+Future<List<CalendarOccurrenceDto>> getCalendarOccurrences({
+  required CalendarRangeInput range,
+}) => RustLib.instance.api.crateApiGetCalendarOccurrences(range: range);
 
 Future<int> countTaskDescendants({required String taskId}) =>
     RustLib.instance.api.crateApiCountTaskDescendants(taskId: taskId);
@@ -276,6 +280,80 @@ class AccountSessionStateDto {
           userId == other.userId &&
           tenantId == other.tenantId &&
           deviceId == other.deviceId;
+}
+
+class CalendarOccurrenceDto {
+  final TaskDto task;
+  final String listName;
+  final bool listArchived;
+  final CalendarOccurrenceKindDto kind;
+
+  const CalendarOccurrenceDto({
+    required this.task,
+    required this.listName,
+    required this.listArchived,
+    required this.kind,
+  });
+
+  @override
+  int get hashCode =>
+      task.hashCode ^ listName.hashCode ^ listArchived.hashCode ^ kind.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CalendarOccurrenceDto &&
+          runtimeType == other.runtimeType &&
+          task == other.task &&
+          listName == other.listName &&
+          listArchived == other.listArchived &&
+          kind == other.kind;
+}
+
+@freezed
+sealed class CalendarOccurrenceKindDto with _$CalendarOccurrenceKindDto {
+  const CalendarOccurrenceKindDto._();
+
+  const factory CalendarOccurrenceKindDto.dateDue({required String dueOn}) =
+      CalendarOccurrenceKindDto_DateDue;
+  const factory CalendarOccurrenceKindDto.dateTimeDue({
+    required DateTime dueAt,
+    required String timeZone,
+  }) = CalendarOccurrenceKindDto_DateTimeDue;
+  const factory CalendarOccurrenceKindDto.scheduled({
+    required DateTime scheduledAt,
+  }) = CalendarOccurrenceKindDto_Scheduled;
+  const factory CalendarOccurrenceKindDto.completed({
+    required DateTime completedAt,
+  }) = CalendarOccurrenceKindDto_Completed;
+}
+
+class CalendarRangeInput {
+  final String startOn;
+  final String endOn;
+  final DateTime startAt;
+  final DateTime endAt;
+
+  const CalendarRangeInput({
+    required this.startOn,
+    required this.endOn,
+    required this.startAt,
+    required this.endAt,
+  });
+
+  @override
+  int get hashCode =>
+      startOn.hashCode ^ endOn.hashCode ^ startAt.hashCode ^ endAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CalendarRangeInput &&
+          runtimeType == other.runtimeType &&
+          startOn == other.startOn &&
+          endOn == other.endOn &&
+          startAt == other.startAt &&
+          endAt == other.endAt;
 }
 
 class HomeTaskDto {

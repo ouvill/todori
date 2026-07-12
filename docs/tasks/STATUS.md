@@ -6,7 +6,7 @@
 
 ## 現在
 
-- 進行中: なし。
+- 進行中: **task-104 Calendar Range Contract and UI** — typed occurrence期間取得契約を先行実装し、Week / Month / Completed / 日付変更 / navigationへ統合する。
 - 保留: なし。
 - 最新の完了: **task-103 Immersive Task Search** — 既存FTS5をdebounce付きproviderと没入型Search routeへ接続し、全状態・詳細往復・Visual QAを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
