@@ -359,21 +359,10 @@ class _SearchResultRow extends StatelessWidget {
                           ),
                         ],
                         const SizedBox(height: AppSpacing.xs),
-                        Wrap(
-                          spacing: AppSpacing.sm,
-                          runSpacing: 2,
-                          children: [
-                            Text(
-                              listContext,
-                              style: Theme.of(context).textTheme.labelMedium
-                                  ?.copyWith(color: AppColors.muted),
-                            ),
-                            Text(
-                              status,
-                              style: Theme.of(context).textTheme.labelMedium
-                                  ?.copyWith(color: AppColors.muted),
-                            ),
-                          ],
+                        Text(
+                          '$listContext · $status',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(color: AppColors.muted),
                         ),
                       ],
                     ),

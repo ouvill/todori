@@ -96,11 +96,10 @@ void main() {
       expect(find.text('Review shipped'), findsOneWidget);
       expect(find.text('Review skipped'), findsOneWidget);
       expect(find.text('Mentioned only in the review note'), findsOneWidget);
-      expect(find.text('To do'), findsOneWidget);
-      expect(find.text('In progress'), findsOneWidget);
-      expect(find.text('Done'), findsOneWidget);
-      expect(find.text("Won't do"), findsOneWidget);
-      expect(find.text('History · Archived'), findsNWidgets(2));
+      expect(find.text('Inbox · To do'), findsOneWidget);
+      expect(find.text('Inbox · In progress'), findsOneWidget);
+      expect(find.text('History · Archived · Done'), findsOneWidget);
+      expect(find.text("History · Archived · Won't do"), findsOneWidget);
 
       final semantics = tester.getSemantics(find.text('Review shipped'));
       expect(
