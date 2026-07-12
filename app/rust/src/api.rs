@@ -247,6 +247,7 @@ pub fn unarchive_list(list_id: String) -> Result<ListDto, String> {
 
 /// Creates a task at the end of its sibling group using a client-generated
 /// fractional `sort_order`.
+#[allow(clippy::too_many_arguments)] // FRB exposes the complete atomic create command.
 pub fn create_task(
     list_id: String,
     title: String,
