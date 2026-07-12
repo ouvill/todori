@@ -2,7 +2,7 @@
 
 このディレクトリは、実装へ昇格した作業の指示書と完了証拠を置く。候補段階ではtask文書を作らず、現在と次候補は [`STATUS.md`](./STATUS.md)、Next以外の未着手候補は [`BACKLOG.md`](./BACKLOG.md) で管理する。
 
-既存の `task-01`〜`task-81` は履歴としてそのまま保持する。完了タスクの一覧や状態をREADME / BACKLOGへ重複転記しない。必要な履歴はtaskファイル、git log、Phase計画書から確認する。
+既存の `task-01`〜`task-105` は履歴としてそのまま保持する。完了タスクの一覧や状態をREADME / BACKLOGへ重複転記しない。必要な履歴はtaskファイル、git log、Phase計画書から確認する。
 
 ## 作業開始時の読む順
 

@@ -6,9 +6,9 @@
 
 ## 現在
 
-- 進行中: **task-105 Timer Sync Foundation** — Timer状態をtask statusから分離し、Tenant Root DEK、local active state、completed work session同期、削除tombstoneを実装する。
+- 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-104 Calendar Range Contract and UI** — typed occurrence、Week / Month、Completed、日付変更、Calendar navigation、Home簡略化を独立検証まで完了した。
+- 最新の完了: **task-105 Timer Sync Foundation** — task statusと直交するlocal active state、Tenant Root DEK、completed work session同期、削除tombstoneを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
