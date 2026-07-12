@@ -642,6 +642,9 @@ mod tests {
             Option<String>,
             Option<TaskDueInput>,
             Option<String>,
+            Option<i32>,
+            Option<i64>,
+            Option<i32>,
         ) -> Result<TaskDto, String> = create_task;
         let _: fn(String, Option<String>, Option<String>) -> Result<TaskDto, String> = reorder_task;
         let _: fn(String) -> Result<Vec<TaskDto>, String> = get_tasks;
@@ -649,8 +652,15 @@ mod tests {
         let _: fn(i64, i64) -> Result<Vec<HomeTaskDto>, String> = get_home_tasks;
         let _: fn(String) -> Result<i32, String> = count_task_descendants;
         let _: fn(String) -> Result<i32, String> = count_tasks_in_list;
-        let _: fn(String, String, String, i32, Option<TaskDueInput>) -> Result<TaskDto, String> =
-            update_task;
+        let _: fn(
+            String,
+            String,
+            String,
+            i32,
+            Option<TaskDueInput>,
+            Option<i64>,
+            Option<i32>,
+        ) -> Result<TaskDto, String> = update_task;
         let _: fn(String, String, Option<String>) -> Result<TaskDto, String> = set_task_status;
         let _: fn(String) -> Result<(), String> = delete_task;
         let _: fn(String) -> Result<(), String> = delete_list;
