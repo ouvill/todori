@@ -28,6 +28,7 @@ class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
   final List<ReminderDto> _reminders = [];
+  final List<CompletedTimerSessionDto> _completedTimerSessions = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
   final Map<String, String> _settings;
   final List<void Function()> _pendingSyncMutations = [];
@@ -58,6 +59,7 @@ class FakeBridgeService implements BridgeService {
   int _reminderSeq = 0;
   int _undoSeq = 0;
   int _accountSeq = 0;
+  ActiveTimerSessionDto? _activeTimerSession;
 
   FakeLargeSeedSummary seedLargeDataset({
     int listCount = 10,
@@ -67,6 +69,8 @@ class FakeBridgeService implements BridgeService {
     _lists.clear();
     _tasks.clear();
     _reminders.clear();
+    _completedTimerSessions.clear();
+    _activeTimerSession = null;
     _undoEntries.clear();
     _pendingSyncMutations.clear();
     reorderCalls.clear();
@@ -308,6 +312,12 @@ class FakeBridgeService implements BridgeService {
     });
   }
 
+  void clearActiveTimerForNextSync() {
+    _pendingSyncMutations.add(() {
+      _activeTimerSession = null;
+    });
+  }
+
   @override
   Future<String> getSyncServerUrl() async {
     return _settings[syncServerUrlSettingKey] ?? defaultSyncServerUrl;
@@ -495,6 +505,160 @@ class FakeBridgeService implements BridgeService {
     final tasks = _tasks.where((task) => task.listId == listId).toList();
     tasks.sort(_compareTasks);
     return tasks;
+  }
+
+  @override
+  Future<ActiveTimerSessionDto?> getActiveTimerSession() async {
+    return _activeTimerSession;
+  }
+
+  @override
+  Future<ActiveTimerStartOutcomeDto> startActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  }) async {
+    _validateFakeActiveTimer(session);
+    final current = _activeTimerSession;
+    if (current != null) {
+      return ActiveTimerStartOutcomeDto.conflict;
+    }
+    _activeTimerSession = session;
+    return ActiveTimerStartOutcomeDto.started;
+  }
+
+  @override
+  Future<void> updateActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  }) async {
+    final current = _activeTimerSession;
+    if (current == null || current.sessionId != session.sessionId) {
+      throw Exception('active timer session does not match');
+    }
+    _validateFakeActiveTimer(session);
+    if (current.taskId != session.taskId ||
+        current.mode != session.mode ||
+        current.phase != session.phase ||
+        current.startedAt != session.startedAt ||
+        session.accumulatedActiveMs < current.accumulatedActiveMs ||
+        (current.targetDurationMs != null &&
+            (session.targetDurationMs == null ||
+                session.targetDurationMs! < current.targetDurationMs!))) {
+      throw Exception('invalid active timer update');
+    }
+    final progressChanged =
+        session.accumulatedActiveMs != current.accumulatedActiveMs;
+    if (progressChanged &&
+        !(current.state == TimerRunStateDto.running &&
+            session.state == TimerRunStateDto.paused)) {
+      throw Exception('invalid active timer progress');
+    }
+    _activeTimerSession = session;
+  }
+
+  @override
+  Future<DateTime> pomodoroTargetReachedAt({
+    required ActiveTimerSessionDto session,
+  }) async {
+    final target = session.targetDurationMs;
+    final resumed = session.lastResumedAt;
+    if (session.mode != TimerModeDto.pomodoro ||
+        session.state != TimerRunStateDto.running ||
+        target == null ||
+        resumed == null) {
+      throw Exception('active timer has no running target');
+    }
+    final remaining = target - session.accumulatedActiveMs;
+    if (remaining <= 0) {
+      throw Exception('timer target has already been reached');
+    }
+    return resumed.add(Duration(milliseconds: remaining));
+  }
+
+  @override
+  Future<bool> discardActiveTimerSession({
+    required String expectedSessionId,
+  }) async {
+    if (_activeTimerSession?.sessionId != expectedSessionId) {
+      return false;
+    }
+    _activeTimerSession = null;
+    return true;
+  }
+
+  @override
+  Future<bool> finishActiveTimerSession({
+    required CompletedTimerSessionDto session,
+  }) async {
+    final active = _activeTimerSession;
+    if (active == null ||
+        active.sessionId != session.id ||
+        active.taskId != session.taskId ||
+        active.mode != session.mode ||
+        active.phase != TimerPhaseDto.work) {
+      throw Exception('completed timer does not match active work');
+    }
+    final runningDelta = active.lastResumedAt == null
+        ? 0
+        : session.endedAt
+              .difference(active.lastResumedAt!)
+              .inMilliseconds
+              .clamp(0, 7 * _fakeDayMs);
+    final expectedDuration = active.state == TimerRunStateDto.paused
+        ? active.accumulatedActiveMs
+        : active.accumulatedActiveMs + runningDelta;
+    if (session.activeDurationMs != expectedDuration ||
+        session.activeDurationMs <= 0 ||
+        session.activeDurationMs > 7 * _fakeDayMs ||
+        session.endedAt.isAfter(
+          active.startedAt.add(const Duration(days: 7)),
+        )) {
+      throw Exception('completed timer duration does not match active work');
+    }
+    final existing = _completedTimerSessions
+        .where((candidate) => candidate.id == session.id)
+        .firstOrNull;
+    if (existing != null && existing != session) {
+      throw Exception('immutable timer session conflict');
+    }
+    if (existing == null) {
+      _completedTimerSessions.add(session);
+    }
+    _activeTimerSession = null;
+    return existing == null;
+  }
+
+  @override
+  Future<List<CompletedTimerSessionDto>> getCompletedTimerSessions({
+    required String taskId,
+  }) async {
+    return List.unmodifiable(
+      _completedTimerSessions.where((session) => session.taskId == taskId),
+    );
+  }
+
+  void _validateFakeActiveTimer(ActiveTimerSessionDto session) {
+    final isWork = session.phase == TimerPhaseDto.work;
+    if (isWork != (session.taskId != null) ||
+        (session.taskId != null &&
+            !_tasks.any((task) => task.id == session.taskId))) {
+      throw Exception('timer task/phase mismatch');
+    }
+    if (session.mode == TimerModeDto.stopwatch &&
+        (session.phase != TimerPhaseDto.work ||
+            session.targetDurationMs != null)) {
+      throw Exception('invalid Stopwatch phase or target');
+    }
+    if (session.mode == TimerModeDto.pomodoro &&
+        (session.targetDurationMs == null ||
+            session.targetDurationMs! <= 0 ||
+            session.targetDurationMs! > 7 * _fakeDayMs)) {
+      throw Exception('invalid Pomodoro target');
+    }
+    if (session.accumulatedActiveMs < 0 ||
+        session.accumulatedActiveMs > 7 * _fakeDayMs ||
+        (session.state == TimerRunStateDto.running) !=
+            (session.lastResumedAt != null)) {
+      throw Exception('invalid timer duration or state');
+    }
   }
 
   @override
@@ -815,6 +979,12 @@ class FakeBridgeService implements BridgeService {
     _tasks.removeWhere((task) => ids.contains(task.id));
     _reminders.removeWhere((reminder) => ids.contains(reminder.taskId));
     _undoEntries.removeWhere((entry) => ids.contains(entry.taskId));
+    _completedTimerSessions.removeWhere(
+      (session) => ids.contains(session.taskId),
+    );
+    if (ids.contains(_activeTimerSession?.taskId)) {
+      _activeTimerSession = null;
+    }
   }
 
   @override
@@ -830,6 +1000,12 @@ class FakeBridgeService implements BridgeService {
     _tasks.removeWhere((task) => task.listId == listId);
     _reminders.removeWhere((reminder) => taskIds.contains(reminder.taskId));
     _undoEntries.removeWhere((entry) => taskIds.contains(entry.taskId));
+    _completedTimerSessions.removeWhere(
+      (session) => taskIds.contains(session.taskId),
+    );
+    if (taskIds.contains(_activeTimerSession?.taskId)) {
+      _activeTimerSession = null;
+    }
     _lists.removeWhere((candidate) => candidate.id == listId);
   }
 

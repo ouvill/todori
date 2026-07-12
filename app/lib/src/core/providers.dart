@@ -5,6 +5,9 @@ import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
+import 'package:todori/src/timer/timer_engine.dart';
+import 'package:todori/src/timer/timer_notifications.dart';
+import 'package:todori/src/timer/timer_settings.dart';
 import 'package:todori/src/rust/api.dart'
     show
         AccountAuthResultDto,
@@ -15,6 +18,7 @@ import 'package:todori/src/rust/api.dart'
         CalendarOccurrenceKindDto_DateTimeDue,
         CalendarOccurrenceKindDto_Scheduled,
         CalendarRangeInput,
+        CompletedTimerSessionDto,
         HomeTaskDto,
         ListDto,
         ReminderDto,
@@ -314,6 +318,8 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(taskRemindersProvider);
+    ref.invalidate(completedTimerSessionsProvider);
+    ref.invalidate(timerEngineProvider);
   }
 
   Future<void> syncOnResume() async {
@@ -378,6 +384,44 @@ final reminderNotificationServiceProvider =
       (ref) => ReminderNotificationService(
         bridge: ref.watch(bridgeServiceProvider),
         gateway: ref.watch(reminderNotificationGatewayProvider),
+      ),
+    );
+
+final timerClockProvider = Provider<TimerClock>(
+  (ref) => const SystemTimerClock(),
+);
+
+final timerNotificationGatewayProvider = Provider<TimerNotificationGateway>(
+  (ref) => FlutterLocalTimerNotificationGateway(),
+);
+
+final timerNotificationServiceProvider = Provider<TimerNotificationService>(
+  (ref) =>
+      TimerNotificationService(ref.watch(timerNotificationGatewayProvider)),
+);
+
+final timerSettingsProvider =
+    AsyncNotifierProvider<TimerSettingsNotifier, TimerSettings>(
+      () => TimerSettingsNotifier(
+        bridgeServiceProvider,
+        timerNotificationServiceProvider,
+      ),
+    );
+
+final completedTimerSessionsProvider =
+    FutureProvider.family<List<CompletedTimerSessionDto>, String>(
+      (ref, taskId) => ref
+          .watch(bridgeServiceProvider)
+          .getCompletedTimerSessions(taskId: taskId),
+    );
+
+final timerEngineProvider =
+    AsyncNotifierProvider<TimerEngineController, TimerEngineState>(
+      () => TimerEngineController(
+        bridgeServiceProvider,
+        timerNotificationServiceProvider,
+        timerClockProvider,
+        (taskId) => completedTimerSessionsProvider(taskId),
       ),
     );
 
@@ -487,6 +531,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(completedTimerSessionsProvider);
   }
 }
 
@@ -857,6 +902,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
         .read(reminderNotificationServiceProvider)
         .cancelReminders(reminders);
     ref.invalidate(taskRemindersProvider(taskId));
+    ref.invalidate(completedTimerSessionsProvider(taskId));
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();

@@ -77,6 +77,37 @@ abstract class BridgeService {
   /// Returns tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
 
+  /// Returns the single durable, device-local active timer session.
+  Future<rust_api.ActiveTimerSessionDto?> getActiveTimerSession();
+
+  /// Starts [session] only when there is no other active session.
+  Future<rust_api.ActiveTimerStartOutcomeDto> startActiveTimerSession({
+    required rust_api.ActiveTimerSessionDto session,
+  });
+
+  /// Persists a valid same-identity pause, resume, or target extension.
+  Future<void> updateActiveTimerSession({
+    required rust_api.ActiveTimerSessionDto session,
+  });
+
+  /// Returns the pause-aware wall-clock instant at which a Pomodoro ends.
+  Future<DateTime> pomodoroTargetReachedAt({
+    required rust_api.ActiveTimerSessionDto session,
+  });
+
+  /// Clears the active session only when its identity still matches.
+  Future<bool> discardActiveTimerSession({required String expectedSessionId});
+
+  /// Atomically stores a work result and clears its matching active session.
+  Future<bool> finishActiveTimerSession({
+    required rust_api.CompletedTimerSessionDto session,
+  });
+
+  /// Returns immutable, synchronized work history for [taskId].
+  Future<List<rust_api.CompletedTimerSessionDto>> getCompletedTimerSessions({
+    required String taskId,
+  });
+
   /// Searches task title and note using the local FTS5 prefix query.
   Future<List<rust_api.TaskDto>> searchTasks({required String query});
 
@@ -277,6 +308,39 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<List<rust_api.TaskDto>> getTasks({required String listId}) =>
       rust_api.getTasks(listId: listId);
+
+  @override
+  Future<rust_api.ActiveTimerSessionDto?> getActiveTimerSession() =>
+      rust_api.getActiveTimerSession();
+
+  @override
+  Future<rust_api.ActiveTimerStartOutcomeDto> startActiveTimerSession({
+    required rust_api.ActiveTimerSessionDto session,
+  }) => rust_api.startActiveTimerSession(session: session);
+
+  @override
+  Future<void> updateActiveTimerSession({
+    required rust_api.ActiveTimerSessionDto session,
+  }) => rust_api.updateActiveTimerSession(session: session);
+
+  @override
+  Future<DateTime> pomodoroTargetReachedAt({
+    required rust_api.ActiveTimerSessionDto session,
+  }) => rust_api.pomodoroTargetReachedAt(session: session);
+
+  @override
+  Future<bool> discardActiveTimerSession({required String expectedSessionId}) =>
+      rust_api.discardActiveTimerSession(expectedSessionId: expectedSessionId);
+
+  @override
+  Future<bool> finishActiveTimerSession({
+    required rust_api.CompletedTimerSessionDto session,
+  }) => rust_api.finishActiveTimerSession(session: session);
+
+  @override
+  Future<List<rust_api.CompletedTimerSessionDto>> getCompletedTimerSessions({
+    required String taskId,
+  }) => rust_api.getCompletedTimerSessions(taskId: taskId);
 
   @override
   Future<List<rust_api.TaskDto>> searchTasks({required String query}) =>

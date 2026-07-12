@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' show Locale, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:go_router/go_router.dart';
@@ -15,12 +16,14 @@ import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/rust/frb_generated.dart';
 import 'package:todori/src/screens/onboarding_screen.dart';
+import 'package:todori/src/timer/timer_notifications.dart';
 import 'package:todori/src/ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   Object? initializationError;
+  TimerNotificationService? timerNotificationService;
   try {
     await RustLib.init();
     final supportDir = await getApplicationSupportDirectory();
@@ -38,18 +41,44 @@ Future<void> main() async {
       body: startupL10n.reminderNotificationBody,
       snoozeActionTitle: startupL10n.reminderSnoozeOneHourAction,
     );
+    final localNotificationsPlugin = FlutterLocalNotificationsPlugin();
     final notificationService = ReminderNotificationService(
       bridge: const FrbBridgeService(),
-      gateway: FlutterLocalReminderNotificationGateway(),
+      gateway: FlutterLocalReminderNotificationGateway(
+        plugin: localNotificationsPlugin,
+      ),
     );
     await notificationService.initialize(notificationContent);
     await notificationService.reschedulePending(notificationContent);
+    timerNotificationService = TimerNotificationService(
+      FlutterLocalTimerNotificationGateway(plugin: localNotificationsPlugin),
+    );
+    try {
+      await timerNotificationService.initialize(
+        TimerNotificationContent(
+          title: startupL10n.timerNotificationTitle,
+          body: startupL10n.timerNotificationBody,
+        ),
+      );
+    } catch (error) {
+      debugPrint('Todori timer notification initialization failed: $error');
+    }
   } catch (error, stackTrace) {
     initializationError = error;
     debugPrint('Todori native core initialization failed: $error\n$stackTrace');
   }
 
-  runApp(TodoriApp(initializationError: initializationError));
+  runApp(
+    TodoriApp(
+      initializationError: initializationError,
+      overrides: [
+        if (timerNotificationService != null)
+          timerNotificationServiceProvider.overrideWithValue(
+            timerNotificationService,
+          ),
+      ],
+    ),
+  );
 }
 
 Locale _resolveStartupLocale(Locale platformLocale) {
@@ -150,6 +179,18 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
     final onboardingCompleted = ref.read(onboardingStatusProvider).value;
     if (state == AppLifecycleState.resumed && onboardingCompleted == true) {
       unawaited(ref.read(syncStatusProvider.notifier).syncOnResume());
+      unawaited(_settleTimerOnResume());
+    }
+  }
+
+  Future<void> _settleTimerOnResume() async {
+    try {
+      await ref.read(timerEngineProvider.future);
+      await ref.read(timerEngineProvider.notifier).settleOnResume();
+    } catch (_) {
+      // Resume settlement is retried on the next foreground/restart. Never
+      // surface session details or turn a recoverable timer failure into an
+      // unhandled lifecycle exception.
     }
   }
 
@@ -174,6 +215,7 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
           );
         }
         ref.watch(syncStatusProvider);
+        ref.watch(timerEngineProvider);
         return MaterialApp.router(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
