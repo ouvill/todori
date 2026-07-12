@@ -68,8 +68,14 @@ void main() {
       timeZone: 'Asia/Tokyo',
     );
 
-    expect(taskDueIsOverdue(due, now: DateTime(2026, 7, 12, 16, 59)), isFalse);
-    expect(taskDueIsOverdue(due, now: DateTime(2026, 7, 12, 17)), isTrue);
+    expect(
+      taskDueIsOverdue(due, now: DateTime.utc(2026, 7, 12, 7, 59)),
+      isFalse,
+    );
+    expect(
+      taskDueIsOverdue(due, now: DateTime.utc(2026, 7, 12, 8)),
+      isTrue,
+    );
   });
 
   test('same-day datetime sorts before date-only due', () {
