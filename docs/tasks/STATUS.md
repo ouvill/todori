@@ -6,9 +6,9 @@
 
 ## 現在
 
-- 進行中: **task-103 Immersive Task Search** — 既存FTS5をBridge / debounce付きproviderへ先行接続し、その後に専用Search routeを実装する。
+- 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-102 タスク計画属性とCapture** — priority / typed due / Planをatomic commandへ接続し、CaptureとTask detailを独立検証まで完了した。
+- 最新の完了: **task-103 Immersive Task Search** — 既存FTS5をdebounce付きproviderと没入型Search routeへ接続し、全状態・詳細往復・Visual QAを独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 
