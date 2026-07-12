@@ -217,7 +217,7 @@ pub struct ActiveTimerSession {
     pub phase: TimerPhase,
     pub state: TimerRunState,
     pub started_at: i64,
-    pub last_resumed_at: i64,
+    pub last_resumed_at: Option<i64>,
     pub accumulated_active_ms: i64,
     pub target_duration_ms: Option<i64>,
 }

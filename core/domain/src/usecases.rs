@@ -9,8 +9,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::entities::{
-    ActiveTimerSession, CompletedTimerSession, List, Task, TaskDue, TaskStatus, TimerPhase,
-    TimerRunState,
+    ActiveTimerSession, CompletedTimerSession, List, Task, TaskDue, TaskStatus, TimerMode,
+    TimerPhase, TimerRunState,
 };
 
 pub const MAX_TIMER_SESSION_DURATION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
@@ -44,6 +44,10 @@ pub enum DomainError {
     SortOrderSpaceExhausted,
     #[error("work timer phase requires a task and break phases must not reference a task")]
     InvalidTimerTaskLink,
+    #[error("stopwatch mode supports only the work phase")]
+    InvalidTimerModePhase,
+    #[error("running timer requires last_resumed_at and paused timer must not retain it")]
+    InvalidTimerRunState,
     #[error("timer timestamps are inconsistent")]
     InvalidTimerTimestamps,
     #[error("timer duration is outside the allowed range")]
@@ -54,6 +58,9 @@ pub enum DomainError {
 
 /// Active Timerの永続値がADR-018の復元契約を満たすか検証する。
 pub fn validate_active_timer_session(session: &ActiveTimerSession) -> Result<(), DomainError> {
+    if session.mode == TimerMode::Stopwatch && session.phase != TimerPhase::Work {
+        return Err(DomainError::InvalidTimerModePhase);
+    }
     let task_link_is_valid = match session.phase {
         TimerPhase::Work => session.task_id.is_some(),
         TimerPhase::ShortBreak | TimerPhase::LongBreak => session.task_id.is_none(),
@@ -61,8 +68,16 @@ pub fn validate_active_timer_session(session: &ActiveTimerSession) -> Result<(),
     if !task_link_is_valid {
         return Err(DomainError::InvalidTimerTaskLink);
     }
-    if session.last_resumed_at < session.started_at {
-        return Err(DomainError::InvalidTimerTimestamps);
+    match (session.state, session.last_resumed_at) {
+        (TimerRunState::Running, Some(last_resumed_at)) => {
+            if last_resumed_at < session.started_at {
+                return Err(DomainError::InvalidTimerTimestamps);
+            }
+        }
+        (TimerRunState::Paused, None) => {}
+        (TimerRunState::Running, None) | (TimerRunState::Paused, Some(_)) => {
+            return Err(DomainError::InvalidTimerRunState);
+        }
     }
     if !(0..=MAX_TIMER_SESSION_DURATION_MS).contains(&session.accumulated_active_ms)
         || session
@@ -85,7 +100,10 @@ pub fn restored_active_duration_ms(
     let duration = match session.state {
         TimerRunState::Paused => session.accumulated_active_ms,
         TimerRunState::Running => {
-            let active_span = now_wall_ms.saturating_sub(session.last_resumed_at).max(0);
+            let last_resumed_at = session
+                .last_resumed_at
+                .ok_or(DomainError::InvalidTimerRunState)?;
+            let active_span = now_wall_ms.saturating_sub(last_resumed_at).max(0);
             session
                 .accumulated_active_ms
                 .checked_add(active_span)
@@ -106,7 +124,7 @@ pub fn validate_completed_timer_session(
         .ended_at
         .checked_sub(session.started_at)
         .ok_or(DomainError::InvalidTimerTimestamps)?;
-    if elapsed < 0 {
+    if elapsed < 0 || session.created_at < session.ended_at {
         return Err(DomainError::InvalidTimerTimestamps);
     }
     if elapsed > MAX_TIMER_SESSION_DURATION_MS
@@ -400,7 +418,10 @@ mod tests {
             phase,
             state,
             started_at: NOW,
-            last_resumed_at: NOW + 1_000,
+            last_resumed_at: match state {
+                TimerRunState::Running => Some(NOW + 1_000),
+                TimerRunState::Paused => None,
+            },
             accumulated_active_ms: 2_000,
             target_duration_ms: Some(25 * 60 * 1_000),
         }
@@ -463,6 +484,39 @@ mod tests {
     }
 
     #[test]
+    fn stopwatch_rejects_break_phases_with_typed_error() {
+        for phase in [TimerPhase::ShortBreak, TimerPhase::LongBreak] {
+            let mut timer = active_timer(TimerRunState::Paused, phase);
+            timer.mode = TimerMode::Stopwatch;
+            assert_eq!(
+                validate_active_timer_session(&timer),
+                Err(DomainError::InvalidTimerModePhase)
+            );
+        }
+
+        let mut work = active_timer(TimerRunState::Paused, TimerPhase::Work);
+        work.mode = TimerMode::Stopwatch;
+        assert_eq!(validate_active_timer_session(&work), Ok(()));
+    }
+
+    #[test]
+    fn active_timer_requires_last_resumed_only_while_running() {
+        let mut running = active_timer(TimerRunState::Running, TimerPhase::Work);
+        running.last_resumed_at = None;
+        assert_eq!(
+            validate_active_timer_session(&running),
+            Err(DomainError::InvalidTimerRunState)
+        );
+
+        let mut paused = active_timer(TimerRunState::Paused, TimerPhase::Work);
+        paused.last_resumed_at = Some(NOW + 1_000);
+        assert_eq!(
+            validate_active_timer_session(&paused),
+            Err(DomainError::InvalidTimerRunState)
+        );
+    }
+
+    #[test]
     fn completed_timer_requires_positive_active_time_within_elapsed_and_seven_days() {
         let valid = completed_timer();
         assert_eq!(validate_completed_timer_session(&valid), Ok(()));
@@ -483,8 +537,16 @@ mod tests {
             Err(DomainError::InvalidTimerTimestamps)
         );
 
+        let mut created_before_end = valid.clone();
+        created_before_end.created_at = created_before_end.ended_at - 1;
+        assert_eq!(
+            validate_completed_timer_session(&created_before_end),
+            Err(DomainError::InvalidTimerTimestamps)
+        );
+
         let mut too_long = valid;
         too_long.ended_at = too_long.started_at + MAX_TIMER_SESSION_DURATION_MS + 1;
+        too_long.created_at = too_long.ended_at;
         assert_eq!(
             validate_completed_timer_session(&too_long),
             Err(DomainError::InvalidTimerDuration)
