@@ -461,25 +461,21 @@ class _TaskCreateSheetState extends State<TaskCreateSheet> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _TaskCreateListChip(
-                          selectedList: selectedList,
-                          listOptions: widget.listOptions,
-                          onSelected: _submitting
-                              ? null
-                              : (listId) =>
-                                    setState(() => _selectedListId = listId),
-                        ),
-                        const SizedBox(width: AppSpacing.xs),
-                        _TaskCreateDueChip(
-                          due: _due,
-                          onTap: _submitting ? null : _showDueOptions,
-                        ),
-                      ],
-                    ),
+                  Column(
+                    children: [
+                      _TaskCreateListProperty(
+                        selectedList: selectedList,
+                        listOptions: widget.listOptions,
+                        onSelected: _submitting
+                            ? null
+                            : (listId) =>
+                                  setState(() => _selectedListId = listId),
+                      ),
+                      _TaskCreateDueProperty(
+                        due: _due,
+                        onTap: _submitting ? null : _showDueOptions,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.md),
                   FilledButton.icon(
@@ -607,8 +603,8 @@ class _TaskCreateSheetState extends State<TaskCreateSheet> {
   }
 }
 
-class _TaskCreateListChip extends StatelessWidget {
-  const _TaskCreateListChip({
+class _TaskCreateListProperty extends StatelessWidget {
+  const _TaskCreateListProperty({
     required this.selectedList,
     required this.listOptions,
     required this.onSelected,
@@ -634,18 +630,19 @@ class _TaskCreateListChip extends StatelessWidget {
             child: Text(list.name),
           ),
       ],
-      child: _TaskCreateChip(
+      child: _TaskCreatePropertyRow(
+        key: const ValueKey('task-create-list-property-row'),
         icon: LucideIcons.inbox300,
-        label: l10n.taskCreateListChip,
+        property: l10n.taskCreateListChip,
         value: selectedList.name,
-        selected: true,
+        enabled: onSelected != null,
       ),
     );
   }
 }
 
-class _TaskCreateDueChip extends StatelessWidget {
-  const _TaskCreateDueChip({required this.due, required this.onTap});
+class _TaskCreateDueProperty extends StatelessWidget {
+  const _TaskCreateDueProperty({required this.due, required this.onTap});
 
   final TaskDueDto? due;
   final VoidCallback? onTap;
@@ -663,13 +660,13 @@ class _TaskCreateDueChip extends StatelessWidget {
         label: l10n.taskCreateDueChipSemantics(value),
         child: InkWell(
           key: const ValueKey('task-create-due-chip'),
-          borderRadius: BorderRadius.circular(999),
           onTap: onTap,
-          child: _TaskCreateChip(
+          child: _TaskCreatePropertyRow(
+            key: const ValueKey('task-create-due-property-row'),
             icon: LucideIcons.calendarDays300,
-            label: l10n.taskCreateDueChip,
+            property: l10n.taskCreateDueChip,
             value: value,
-            selected: due != null,
+            enabled: onTap != null,
           ),
         ),
       ),
@@ -677,18 +674,19 @@ class _TaskCreateDueChip extends StatelessWidget {
   }
 }
 
-class _TaskCreateChip extends StatelessWidget {
-  const _TaskCreateChip({
+class _TaskCreatePropertyRow extends StatelessWidget {
+  const _TaskCreatePropertyRow({
+    super.key,
     required this.icon,
-    required this.label,
+    required this.property,
     required this.value,
-    required this.selected,
+    required this.enabled,
   });
 
   final IconData icon;
-  final String label;
+  final String property;
   final String value;
-  final bool selected;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -696,62 +694,59 @@ class _TaskCreateChip extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: selected
-            ? colorScheme.primary.withValues(alpha: 0.08)
-            : colorScheme.surfaceContainer.withValues(alpha: 0.64),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: selected
-              ? colorScheme.primary.withValues(alpha: 0.48)
-              : colorScheme.outlineVariant.withValues(alpha: 0.72),
+        border: Border(
+          bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.7),
         ),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(
-            AppSpacing.sm,
-            AppSpacing.xs,
-            AppSpacing.xs,
-            AppSpacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: colorScheme.primary),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                label,
+        constraints: const BoxConstraints(minHeight: 52),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 36,
+              child: Icon(
+                icon,
+                size: 17,
+                applyTextScaling: false,
+                color: enabled
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              flex: 4,
+              child: Text(
+                property,
                 style: theme.textTheme.labelMedium?.copyWith(
                   color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w400,
                 ),
               ),
-              const SizedBox(width: 2),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: math.max(
-                    96,
-                    MediaQuery.sizeOf(context).width * 0.48,
-                  ),
-                ),
-                child: Text(
-                  value,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Flexible(
+              flex: 5,
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                softWrap: true,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: enabled
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Icon(
-                LucideIcons.chevronDown300,
+            ),
+            SizedBox(
+              width: 40,
+              child: Icon(
+                LucideIcons.chevronRight300,
                 size: 16,
+                applyTextScaling: false,
                 color: colorScheme.onSurfaceVariant,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

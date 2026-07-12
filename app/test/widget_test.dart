@@ -537,6 +537,16 @@ void main() {
     expect(find.text('Inbox'), findsOneWidget);
     expect(find.text('Due'), findsOneWidget);
     expect(find.text('Today'), findsWidgets);
+    final listPropertyRect = tester.getRect(
+      find.byKey(const ValueKey('task-create-list-property-row')),
+    );
+    final duePropertyRect = tester.getRect(
+      find.byKey(const ValueKey('task-create-due-property-row')),
+    );
+    expect(listPropertyRect.height, greaterThanOrEqualTo(48));
+    expect(duePropertyRect.height, greaterThanOrEqualTo(48));
+    expect(duePropertyRect.top, greaterThanOrEqualTo(listPropertyRect.bottom));
+    expect(duePropertyRect.width, listPropertyRect.width);
     expect(
       tester
           .widget<FilledButton>(

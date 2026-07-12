@@ -192,6 +192,15 @@ void main() {
     },
   );
 
+  testWidgets('task_create_sheet_home_narrow_320: Home create sheet at 320px', (
+    tester,
+  ) async {
+    _setNarrowViewport(tester);
+    await _seedRealisticData(tester);
+    await _openTaskCreateSheetWithKeyboard(tester);
+    await _screenshot(tester, 'task_create_sheet_home_narrow_320');
+  });
+
   testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
     _setMobileViewport(tester);
     await _seedRealisticData(tester);
@@ -1027,6 +1036,15 @@ void _setMobileViewport(WidgetTester tester) {
     _mobileLogicalSize.height * _mobileDevicePixelRatio,
   );
   tester.view.devicePixelRatio = _mobileDevicePixelRatio;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+}
+
+void _setNarrowViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(960, 2532);
+  tester.view.devicePixelRatio = 3;
   addTearDown(() {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
