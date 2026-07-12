@@ -1597,9 +1597,7 @@ void main() {
     },
   );
 
-  testWidgets('home routes closed roots to Closed instead of date sections', (
-    tester,
-  ) async {
+  testWidgets('home routes closed roots to Completed outcomes', (tester) async {
     final fake = FakeBridgeService();
     final today = _todayStartMs();
     final overdue = today - const Duration(days: 1).inMilliseconds;
@@ -1624,13 +1622,25 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('Closed'), findsNothing);
+    expect(find.byTooltip('Show completed work'), findsOneWidget);
+    final disclosureSemantics = tester.widget<Semantics>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('completed-section-toggle')),
+            matching: find.byType(Semantics),
+          )
+          .first,
+    );
+    expect(disclosureSemantics.properties.label, 'Show completed work');
     expect(find.text('Closed overdue root'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
     expect(find.text('Closed overdue root'), findsOneWidget);
+    expect(find.byTooltip('Hide completed work'), findsOneWidget);
     expect(
       tester.widget<Text>(find.text('Closed overdue root')).style?.decoration,
       TextDecoration.none,
@@ -2315,7 +2325,7 @@ void main() {
     expect(find.text('Buy milk'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1100));
     expect(find.text('Buy milk'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
 
     await tester.tap(find.text('Undo'));
     await tester.pump(const Duration(milliseconds: 75));
@@ -2325,7 +2335,7 @@ void main() {
     expect(undone.single.status, 'todo');
     expect(checkboxFinder, findsOneWidget);
     expect(find.byTooltip('Mark task done'), findsOneWidget);
-    expect(find.text('Closed'), findsNothing);
+    expect(find.text('Completed'), findsNothing);
   });
 
   testWidgets('list completion invalidates the Home smart view', (
@@ -2587,7 +2597,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('Root due today pending exit'), findsOneWidget);
-    expect(find.text('Closed'), findsNothing);
+    expect(find.text('Completed'), findsNothing);
     expect(find.byKey(const ValueKey('task-completion-halo')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('task-strikethrough-overlay')),
@@ -2596,7 +2606,7 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 449));
     expect(find.text('Root due today pending exit'), findsOneWidget);
-    expect(find.text('Closed'), findsNothing);
+    expect(find.text('Completed'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 2));
     expect(
@@ -2607,7 +2617,7 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 420));
     expect(find.text('Root due today pending exit'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
   });
 
   testWidgets('home completion keeps visible subtree until delayed exit', (
@@ -2686,7 +2696,7 @@ void main() {
     expect(find.text('Pending subtree parent'), findsNothing);
     expect(find.text('Pending subtree child'), findsNothing);
     expect(find.text('Pending subtree grandchild'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
   });
 
   testWidgets(
@@ -2881,7 +2891,7 @@ void main() {
       findsNothing,
     );
     expect(find.text('Reduce motion home task'), findsNothing);
-    expect(find.text('Closed'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
   });
 
   testWidgets('leading swipe completes through confirmation and undo flow', (

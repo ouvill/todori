@@ -425,6 +425,9 @@ class _TasksBodyState extends State<_TasksBody> {
                           child: _CompletedSectionHeader(
                             count: closedRows.length,
                             isExpanded: _showCompleted,
+                            title: l10n.calendarCompletedTitle,
+                            showTooltip: l10n.calendarShowCompletedTooltip,
+                            hideTooltip: l10n.calendarHideCompletedTooltip,
                             onTap: () => setState(
                               () => _showCompleted = !_showCompleted,
                             ),
@@ -1899,11 +1902,17 @@ class _CompletedSectionHeader extends StatelessWidget {
     required this.count,
     required this.isExpanded,
     required this.onTap,
+    this.title,
+    this.showTooltip,
+    this.hideTooltip,
   });
 
   final int count;
   final bool isExpanded;
   final VoidCallback onTap;
+  final String? title;
+  final String? showTooltip;
+  final String? hideTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -1911,8 +1920,8 @@ class _CompletedSectionHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final tooltip = isExpanded
-        ? l10n.hideCompletedTasksTooltip
-        : l10n.showCompletedTasksTooltip;
+        ? hideTooltip ?? l10n.hideCompletedTasksTooltip
+        : showTooltip ?? l10n.showCompletedTasksTooltip;
     return Tooltip(
       message: tooltip,
       child: Semantics(
@@ -1933,7 +1942,7 @@ class _CompletedSectionHeader extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      l10n.completedTasksTitle,
+                      title ?? l10n.completedTasksTitle,
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600,
