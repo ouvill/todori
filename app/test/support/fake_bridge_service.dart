@@ -495,6 +495,34 @@ class FakeBridgeService implements BridgeService {
     return tasks;
   }
 
+  @override
+  Future<List<TaskDto>> searchTasks({required String query}) async {
+    final terms = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+    if (terms.isEmpty) {
+      return const [];
+    }
+    return _tasks
+        .where((task) {
+          if (task.deletedAt != null) {
+            return false;
+          }
+          final tokens = '${task.title} ${task.note}'
+              .toLowerCase()
+              .split(RegExp(r'\s+'))
+              .where((token) => token.isNotEmpty)
+              .toList(growable: false);
+          return terms.every(
+            (term) => tokens.any((token) => token.startsWith(term)),
+          );
+        })
+        .toList(growable: false);
+  }
+
   void setScheduledAtForTest({
     required String taskId,
     required int scheduledAt,

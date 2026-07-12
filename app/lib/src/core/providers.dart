@@ -27,6 +27,141 @@ final bridgeServiceProvider = Provider<BridgeService>(
   (ref) => const FrbBridgeService(),
 );
 
+const taskSearchDebounceDuration = Duration(milliseconds: 250);
+
+final taskSearchDebounceDurationProvider = Provider<Duration>(
+  (ref) => taskSearchDebounceDuration,
+);
+
+sealed class TaskSearchState {
+  const TaskSearchState();
+}
+
+final class TaskSearchIdle extends TaskSearchState {
+  const TaskSearchIdle();
+}
+
+final class TaskSearchLoading extends TaskSearchState {
+  const TaskSearchLoading(this.query);
+
+  final String query;
+}
+
+final class TaskSearchData extends TaskSearchState {
+  const TaskSearchData({required this.query, required this.items});
+
+  final String query;
+  final List<TaskSearchResult> items;
+}
+
+final class TaskSearchError extends TaskSearchState {
+  const TaskSearchError({
+    required this.query,
+    required this.error,
+    required this.stackTrace,
+  });
+
+  final String query;
+  final Object error;
+  final StackTrace stackTrace;
+}
+
+class TaskSearchResult {
+  const TaskSearchResult({
+    required this.task,
+    required this.listName,
+    required this.listArchived,
+  });
+
+  final TaskDto task;
+  final String listName;
+  final bool listArchived;
+}
+
+class TaskSearchNotifier extends Notifier<TaskSearchState> {
+  Timer? _debounceTimer;
+  var _generation = 0;
+  var _disposed = false;
+
+  @override
+  TaskSearchState build() {
+    ref.onDispose(() {
+      _disposed = true;
+      _generation += 1;
+      _debounceTimer?.cancel();
+    });
+    return const TaskSearchIdle();
+  }
+
+  void setQuery(String value) {
+    final query = value.trim();
+    final generation = ++_generation;
+    _debounceTimer?.cancel();
+    if (query.isEmpty) {
+      state = const TaskSearchIdle();
+      return;
+    }
+
+    state = TaskSearchLoading(query);
+    final delay = ref.read(taskSearchDebounceDurationProvider);
+    if (delay == Duration.zero) {
+      unawaited(_search(query, generation));
+      return;
+    }
+    _debounceTimer = Timer(delay, () {
+      unawaited(_search(query, generation));
+    });
+  }
+
+  void clear() => setQuery('');
+
+  Future<void> _search(String query, int generation) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    try {
+      final taskFuture = bridge.searchTasks(query: query);
+      final activeListsFuture = bridge.getLists();
+      final archivedListsFuture = bridge.getArchivedLists();
+      final tasks = await taskFuture;
+      final activeLists = await activeListsFuture;
+      final archivedLists = await archivedListsFuture;
+      if (_disposed || generation != _generation) {
+        return;
+      }
+      final listsById = {
+        for (final list in activeLists) list.id: list,
+        for (final list in archivedLists) list.id: list,
+      };
+      state = TaskSearchData(
+        query: query,
+        items: List.unmodifiable(
+          tasks.map((task) {
+            final list = listsById[task.listId];
+            return TaskSearchResult(
+              task: task,
+              listName: list?.name ?? '',
+              listArchived: list?.archivedAt != null,
+            );
+          }),
+        ),
+      );
+    } catch (error, stackTrace) {
+      if (_disposed || generation != _generation) {
+        return;
+      }
+      state = TaskSearchError(
+        query: query,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+}
+
+final taskSearchProvider =
+    NotifierProvider<TaskSearchNotifier, TaskSearchState>(
+      TaskSearchNotifier.new,
+    );
+
 const uiModeSettingKey = 'ui_mode';
 const onboardingCompletedSettingKey = 'onboarding_completed';
 const syncServerUrlSettingKey = 'sync_server_url';

@@ -77,6 +77,9 @@ abstract class BridgeService {
   /// Returns tasks of `listId`.
   Future<List<rust_api.TaskDto>> getTasks({required String listId});
 
+  /// Searches task title and note using the local FTS5 prefix query.
+  Future<List<rust_api.TaskDto>> searchTasks({required String query});
+
   /// Returns Home smart-view tasks across active lists.
   Future<List<rust_api.HomeTaskDto>> getHomeTasks({
     required int todayStartMs,
@@ -269,6 +272,10 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<List<rust_api.TaskDto>> getTasks({required String listId}) =>
       rust_api.getTasks(listId: listId);
+
+  @override
+  Future<List<rust_api.TaskDto>> searchTasks({required String query}) =>
+      rust_api.searchTasks(query: query);
 
   @override
   Future<List<rust_api.HomeTaskDto>> getHomeTasks({
