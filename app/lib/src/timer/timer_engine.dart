@@ -48,6 +48,7 @@ class TimerEngineState {
     this.targetReachedAt,
     this.nextBreakPhase = TimerPhaseDto.shortBreak,
     this.completedWorkCycles = 0,
+    this.isBreakPending = false,
     this.lastCompletion,
   });
 
@@ -57,6 +58,7 @@ class TimerEngineState {
   final DateTime? targetReachedAt;
   final TimerPhaseDto nextBreakPhase;
   final int completedWorkCycles;
+  final bool isBreakPending;
   final CompletedTimerSessionDto? lastCompletion;
 
   bool get isIdle => active == null;
@@ -74,6 +76,7 @@ class TimerEngineState {
     bool clearTargetReachedAt = false,
     TimerPhaseDto? nextBreakPhase,
     int? completedWorkCycles,
+    bool? isBreakPending,
     CompletedTimerSessionDto? lastCompletion,
     bool clearLastCompletion = false,
   }) {
@@ -86,6 +89,7 @@ class TimerEngineState {
           : targetReachedAt ?? this.targetReachedAt,
       nextBreakPhase: nextBreakPhase ?? this.nextBreakPhase,
       completedWorkCycles: completedWorkCycles ?? this.completedWorkCycles,
+      isBreakPending: isBreakPending ?? this.isBreakPending,
       lastCompletion: clearLastCompletion
           ? null
           : lastCompletion ?? this.lastCompletion,
@@ -134,6 +138,7 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     var active = await bridge.getActiveTimerSession();
     runtime = await _reconcilePending(bridge, runtime, active);
     active = await bridge.getActiveTimerSession();
+    runtime = await _reconcileBreakStart(bridge, runtime, active);
     if (active != null) {
       final settled = await _settleIfDue(bridge, active, runtime);
       runtime = settled.runtime;
@@ -180,18 +185,33 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     if (!current.isIdle) {
       throw const TimerActiveConflictException();
     }
+    if (!current.isBreakPending) {
+      throw const TimerEngineStateException('startBreak');
+    }
     final settings = await _loadSettings(_bridge);
     final phase = _nextBreakPhase(current.completedWorkCycles, settings);
     final minutes = phase == TimerPhaseDto.longBreak
         ? settings.longBreakMinutes
         : settings.shortBreakMinutes;
-    await _start(
-      mode: TimerModeDto.pomodoro,
+    await _startPendingBreak(
       phase: phase,
       target: Duration(minutes: minutes),
       settings: settings,
     );
   }
+
+  Future<void> skipBreak() => _runCommand(() async {
+    final current = _requireState('skipBreak');
+    if (!current.isIdle || !current.isBreakPending) {
+      throw const TimerEngineStateException('skipBreak');
+    }
+    final runtime = (await _loadRuntime(_bridge)).copyWith(
+      breakHandledThroughCycle: current.completedWorkCycles,
+      clearPendingBreakStart: true,
+    );
+    await _saveRuntime(_bridge, runtime);
+    await _publish(null, runtime: runtime);
+  });
 
   Future<void> pause() => _runCommand(() async {
     var current = _requireActive('pause');
@@ -377,6 +397,49 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     await _publish(active, settings: settings);
   });
 
+  Future<void> _startPendingBreak({
+    required TimerPhaseDto phase,
+    required Duration target,
+    required TimerSettings settings,
+  }) => _runCommand(() async {
+    var runtime = await _loadRuntime(_bridge);
+    final cycle = runtime.completedWorkCycles;
+    if (cycle <= runtime.breakHandledThroughCycle) {
+      throw const TimerEngineStateException('startBreak');
+    }
+    runtime = runtime.copyWith(pendingBreakStartCycle: cycle);
+    await _saveRuntime(_bridge, runtime);
+    final now = _clock.now();
+    final active = ActiveTimerSessionDto(
+      sessionId: _newUuid(),
+      mode: TimerModeDto.pomodoro,
+      phase: phase,
+      state: TimerRunStateDto.running,
+      startedAt: now,
+      lastResumedAt: now,
+      accumulatedActiveMs: 0,
+      targetDurationMs: target.inMilliseconds,
+    );
+    final outcome = await _bridge.startActiveTimerSession(session: active);
+    if (outcome == ActiveTimerStartOutcomeDto.conflict) {
+      runtime = runtime.copyWith(clearPendingBreakStart: true);
+      await _saveRuntime(_bridge, runtime);
+      await _publish(await _bridge.getActiveTimerSession(), runtime: runtime);
+      throw const TimerActiveConflictException();
+    }
+    final committed = runtime.copyWith(
+      breakHandledThroughCycle: cycle,
+      clearPendingBreakStart: true,
+    );
+    try {
+      await _saveRuntime(_bridge, committed);
+    } catch (_) {
+      await _publish(active, runtime: runtime, settings: settings);
+      rethrow;
+    }
+    await _publish(active, runtime: committed, settings: settings);
+  });
+
   Future<_FinishResult> _finishWork(
     ActiveTimerSessionDto active, {
     required TimerFinishKindDto kind,
@@ -495,6 +558,29 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     return cleared;
   }
 
+  Future<_TimerRuntime> _reconcileBreakStart(
+    BridgeService bridge,
+    _TimerRuntime runtime,
+    ActiveTimerSessionDto? active,
+  ) async {
+    final pendingCycle = runtime.pendingBreakStartCycle;
+    if (pendingCycle == null) {
+      return runtime;
+    }
+    final activeIsBreak =
+        active != null &&
+        active.mode == TimerModeDto.pomodoro &&
+        active.phase != TimerPhaseDto.work;
+    final reconciled = runtime.copyWith(
+      breakHandledThroughCycle: activeIsBreak
+          ? max(runtime.breakHandledThroughCycle, pendingCycle)
+          : runtime.breakHandledThroughCycle,
+      clearPendingBreakStart: true,
+    );
+    await _saveRuntime(bridge, reconciled);
+    return reconciled;
+  }
+
   Future<void> _discardExpected(ActiveTimerSessionDto expected) async {
     final discarded = await _bridge.discardActiveTimerSession(
       expectedSessionId: expected.sessionId,
@@ -542,6 +628,8 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     if (active == null) {
       return TimerEngineState(
         completedWorkCycles: runtime.completedWorkCycles,
+        isBreakPending:
+            runtime.completedWorkCycles > runtime.breakHandledThroughCycle,
         nextBreakPhase: _nextBreakPhase(runtime.completedWorkCycles, settings),
       );
     }
@@ -560,6 +648,8 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
       remaining: remaining,
       targetReachedAt: reachedAt,
       completedWorkCycles: runtime.completedWorkCycles,
+      isBreakPending:
+          runtime.completedWorkCycles > runtime.breakHandledThroughCycle,
       nextBreakPhase: _nextBreakPhase(runtime.completedWorkCycles, settings),
     );
   }
@@ -699,26 +789,43 @@ class _TimerRuntime {
   /// The cycle count and pending clear are written afterwards. A restart can
   /// query immutable completed sessions by ID and perform the second half
   /// exactly once if the process died between those writes.
-  const _TimerRuntime({this.completedWorkCycles = 0, this.pending});
+  const _TimerRuntime({
+    this.completedWorkCycles = 0,
+    this.breakHandledThroughCycle = 0,
+    this.pending,
+    this.pendingBreakStartCycle,
+  });
 
   final int completedWorkCycles;
+  final int breakHandledThroughCycle;
   final _PendingWorkCompletion? pending;
+  final int? pendingBreakStartCycle;
 
   _TimerRuntime copyWith({
     int? completedWorkCycles,
+    int? breakHandledThroughCycle,
     _PendingWorkCompletion? pending,
     bool clearPending = false,
+    int? pendingBreakStartCycle,
+    bool clearPendingBreakStart = false,
   }) {
     return _TimerRuntime(
       completedWorkCycles: completedWorkCycles ?? this.completedWorkCycles,
+      breakHandledThroughCycle:
+          breakHandledThroughCycle ?? this.breakHandledThroughCycle,
       pending: clearPending ? null : pending ?? this.pending,
+      pendingBreakStartCycle: clearPendingBreakStart
+          ? null
+          : pendingBreakStartCycle ?? this.pendingBreakStartCycle,
     );
   }
 
   String encode() => jsonEncode({
     'version': 1,
     'completedWorkCycles': completedWorkCycles,
+    'breakHandledThroughCycle': breakHandledThroughCycle,
     'pending': pending?.toJson(),
+    'pendingBreakStartCycle': pendingBreakStartCycle,
   });
 
   static _TimerRuntime decode(String source) {
@@ -730,9 +837,22 @@ class _TimerRuntime {
     if (cycles is! int || cycles < 0) {
       throw const FormatException();
     }
+    final handled = value['breakHandledThroughCycle'] ?? 0;
+    final pendingBreak = value['pendingBreakStartCycle'];
+    if (handled is! int ||
+        handled < 0 ||
+        handled > cycles ||
+        (pendingBreak != null &&
+            (pendingBreak is! int ||
+                pendingBreak <= handled ||
+                pendingBreak > cycles))) {
+      throw const FormatException();
+    }
     return _TimerRuntime(
       completedWorkCycles: cycles,
+      breakHandledThroughCycle: handled,
       pending: _PendingWorkCompletion.fromJson(value['pending']),
+      pendingBreakStartCycle: pendingBreak as int?,
     );
   }
 }

@@ -168,6 +168,137 @@ void main() {
     expect(active.targetDurationMs, const Duration(minutes: 15).inMilliseconds);
   });
 
+  test(
+    'completed work restores a pending break and phase after restart',
+    () async {
+      final harness = await _Harness.create();
+      addTearDown(harness.dispose);
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .startPomodoro(taskId: harness.task.id);
+      harness.clock.advance(const Duration(minutes: 1));
+      await harness.container.read(timerEngineProvider.notifier).finish();
+
+      final restored = await _Harness.create(
+        bridge: harness.bridge,
+        clock: harness.clock,
+        createTask: false,
+      );
+      addTearDown(restored.dispose);
+      final state = await restored.container.read(timerEngineProvider.future);
+      expect(state.isBreakPending, isTrue);
+      expect(state.nextBreakPhase, TimerPhaseDto.shortBreak);
+    },
+  );
+
+  test(
+    'break start journal consumes pending exactly once after crash',
+    () async {
+      final bridge = _FailingRuntimeBridge();
+      final harness = await _Harness.create(bridge: bridge);
+      addTearDown(harness.dispose);
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .startPomodoro(taskId: harness.task.id);
+      harness.clock.advance(const Duration(minutes: 1));
+      await harness.container.read(timerEngineProvider.notifier).finish();
+      bridge.failBreakCommit = true;
+
+      await expectLater(
+        harness.container.read(timerEngineProvider.notifier).startBreak(),
+        throwsA(isA<StateError>()),
+      );
+      final restored = await _Harness.create(
+        bridge: bridge,
+        clock: harness.clock,
+        createTask: false,
+      );
+      addTearDown(restored.dispose);
+      final restoredState = await restored.container.read(
+        timerEngineProvider.future,
+      );
+      expect(restoredState.active?.phase, TimerPhaseDto.shortBreak);
+      expect(restoredState.isBreakPending, isFalse);
+
+      await restored.container.read(timerEngineProvider.notifier).discard();
+      final restarted = await _Harness.create(
+        bridge: bridge,
+        clock: harness.clock,
+        createTask: false,
+      );
+      addTearDown(restarted.dispose);
+      expect(
+        (await restarted.container.read(
+          timerEngineProvider.future,
+        )).isBreakPending,
+        isFalse,
+      );
+      await expectLater(
+        restarted.container.read(timerEngineProvider.notifier).startBreak(),
+        throwsA(isA<TimerEngineStateException>()),
+      );
+    },
+  );
+
+  test('failed break start keeps the break pending', () async {
+    final harness = await _Harness.create();
+    addTearDown(harness.dispose);
+    await harness.container
+        .read(timerEngineProvider.notifier)
+        .startPomodoro(taskId: harness.task.id);
+    harness.clock.advance(const Duration(minutes: 1));
+    await harness.container.read(timerEngineProvider.notifier).finish();
+    await harness.bridge.startActiveTimerSession(
+      session: ActiveTimerSessionDto(
+        sessionId: '00000000-0000-4000-8000-000000000077',
+        taskId: harness.task.id,
+        mode: TimerModeDto.stopwatch,
+        phase: TimerPhaseDto.work,
+        state: TimerRunStateDto.running,
+        startedAt: harness.clock.now(),
+        lastResumedAt: harness.clock.now(),
+        accumulatedActiveMs: 0,
+      ),
+    );
+
+    await expectLater(
+      harness.container.read(timerEngineProvider.notifier).startBreak(),
+      throwsA(isA<TimerActiveConflictException>()),
+    );
+    expect(
+      harness.container.read(timerEngineProvider).requireValue.isBreakPending,
+      isTrue,
+    );
+  });
+
+  test('skip break acknowledgement survives restart', () async {
+    final harness = await _Harness.create();
+    addTearDown(harness.dispose);
+    await harness.container
+        .read(timerEngineProvider.notifier)
+        .startPomodoro(taskId: harness.task.id);
+    harness.clock.advance(const Duration(minutes: 1));
+    await harness.container.read(timerEngineProvider.notifier).finish();
+    expect(
+      harness.container.read(timerEngineProvider).requireValue.isBreakPending,
+      isTrue,
+    );
+    await harness.container.read(timerEngineProvider.notifier).skipBreak();
+
+    final restored = await _Harness.create(
+      bridge: harness.bridge,
+      clock: harness.clock,
+      createTask: false,
+    );
+    addTearDown(restored.dispose);
+    expect(
+      (await restored.container.read(
+        timerEngineProvider.future,
+      )).isBreakPending,
+      isFalse,
+    );
+  });
+
   test('seven-day cap saves running work interrupted at the cap', () async {
     final harness = await _Harness.create();
     addTearDown(harness.dispose);
@@ -472,6 +603,7 @@ class _FakeTimerNotificationGateway implements TimerNotificationGateway {
 
 class _FailingRuntimeBridge extends FakeBridgeService {
   bool failRuntimeCommit = false;
+  bool failBreakCommit = false;
 
   @override
   Future<void> setSetting({required String key, required String value}) async {
@@ -480,6 +612,12 @@ class _FailingRuntimeBridge extends FakeBridgeService {
         value.contains('"pending":null')) {
       failRuntimeCommit = false;
       throw StateError('simulated runtime commit failure');
+    }
+    if (key == timerRuntimeKey &&
+        failBreakCommit &&
+        value.contains('"pendingBreakStartCycle":null')) {
+      failBreakCommit = false;
+      throw StateError('simulated break commit failure');
     }
     await super.setSetting(key: key, value: value);
   }
