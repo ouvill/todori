@@ -1004,6 +1004,12 @@ abstract class AppLocalizations {
   /// **'Account'**
   String get accountTitle;
 
+  /// No description provided for @navigationYouLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get navigationYouLabel;
+
   /// No description provided for @accountLoadFailed.
   ///
   /// In en, this message translates to:

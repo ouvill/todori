@@ -151,6 +151,7 @@
   "moveTaskUpTooltip": "タスクを上へ移動",
   "moveTaskDownTooltip": "タスクを下へ移動",
   "accountTitle": "アカウント",
+  "navigationYouLabel": "自分",
   "accountLoadFailed": "アカウント状態を読み込めませんでした。",
   "accountLoginTab": "ログイン",
   "accountRegisterTab": "登録",

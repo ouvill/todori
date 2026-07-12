@@ -329,6 +329,7 @@
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
   "accountTitle": "Account",
+  "navigationYouLabel": "You",
   "accountLoadFailed": "Could not load account state.",
   "accountLoginTab": "Log in",
   "accountRegisterTab": "Register",

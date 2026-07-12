@@ -516,6 +516,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountTitle => 'アカウント';
 
   @override
+  String get navigationYouLabel => '自分';
+
+  @override
   String get accountLoadFailed => 'アカウント状態を読み込めませんでした。';
 
   @override

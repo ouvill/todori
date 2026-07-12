@@ -519,6 +519,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accountTitle => 'Account';
 
   @override
+  String get navigationYouLabel => 'You';
+
+  @override
   String get accountLoadFailed => 'Could not load account state.';
 
   @override

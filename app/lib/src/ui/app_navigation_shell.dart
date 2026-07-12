@@ -146,7 +146,7 @@ class _AppBottomNavigation extends StatelessWidget {
               Expanded(
                 child: _AppNavigationItem(
                   icon: LucideIcons.userRound300,
-                  label: l10n.accountTitle,
+                  label: l10n.navigationYouLabel,
                   selected: selectedDestination == _AppDestination.you,
                   onTap: () => onSelected(_AppDestination.you),
                 ),
@@ -199,7 +199,7 @@ class _AppNavigationRail extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             _AppNavigationItem(
               icon: LucideIcons.userRound300,
-              label: l10n.accountTitle,
+              label: l10n.navigationYouLabel,
               selected: selectedDestination == _AppDestination.you,
               onTap: () => onSelected(_AppDestination.you),
               vertical: true,
