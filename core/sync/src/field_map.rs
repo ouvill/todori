@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use todori_domain::{List, Task, TaskDue, TaskStatus, Uuid};
+use todori_domain::{
+    validate_completed_timer_session, CompletedTimerSession, List, Task, TaskDue, TaskStatus, Uuid,
+};
 
 use crate::hlc::Hlc;
 
@@ -45,6 +47,10 @@ pub enum FieldMapError {
     InvalidPlacement,
     #[error("record id must be a UUID")]
     InvalidRecordId,
+    #[error("timer session is invalid")]
+    InvalidTimerSession,
+    #[error("immutable timer session contents conflict")]
+    ImmutableConflict,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +118,13 @@ pub struct ListPlaintext {
     pub placement: Clocked<ListPlacement>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimerSessionPlaintext {
+    pub value: CompletedTimerSession,
+    pub hlc: Hlc,
+}
+
 /// The `kind` tag is authenticated inside the envelope and is checked against
 /// the wire collection before a value is accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +137,7 @@ pub struct ListPlaintext {
 pub enum SyncPlaintext {
     Task(TaskPlaintext),
     List(ListPlaintext),
+    TimerSession(TimerSessionPlaintext),
 }
 
 impl SyncPlaintext {
@@ -168,6 +182,14 @@ impl SyncPlaintext {
                     &list.placement.hlc,
                 ])
             }
+            ("timer_sessions", Self::TimerSession(timer)) => {
+                if timer.value.id != record_id
+                    || validate_completed_timer_session(&timer.value).is_err()
+                {
+                    return Err(FieldMapError::InvalidTimerSession);
+                }
+                validate_hlcs([&timer.hlc])
+            }
             _ => Err(FieldMapError::KindMismatch),
         }
     }
@@ -204,6 +226,7 @@ impl SyncPlaintext {
             .into_iter()
             .max()
             .expect("list plaintext has fields"),
+            Self::TimerSession(value) => &value.hlc,
         }
     }
 
@@ -255,6 +278,18 @@ impl SyncPlaintext {
                 },
                 hlc,
             ),
+        }))
+    }
+
+    pub fn from_timer_session(
+        session: &CompletedTimerSession,
+        hlc: Hlc,
+    ) -> Result<Self, FieldMapError> {
+        validate_completed_timer_session(session)
+            .map_err(|_| FieldMapError::InvalidTimerSession)?;
+        Ok(Self::TimerSession(TimerSessionPlaintext {
+            value: session.clone(),
+            hlc,
         }))
     }
 
@@ -344,7 +379,7 @@ fn validate_task_completion(completion: &TaskCompletion) -> Result<(), FieldMapE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todori_domain::new_task;
+    use todori_domain::{new_task, TimerFinishKind, TimerMode};
 
     fn hlc(counter: u32) -> Hlc {
         Hlc {
@@ -508,5 +543,32 @@ mod tests {
         assert_eq!(after.title.hlc, before.title.hlc);
         assert_eq!(after.note.hlc, hlc(2));
         assert_eq!(after.completion.hlc, hlc(2));
+    }
+
+    #[test]
+    fn timer_plaintext_is_strictly_bound_to_record_id_and_completed_validation() {
+        let session = CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id: Uuid::now_v7(),
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1,
+            ended_at: 10,
+            active_duration_ms: 8,
+            created_at: 11,
+        };
+        let plaintext = SyncPlaintext::from_timer_session(&session, hlc(1)).unwrap();
+        assert_eq!(
+            plaintext.validate_for_collection("timer_sessions", &session.id.to_string()),
+            Ok(())
+        );
+        assert_eq!(
+            plaintext.validate_for_collection("timer_sessions", &Uuid::now_v7().to_string()),
+            Err(FieldMapError::InvalidTimerSession)
+        );
+        assert_eq!(
+            plaintext.validate_for_collection("tasks", &session.id.to_string()),
+            Err(FieldMapError::KindMismatch)
+        );
     }
 }

@@ -954,6 +954,10 @@ where
     match record.collection {
         SyncCollection::Lists => apply_pull_list(record, context, store, now_ms, summary),
         SyncCollection::Tasks => apply_pull_task(record, context, store, now_ms, summary),
+        SyncCollection::TimerSessions => Ok(ApplyDisposition::Deferred(
+            PullFailureReason::InvalidPlaintext,
+            None,
+        )),
     }
 }
 
@@ -1169,7 +1173,9 @@ where
     };
     let incoming_list_id = match &incoming {
         SyncPlaintext::Task(task) => task.placement.value.list_id,
-        SyncPlaintext::List(_) => return Err("sync failed".to_string()),
+        SyncPlaintext::List(_) | SyncPlaintext::TimerSession(_) => {
+            return Err("sync failed".to_string())
+        }
     };
     let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
         incoming_dek
@@ -2278,6 +2284,7 @@ mod tests {
         let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
         let moved_keys = LocalSyncKeys {
             list_deks: vec![(list_b, dek_b)],
+            tenant_root_dek: None,
         };
         let SyncPlaintext::Task(decrypted_move) =
             decrypt_task_plaintext(&moved_record, Some(&existing), &moved_keys).unwrap()
@@ -2293,6 +2300,7 @@ mod tests {
             encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
         let all_keys = LocalSyncKeys {
             list_deks: vec![(list_a, dek_a), (list_b, dek_b)],
+            tenant_root_dek: None,
         };
         assert_eq!(
             decrypt_task_plaintext(&mismatched_record, Some(&existing), &all_keys),
@@ -2311,6 +2319,7 @@ mod tests {
 
         let no_matching_key = LocalSyncKeys {
             list_deks: vec![(list_b, [0x62; KEY_LEN])],
+            tenant_root_dek: None,
         };
         assert_eq!(
             decrypt_task_plaintext(&moved_record, Some(&existing), &no_matching_key),
@@ -2428,6 +2437,7 @@ mod tests {
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
                 list_deks: vec![(list_id, dek)],
+                tenant_root_dek: None,
             },
         }
     }

@@ -888,6 +888,7 @@ mod tests {
     fn sync_keys(list_ids: &[Uuid]) -> LocalSyncKeys {
         LocalSyncKeys {
             list_deks: list_ids.iter().map(|id| (*id, [7; KEY_LEN])).collect(),
+            tenant_root_dek: None,
         }
     }
 

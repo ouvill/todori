@@ -8,13 +8,15 @@ use std::{path::Path, str::FromStr, time::Duration};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
 use todori_domain::{
-    fractional_index_after, new_default_list, CivilDate, IanaTimeZone, List, Task, TaskDue,
-    TaskStatus, UtcInstant, Uuid,
+    fractional_index_after, new_default_list, validate_active_timer_session,
+    validate_completed_timer_session, ActiveTimerSession, CivilDate, CompletedTimerSession,
+    IanaTimeZone, List, Task, TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase,
+    TimerRunState, UtcInstant, Uuid,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 17;
+pub const LATEST_SCHEMA_VERSION: i32 = 18;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -97,6 +99,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 17,
         name: "replace_task_due_semantics",
         apply: replace_task_due_semantics,
+    },
+    Migration {
+        target_version: 18,
+        name: "add_timer_sync_foundation",
+        apply: add_timer_sync_foundation,
     },
 ];
 
@@ -434,6 +441,15 @@ pub struct LocalListKeyBundle {
     pub updated_at: i64,
 }
 
+/// Master Keyでlocal-wrap済みのTenant Root DEK cache。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalTenantRootKeyBundle {
+    pub tenant_id: Uuid,
+    pub key_version: i32,
+    pub wrapped_tenant_root_dek: Vec<u8>,
+    pub updated_at: i64,
+}
+
 /// Server upload待ちのopaqueなMK-wrapped List DEK bundle。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingListKeyBundle {
@@ -449,8 +465,13 @@ pub trait LocalCryptoRepository {
     fn bind_and_replace_bundles(
         &mut self,
         binding: LocalProfileBinding,
+        tenant_root: &LocalTenantRootKeyBundle,
         bundles: &[LocalListKeyBundle],
     ) -> Result<(), StorageError>;
+    fn load_tenant_root(
+        &self,
+        tenant_id: Uuid,
+    ) -> Result<Option<LocalTenantRootKeyBundle>, StorageError>;
     fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError>;
     fn delete_bundle(&mut self, tenant_id: Uuid, list_id: Uuid) -> Result<bool, StorageError>;
 }
@@ -476,6 +497,30 @@ pub trait TaskRepository {
     fn search_tasks(&self, query: &str) -> Result<Vec<Task>, StorageError>;
     fn count_descendants(&self, task_id: Uuid) -> Result<usize, StorageError>;
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
+}
+
+/// Device-local active Timer and immutable completed work sessions.
+pub trait TimerSessionRepository {
+    fn load_active(&self) -> Result<Option<ActiveTimerSession>, StorageError>;
+    fn put_active(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError>;
+    fn clear_active(&mut self) -> Result<bool, StorageError>;
+    fn get_completed(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError>;
+    /// Returns false for an exact immutable replay and rejects differing data.
+    fn insert_completed(&mut self, session: CompletedTimerSession) -> Result<bool, StorageError>;
+    fn list_completed(&self) -> Result<Vec<CompletedTimerSession>, StorageError>;
+    fn list_completed_by_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError>;
+    fn list_completed_by_list(
+        &self,
+        list_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError>;
+    fn delete_completed(&mut self, id: Uuid) -> Result<bool, StorageError>;
 }
 
 /// リストの永続化を担うリポジトリ。
@@ -1315,6 +1360,144 @@ fn replace_task_due_semantics(transaction: &Transaction<'_>) -> rusqlite::Result
              WHERE due_kind IS NOT NULL;",
     )?;
     rebuild_tasks_fts_triggers(transaction)
+}
+
+/// Protocol v5 is a pre-release breaking cutover. Domain rows and account key
+/// material survive, while transport metadata is rebuilt for the expanded
+/// collection enum and envelope v4.
+fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE local_tenant_root_key_cache (
+             tenant_id TEXT PRIMARY KEY NOT NULL,
+             key_version INTEGER NOT NULL CHECK (key_version = 1),
+             wrapped_tenant_root_dek BLOB NOT NULL CHECK (length(wrapped_tenant_root_dek) > 0),
+             updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE active_timer_session (
+             singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+             session_id TEXT NOT NULL UNIQUE,
+             task_id TEXT,
+             mode TEXT NOT NULL CHECK (mode IN ('pomodoro', 'stopwatch')),
+             phase TEXT NOT NULL CHECK (phase IN ('work', 'short_break', 'long_break')),
+             state TEXT NOT NULL CHECK (state IN ('running', 'paused')),
+             started_at INTEGER NOT NULL,
+             last_resumed_at INTEGER,
+             accumulated_active_ms INTEGER NOT NULL CHECK (accumulated_active_ms >= 0 AND accumulated_active_ms <= 604800000),
+             target_duration_ms INTEGER CHECK (target_duration_ms > 0 AND target_duration_ms <= 604800000),
+             updated_at INTEGER NOT NULL,
+             CHECK ((phase = 'work' AND task_id IS NOT NULL) OR (phase <> 'work' AND task_id IS NULL)),
+             CHECK (mode = 'pomodoro' OR phase = 'work'),
+             CHECK ((state = 'running' AND last_resumed_at IS NOT NULL) OR (state = 'paused' AND last_resumed_at IS NULL))
+         );
+         CREATE TABLE timer_sessions (
+             id TEXT PRIMARY KEY NOT NULL,
+             task_id TEXT NOT NULL,
+             mode TEXT NOT NULL CHECK (mode IN ('pomodoro', 'stopwatch')),
+             finish_kind TEXT NOT NULL CHECK (finish_kind IN ('completed', 'interrupted')),
+             started_at INTEGER NOT NULL,
+             ended_at INTEGER NOT NULL,
+             active_duration_ms INTEGER NOT NULL CHECK (active_duration_ms > 0 AND active_duration_ms <= 604800000),
+             created_at INTEGER NOT NULL,
+             CHECK (started_at <= ended_at),
+             CHECK (created_at >= ended_at),
+             CHECK (ended_at - started_at <= 604800000),
+             CHECK (active_duration_ms <= ended_at - started_at)
+         );
+         CREATE INDEX idx_timer_sessions_task ON timer_sessions(task_id, started_at, id);
+
+         DROP TABLE IF EXISTS sync_outbox;
+         DROP TABLE IF EXISTS sync_record_states;
+         DROP TABLE IF EXISTS sync_cursors;
+         DROP TABLE IF EXISTS sync_quarantine;
+         DROP TABLE IF EXISTS sync_full_resync_marks;
+         DROP TABLE IF EXISTS sync_full_resync_state;
+         DROP TABLE IF EXISTS sync_record_origins;
+
+         CREATE TABLE sync_outbox (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
+             op_id TEXT NOT NULL UNIQUE,
+             base_revision_hlc TEXT,
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             created_at INTEGER NOT NULL,
+             CHECK ((state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                    OR (state_kind = 'tombstone' AND blob IS NULL))
+         );
+         CREATE INDEX idx_sync_outbox_stable_order ON sync_outbox(created_at, record_id);
+         CREATE TABLE sync_record_states (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
+             current_revision_hlc TEXT,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             plaintext_json TEXT,
+             updated_at INTEGER NOT NULL,
+             CHECK ((state_kind = 'live' AND plaintext_json IS NOT NULL)
+                    OR (state_kind = 'tombstone' AND plaintext_json IS NULL))
+         );
+         CREATE TABLE sync_cursors (
+             name TEXT PRIMARY KEY NOT NULL,
+             seq INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE sync_quarantine (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
+             seq INTEGER NOT NULL CHECK (seq > 0),
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             reason TEXT NOT NULL CHECK (reason IN (
+                 'missing_dek', 'no_matching_dek', 'authentication_failed',
+                 'corrupt_envelope', 'invalid_plaintext', 'missing_dependency'
+             )),
+             required_list_id TEXT,
+             first_failed_at INTEGER NOT NULL,
+             last_failed_at INTEGER NOT NULL,
+             attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
+             CHECK ((state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                    OR (state_kind = 'tombstone' AND blob IS NULL))
+         );
+         CREATE INDEX idx_sync_quarantine_seq ON sync_quarantine(seq, record_id);
+         CREATE TABLE sync_full_resync_state (
+             singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+             generation_id TEXT NOT NULL,
+             phase TEXT NOT NULL CHECK (phase IN ('base', 'delta', 'sweep')),
+             base_seq INTEGER NOT NULL CHECK (base_seq >= 0),
+             base_cursor_collection TEXT CHECK (base_cursor_collection IS NULL OR base_cursor_collection IN ('lists', 'tasks', 'timer_sessions')),
+             base_cursor_record_id TEXT,
+             delta_cursor INTEGER NOT NULL CHECK (delta_cursor >= 0),
+             closure_high_water INTEGER CHECK (closure_high_water >= 0),
+             sweep_cursor_collection TEXT CHECK (sweep_cursor_collection IS NULL OR sweep_cursor_collection IN ('lists', 'tasks', 'timer_sessions')),
+             sweep_cursor_record_id TEXT,
+             started_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL,
+             continuity_generation INTEGER NOT NULL DEFAULT 0 CHECK (continuity_generation >= 0),
+             CHECK ((base_cursor_collection IS NULL AND base_cursor_record_id IS NULL)
+                    OR (base_cursor_collection IS NOT NULL AND base_cursor_record_id IS NOT NULL)),
+             CHECK ((sweep_cursor_collection IS NULL AND sweep_cursor_record_id IS NULL)
+                    OR (sweep_cursor_collection IS NOT NULL AND sweep_cursor_record_id IS NOT NULL)),
+             CHECK ((phase = 'sweep' AND closure_high_water IS NOT NULL)
+                    OR (phase <> 'sweep' AND closure_high_water IS NULL))
+         );
+         CREATE TABLE sync_full_resync_marks (
+             generation_id TEXT NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
+             record_id TEXT NOT NULL,
+             PRIMARY KEY (generation_id, collection, record_id)
+         );
+         CREATE INDEX idx_sync_full_resync_marks_record ON sync_full_resync_marks(generation_id, collection, record_id);
+         CREATE TABLE sync_record_origins (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
+             origin_kind TEXT NOT NULL CHECK (origin_kind IN ('never_synced', 'server_seen')),
+             updated_at INTEGER NOT NULL
+         );",
+    )
 }
 
 fn table_columns_raw(connection: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
@@ -2549,6 +2732,321 @@ impl SqliteListRepository {
     }
 }
 
+pub struct SqliteTimerSessionRepository {
+    connection: Connection,
+}
+
+impl SqliteTimerSessionRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl TimerSessionRepository for SqliteTimerSessionRepository {
+    fn load_active(&self) -> Result<Option<ActiveTimerSession>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT session_id, task_id, mode, phase, state, started_at,
+                        last_resumed_at, accumulated_active_ms, target_duration_ms
+                 FROM active_timer_session WHERE singleton = 1",
+                [],
+                row_to_active_timer_session,
+            )
+            .optional()?
+            .transpose()
+    }
+
+    fn put_active(
+        &mut self,
+        session: ActiveTimerSession,
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        validate_active_timer_session(&session)
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+        if let Some(task_id) = session.task_id {
+            require_existing_timer_task(&self.connection, task_id)?;
+        }
+        self.connection.execute(
+            "INSERT INTO active_timer_session (
+                 singleton, session_id, task_id, mode, phase, state, started_at,
+                 last_resumed_at, accumulated_active_ms, target_duration_ms, updated_at
+             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(singleton) DO UPDATE SET
+                 session_id = excluded.session_id,
+                 task_id = excluded.task_id,
+                 mode = excluded.mode,
+                 phase = excluded.phase,
+                 state = excluded.state,
+                 started_at = excluded.started_at,
+                 last_resumed_at = excluded.last_resumed_at,
+                 accumulated_active_ms = excluded.accumulated_active_ms,
+                 target_duration_ms = excluded.target_duration_ms,
+                 updated_at = excluded.updated_at",
+            params![
+                session.session_id.to_string(),
+                session.task_id.map(|id| id.to_string()),
+                timer_mode_str(session.mode),
+                timer_phase_str(session.phase),
+                timer_run_state_str(session.state),
+                session.started_at,
+                session.last_resumed_at,
+                session.accumulated_active_ms,
+                session.target_duration_ms,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn clear_active(&mut self) -> Result<bool, StorageError> {
+        Ok(self
+            .connection
+            .execute("DELETE FROM active_timer_session WHERE singleton = 1", [])?
+            == 1)
+    }
+
+    fn get_completed(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                        active_duration_ms, created_at
+                 FROM timer_sessions WHERE id = ?1",
+                [id.to_string()],
+                row_to_completed_timer_session,
+            )
+            .optional()?
+            .transpose()?
+            .ok_or(StorageError::NotFound(id))
+    }
+
+    fn insert_completed(&mut self, session: CompletedTimerSession) -> Result<bool, StorageError> {
+        validate_completed_timer_session(&session)
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+        require_existing_timer_task(&self.connection, session.task_id)?;
+        match self.get_completed(session.id) {
+            Ok(existing) if existing == session => return Ok(false),
+            Ok(_) => {
+                return Err(StorageError::IncompatibleSchema(
+                    "immutable timer session contents conflict".to_string(),
+                ))
+            }
+            Err(StorageError::NotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+        self.connection.execute(
+            "INSERT INTO timer_sessions (
+                 id, task_id, mode, finish_kind, started_at, ended_at,
+                 active_duration_ms, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                session.id.to_string(),
+                session.task_id.to_string(),
+                timer_mode_str(session.mode),
+                timer_finish_kind_str(session.finish_kind),
+                session.started_at,
+                session.ended_at,
+                session.active_duration_ms,
+                session.created_at,
+            ],
+        )?;
+        Ok(true)
+    }
+
+    fn list_completed(&self) -> Result<Vec<CompletedTimerSession>, StorageError> {
+        list_completed_timer_sessions_on(
+            &self.connection,
+            "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                    active_duration_ms, created_at
+             FROM timer_sessions ORDER BY started_at, id",
+            [],
+        )
+    }
+
+    fn list_completed_by_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError> {
+        list_completed_timer_sessions_on(
+            &self.connection,
+            "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                    active_duration_ms, created_at
+             FROM timer_sessions WHERE task_id = ?1 ORDER BY started_at, id",
+            [task_id.to_string()],
+        )
+    }
+
+    fn list_completed_by_list(
+        &self,
+        list_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError> {
+        list_completed_timer_sessions_on(
+            &self.connection,
+            "SELECT timer.id, timer.task_id, timer.mode, timer.finish_kind,
+                    timer.started_at, timer.ended_at, timer.active_duration_ms, timer.created_at
+             FROM timer_sessions timer
+             INNER JOIN tasks ON tasks.id = timer.task_id
+             WHERE tasks.list_id = ?1 ORDER BY timer.started_at, timer.id",
+            [list_id.to_string()],
+        )
+    }
+
+    fn delete_completed(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        Ok(self
+            .connection
+            .execute("DELETE FROM timer_sessions WHERE id = ?1", [id.to_string()])?
+            == 1)
+    }
+}
+
+fn list_completed_timer_sessions_on<P: rusqlite::Params>(
+    connection: &Connection,
+    sql: &str,
+    params: P,
+) -> Result<Vec<CompletedTimerSession>, StorageError> {
+    let mut statement = connection.prepare(sql)?;
+    let rows = statement.query_map(params, row_to_completed_timer_session)?;
+    let mut sessions = Vec::new();
+    for row in rows {
+        sessions.push(row??);
+    }
+    Ok(sessions)
+}
+
+fn row_to_active_timer_session(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<ActiveTimerSession, StorageError>> {
+    Ok((|| {
+        let session = ActiveTimerSession {
+            session_id: parse_uuid_column(row.get(0)?)?,
+            task_id: row
+                .get::<_, Option<String>>(1)?
+                .map(parse_uuid_column)
+                .transpose()?,
+            mode: parse_timer_mode(&row.get::<_, String>(2)?)?,
+            phase: parse_timer_phase(&row.get::<_, String>(3)?)?,
+            state: parse_timer_run_state(&row.get::<_, String>(4)?)?,
+            started_at: row.get(5)?,
+            last_resumed_at: row.get(6)?,
+            accumulated_active_ms: row.get(7)?,
+            target_duration_ms: row.get(8)?,
+        };
+        validate_active_timer_session(&session)
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+        Ok(session)
+    })())
+}
+
+fn row_to_completed_timer_session(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<CompletedTimerSession, StorageError>> {
+    Ok((|| {
+        let session = CompletedTimerSession {
+            id: parse_uuid_column(row.get(0)?)?,
+            task_id: parse_uuid_column(row.get(1)?)?,
+            mode: parse_timer_mode(&row.get::<_, String>(2)?)?,
+            finish_kind: parse_timer_finish_kind(&row.get::<_, String>(3)?)?,
+            started_at: row.get(4)?,
+            ended_at: row.get(5)?,
+            active_duration_ms: row.get(6)?,
+            created_at: row.get(7)?,
+        };
+        validate_completed_timer_session(&session)
+            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+        Ok(session)
+    })())
+}
+
+fn parse_uuid_column(value: String) -> Result<Uuid, StorageError> {
+    value.parse().map_err(StorageError::from)
+}
+
+fn require_existing_timer_task(connection: &Connection, task_id: Uuid) -> Result<(), StorageError> {
+    let exists: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?1)",
+        [task_id.to_string()],
+        |row| row.get(0),
+    )?;
+    if exists {
+        Ok(())
+    } else {
+        Err(StorageError::NotFound(task_id))
+    }
+}
+
+fn timer_mode_str(value: TimerMode) -> &'static str {
+    match value {
+        TimerMode::Pomodoro => "pomodoro",
+        TimerMode::Stopwatch => "stopwatch",
+    }
+}
+
+fn parse_timer_mode(value: &str) -> Result<TimerMode, StorageError> {
+    match value {
+        "pomodoro" => Ok(TimerMode::Pomodoro),
+        "stopwatch" => Ok(TimerMode::Stopwatch),
+        _ => Err(StorageError::IncompatibleSchema(
+            "invalid timer mode".to_string(),
+        )),
+    }
+}
+
+fn timer_phase_str(value: TimerPhase) -> &'static str {
+    match value {
+        TimerPhase::Work => "work",
+        TimerPhase::ShortBreak => "short_break",
+        TimerPhase::LongBreak => "long_break",
+    }
+}
+
+fn parse_timer_phase(value: &str) -> Result<TimerPhase, StorageError> {
+    match value {
+        "work" => Ok(TimerPhase::Work),
+        "short_break" => Ok(TimerPhase::ShortBreak),
+        "long_break" => Ok(TimerPhase::LongBreak),
+        _ => Err(StorageError::IncompatibleSchema(
+            "invalid timer phase".to_string(),
+        )),
+    }
+}
+
+fn timer_run_state_str(value: TimerRunState) -> &'static str {
+    match value {
+        TimerRunState::Running => "running",
+        TimerRunState::Paused => "paused",
+    }
+}
+
+fn parse_timer_run_state(value: &str) -> Result<TimerRunState, StorageError> {
+    match value {
+        "running" => Ok(TimerRunState::Running),
+        "paused" => Ok(TimerRunState::Paused),
+        _ => Err(StorageError::IncompatibleSchema(
+            "invalid timer run state".to_string(),
+        )),
+    }
+}
+
+fn timer_finish_kind_str(value: TimerFinishKind) -> &'static str {
+    match value {
+        TimerFinishKind::Completed => "completed",
+        TimerFinishKind::Interrupted => "interrupted",
+    }
+}
+
+fn parse_timer_finish_kind(value: &str) -> Result<TimerFinishKind, StorageError> {
+    match value {
+        "completed" => Ok(TimerFinishKind::Completed),
+        "interrupted" => Ok(TimerFinishKind::Interrupted),
+        _ => Err(StorageError::IncompatibleSchema(
+            "invalid timer finish kind".to_string(),
+        )),
+    }
+}
+
 impl ListRepository for SqliteListRepository {
     fn get(&self, id: Uuid) -> Result<List, StorageError> {
         get_list_on(&self.connection, id)
@@ -2711,8 +3209,20 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
     fn bind_and_replace_bundles(
         &mut self,
         binding: LocalProfileBinding,
+        tenant_root: &LocalTenantRootKeyBundle,
         bundles: &[LocalListKeyBundle],
     ) -> Result<(), StorageError> {
+        if tenant_root.tenant_id != binding.tenant_id {
+            return Err(StorageError::LocalProfileTenantMismatch {
+                bound_tenant_id: binding.tenant_id,
+                requested_tenant_id: tenant_root.tenant_id,
+            });
+        }
+        if tenant_root.key_version != 1 || tenant_root.wrapped_tenant_root_dek.is_empty() {
+            return Err(StorageError::IncompatibleSchema(
+                "invalid local Tenant Root DEK cache entry".to_string(),
+            ));
+        }
         for bundle in bundles {
             if bundle.tenant_id != binding.tenant_id {
                 return Err(StorageError::LocalProfileTenantMismatch {
@@ -2756,6 +3266,18 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
             ],
         )?;
         transaction.execute("DELETE FROM local_list_key_bundles", [])?;
+        transaction.execute("DELETE FROM local_tenant_root_key_cache", [])?;
+        transaction.execute(
+            "INSERT INTO local_tenant_root_key_cache (
+                 tenant_id, key_version, wrapped_tenant_root_dek, updated_at
+             ) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                tenant_root.tenant_id.to_string(),
+                tenant_root.key_version,
+                tenant_root.wrapped_tenant_root_dek,
+                tenant_root.updated_at,
+            ],
+        )?;
         for bundle in bundles {
             transaction.execute(
                 "INSERT INTO local_list_key_bundles (
@@ -2771,6 +3293,43 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         }
         transaction.commit()?;
         Ok(())
+    }
+
+    fn load_tenant_root(
+        &self,
+        tenant_id: Uuid,
+    ) -> Result<Option<LocalTenantRootKeyBundle>, StorageError> {
+        if let Some(binding) = load_local_profile_binding_on(&self.connection)? {
+            if binding.tenant_id != tenant_id {
+                return Err(StorageError::LocalProfileTenantMismatch {
+                    bound_tenant_id: binding.tenant_id,
+                    requested_tenant_id: tenant_id,
+                });
+            }
+        }
+        self.connection
+            .query_row(
+                "SELECT tenant_id, key_version, wrapped_tenant_root_dek, updated_at
+                 FROM local_tenant_root_key_cache WHERE tenant_id = ?1",
+                [tenant_id.to_string()],
+                |row| {
+                    let tenant_id = row.get::<_, String>(0)?.parse::<Uuid>().map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                    Ok(LocalTenantRootKeyBundle {
+                        tenant_id,
+                        key_version: row.get(1)?,
+                        wrapped_tenant_root_dek: row.get(2)?,
+                        updated_at: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(StorageError::from)
     }
 
     fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError> {
@@ -4683,6 +5242,15 @@ mod tests {
     const KEY: [u8; 32] = [0x11; 32];
     const WRONG_KEY: [u8; 32] = [0x22; 32];
 
+    fn local_tenant_root_bundle(tenant_id: Uuid, updated_at: i64) -> LocalTenantRootKeyBundle {
+        LocalTenantRootKeyBundle {
+            tenant_id,
+            key_version: 1,
+            wrapped_tenant_root_dek: vec![0x5a; 48],
+            updated_at,
+        }
+    }
+
     fn sample_task() -> Task {
         Task {
             id: Uuid::now_v7(),
@@ -5704,6 +6272,7 @@ mod tests {
         repository
             .bind_and_replace_bundles(
                 initial_binding.clone(),
+                &local_tenant_root_bundle(tenant_id, 100),
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: first_list_id,
@@ -5733,6 +6302,7 @@ mod tests {
                     bound_at: 999,
                     updated_at: 200,
                 },
+                &local_tenant_root_bundle(tenant_id, 200),
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: second_list_id,
@@ -5790,7 +6360,11 @@ mod tests {
             updated_at: 100,
         };
         repository
-            .bind_and_replace_bundles(original_binding.clone(), &[original_bundle.clone()])
+            .bind_and_replace_bundles(
+                original_binding.clone(),
+                &local_tenant_root_bundle(tenant_id, 100),
+                &[original_bundle.clone()],
+            )
             .unwrap();
 
         let result = repository.bind_and_replace_bundles(
@@ -5801,6 +6375,7 @@ mod tests {
                 bound_at: 100,
                 updated_at: 200,
             },
+            &local_tenant_root_bundle(tenant_id, 200),
             &[LocalListKeyBundle {
                 tenant_id,
                 list_id: Uuid::now_v7(),
@@ -5832,7 +6407,11 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteLocalCryptoRepository::new(connection);
         repository
-            .bind_and_replace_bundles(binding.clone(), &[])
+            .bind_and_replace_bundles(
+                binding.clone(),
+                &local_tenant_root_bundle(tenant_id, 100),
+                &[],
+            )
             .unwrap();
 
         let other_tenant_id = Uuid::now_v7();
@@ -5842,6 +6421,7 @@ mod tests {
                     tenant_id: other_tenant_id,
                     ..binding.clone()
                 },
+                &local_tenant_root_bundle(other_tenant_id, 100),
                 &[]
             ),
             Err(StorageError::LocalProfileTenantMismatch {
@@ -5857,6 +6437,7 @@ mod tests {
                     user_id: other_user_id,
                     ..binding.clone()
                 },
+                &local_tenant_root_bundle(tenant_id, 100),
                 &[]
             ),
             Err(StorageError::LocalProfileUserMismatch {
@@ -5888,7 +6469,11 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteLocalCryptoRepository::new(connection);
         repository
-            .bind_and_replace_bundles(binding.clone(), &[])
+            .bind_and_replace_bundles(
+                binding.clone(),
+                &local_tenant_root_bundle(tenant_id, 100),
+                &[],
+            )
             .unwrap();
         repository
             .connection()
@@ -5909,7 +6494,9 @@ mod tests {
             repository.load_bundles(tenant_id),
             Err(StorageError::LocalCryptoCacheTenantMismatch)
         ));
-        repository.bind_and_replace_bundles(binding, &[]).unwrap();
+        repository
+            .bind_and_replace_bundles(binding, &local_tenant_root_bundle(tenant_id, 100), &[])
+            .unwrap();
         assert!(repository.load_bundles(tenant_id).unwrap().is_empty());
     }
 
@@ -5934,7 +6521,11 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut repository = SqliteLocalCryptoRepository::new(connection);
             repository
-                .bind_and_replace_bundles(binding.clone(), &[bundle.clone()])
+                .bind_and_replace_bundles(
+                    binding.clone(),
+                    &local_tenant_root_bundle(tenant_id, 100),
+                    &[bundle.clone()],
+                )
                 .unwrap();
         }
 
@@ -5943,6 +6534,121 @@ mod tests {
 
         assert_eq!(repository.load_binding().unwrap(), Some(binding));
         assert_eq!(repository.load_bundles(tenant_id).unwrap(), vec![bundle]);
+        assert_eq!(
+            repository.load_tenant_root(tenant_id).unwrap(),
+            Some(local_tenant_root_bundle(tenant_id, 100))
+        );
+    }
+
+    #[test]
+    fn timer_v18_repository_restores_singleton_and_rejects_immutable_conflicts() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Timer".into(), "a0".into(), 1_000).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), 1_000).unwrap();
+        let task_id = task.id;
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteListRepository::new(connection).insert(list).unwrap();
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection).insert(task).unwrap();
+        }
+        let active = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task_id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Running,
+            started_at: 1_000,
+            last_resumed_at: Some(1_100),
+            accumulated_active_ms: 500,
+            target_duration_ms: None,
+        };
+        let completed = CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1_000,
+            ended_at: 5_000,
+            active_duration_ms: 3_000,
+            created_at: 5_100,
+        };
+
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            assert_eq!(
+                connection
+                    .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                    .unwrap(),
+                18
+            );
+            let mut repository = SqliteTimerSessionRepository::new(connection);
+            repository.put_active(active.clone(), 1_200).unwrap();
+            assert!(repository.insert_completed(completed.clone()).unwrap());
+            assert!(!repository.insert_completed(completed.clone()).unwrap());
+            let mut conflicting = completed.clone();
+            conflicting.active_duration_ms = 2_000;
+            assert!(matches!(
+                repository.insert_completed(conflicting),
+                Err(StorageError::IncompatibleSchema(_))
+            ));
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteTimerSessionRepository::new(connection);
+        assert_eq!(repository.load_active().unwrap(), Some(active));
+        assert_eq!(repository.get_completed(completed.id).unwrap(), completed);
+        let paused = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task_id),
+            mode: TimerMode::Pomodoro,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Paused,
+            started_at: 10_000,
+            last_resumed_at: None,
+            accumulated_active_ms: 2_000,
+            target_duration_ms: Some(25 * 60 * 1_000),
+        };
+        repository.put_active(paused.clone(), 12_000).unwrap();
+        assert_eq!(repository.load_active().unwrap(), Some(paused));
+        assert!(repository.clear_active().unwrap());
+        assert_eq!(repository.load_active().unwrap(), None);
+
+        assert!(repository
+            .connection()
+            .execute(
+                "INSERT INTO active_timer_session (
+                     singleton, session_id, task_id, mode, phase, state, started_at,
+                     last_resumed_at, accumulated_active_ms, updated_at
+                 ) VALUES (1, ?1, NULL, 'stopwatch', 'short_break', 'paused', 1, NULL, 0, 1)",
+                [Uuid::now_v7().to_string()],
+            )
+            .is_err());
+        let orphan_task_id = Uuid::now_v7();
+        let orphan = CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id: orphan_task_id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1,
+            ended_at: 10,
+            active_duration_ms: 5,
+            created_at: 11,
+        };
+        assert!(matches!(
+            repository.insert_completed(orphan),
+            Err(StorageError::NotFound(id)) if id == orphan_task_id
+        ));
+        assert!(repository
+            .connection()
+            .execute(
+                "INSERT INTO timer_sessions (
+                     id, task_id, mode, finish_kind, started_at, ended_at,
+                     active_duration_ms, created_at
+                 ) VALUES (?1, ?2, 'stopwatch', 'completed', 1, 10, 5, 9)",
+                params![Uuid::now_v7().to_string(), task_id.to_string()],
+            )
+            .is_err());
     }
 
     #[test]
@@ -8611,6 +9317,7 @@ mod tests {
                     bound_at: 1,
                     updated_at: 1,
                 },
+                &local_tenant_root_bundle(tenant_id, 1),
                 &[],
             )
             .unwrap();
@@ -8888,6 +9595,7 @@ mod tests {
                     bound_at: 1,
                     updated_at: 1,
                 },
+                &local_tenant_root_bundle(tenant_id, 1),
                 &[],
             )
             .unwrap();
@@ -8983,6 +9691,7 @@ mod tests {
                     bound_at: 1,
                     updated_at: 1,
                 },
+                &local_tenant_root_bundle(tenant_id, 1),
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: list.id,

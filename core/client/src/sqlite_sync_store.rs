@@ -886,7 +886,7 @@ mod tests {
     use todori_domain::new_list;
     use todori_storage::{
         ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
-        PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
+        LocalTenantRootKeyBundle, PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
     };
     use todori_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
 
@@ -914,6 +914,12 @@ mod tests {
                     bound_at: 1,
                     updated_at: 1,
                 },
+                &LocalTenantRootKeyBundle {
+                    tenant_id,
+                    key_version: 1,
+                    wrapped_tenant_root_dek: vec![2],
+                    updated_at: 1,
+                },
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: list.id,
@@ -939,6 +945,7 @@ mod tests {
 
         let keys = LocalSyncKeys {
             list_deks: vec![(list.id, [0x33; 32])],
+            tenant_root_dek: None,
         };
         let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
         let mut now = || Ok(10);

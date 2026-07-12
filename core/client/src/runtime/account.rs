@@ -283,11 +283,19 @@ impl TodoriClient {
             .map_err(|_| ClientError::AccountRequest)?;
         let materials = unwrap_list_dek_bundles(&bundles, &master_key)
             .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let tenant_root_dek = {
+            let account = self.account_state()?;
+            let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
+                return Err(ClientError::AccountBoundUnavailable);
+            };
+            crypto.sync_keys().tenant_root_dek.clone()
+        };
         let remote_keys = LocalSyncKeys {
             list_deks: materials
                 .into_iter()
                 .map(|material| Ok((parse_uuid(&material.list_id)?, *material.dek)))
                 .collect::<Result<Vec<_>, ClientError>>()?,
+            tenant_root_dek,
         };
         let local_keys = {
             let account = self.account_state()?;
@@ -622,9 +630,11 @@ mod tests {
         let pending_id = Uuid::now_v7();
         let remote = LocalSyncKeys {
             list_deks: vec![(remote_id, [0x11; 32])],
+            tenant_root_dek: None,
         };
         let local = LocalSyncKeys {
             list_deks: vec![(remote_id, [0x11; 32]), (pending_id, [0x22; 32])],
+            tenant_root_dek: None,
         };
         let merged = merge_remote_and_pending_local_keys(
             remote,
@@ -643,9 +653,11 @@ mod tests {
         assert!(merge_remote_and_pending_local_keys(
             LocalSyncKeys {
                 list_deks: vec![(list_id, [0x11; 32])],
+                tenant_root_dek: None,
             },
             LocalSyncKeys {
                 list_deks: vec![(list_id, [0x22; 32])],
+                tenant_root_dek: None,
             },
             &HashSet::new(),
             &HashSet::new(),
@@ -655,6 +667,7 @@ mod tests {
             LocalSyncKeys::default(),
             LocalSyncKeys {
                 list_deks: vec![(list_id, [0x22; 32])],
+                tenant_root_dek: None,
             },
             &HashSet::new(),
             &HashSet::new(),
@@ -669,6 +682,7 @@ mod tests {
             LocalSyncKeys::default(),
             LocalSyncKeys {
                 list_deks: vec![(list_id, [0x33; 32])],
+                tenant_root_dek: None,
             },
             &HashSet::new(),
             &HashSet::from([list_id]),
@@ -695,6 +709,7 @@ mod tests {
             .unwrap();
         let initial_keys = LocalSyncKeys {
             list_deks: vec![(initial.id, [0x93; 32])],
+            tenant_root_dek: Some(Zeroizing::new([0x94; 32])),
         };
         persist_local_crypto_context(
             &db_path,

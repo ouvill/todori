@@ -1110,6 +1110,7 @@ mod tests {
             &[0x44; 32],
             LocalSyncKeys {
                 list_deks: vec![(ready_list.id, [0x55; 32])],
+                tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
             },
             BASE_MS,
         )
@@ -1206,6 +1207,7 @@ mod tests {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
                 list_deks: vec![(list.id, [0x55; 32])],
+                tenant_root_dek: None,
             },
         };
         assert!(client
@@ -1259,6 +1261,7 @@ mod tests {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
                 list_deks: vec![(list.id, [0x55; 32])],
+                tenant_root_dek: None,
             },
         };
         assert!(client

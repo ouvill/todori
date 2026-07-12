@@ -35,12 +35,14 @@ pub use envelope::{
 };
 pub use field_map::{
     validate_rank, Clocked, FieldMapError, ListPlacement, ListPlaintext, SyncPlaintext,
-    TaskCompletion, TaskPlacement, TaskPlaintext, LIST_FIELD_GROUPS, TASK_FIELD_GROUPS,
+    TaskCompletion, TaskPlacement, TaskPlaintext, TimerSessionPlaintext, LIST_FIELD_GROUPS,
+    TASK_FIELD_GROUPS,
 };
 pub use hlc::{Hlc, HlcError};
 pub use keys::{
-    dek_for_list, ensure_list_dek_for_list, LocalSyncKeys, LISTS_COLLECTION, SYNC_CURSOR_NAME,
-    SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
+    dek_for_list, ensure_list_dek_for_list, tenant_root_dek, LocalSyncKeys, LISTS_COLLECTION,
+    SYNC_CURSOR_NAME, SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+    TASKS_COLLECTION, TIMER_SESSIONS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;
