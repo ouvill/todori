@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use todori_crypto::{load_account_secret, AccountSecretKind};
-use todori_storage::TaskRepository;
+use todori_storage::{TaskRepository, TimerSessionRepository};
 use todori_sync::{
     account::AccountClient, ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
     LocalSyncWriteTransaction, SyncKeyRefresher, SyncRunSummary,
@@ -162,6 +162,8 @@ impl TodoriClient {
 
         let lists = self.local_lists_including_archived()?;
         let tasks = self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
+        let timer_sessions =
+            self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
         let context = self
             .active_sync_context()
             .ok_or(ClientError::AccountRequest)?;
@@ -183,6 +185,7 @@ impl TodoriClient {
             &context.device_id,
             &lists,
             &tasks,
+            &timer_sessions,
             &mut clock,
         )
         .map_err(|_| ClientError::SyncRun)?;

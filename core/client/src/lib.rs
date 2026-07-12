@@ -49,7 +49,8 @@ pub use runtime::{
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
 pub use todori_domain::{
-    CivilDate, DueValueError, IanaTimeZone, List, Task, TaskDue, TaskStatus, UtcInstant, Uuid,
+    ActiveTimerSession, CivilDate, CompletedTimerSession, DueValueError, IanaTimeZone, List, Task,
+    TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
 };
 
 pub use chrono;

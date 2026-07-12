@@ -770,7 +770,10 @@ mod tests {
             &DB_KEY,
             identity,
             &MASTER_KEY,
-            LocalSyncKeys::default(),
+            LocalSyncKeys {
+                list_deks: Vec::new(),
+                tenant_root_dek: Some(Zeroizing::new([0x73; 32])),
+            },
             1,
         )
         .unwrap();

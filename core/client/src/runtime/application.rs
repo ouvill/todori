@@ -2,17 +2,20 @@ use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
     unarchive_list as domain_unarchive_list, update_due, update_estimated_minutes, update_note,
-    update_priority, update_scheduled_at, update_title, validate_parent_for, List, Task, TaskDue,
-    TaskStatus, Uuid,
+    update_priority, update_scheduled_at, update_title, validate_parent_for, ActiveTimerSession,
+    CompletedTimerSession, List, Task, TaskDue, TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, CalendarOccurrence, CalendarOccurrenceKind as StorageCalendarOccurrenceKind,
     CalendarRange as StorageCalendarRange, HomeTask, ListRepository, Reminder, ReminderRepository,
     SqliteWriteTx, StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
+    TimerSessionRepository,
 };
 use zeroize::Zeroizing;
 
-use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
+use crate::mutation_service::{
+    enqueue_list_in_transaction, enqueue_task_in_transaction, enqueue_timer_session_in_transaction,
+};
 use crate::{
     load_local_crypto_context, ClientError, CreateTaskInput, LocalCryptoAvailability,
     LocalMutationContext, ReorderTaskInput, SetTaskStatusInput, SqliteMutationService,
@@ -308,6 +311,70 @@ impl TodoriClient {
 
     pub fn get_tasks(&self, list_id: Uuid) -> Result<Vec<Task>, ClientError> {
         self.with_task_repository(|repository| Ok(repository.list_active_by_list(list_id)?))
+    }
+
+    pub fn get_active_timer_session(&self) -> Result<Option<ActiveTimerSession>, ClientError> {
+        self.with_timer_repository(|repository| Ok(repository.load_active()?))
+    }
+
+    pub fn save_active_timer_session(
+        &self,
+        session: ActiveTimerSession,
+    ) -> Result<(), ClientError> {
+        let _guard = self.operation_guard()?;
+        let updated_at = now_ms()?;
+        self.with_timer_repository(|repository| {
+            repository.put_active(session, updated_at)?;
+            Ok(())
+        })
+    }
+
+    pub fn clear_active_timer_session(&self) -> Result<bool, ClientError> {
+        let _guard = self.operation_guard()?;
+        self.with_timer_repository(|repository| Ok(repository.clear_active()?))
+    }
+
+    pub fn get_completed_timer_sessions(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, ClientError> {
+        self.with_timer_repository(|repository| Ok(repository.list_completed_by_task(task_id)?))
+    }
+
+    pub fn finish_active_timer_session(
+        &self,
+        session: CompletedTimerSession,
+    ) -> Result<bool, ClientError> {
+        let _guard = self.operation_guard()?;
+        let now = now_ms()?;
+        match self.local_mutation_state()? {
+            LocalMutationState::Anonymous => {
+                let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+                let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+                let inserted = transaction.finish_active_timer_session(session)?;
+                transaction.commit()?;
+                Ok(inserted)
+            }
+            LocalMutationState::Ready(sync) => {
+                let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+                let mut transaction = SqliteWriteTx::begin(&mut connection)?;
+                let inserted = transaction.finish_active_timer_session(session.clone())?;
+                if inserted {
+                    enqueue_timer_session_in_transaction(
+                        &mut transaction,
+                        &sync,
+                        &session,
+                        false,
+                        now,
+                    )?;
+                }
+                transaction.commit()?;
+                Ok(inserted)
+            }
+            LocalMutationState::AccountBoundUnavailable => {
+                Err(ClientError::AccountBoundUnavailable)
+            }
+        }
     }
 
     pub fn search_tasks(&self, query: &str) -> Result<Vec<Task>, ClientError> {
@@ -759,10 +826,23 @@ impl TodoriClient {
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         transaction.get_task(task_id)?;
         let tasks = transaction.list_task_subtree(task_id)?;
+        let mut sessions = Vec::new();
+        for task in &tasks {
+            sessions.extend(transaction.list_timer_sessions_by_task(task.id)?);
+        }
         if let Some(sync) = sync.as_ref() {
+            for session in &sessions {
+                enqueue_timer_session_in_transaction(&mut transaction, sync, session, true, now)?;
+            }
             for task in &tasks {
                 enqueue_task_in_transaction(&mut transaction, sync, task, true, now)?;
             }
+        }
+        for session in sessions {
+            transaction.delete_timer_session(session.id)?;
+        }
+        for task in &tasks {
+            transaction.clear_active_timer_for_task(task.id)?;
         }
         transaction.delete_task_subtree(task_id)?;
         transaction.commit()?;
@@ -793,11 +873,24 @@ impl TodoriClient {
             .into());
         }
         let tasks = transaction.list_tasks_by_list(list_id)?;
+        let mut sessions = Vec::new();
+        for task in &tasks {
+            sessions.extend(transaction.list_timer_sessions_by_task(task.id)?);
+        }
         if let Some(sync) = sync.as_ref() {
+            for session in &sessions {
+                enqueue_timer_session_in_transaction(&mut transaction, sync, session, true, now)?;
+            }
             for task in &tasks {
                 enqueue_task_in_transaction(&mut transaction, sync, task, true, now)?;
             }
             enqueue_list_in_transaction(&mut transaction, sync, &list, true, now)?;
+        }
+        for session in sessions {
+            transaction.delete_timer_session(session.id)?;
+        }
+        for task in &tasks {
+            transaction.clear_active_timer_for_task(task.id)?;
         }
         transaction.delete_list_with_tasks(list_id)?;
         transaction.commit()?;
@@ -926,10 +1019,14 @@ mod tests {
     use std::sync::Mutex;
 
     use tempfile::TempDir;
-    use todori_domain::{new_list, new_task};
+    use todori_domain::{
+        new_list, new_task, ActiveTimerSession, CompletedTimerSession, TimerFinishKind, TimerMode,
+        TimerPhase, TimerRunState,
+    };
     use todori_storage::{
         ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-        SqliteSyncStateRepository, SqliteTaskRepository, SyncStateRepository, TaskRepository,
+        SqliteSyncStateRepository, SqliteTaskRepository, SqliteTimerSessionRepository,
+        SyncStateRepository, TaskRepository, TimerSessionRepository,
     };
     use todori_sync::{LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY};
 
@@ -942,6 +1039,186 @@ mod tests {
 
     const DB_KEY: [u8; 32] = [0xd2; 32];
     const BASE_MS: i64 = 1_799_500_000_000;
+
+    #[test]
+    fn finish_active_timer_enqueue_failure_rolls_back_without_changing_task_status() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("timer-finish.sqlite3");
+        let list = new_list("Timer".into(), "a0".into(), BASE_MS).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list.clone())
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let active = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Paused,
+            started_at: BASE_MS + 1_000,
+            last_resumed_at: None,
+            accumulated_active_ms: 30_000,
+            target_duration_ms: None,
+        };
+        SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .put_active(active.clone(), BASE_MS + 31_000)
+            .unwrap();
+        let completed = CompletedTimerSession {
+            id: active.session_id,
+            task_id: task.id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: active.started_at,
+            ended_at: BASE_MS + 31_000,
+            active_duration_ms: 30_000,
+            created_at: BASE_MS + 31_000,
+        };
+        let ready_crypto = persist_local_crypto_context(
+            &db_path,
+            &DB_KEY,
+            LocalCryptoIdentity {
+                tenant_id: Uuid::now_v7(),
+                user_id: Uuid::now_v7(),
+                device_id: Uuid::now_v7(),
+            },
+            &[0x44; 32],
+            LocalSyncKeys {
+                list_deks: vec![(list.id, [0x55; 32])],
+                tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+            },
+            BASE_MS,
+        )
+        .unwrap();
+        open_encrypted(&db_path, &DB_KEY)
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_timer_finish_outbox BEFORE INSERT ON sync_outbox
+                 WHEN NEW.collection = 'timer_sessions'
+                 BEGIN SELECT RAISE(ABORT, 'fail timer outbox'); END;",
+            )
+            .unwrap();
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Ready(ready_crypto),
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        assert!(client
+            .finish_active_timer_session(completed.clone())
+            .is_err());
+        let timer = SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(timer.load_active().unwrap(), Some(active));
+        assert!(matches!(
+            timer.get_completed(completed.id),
+            Err(StorageError::NotFound(_))
+        ));
+        let persisted_task = SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .get(task.id)
+            .unwrap();
+        assert_eq!(persisted_task.status, task.status);
+        assert!(
+            SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+                .list_outbox_heads(10)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn finish_active_timer_atomically_creates_one_outbox_and_preserves_task_status() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("timer-finish-success.sqlite3");
+        let list = new_list("Timer".into(), "a0".into(), BASE_MS).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(list.clone())
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let active = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Paused,
+            started_at: BASE_MS + 1_000,
+            last_resumed_at: None,
+            accumulated_active_ms: 30_000,
+            target_duration_ms: None,
+        };
+        SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .put_active(active.clone(), BASE_MS + 31_000)
+            .unwrap();
+        let completed = CompletedTimerSession {
+            id: active.session_id,
+            task_id: task.id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: active.started_at,
+            ended_at: BASE_MS + 31_000,
+            active_duration_ms: 30_000,
+            created_at: BASE_MS + 31_000,
+        };
+        let ready_crypto = persist_local_crypto_context(
+            &db_path,
+            &DB_KEY,
+            LocalCryptoIdentity {
+                tenant_id: Uuid::now_v7(),
+                user_id: Uuid::now_v7(),
+                device_id: Uuid::now_v7(),
+            },
+            &[0x44; 32],
+            LocalSyncKeys {
+                list_deks: vec![(list.id, [0x55; 32])],
+                tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+            },
+            BASE_MS,
+        )
+        .unwrap();
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Ready(ready_crypto),
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        assert!(client
+            .finish_active_timer_session(completed.clone())
+            .unwrap());
+        let timer = SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(timer.load_active().unwrap(), None);
+        assert_eq!(timer.get_completed(completed.id).unwrap(), completed);
+        assert_eq!(
+            SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+                .get(task.id)
+                .unwrap()
+                .status,
+            task.status
+        );
+        let outbox = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .list_outbox_heads(10)
+            .unwrap();
+        assert_eq!(outbox.len(), 1);
+        assert_eq!(outbox[0].collection, "timer_sessions");
+        assert_eq!(outbox[0].record_id, active.session_id);
+    }
 
     #[test]
     fn update_task_rejects_priority_outside_public_contract_before_writing() {

@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use todori_domain::{List, Task, Uuid};
+use todori_domain::{CompletedTimerSession, List, Task, Uuid};
 use todori_storage::{
     open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
     FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
     PendingListKeyBundle, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-    SqliteSyncStateRepository, SqliteTaskRepository, StorageError, SyncOutboxState,
-    SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState, SyncStateRepository,
-    TaskRepository,
+    SqliteSyncStateRepository, SqliteTaskRepository, SqliteTimerSessionRepository, StorageError,
+    SyncOutboxState, SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState,
+    SyncStateRepository, TaskRepository, TimerSessionRepository,
 };
 use todori_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
@@ -341,6 +341,14 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
+    fn list_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<Vec<Task>, String> {
+        with_task_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_subtree_for_sync(task_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
         with_task_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -353,6 +361,55 @@ impl LocalSyncStore for SqliteSyncStore {
         with_task_repository(&self.db_path, &self.db_key, |repository| {
             repository
                 .delete_subtree_for_sync(task_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
+        with_timer_repository(&self.db_path, &self.db_key, |repository| {
+            match repository.get_completed(id) {
+                Ok(session) => Ok(Some(session)),
+                Err(StorageError::NotFound(_)) => Ok(None),
+                Err(error) => Err(error.to_string()),
+            }
+        })
+    }
+
+    fn upsert_timer_session_for_sync(
+        &mut self,
+        session: CompletedTimerSession,
+    ) -> Result<(), String> {
+        with_timer_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .insert_completed(session)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn delete_timer_session_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        with_timer_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_completed(id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn list_timer_sessions_by_task(
+        &mut self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, String> {
+        with_timer_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_completed_by_task(task_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn clear_active_timer_for_task(&mut self, task_id: Uuid) -> Result<bool, String> {
+        with_timer_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .clear_active_for_task(task_id)
                 .map_err(|error| error.to_string())
         })
     }
@@ -547,6 +604,12 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
+    fn list_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<Vec<Task>, String> {
+        self.transaction
+            .list_task_subtree_for_sync(task_id)
+            .map_err(|error| error.to_string())
+    }
+
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
         self.transaction
             .upsert_task_for_sync(task)
@@ -556,6 +619,45 @@ impl LocalSyncStore for SqliteSyncWriteTx {
     fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String> {
         self.transaction
             .delete_task_subtree_for_sync(task_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
+        match self.transaction.get_timer_session(id) {
+            Ok(session) => Ok(Some(session)),
+            Err(StorageError::NotFound(_)) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn upsert_timer_session_for_sync(
+        &mut self,
+        session: CompletedTimerSession,
+    ) -> Result<(), String> {
+        self.transaction
+            .insert_timer_session(session)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_timer_session_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .delete_timer_session(id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn list_timer_sessions_by_task(
+        &mut self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, String> {
+        self.transaction
+            .list_timer_sessions_by_task_for_sync(task_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn clear_active_timer_for_task(&mut self, task_id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .clear_active_timer_for_task_for_sync(task_id)
             .map_err(|error| error.to_string())
     }
 }
@@ -869,6 +971,16 @@ fn with_task_repository<T>(
     f(&mut repository)
 }
 
+fn with_timer_repository<T>(
+    db_path: &Path,
+    db_key: &[u8; 32],
+    f: impl FnOnce(&mut SqliteTimerSessionRepository) -> Result<T, String>,
+) -> Result<T, String> {
+    let connection = open_encrypted(db_path, db_key).map_err(|error| error.to_string())?;
+    let mut repository = SqliteTimerSessionRepository::new(connection);
+    f(&mut repository)
+}
+
 fn with_list_repository<T>(
     db_path: &Path,
     db_key: &[u8; 32],
@@ -957,6 +1069,7 @@ mod tests {
                 "device",
                 std::slice::from_ref(&list),
                 &[],
+                &[],
                 &mut now,
             )
             .unwrap();
@@ -970,6 +1083,7 @@ mod tests {
             &keys,
             "device",
             std::slice::from_ref(&list),
+            &[],
             &[],
             &mut now,
         )

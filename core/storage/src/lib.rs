@@ -508,6 +508,7 @@ pub trait TimerSessionRepository {
         updated_at: i64,
     ) -> Result<(), StorageError>;
     fn clear_active(&mut self) -> Result<bool, StorageError>;
+    fn clear_active_for_task(&mut self, task_id: Uuid) -> Result<bool, StorageError>;
     fn get_completed(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError>;
     /// Returns false for an exact immutable replay and rejects differing data.
     fn insert_completed(&mut self, session: CompletedTimerSession) -> Result<bool, StorageError>;
@@ -640,6 +641,78 @@ impl<'connection> SqliteWriteTx<'connection> {
     /// physical list deletion must account for every persisted task record.
     pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
         list_active_tasks_by_list_on(&self.transaction, list_id)
+    }
+
+    pub fn get_timer_session(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
+        get_completed_timer_session_on(&self.transaction, id)
+    }
+
+    pub fn list_timer_sessions_by_task(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError> {
+        list_completed_timer_sessions_on(
+            &self.transaction,
+            "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                    active_duration_ms, created_at
+             FROM timer_sessions WHERE task_id = ?1 ORDER BY started_at, id",
+            [task_id.to_string()],
+        )
+    }
+
+    pub fn insert_timer_session(
+        &mut self,
+        session: CompletedTimerSession,
+    ) -> Result<bool, StorageError> {
+        insert_completed_timer_session_on(&self.transaction, session)
+    }
+
+    pub fn finish_active_timer_session(
+        &mut self,
+        session: CompletedTimerSession,
+    ) -> Result<bool, StorageError> {
+        let active = self
+            .transaction
+            .query_row(
+                "SELECT session_id, task_id, mode, phase, state, started_at,
+                        last_resumed_at, accumulated_active_ms, target_duration_ms
+                 FROM active_timer_session WHERE singleton = 1",
+                [],
+                row_to_active_timer_session,
+            )
+            .optional()?
+            .transpose()?
+            .ok_or_else(|| {
+                StorageError::IncompatibleSchema("active timer session is missing".to_string())
+            })?;
+        if active.session_id != session.id
+            || active.task_id != Some(session.task_id)
+            || active.mode != session.mode
+            || active.phase != TimerPhase::Work
+            || active.started_at != session.started_at
+        {
+            return Err(StorageError::IncompatibleSchema(
+                "completed timer session does not match active work".to_string(),
+            ));
+        }
+        let inserted = insert_completed_timer_session_on(&self.transaction, session)?;
+        self.transaction
+            .execute("DELETE FROM active_timer_session WHERE singleton = 1", [])?;
+        Ok(inserted)
+    }
+
+    pub fn delete_timer_session(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        Ok(self
+            .transaction
+            .execute("DELETE FROM timer_sessions WHERE id = ?1", [id.to_string()])?
+            == 1)
+    }
+
+    pub fn clear_active_timer_for_task(&mut self, task_id: Uuid) -> Result<bool, StorageError> {
+        Ok(self.transaction.execute(
+            "DELETE FROM active_timer_session WHERE task_id = ?1",
+            [task_id.to_string()],
+        )? == 1)
     }
 
     pub fn list_lists_including_archived(&self) -> Result<Vec<List>, StorageError> {
@@ -1032,6 +1105,51 @@ impl OwnedSqliteWriteTx {
         delete_task_subtree_on(self.connection(), task_id)
     }
 
+    pub fn list_task_subtree_for_sync(&self, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        list_task_subtree_on(self.connection(), task_id)
+    }
+
+    pub fn list_timer_sessions_by_task_for_sync(
+        &self,
+        task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, StorageError> {
+        list_completed_timer_sessions_on(
+            self.connection(),
+            "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                    active_duration_ms, created_at
+             FROM timer_sessions WHERE task_id = ?1 ORDER BY started_at, id",
+            [task_id.to_string()],
+        )
+    }
+
+    pub fn clear_active_timer_for_task_for_sync(
+        &mut self,
+        task_id: Uuid,
+    ) -> Result<bool, StorageError> {
+        Ok(self.connection().execute(
+            "DELETE FROM active_timer_session WHERE task_id = ?1",
+            [task_id.to_string()],
+        )? == 1)
+    }
+
+    pub fn get_timer_session(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
+        get_completed_timer_session_on(self.connection(), id)
+    }
+
+    pub fn insert_timer_session(
+        &mut self,
+        session: CompletedTimerSession,
+    ) -> Result<bool, StorageError> {
+        insert_completed_timer_session_on(self.connection(), session)
+    }
+
+    pub fn delete_timer_session(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        Ok(self
+            .connection()
+            .execute("DELETE FROM timer_sessions WHERE id = ?1", [id.to_string()])?
+            == 1)
+    }
+
     pub fn commit(mut self) -> Result<Connection, StorageError> {
         self.connection().execute_batch("COMMIT")?;
         Ok(self
@@ -1362,10 +1480,19 @@ fn replace_task_due_semantics(transaction: &Transaction<'_>) -> rusqlite::Result
     rebuild_tasks_fts_triggers(transaction)
 }
 
-/// Protocol v5 is a pre-release breaking cutover. Domain rows and account key
-/// material survive, while transport metadata is rebuilt for the expanded
-/// collection enum and envelope v4.
+/// Protocol v5 expands the strict collection enum without changing the
+/// encrypted envelope. Existing transport heads, tombstones, cursors, and
+/// origins are copied into tables with the expanded CHECK constraints.
 fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    // Some pre-release synthetic profiles declared a later user_version while
+    // containing domain tables only. Materialize the empty v17 transport shape
+    // before the preserving rebuild so those profiles remain migratable.
+    if table_columns_raw(transaction, "sync_outbox")?.is_empty() {
+        replace_sync_metadata_v2(transaction)?;
+        add_sync_quarantine(transaction)?;
+        add_full_resync_state(transaction)?;
+        add_archive_first_rebase_state(transaction)?;
+    }
     transaction.execute_batch(
         "CREATE TABLE local_tenant_root_key_cache (
              tenant_id TEXT PRIMARY KEY NOT NULL,
@@ -1405,13 +1532,16 @@ fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<
          );
          CREATE INDEX idx_timer_sessions_task ON timer_sessions(task_id, started_at, id);
 
-         DROP TABLE IF EXISTS sync_outbox;
-         DROP TABLE IF EXISTS sync_record_states;
-         DROP TABLE IF EXISTS sync_cursors;
-         DROP TABLE IF EXISTS sync_quarantine;
-         DROP TABLE IF EXISTS sync_full_resync_marks;
-         DROP TABLE IF EXISTS sync_full_resync_state;
-         DROP TABLE IF EXISTS sync_record_origins;
+         DROP INDEX IF EXISTS idx_sync_outbox_stable_order;
+         DROP INDEX IF EXISTS idx_sync_quarantine_seq;
+         DROP INDEX IF EXISTS idx_sync_full_resync_marks_record;
+         ALTER TABLE sync_outbox RENAME TO sync_outbox_v17;
+         ALTER TABLE sync_record_states RENAME TO sync_record_states_v17;
+         ALTER TABLE sync_cursors RENAME TO sync_cursors_v17;
+         ALTER TABLE sync_quarantine RENAME TO sync_quarantine_v17;
+         ALTER TABLE sync_full_resync_marks RENAME TO sync_full_resync_marks_v17;
+         ALTER TABLE sync_full_resync_state RENAME TO sync_full_resync_state_v17;
+         ALTER TABLE sync_record_origins RENAME TO sync_record_origins_v17;
 
          CREATE TABLE sync_outbox (
              record_id TEXT PRIMARY KEY NOT NULL,
@@ -1496,7 +1626,22 @@ fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<
              collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'timer_sessions')),
              origin_kind TEXT NOT NULL CHECK (origin_kind IN ('never_synced', 'server_seen')),
              updated_at INTEGER NOT NULL
-         );",
+         );
+
+         INSERT INTO sync_outbox SELECT * FROM sync_outbox_v17;
+         INSERT INTO sync_record_states SELECT * FROM sync_record_states_v17;
+         INSERT INTO sync_cursors SELECT * FROM sync_cursors_v17;
+         INSERT INTO sync_quarantine SELECT * FROM sync_quarantine_v17;
+         INSERT INTO sync_full_resync_state SELECT * FROM sync_full_resync_state_v17;
+         INSERT INTO sync_full_resync_marks SELECT * FROM sync_full_resync_marks_v17;
+         INSERT INTO sync_record_origins SELECT * FROM sync_record_origins_v17;
+         DROP TABLE sync_outbox_v17;
+         DROP TABLE sync_record_states_v17;
+         DROP TABLE sync_cursors_v17;
+         DROP TABLE sync_quarantine_v17;
+         DROP TABLE sync_full_resync_marks_v17;
+         DROP TABLE sync_full_resync_state_v17;
+         DROP TABLE sync_record_origins_v17;",
     )
 }
 
@@ -2809,51 +2954,19 @@ impl TimerSessionRepository for SqliteTimerSessionRepository {
             == 1)
     }
 
+    fn clear_active_for_task(&mut self, task_id: Uuid) -> Result<bool, StorageError> {
+        Ok(self.connection.execute(
+            "DELETE FROM active_timer_session WHERE task_id = ?1",
+            [task_id.to_string()],
+        )? == 1)
+    }
+
     fn get_completed(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
-        self.connection
-            .query_row(
-                "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
-                        active_duration_ms, created_at
-                 FROM timer_sessions WHERE id = ?1",
-                [id.to_string()],
-                row_to_completed_timer_session,
-            )
-            .optional()?
-            .transpose()?
-            .ok_or(StorageError::NotFound(id))
+        get_completed_timer_session_on(&self.connection, id)
     }
 
     fn insert_completed(&mut self, session: CompletedTimerSession) -> Result<bool, StorageError> {
-        validate_completed_timer_session(&session)
-            .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
-        require_existing_timer_task(&self.connection, session.task_id)?;
-        match self.get_completed(session.id) {
-            Ok(existing) if existing == session => return Ok(false),
-            Ok(_) => {
-                return Err(StorageError::IncompatibleSchema(
-                    "immutable timer session contents conflict".to_string(),
-                ))
-            }
-            Err(StorageError::NotFound(_)) => {}
-            Err(error) => return Err(error),
-        }
-        self.connection.execute(
-            "INSERT INTO timer_sessions (
-                 id, task_id, mode, finish_kind, started_at, ended_at,
-                 active_duration_ms, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                session.id.to_string(),
-                session.task_id.to_string(),
-                timer_mode_str(session.mode),
-                timer_finish_kind_str(session.finish_kind),
-                session.started_at,
-                session.ended_at,
-                session.active_duration_ms,
-                session.created_at,
-            ],
-        )?;
-        Ok(true)
+        insert_completed_timer_session_on(&self.connection, session)
     }
 
     fn list_completed(&self) -> Result<Vec<CompletedTimerSession>, StorageError> {
@@ -2914,6 +3027,59 @@ fn list_completed_timer_sessions_on<P: rusqlite::Params>(
         sessions.push(row??);
     }
     Ok(sessions)
+}
+
+fn get_completed_timer_session_on(
+    connection: &Connection,
+    id: Uuid,
+) -> Result<CompletedTimerSession, StorageError> {
+    connection
+        .query_row(
+            "SELECT id, task_id, mode, finish_kind, started_at, ended_at,
+                    active_duration_ms, created_at
+             FROM timer_sessions WHERE id = ?1",
+            [id.to_string()],
+            row_to_completed_timer_session,
+        )
+        .optional()?
+        .transpose()?
+        .ok_or(StorageError::NotFound(id))
+}
+
+fn insert_completed_timer_session_on(
+    connection: &Connection,
+    session: CompletedTimerSession,
+) -> Result<bool, StorageError> {
+    validate_completed_timer_session(&session)
+        .map_err(|error| StorageError::IncompatibleSchema(error.to_string()))?;
+    require_existing_timer_task(connection, session.task_id)?;
+    match get_completed_timer_session_on(connection, session.id) {
+        Ok(existing) if existing == session => return Ok(false),
+        Ok(_) => {
+            return Err(StorageError::IncompatibleSchema(
+                "immutable timer session contents conflict".to_string(),
+            ))
+        }
+        Err(StorageError::NotFound(_)) => {}
+        Err(error) => return Err(error),
+    }
+    connection.execute(
+        "INSERT INTO timer_sessions (
+             id, task_id, mode, finish_kind, started_at, ended_at,
+             active_duration_ms, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            session.id.to_string(),
+            session.task_id.to_string(),
+            timer_mode_str(session.mode),
+            timer_finish_kind_str(session.finish_kind),
+            session.started_at,
+            session.ended_at,
+            session.active_duration_ms,
+            session.created_at,
+        ],
+    )?;
+    Ok(true)
 }
 
 fn row_to_active_timer_session(
@@ -4857,7 +5023,7 @@ fn delete_outbox_head_on(
 
 fn validate_sync_collection(collection: &str) -> Result<(), StorageError> {
     match collection {
-        "lists" | "tasks" => Ok(()),
+        "lists" | "tasks" | "timer_sessions" => Ok(()),
         other => Err(StorageError::InvalidSyncCollection(other.to_string())),
     }
 }
@@ -6649,6 +6815,75 @@ mod tests {
                 params![Uuid::now_v7().to_string(), task_id.to_string()],
             )
             .is_err());
+    }
+
+    #[test]
+    fn finish_active_timer_rejects_start_mismatch_and_accepts_exact_retry() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Timer".into(), "a0".into(), 1_000).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), 1_000).unwrap();
+        let task_id = task.id;
+        SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(list)
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(task)
+            .unwrap();
+        let active = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task_id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Paused,
+            started_at: 2_000,
+            last_resumed_at: None,
+            accumulated_active_ms: 500,
+            target_duration_ms: None,
+        };
+        SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .put_active(active.clone(), 3_000)
+            .unwrap();
+        let completed = CompletedTimerSession {
+            id: active.session_id,
+            task_id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: active.started_at,
+            ended_at: 4_000,
+            active_duration_ms: 500,
+            created_at: 4_000,
+        };
+
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        let mut mismatched = completed.clone();
+        mismatched.started_at += 1;
+        assert!(matches!(
+            transaction.finish_active_timer_session(mismatched),
+            Err(StorageError::IncompatibleSchema(_))
+        ));
+        drop(transaction);
+        assert_eq!(
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .load_active()
+                .unwrap(),
+            Some(active.clone())
+        );
+
+        let mut repository =
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert!(repository.insert_completed(completed.clone()).unwrap());
+        drop(repository);
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert!(!transaction
+            .finish_active_timer_session(completed.clone())
+            .unwrap());
+        transaction.commit().unwrap();
+        let repository =
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(repository.load_active().unwrap(), None);
+        assert_eq!(repository.get_completed(completed.id).unwrap(), completed);
     }
 
     #[test]
@@ -9786,7 +10021,7 @@ mod tests {
         drop(connection);
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
-        assert_eq!(read_user_version(&connection).unwrap(), 17);
+        assert_eq!(read_user_version(&connection).unwrap(), 18);
         assert!(table_columns_raw(&connection, "tasks")
             .unwrap()
             .iter()
@@ -9801,6 +10036,152 @@ mod tests {
                 [],
             )
             .is_err());
+    }
+
+    #[test]
+    fn v17_to_v18_preserves_domain_transport_heads_tombstones_and_cursors() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Preserved".into(), "a0".into(), 100).unwrap();
+        let task = new_task(list.id, None, "Preserved task".into(), "a0".into(), 100).unwrap();
+        let quarantine_id = Uuid::now_v7();
+        let generation_id = Uuid::now_v7();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteListRepository::new(connection)
+                .insert(list.clone())
+                .unwrap();
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(task.clone())
+                .unwrap();
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            connection
+                .execute_batch(&format!(
+                    "INSERT INTO sync_outbox (
+                         record_id, collection, op_id, revision_hlc, state_kind,
+                         semantic_hlc, blob, created_at
+                     ) VALUES ('{task_id}', 'tasks', '{op_id}', 'r1', 'live', 'm1', x'01', 1);
+                     INSERT INTO sync_record_states (
+                         record_id, collection, current_revision_hlc, state_kind,
+                         semantic_hlc, plaintext_json, updated_at
+                     ) VALUES ('{task_id}', 'tasks', 'r0', 'tombstone', 'd1', NULL, 1);
+                     INSERT INTO sync_cursors(name, seq, updated_at) VALUES ('main', 42, 1);
+                     INSERT INTO sync_record_origins(record_id, collection, origin_kind, updated_at)
+                     VALUES ('{task_id}', 'tasks', 'server_seen', 1);
+                     INSERT INTO sync_quarantine (
+                         record_id, collection, seq, revision_hlc, state_kind,
+                         semantic_hlc, blob, reason, required_list_id,
+                         first_failed_at, last_failed_at, attempt_count
+                     ) VALUES ('{quarantine_id}', 'tasks', 7, 'r7', 'live', 'm7', x'02',
+                               'corrupt_envelope', NULL, 2, 3, 1);
+                     INSERT INTO sync_full_resync_state (
+                         singleton, generation_id, phase, base_seq,
+                         base_cursor_collection, base_cursor_record_id, delta_cursor,
+                         closure_high_water, sweep_cursor_collection, sweep_cursor_record_id,
+                         started_at, updated_at, continuity_generation
+                     ) VALUES (1, '{generation_id}', 'sweep', 42,
+                               'tasks', '{task_id}', 42, 42, 'tasks', '{task_id}', 1, 2, 3);
+                     INSERT INTO sync_full_resync_marks(generation_id, collection, record_id)
+                     VALUES ('{generation_id}', 'tasks', '{task_id}');
+                     DROP TABLE timer_sessions;
+                     DROP TABLE active_timer_session;
+                     DROP TABLE local_tenant_root_key_cache;
+                     PRAGMA user_version = 17;",
+                    task_id = task.id,
+                    op_id = Uuid::now_v7(),
+                    quarantine_id = quarantine_id,
+                    generation_id = generation_id,
+                ))
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(read_user_version(&connection).unwrap(), 18);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT seq FROM sync_cursors WHERE name = 'main'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            42
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT state_kind FROM sync_record_states WHERE record_id = ?1",
+                    [task.id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "tombstone"
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM sync_outbox", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT reason FROM sync_quarantine WHERE record_id = ?1",
+                    [quarantine_id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "corrupt_envelope"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT continuity_generation FROM sync_full_resync_state WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM sync_full_resync_marks WHERE generation_id = ?1",
+                    [generation_id.to_string()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT origin_kind FROM sync_record_origins WHERE record_id = ?1",
+                    [task.id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "server_seen"
+        );
+        assert_eq!(
+            SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .get(task.id)
+                .unwrap(),
+            task
+        );
+        for table in [
+            "timer_sessions",
+            "active_timer_session",
+            "local_tenant_root_key_cache",
+        ] {
+            assert!(!table_columns_raw(&connection, table).unwrap().is_empty());
+        }
+        drop(connection);
+        assert_eq!(
+            read_user_version(&open_encrypted(file.path(), &KEY).unwrap()).unwrap(),
+            18
+        );
     }
 
     #[test]

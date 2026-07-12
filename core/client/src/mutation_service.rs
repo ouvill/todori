@@ -6,16 +6,16 @@ use std::path::Path;
 use thiserror::Error;
 use todori_domain::{
     update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
-    update_title, List, Task, TaskDue, Uuid,
+    update_title, CompletedTimerSession, List, Task, TaskDue, Uuid,
 };
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
 use todori_sync::{
-    enqueue_list_sync, enqueue_task_sync, EncryptedSyncState, LocalMutationSyncStore,
-    LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
-    SyncCollection,
+    enqueue_list_sync, enqueue_task_sync, enqueue_timer_session_sync, EncryptedSyncState,
+    LocalMutationSyncStore, LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState,
+    NewLocalSyncOutboxEntry, SyncCollection,
 };
 
 #[derive(Debug, Error)]
@@ -164,6 +164,26 @@ pub(crate) fn enqueue_list_in_transaction(
         &sync.keys,
         &sync.device_id,
         list,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn enqueue_timer_session_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    session: &CompletedTimerSession,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_timer_session_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        session,
         deleted,
         &mut now,
     )

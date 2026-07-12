@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::entities::{
     ActiveTimerSession, CompletedTimerSession, List, Task, TaskDue, TaskStatus, TimerMode,
-    TimerPhase, TimerRunState,
+    TimerPhase, TimerRunState, UtcInstant,
 };
 
 pub const MAX_TIMER_SESSION_DURATION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
@@ -58,6 +58,11 @@ pub enum DomainError {
 
 /// Active Timerの永続値がADR-018の復元契約を満たすか検証する。
 pub fn validate_active_timer_session(session: &ActiveTimerSession) -> Result<(), DomainError> {
+    UtcInstant::from_millis(session.started_at).map_err(|_| DomainError::InvalidTimerTimestamps)?;
+    if let Some(last_resumed_at) = session.last_resumed_at {
+        UtcInstant::from_millis(last_resumed_at)
+            .map_err(|_| DomainError::InvalidTimerTimestamps)?;
+    }
     if session.mode == TimerMode::Stopwatch && session.phase != TimerPhase::Work {
         return Err(DomainError::InvalidTimerModePhase);
     }
@@ -120,6 +125,9 @@ pub fn restored_active_duration_ms(
 pub fn validate_completed_timer_session(
     session: &CompletedTimerSession,
 ) -> Result<(), DomainError> {
+    for timestamp in [session.started_at, session.ended_at, session.created_at] {
+        UtcInstant::from_millis(timestamp).map_err(|_| DomainError::InvalidTimerTimestamps)?;
+    }
     let elapsed = session
         .ended_at
         .checked_sub(session.started_at)
@@ -550,6 +558,15 @@ mod tests {
         assert_eq!(
             validate_completed_timer_session(&too_long),
             Err(DomainError::InvalidTimerDuration)
+        );
+
+        let mut outside_chrono = completed_timer();
+        outside_chrono.started_at = i64::MAX - 10_000;
+        outside_chrono.ended_at = i64::MAX - 1;
+        outside_chrono.created_at = i64::MAX;
+        assert_eq!(
+            validate_completed_timer_session(&outside_chrono),
+            Err(DomainError::InvalidTimerTimestamps)
         );
     }
 

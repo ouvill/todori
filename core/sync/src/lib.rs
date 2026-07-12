@@ -25,10 +25,10 @@ pub use engine::{
     PushOpOutcome, PushStatus, StableCursor, SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
-    enqueue_backfill, enqueue_list_sync, enqueue_task_sync, BackfillSummary,
-    LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore, LocalSyncOutboxEntry,
-    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
+    enqueue_backfill, enqueue_list_sync, enqueue_task_sync, enqueue_timer_session_sync,
+    BackfillSummary, LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore,
+    LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,

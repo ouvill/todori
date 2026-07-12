@@ -21,7 +21,7 @@ use todori_crypto::{derive_local_db_key, load_or_create_device_key};
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
     SqliteListRepository, SqliteLocalCryptoRepository, SqliteReminderRepository,
-    SqliteSettingsRepository, SqliteTaskRepository,
+    SqliteSettingsRepository, SqliteTaskRepository, SqliteTimerSessionRepository,
 };
 use todori_sync::SyncRunSummary;
 use zeroize::Zeroizing;
@@ -231,6 +231,14 @@ impl TodoriClient {
     ) -> Result<T, ClientError> {
         let connection = open_encrypted(&self.db_path, &self.db_key)?;
         f(&mut SqliteReminderRepository::new(connection))
+    }
+
+    pub(super) fn with_timer_repository<T>(
+        &self,
+        f: impl FnOnce(&mut SqliteTimerSessionRepository) -> Result<T, ClientError>,
+    ) -> Result<T, ClientError> {
+        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        f(&mut SqliteTimerSessionRepository::new(connection))
     }
 
     pub(super) fn setting(&self, key: &str) -> Result<Option<String>, ClientError> {

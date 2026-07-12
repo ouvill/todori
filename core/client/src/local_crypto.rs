@@ -184,8 +184,10 @@ pub fn persist_local_crypto_context(
         db_key,
         identity,
         *master_key,
-        entries,
-        tenant_root,
+        WrappedLocalKeyCache {
+            list_entries: entries,
+            tenant_root,
+        },
         sync_keys,
         now_ms,
     )
@@ -217,13 +219,17 @@ fn unwrap_local_cache_entries(
     })
 }
 
+struct WrappedLocalKeyCache {
+    list_entries: Vec<(Uuid, Vec<u8>)>,
+    tenant_root: LocalTenantRootKeyBundle,
+}
+
 fn persist_wrapped_context(
     db_path: &Path,
     db_key: &[u8; 32],
     identity: LocalCryptoIdentity,
     master_key: [u8; KEY_LEN],
-    entries: Vec<(Uuid, Vec<u8>)>,
-    tenant_root: LocalTenantRootKeyBundle,
+    wrapped_cache: WrappedLocalKeyCache,
     sync_keys: LocalSyncKeys,
     now_ms: i64,
 ) -> Result<LocalCryptoContext, StorageError> {
@@ -248,7 +254,8 @@ fn persist_wrapped_context(
         bound_at,
         updated_at: now_ms,
     };
-    let bundles = entries
+    let bundles = wrapped_cache
+        .list_entries
         .into_iter()
         .map(|(list_id, wrapped_list_dek)| LocalListKeyBundle {
             tenant_id,
@@ -257,7 +264,7 @@ fn persist_wrapped_context(
             updated_at: now_ms,
         })
         .collect::<Vec<_>>();
-    repository.bind_and_replace_bundles(binding, &tenant_root, &bundles)?;
+    repository.bind_and_replace_bundles(binding, &wrapped_cache.tenant_root, &bundles)?;
 
     Ok(LocalCryptoContext {
         tenant_id,

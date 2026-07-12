@@ -5,7 +5,7 @@ use todori_crypto::{decrypt, encrypt, CryptoError};
 
 use crate::field_map::SyncPlaintext;
 
-pub const ENVELOPE_VERSION: u8 = 4;
+pub const ENVELOPE_VERSION: u8 = 3;
 pub const MAX_ENCRYPTED_BLOB_LEN: usize = 64 * 1024;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -69,7 +69,7 @@ pub fn decrypt_plaintext(
 }
 
 fn aad(collection: &str, record_id: &str) -> Vec<u8> {
-    format!("todori-sync-envelope/v4\ncollection:{collection}\nrecord_id:{record_id}").into_bytes()
+    format!("todori-sync-envelope/v2\ncollection:{collection}\nrecord_id:{record_id}").into_bytes()
 }
 
 #[cfg(test)]
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn timer_session_uses_v4_aad_and_rejects_wrong_tenant_root_dek() {
+    fn timer_session_uses_existing_envelope_and_rejects_wrong_tenant_root_dek() {
         let session = CompletedTimerSession {
             id: Uuid::now_v7(),
             task_id: Uuid::now_v7(),
@@ -161,7 +161,7 @@ mod tests {
         let record_id = session.id.to_string();
         let blob = encrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &plaintext).unwrap();
 
-        assert_eq!(blob[0], 4);
+        assert_eq!(blob[0], 3);
         assert_eq!(
             decrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &blob).unwrap(),
             plaintext

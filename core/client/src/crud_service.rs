@@ -492,7 +492,7 @@ mod tests {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
                     list_deks: vec![(list.id, [0x55; 32])],
-                    tenant_root_dek: None,
+                    tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 },
             },
         }
