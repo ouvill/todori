@@ -452,13 +452,10 @@ class FakeBridgeService implements BridgeService {
     int? scheduledAt,
     int? estimatedMinutes,
   }) async {
-    if (priority < 0 || priority > 3) {
-      throw Exception('task priority must be between 0 and 3');
-    }
-    if (estimatedMinutes != null &&
-        (estimatedMinutes <= 0 || estimatedMinutes % 5 != 0)) {
-      throw Exception('estimated minutes must be a positive multiple of 5');
-    }
+    _validateTaskPlanningFields(
+      priority: priority,
+      estimatedMinutes: estimatedMinutes,
+    );
     final taskSeq = _taskSeq++;
     final siblings =
         _tasks
@@ -610,13 +607,10 @@ class FakeBridgeService implements BridgeService {
     if (title.trim().isEmpty) {
       throw Exception('task title must not be empty');
     }
-    if (priority < 0 || priority > 3) {
-      throw Exception('task priority must be between 0 and 3');
-    }
-    if (estimatedMinutes != null &&
-        (estimatedMinutes <= 0 || estimatedMinutes % 5 != 0)) {
-      throw Exception('estimated minutes must be a positive multiple of 5');
-    }
+    _validateTaskPlanningFields(
+      priority: priority,
+      estimatedMinutes: estimatedMinutes,
+    );
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final task = _tasks[index];
     final updatedAt = task.updatedAt + _fakeMinuteMs;
@@ -1107,6 +1101,19 @@ TaskDueDto? _normalizeFakeDue(Object? value) => switch (value) {
   TaskDueInput due => taskDueDto(due),
   _ => throw ArgumentError.value(value, 'due'),
 };
+
+void _validateTaskPlanningFields({
+  required int priority,
+  required int? estimatedMinutes,
+}) {
+  if (priority < 0 || priority > 3) {
+    throw Exception('task priority must be between 0 and 3');
+  }
+  if (estimatedMinutes != null &&
+      (estimatedMinutes <= 0 || estimatedMinutes % 5 != 0)) {
+    throw Exception('estimated minutes must be a positive multiple of 5');
+  }
+}
 
 int _compareReminders(ReminderDto a, ReminderDto b) {
   final effectiveAt = _effectiveReminderAt(

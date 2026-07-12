@@ -208,6 +208,58 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get taskCreatePlanLabel => 'Plan';
+
+  @override
+  String get taskCreatePlanTooltip => 'Set planned start and estimate';
+
+  @override
+  String get taskCreatePriorityTooltip => 'Choose priority';
+
+  @override
+  String get planNotSet => 'Not planned';
+
+  @override
+  String get planSheetTitle => 'Plan';
+
+  @override
+  String get plannedStartLabel => 'Planned start';
+
+  @override
+  String get setPlannedStartButton => 'Set date and time';
+
+  @override
+  String get estimateLabel => 'Estimate';
+
+  @override
+  String get estimateNotSet => 'No estimate';
+
+  @override
+  String estimateMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get decreaseEstimateTooltip => 'Decrease estimate by 5 minutes';
+
+  @override
+  String get increaseEstimateTooltip => 'Increase estimate by 5 minutes';
+
+  @override
+  String get clearPlanButton => 'Clear plan';
+
+  @override
+  String get planSaveButton => 'Apply plan';
+
+  @override
+  String get prioritySheetTitle => 'Priority';
+
+  @override
+  String selectedOptionSemantics(String option) {
+    return 'Selected: $option';
+  }
+
+  @override
   String get tasksEmpty => 'No tasks yet. Tap + to create one.';
 
   @override

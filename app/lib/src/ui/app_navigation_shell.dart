@@ -45,15 +45,25 @@ class AppNavigationShell extends ConsumerWidget {
       initialDue: path == '/' ? dateOnlyDue(DateTime.now()) : null,
       errorMessage: l10n.quickAddCreateError,
       onCreate:
-          ({required listId, required title, required note, required due}) =>
-              ref
-                  .read(homeTasksProvider.notifier)
-                  .createTask(
-                    listId: listId,
-                    title: title,
-                    note: note,
-                    due: due,
-                  ),
+          ({
+            required listId,
+            required title,
+            required note,
+            required due,
+            required priority,
+            required scheduledAt,
+            required estimatedMinutes,
+          }) => ref
+              .read(homeTasksProvider.notifier)
+              .createTask(
+                listId: listId,
+                title: title,
+                note: note,
+                due: due,
+                priority: priority,
+                scheduledAt: scheduledAt,
+                estimatedMinutes: estimatedMinutes,
+              ),
     );
 
     void selectDestination(_AppDestination destination) {

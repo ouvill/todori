@@ -206,6 +206,58 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get taskCreatePlanLabel => '予定';
+
+  @override
+  String get taskCreatePlanTooltip => '開始予定と見積時間を設定';
+
+  @override
+  String get taskCreatePriorityTooltip => '優先度を選択';
+
+  @override
+  String get planNotSet => '予定なし';
+
+  @override
+  String get planSheetTitle => '予定';
+
+  @override
+  String get plannedStartLabel => '開始予定';
+
+  @override
+  String get setPlannedStartButton => '日時を設定';
+
+  @override
+  String get estimateLabel => '見積時間';
+
+  @override
+  String get estimateNotSet => '見積なし';
+
+  @override
+  String estimateMinutes(int minutes) {
+    return '$minutes分';
+  }
+
+  @override
+  String get decreaseEstimateTooltip => '見積時間を5分減らす';
+
+  @override
+  String get increaseEstimateTooltip => '見積時間を5分増やす';
+
+  @override
+  String get clearPlanButton => '予定をクリア';
+
+  @override
+  String get planSaveButton => '予定を適用';
+
+  @override
+  String get prioritySheetTitle => '優先度';
+
+  @override
+  String selectedOptionSemantics(String option) {
+    return '選択中: $option';
+  }
+
+  @override
   String get tasksEmpty => 'タスクがありません。+をタップして作成してください。';
 
   @override

@@ -116,6 +116,32 @@
       }
     }
   },
+  "taskCreatePlanLabel": "Plan",
+  "taskCreatePlanTooltip": "Set planned start and estimate",
+  "taskCreatePriorityTooltip": "Choose priority",
+  "planNotSet": "Not planned",
+  "planSheetTitle": "Plan",
+  "plannedStartLabel": "Planned start",
+  "setPlannedStartButton": "Set date and time",
+  "estimateLabel": "Estimate",
+  "estimateNotSet": "No estimate",
+  "estimateMinutes": "{minutes} min",
+  "@estimateMinutes": {
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
+  "decreaseEstimateTooltip": "Decrease estimate by 5 minutes",
+  "increaseEstimateTooltip": "Increase estimate by 5 minutes",
+  "clearPlanButton": "Clear plan",
+  "planSaveButton": "Apply plan",
+  "prioritySheetTitle": "Priority",
+  "selectedOptionSemantics": "Selected: {option}",
+  "@selectedOptionSemantics": {
+    "placeholders": {
+      "option": { "type": "String" }
+    }
+  },
   "tasksEmpty": "No tasks yet. Tap + to create one.",
   "tasksEmptyTitle": "No tasks yet.",
   "tasksEmptyBody": "Tap + to create one.",

@@ -35,7 +35,29 @@ typedef TaskCreateCallback =
       required String title,
       required String note,
       required TaskDueDto? due,
+      required int priority,
+      required int? scheduledAt,
+      required int? estimatedMinutes,
     });
+
+/// Planned start and effort estimate edited together by the production Plan
+/// sheet. The two fields intentionally stay independent from Due/Reminder.
+class TaskPlanValue {
+  const TaskPlanValue({this.scheduledAt, this.estimatedMinutes});
+
+  final int? scheduledAt;
+  final int? estimatedMinutes;
+
+  bool get isEmpty => scheduledAt == null && estimatedMinutes == null;
+}
+
+/// A priority sheet result. The wrapper lets `0` (None) remain distinct from
+/// dismissing the sheet, whose result is null.
+class TaskPrioritySelection {
+  const TaskPrioritySelection(this.value);
+
+  final int value;
+}
 
 Future<void> showTaskCreateSheet({
   required BuildContext context,
@@ -233,6 +255,9 @@ class QuickAddBar extends StatefulWidget {
     required String title,
     required String note,
     required TaskDueDto? due,
+    required int priority,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
   })
   onCreate;
 
@@ -278,6 +303,9 @@ class TaskCreateSheet extends StatefulWidget {
     required String title,
     required String note,
     required TaskDueDto? due,
+    required int priority,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
   })
   onCreate;
 
@@ -288,6 +316,9 @@ class TaskCreateSheet extends StatefulWidget {
 class _TaskCreateSheetState extends State<TaskCreateSheet> {
   late String _selectedListId;
   late TaskDueDto? _due;
+  int _priority = 0;
+  int? _scheduledAt;
+  int? _estimatedMinutes;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
   final FocusNode _titleFocusNode = FocusNode();
@@ -336,6 +367,9 @@ class _TaskCreateSheetState extends State<TaskCreateSheet> {
         title: _titleController.text.trim(),
         note: _noteController.text.trim(),
         due: _due,
+        priority: _priority,
+        scheduledAt: _scheduledAt,
+        estimatedMinutes: _estimatedMinutes,
       );
       if (!mounted) {
         return;
@@ -475,6 +509,34 @@ class _TaskCreateSheetState extends State<TaskCreateSheet> {
                         due: _due,
                         onTap: _submitting ? null : _showDueOptions,
                       ),
+                      _TaskCreatePropertyAction(
+                        key: const ValueKey('task-create-plan-property-row'),
+                        icon: LucideIcons.calendarClock300,
+                        property: l10n.taskCreatePlanLabel,
+                        value: formatTaskPlanValue(
+                          l10n,
+                          locale: Localizations.localeOf(
+                            context,
+                          ).toLanguageTag(),
+                          scheduledAt: _scheduledAt,
+                          estimatedMinutes: _estimatedMinutes,
+                        ),
+                        tooltip: l10n.taskCreatePlanTooltip,
+                        onTap: _submitting ? null : _showPlanOptions,
+                      ),
+                      _TaskCreatePropertyAction(
+                        key: const ValueKey(
+                          'task-create-priority-property-row',
+                        ),
+                        icon: LucideIcons.flag300,
+                        property: l10n.priorityLabel,
+                        value: taskPriorityLabel(l10n, _priority),
+                        tooltip: l10n.taskCreatePriorityTooltip,
+                        marker: _priority == 0
+                            ? null
+                            : PriorityDot(priority: _priority, isMuted: false),
+                        onTap: _submitting ? null : _showPriorityOptions,
+                      ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
@@ -601,6 +663,34 @@ class _TaskCreateSheetState extends State<TaskCreateSheet> {
     }
     _titleFocusNode.requestFocus();
   }
+
+  Future<void> _showPlanOptions() async {
+    _titleFocusNode.unfocus();
+    final value = await showTaskPlanSheet(
+      context: context,
+      initialValue: TaskPlanValue(
+        scheduledAt: _scheduledAt,
+        estimatedMinutes: _estimatedMinutes,
+      ),
+    );
+    if (!mounted || value == null) return;
+    setState(() {
+      _scheduledAt = value.scheduledAt;
+      _estimatedMinutes = value.estimatedMinutes;
+    });
+    _titleFocusNode.requestFocus();
+  }
+
+  Future<void> _showPriorityOptions() async {
+    _titleFocusNode.unfocus();
+    final selection = await showTaskPrioritySheet(
+      context: context,
+      selectedPriority: _priority,
+    );
+    if (!mounted || selection == null) return;
+    setState(() => _priority = selection.value);
+    _titleFocusNode.requestFocus();
+  }
 }
 
 class _TaskCreateListProperty extends StatelessWidget {
@@ -674,6 +764,51 @@ class _TaskCreateDueProperty extends StatelessWidget {
   }
 }
 
+class _TaskCreatePropertyAction extends StatelessWidget {
+  const _TaskCreatePropertyAction({
+    super.key,
+    required this.icon,
+    required this.property,
+    required this.value,
+    required this.tooltip,
+    required this.onTap,
+    this.marker,
+  });
+
+  final IconData icon;
+  final String property;
+  final String value;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final Widget? marker;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: onTap != null,
+        label: '$property, $value',
+        excludeSemantics: true,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onTap,
+            child: _TaskCreatePropertyRow(
+              icon: icon,
+              property: property,
+              value: value,
+              enabled: onTap != null,
+              marker: marker,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TaskCreatePropertyRow extends StatelessWidget {
   const _TaskCreatePropertyRow({
     super.key,
@@ -681,12 +816,14 @@ class _TaskCreatePropertyRow extends StatelessWidget {
     required this.property,
     required this.value,
     required this.enabled,
+    this.marker,
   });
 
   final IconData icon;
   final String property;
   final String value;
   final bool enabled;
+  final Widget? marker;
 
   @override
   Widget build(BuildContext context) {
@@ -724,6 +861,10 @@ class _TaskCreatePropertyRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
+            if (marker != null) ...[
+              ExcludeSemantics(child: marker!),
+              const SizedBox(width: AppSpacing.xs),
+            ],
             Flexible(
               flex: 5,
               child: Text(
@@ -807,6 +948,341 @@ class _TaskCreateDueSheet extends StatelessWidget {
 }
 
 enum _TaskCreateDueSelection { today, tomorrow, pickDate, pickDateTime, clear }
+
+String formatTaskPlanValue(
+  AppLocalizations l10n, {
+  required String locale,
+  required int? scheduledAt,
+  required int? estimatedMinutes,
+}) {
+  if (scheduledAt == null && estimatedMinutes == null) return l10n.planNotSet;
+  final parts = <String>[];
+  if (scheduledAt != null) {
+    final date = DateTime.fromMillisecondsSinceEpoch(scheduledAt).toLocal();
+    parts.add(
+      '${DateFormat.MMMd(locale).format(date)} · ${DateFormat.jm(locale).format(date)}',
+    );
+  }
+  if (estimatedMinutes != null) {
+    parts.add(l10n.estimateMinutes(estimatedMinutes));
+  }
+  return parts.join(' · ');
+}
+
+Future<TaskPlanValue?> showTaskPlanSheet({
+  required BuildContext context,
+  required TaskPlanValue initialValue,
+}) {
+  return showModalBottomSheet<TaskPlanValue>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
+    builder: (context) => TaskPlanSheet(initialValue: initialValue),
+  );
+}
+
+class TaskPlanSheet extends StatefulWidget {
+  const TaskPlanSheet({super.key, required this.initialValue});
+
+  final TaskPlanValue initialValue;
+
+  @override
+  State<TaskPlanSheet> createState() => _TaskPlanSheetState();
+}
+
+class _TaskPlanSheetState extends State<TaskPlanSheet> {
+  late int? _scheduledAt;
+  late int? _estimatedMinutes;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduledAt = widget.initialValue.scheduledAt;
+    _estimatedMinutes = widget.initialValue.estimatedMinutes;
+  }
+
+  Future<void> _pickStart() async {
+    final initial = _scheduledAt == null
+        ? DateTime.now().add(const Duration(hours: 1))
+        : DateTime.fromMillisecondsSinceEpoch(_scheduledAt!).toLocal();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final local = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    setState(() => _scheduledAt = local.millisecondsSinceEpoch);
+  }
+
+  void _adjustEstimate(int delta) {
+    final current = _estimatedMinutes ?? 0;
+    final next = (current + delta).clamp(0, 24 * 60);
+    setState(() => _estimatedMinutes = next == 0 ? null : next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final startLabel = _scheduledAt == null
+        ? l10n.planNotSet
+        : DateFormat.yMMMd(locale).add_jm().format(
+            DateTime.fromMillisecondsSinceEpoch(_scheduledAt!).toLocal(),
+          );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        border: Border.all(color: colors.outlineVariant, width: 0.7),
+      ),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                  ),
+                  children: [
+                    Text(
+                      l10n.planSheetTitle,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _TaskCreatePropertyAction(
+                      key: const ValueKey('plan-start-row'),
+                      icon: LucideIcons.calendarClock300,
+                      property: l10n.plannedStartLabel,
+                      value: startLabel,
+                      tooltip: l10n.setPlannedStartButton,
+                      onTap: _pickStart,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      l10n.estimateLabel,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Row(
+                      children: [
+                        IconButton.outlined(
+                          key: const ValueKey('plan-estimate-decrease'),
+                          tooltip: l10n.decreaseEstimateTooltip,
+                          onPressed: _estimatedMinutes == null
+                              ? null
+                              : () => _adjustEstimate(-5),
+                          icon: const Icon(LucideIcons.minus300),
+                        ),
+                        Expanded(
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _estimatedMinutes == null
+                                  ? l10n.estimateNotSet
+                                  : l10n.estimateMinutes(_estimatedMinutes!),
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.titleMedium,
+                            ),
+                          ),
+                        ),
+                        IconButton.outlined(
+                          key: const ValueKey('plan-estimate-increase'),
+                          tooltip: l10n.increaseEstimateTooltip,
+                          onPressed: () => _adjustEstimate(5),
+                          icon: const Icon(LucideIcons.plus300),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final minutes in const [25, 45, 60])
+                          OutlinedButton(
+                            key: ValueKey('plan-estimate-preset-$minutes'),
+                            onPressed: () =>
+                                setState(() => _estimatedMinutes = minutes),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(72, 48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: Text(l10n.estimateMinutes(minutes)),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.canvas,
+                  border: Border(
+                    top: BorderSide(color: colors.outlineVariant, width: 0.7),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                    AppSpacing.lg,
+                    AppSpacing.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        key: const ValueKey('plan-clear'),
+                        onPressed: () =>
+                            Navigator.of(context).pop(const TaskPlanValue()),
+                        child: Text(l10n.clearPlanButton),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        key: const ValueKey('plan-apply'),
+                        onPressed: () => Navigator.of(context).pop(
+                          TaskPlanValue(
+                            scheduledAt: _scheduledAt,
+                            estimatedMinutes: _estimatedMinutes,
+                          ),
+                        ),
+                        child: Text(l10n.planSaveButton),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<TaskPrioritySelection?> showTaskPrioritySheet({
+  required BuildContext context,
+  required int selectedPriority,
+}) {
+  return showModalBottomSheet<TaskPrioritySelection>(
+    context: context,
+    useRootNavigator: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
+    builder: (context) =>
+        _TaskPrioritySheet(selectedPriority: selectedPriority),
+  );
+}
+
+class _TaskPrioritySheet extends StatelessWidget {
+  const _TaskPrioritySheet({required this.selectedPriority});
+
+  final int selectedPriority;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        border: Border.all(color: colors.outlineVariant, width: 0.7),
+      ),
+      child: SafeArea(
+        top: false,
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.lg,
+            AppSpacing.lg,
+            AppSpacing.sm,
+          ),
+          children: [
+            Text(l10n.prioritySheetTitle, style: theme.textTheme.titleLarge),
+            const SizedBox(height: AppSpacing.sm),
+            for (final priority in const [0, 1, 2, 3])
+              Builder(
+                builder: (context) {
+                  final label = taskPriorityLabel(l10n, priority);
+                  final selected = priority == selectedPriority;
+                  return Semantics(
+                    button: true,
+                    selected: selected,
+                    label: selected
+                        ? l10n.selectedOptionSemantics(label)
+                        : label,
+                    excludeSemantics: true,
+                    child: InkWell(
+                      key: ValueKey('priority-option-$priority'),
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pop(TaskPrioritySelection(priority)),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 52),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 28,
+                              child: priority == 0
+                                  ? const SizedBox.shrink()
+                                  : PriorityDot(
+                                      priority: priority,
+                                      isMuted: false,
+                                    ),
+                            ),
+                            Expanded(child: Text(label)),
+                            if (selected)
+                              Icon(
+                                LucideIcons.check300,
+                                size: 18,
+                                color: colors.primary,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Builds the compact metadata labels shown below a task title.
 ///

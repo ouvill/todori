@@ -201,12 +201,9 @@ class TaskDetailScreen extends ConsumerWidget {
                                   task,
                                   due: null,
                                 ),
-                          onPrioritySelected: (priority) => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            priority: priority,
-                          ),
+                          onSelectPlan: () => _selectPlan(context, ref, task),
+                          onSelectPriority: () =>
+                              _selectPriority(context, ref, task),
                           onSelectReminder: () =>
                               _selectReminder(context, ref, task, reminder),
                           onClearReminder: reminder == null
@@ -380,6 +377,8 @@ class TaskDetailScreen extends ConsumerWidget {
     String? note,
     int? priority,
     Object? due = _unchangedDue,
+    Object? scheduledAt = _unchangedScheduledAt,
+    Object? estimatedMinutes = _unchangedEstimatedMinutes,
   }) async {
     final nextTitle = title ?? task.title;
     final nextNote = note ?? task.note;
@@ -387,11 +386,20 @@ class TaskDetailScreen extends ConsumerWidget {
     final nextDue = identical(due, _unchangedDue)
         ? task.due
         : due as TaskDueDto?;
+    final nextScheduledAt = identical(scheduledAt, _unchangedScheduledAt)
+        ? task.scheduledAt
+        : scheduledAt as int?;
+    final nextEstimatedMinutes =
+        identical(estimatedMinutes, _unchangedEstimatedMinutes)
+        ? task.estimatedMinutes
+        : estimatedMinutes as int?;
 
     if (nextTitle == task.title &&
         nextNote == task.note &&
         nextPriority == task.priority &&
-        nextDue == task.due) {
+        nextDue == task.due &&
+        nextScheduledAt == task.scheduledAt &&
+        nextEstimatedMinutes == task.estimatedMinutes) {
       return true;
     }
 
@@ -404,6 +412,8 @@ class TaskDetailScreen extends ConsumerWidget {
             note: nextNote,
             priority: nextPriority,
             due: nextDue,
+            scheduledAt: nextScheduledAt,
+            estimatedMinutes: nextEstimatedMinutes,
           );
       ref.invalidate(homeTasksProvider);
       if (context.mounted) {
@@ -422,6 +432,41 @@ class TaskDetailScreen extends ConsumerWidget {
       }
       return false;
     }
+  }
+
+  Future<void> _selectPlan(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final value = await showTaskPlanSheet(
+      context: context,
+      initialValue: TaskPlanValue(
+        scheduledAt: task.scheduledAt,
+        estimatedMinutes: task.estimatedMinutes,
+      ),
+    );
+    if (value == null || !context.mounted) return;
+    await _updateTaskFields(
+      context,
+      ref,
+      task,
+      scheduledAt: value.scheduledAt,
+      estimatedMinutes: value.estimatedMinutes,
+    );
+  }
+
+  Future<void> _selectPriority(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final selection = await showTaskPrioritySheet(
+      context: context,
+      selectedPriority: task.priority,
+    );
+    if (selection == null || !context.mounted) return;
+    await _updateTaskFields(context, ref, task, priority: selection.value);
   }
 
   Future<void> _selectDue(
@@ -808,6 +853,8 @@ TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
 }
 
 const Object _unchangedDue = Object();
+const Object _unchangedScheduledAt = Object();
+const Object _unchangedEstimatedMinutes = Object();
 
 enum _TaskDueMode { date, dateTime }
 
@@ -1229,7 +1276,8 @@ class _EditableTaskMetadata extends StatelessWidget {
     required this.locale,
     required this.onSelectDueDate,
     required this.onClearDueDate,
-    required this.onPrioritySelected,
+    required this.onSelectPlan,
+    required this.onSelectPriority,
     required this.onSelectReminder,
     required this.onClearReminder,
   });
@@ -1240,7 +1288,8 @@ class _EditableTaskMetadata extends StatelessWidget {
   final String locale;
   final VoidCallback onSelectDueDate;
   final VoidCallback? onClearDueDate;
-  final ValueChanged<int> onPrioritySelected;
+  final VoidCallback onSelectPlan;
+  final VoidCallback onSelectPriority;
   final VoidCallback onSelectReminder;
   final VoidCallback? onClearReminder;
 
@@ -1274,34 +1323,38 @@ class _EditableTaskMetadata extends StatelessWidget {
           clearTooltip: l10n.clearDueDateButton,
           onClear: onClearDueDate,
         ),
-        PopupMenuButton<int>(
+        _DetailPropertyRow(
+          key: ValueKey('task-plan-row-${task.id}'),
+          icon: LucideIcons.calendarClock300,
+          property: l10n.taskCreatePlanLabel,
+          label: formatTaskPlanValue(
+            l10n,
+            locale: locale,
+            scheduledAt: task.scheduledAt,
+            estimatedMinutes: task.estimatedMinutes,
+          ),
+          tooltip: l10n.taskCreatePlanTooltip,
+          onTap: onSelectPlan,
+        ),
+        _DetailPropertyRow(
           key: ValueKey('task-priority-chip-${task.id}'),
+          icon: LucideIcons.flag300,
+          property: l10n.priorityLabel,
+          label: taskPriorityLabel(l10n, task.priority),
           tooltip: l10n.changePriorityTooltip,
-          onSelected: onPrioritySelected,
-          itemBuilder: (context) => [
-            PopupMenuItem(value: 0, child: Text(l10n.priorityNone)),
-            PopupMenuItem(value: 1, child: Text(l10n.priorityLow)),
-            PopupMenuItem(value: 2, child: Text(l10n.priorityMedium)),
-            PopupMenuItem(value: 3, child: Text(l10n.priorityHigh)),
-          ],
-          child: _DetailPropertyRow(
-            icon: LucideIcons.flag300,
-            property: l10n.priorityLabel,
-            label: taskPriorityLabel(l10n, task.priority),
-            semanticLabel: l10n.taskPriority(
-              taskPriorityLabel(l10n, task.priority),
-            ),
-            marker: task.priority == 0
-                ? null
-                : PriorityDot(
+          semanticLabel: l10n.taskPriority(
+            taskPriorityLabel(l10n, task.priority),
+          ),
+          marker: task.priority == 0
+              ? null
+              : ExcludeSemantics(
+                  child: PriorityDot(
                     key: ValueKey('task-priority-dot-${task.id}'),
                     priority: task.priority,
-                    semanticLabel: l10n.taskPriority(
-                      taskPriorityLabel(l10n, task.priority),
-                    ),
                     isMuted: isTaskClosed(task),
                   ),
-          ),
+                ),
+          onTap: onSelectPriority,
         ),
         _DetailPropertyRow(
           key: ValueKey('task-reminder-chip-${task.id}'),

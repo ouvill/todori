@@ -458,6 +458,102 @@ abstract class AppLocalizations {
   /// **'Due: {dueAt}'**
   String taskCreateDueChipSemantics(String dueAt);
 
+  /// No description provided for @taskCreatePlanLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get taskCreatePlanLabel;
+
+  /// No description provided for @taskCreatePlanTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Set planned start and estimate'**
+  String get taskCreatePlanTooltip;
+
+  /// No description provided for @taskCreatePriorityTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose priority'**
+  String get taskCreatePriorityTooltip;
+
+  /// No description provided for @planNotSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not planned'**
+  String get planNotSet;
+
+  /// No description provided for @planSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get planSheetTitle;
+
+  /// No description provided for @plannedStartLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned start'**
+  String get plannedStartLabel;
+
+  /// No description provided for @setPlannedStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Set date and time'**
+  String get setPlannedStartButton;
+
+  /// No description provided for @estimateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimate'**
+  String get estimateLabel;
+
+  /// No description provided for @estimateNotSet.
+  ///
+  /// In en, this message translates to:
+  /// **'No estimate'**
+  String get estimateNotSet;
+
+  /// No description provided for @estimateMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String estimateMinutes(int minutes);
+
+  /// No description provided for @decreaseEstimateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease estimate by 5 minutes'**
+  String get decreaseEstimateTooltip;
+
+  /// No description provided for @increaseEstimateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase estimate by 5 minutes'**
+  String get increaseEstimateTooltip;
+
+  /// No description provided for @clearPlanButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear plan'**
+  String get clearPlanButton;
+
+  /// No description provided for @planSaveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply plan'**
+  String get planSaveButton;
+
+  /// No description provided for @prioritySheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Priority'**
+  String get prioritySheetTitle;
+
+  /// No description provided for @selectedOptionSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected: {option}'**
+  String selectedOptionSemantics(String option);
+
   /// No description provided for @tasksEmpty.
   ///
   /// In en, this message translates to:

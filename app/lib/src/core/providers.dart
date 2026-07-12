@@ -446,6 +446,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     String? parentTaskId,
     TaskDueDto? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.createTask(
@@ -454,6 +457,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       parentTaskId: parentTaskId,
       due: due == null ? null : taskDueInput(due),
       note: note,
+      priority: priority,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(homeTasksProvider);
     ref.invalidateSelf();
@@ -466,6 +472,8 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     required String note,
     required int priority,
     required TaskDueDto? due,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.updateTask(
@@ -474,6 +482,8 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       note: note,
       priority: priority,
       due: due == null ? null : taskDueInput(due),
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(homeTasksProvider);
@@ -487,6 +497,8 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       note: task.note,
       priority: task.priority,
       due: due,
+      scheduledAt: task.scheduledAt,
+      estimatedMinutes: task.estimatedMinutes,
     );
     ref.invalidate(homeTasksProvider);
   }
@@ -572,6 +584,9 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     required String listId,
     required String title,
     required TaskDueDto? due,
+    required int priority,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
     String note = '',
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
@@ -580,6 +595,9 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       title: title,
       due: due == null ? null : taskDueInput(due),
       note: note,
+      priority: priority,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(tasksProvider(listId));
     ref.invalidateSelf();
@@ -618,6 +636,8 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       note: task.note,
       priority: task.priority,
       due: due == null ? null : taskDueInput(due),
+      scheduledAt: task.scheduledAt,
+      estimatedMinutes: task.estimatedMinutes,
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));
