@@ -181,6 +181,54 @@ void main() {
     await _screenshot(tester, 'task_create_sheet_home');
   });
 
+  testWidgets('task_create_sheet_ja: Japanese task capture properties', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    await _seedRealisticData(tester);
+    await _openTaskCreateSheetWithKeyboard(tester);
+    await _screenshot(tester, 'task_create_sheet_ja');
+  });
+
+  testWidgets('task_create_plan_sheet: planned start and estimate controls', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await _ensureVisible(
+      tester,
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-45')));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_create_plan_sheet');
+  });
+
+  testWidgets('task_create_priority_sheet: calm priority selection', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await _ensureVisible(
+      tester,
+      find.byKey(const ValueKey('task-create-priority-property-row')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('task-create-priority-property-row')),
+    );
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_create_priority_sheet');
+  });
+
   testWidgets(
     'task_create_sheet_home_text_scale_2: Home create sheet at Dynamic Type 2.0',
     (tester) async {
@@ -199,6 +247,45 @@ void main() {
     await _seedRealisticData(tester);
     await _openTaskCreateSheetWithKeyboard(tester);
     await _screenshot(tester, 'task_create_sheet_home_narrow_320');
+  });
+
+  testWidgets('task_create_plan_sheet_narrow_320: Plan sheet at 320px', (
+    tester,
+  ) async {
+    _setNarrowViewport(tester);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await _ensureVisible(
+      tester,
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+      delta: 120,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+    );
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_create_plan_sheet_narrow_320');
+  });
+
+  testWidgets('task_create_plan_sheet_text_scale_2: Plan at text scale 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _seedRealisticData(tester);
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    await _ensureVisible(
+      tester,
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+      delta: 140,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('task-create-plan-property-row')),
+    );
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_create_plan_sheet_text_scale_2');
   });
 
   testWidgets('quick_add_list_normal: list quick add bar', (tester) async {
@@ -451,6 +538,25 @@ void main() {
     final seed = await _seedRealisticData(tester);
     await _openTask(tester, seed.parentWithSubtasksTitle);
     await _screenshot(tester, 'task_detail_text_scale_2');
+  });
+
+  testWidgets('task_detail_plan_sheet: task planning from detail', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final seed = await _seedRealisticData(tester);
+    await _openTask(tester, seed.parentWithSubtasksTitle);
+    final planRow = find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith('task-plan-row-'),
+    );
+    await _ensureVisible(tester, planRow);
+    await tester.tap(planRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-25')));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_detail_plan_sheet');
   });
 
   testWidgets('task_detail_editing: inline title editing on task detail', (
@@ -1073,6 +1179,23 @@ Future<void> _openTaskCreateSheetWithKeyboard(WidgetTester tester) async {
   tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
   addTearDown(tester.view.resetViewInsets);
   await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _ensureVisible(
+  WidgetTester tester,
+  Finder finder, {
+  double delta = 220,
+}) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      delta,
+      scrollable: find.byType(Scrollable).first,
+    );
+  } else {
+    await tester.ensureVisible(finder.first);
+  }
   await tester.pumpAndSettle();
 }
 

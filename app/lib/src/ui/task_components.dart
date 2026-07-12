@@ -1159,7 +1159,10 @@ class _TaskPlanSheetState extends State<TaskPlanSheet> {
                     AppSpacing.lg,
                     AppSpacing.sm,
                   ),
-                  child: Row(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.xs,
                     children: [
                       TextButton(
                         key: const ValueKey('plan-clear'),
@@ -1167,7 +1170,6 @@ class _TaskPlanSheetState extends State<TaskPlanSheet> {
                             Navigator.of(context).pop(const TaskPlanValue()),
                         child: Text(l10n.clearPlanButton),
                       ),
-                      const Spacer(),
                       FilledButton(
                         key: const ValueKey('plan-apply'),
                         onPressed: () => Navigator.of(context).pop(

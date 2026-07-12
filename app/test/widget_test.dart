@@ -6,7 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/src/core/task_due.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
@@ -139,6 +139,23 @@ Future<void> _scrollUntilVisible(
     delta,
     scrollable: find.byType(Scrollable).first,
   );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _ensureFinderVisible(
+  WidgetTester tester,
+  Finder finder, {
+  double delta = 220,
+}) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      delta,
+      scrollable: find.byType(Scrollable).first,
+    );
+  } else {
+    await tester.ensureVisible(finder.first);
+  }
   await tester.pumpAndSettle();
 }
 
@@ -894,6 +911,110 @@ void main() {
     final tasks = await fake.getTasks(listId: defaultList.id);
     expect(tasks.single.title, 'Slow capture');
   });
+
+  testWidgets(
+    'capture persists typed due plan priority and retains all selections',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('task-create-list-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey('task-create-list-option-${work.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-chip')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('task-create-due-tomorrow')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('task-create-plan-property-row')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('plan-start-row')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-25')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-increase')));
+      await tester.pump();
+      expect(find.text('30 min'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-decrease')));
+      await tester.pump();
+      expect(find.text('25 min'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-45')));
+      await tester.pump();
+      expect(find.text('45 min'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-60')));
+      await tester.pump();
+      expect(find.text('60 min'), findsWidgets);
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-45')));
+      await tester.tap(find.byKey(const ValueKey('plan-apply')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('task-create-priority-property-row')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('priority-option-3')));
+      await tester.pumpAndSettle();
+
+      final title = find.byKey(const ValueKey('task-create-title-field'));
+      await tester.enterText(title, 'First planned capture');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(title, 'Second planned capture');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('task-create-submit')));
+      await tester.pumpAndSettle();
+
+      final tasks = await fake.getTasks(listId: work.id);
+      expect(tasks.map((task) => task.title), [
+        'First planned capture',
+        'Second planned capture',
+      ]);
+      for (final task in tasks) {
+        expect(task.due, isA<TaskDueDto_Date>());
+        expect(task.scheduledAt, isNotNull);
+        expect(task.estimatedMinutes, 45);
+        expect(task.priority, 3);
+      }
+      expect(
+        find.byKey(ValueKey('task-priority-dot-${tasks.last.id}')),
+        findsOneWidget,
+      );
+      final semantics = tester.ensureSemantics();
+      expect(
+        find.semantics.byPredicate(
+          (node) => node.getSemanticsData().label.contains('Priority, High'),
+        ),
+        findsWidgets,
+      );
+      semantics.dispose();
+
+      await tester.tap(
+        find.byKey(const ValueKey('task-create-plan-property-row')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('plan-clear')));
+      await tester.pumpAndSettle();
+      expect(find.text('Not planned'), findsWidgets);
+    },
+  );
 
   testWidgets('global navigation returns home and list actions stay ordered', (
     tester,
@@ -1692,6 +1813,75 @@ void main() {
     },
   );
 
+  testWidgets('capture planning stays reachable at 320px Japanese text 2.0', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    _useLocale(tester, const Locale('ja'));
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+    });
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: '受信箱', sortOrder: 'a0');
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('quick-add-open')));
+    await tester.pumpAndSettle();
+    final planRow = find.byKey(const ValueKey('task-create-plan-property-row'));
+    await _ensureFinderVisible(tester, planRow, delta: 120);
+    await tester.tap(planRow);
+    await tester.pumpAndSettle();
+    await _ensureFinderVisible(
+      tester,
+      find.byKey(const ValueKey('plan-estimate-preset-60')),
+      delta: 100,
+    );
+    expect(
+      find.byKey(const ValueKey('plan-estimate-preset-25')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('plan-estimate-preset-45')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('plan-estimate-preset-60')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('plan-clear')), findsOneWidget);
+    expect(find.byKey(const ValueKey('plan-apply')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('plan controls remain reachable in RTL', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) =>
+            Directionality(textDirection: TextDirection.rtl, child: child!),
+        home: const Scaffold(
+          body: TaskPlanSheet(initialValue: TaskPlanValue()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('plan-estimate-increase')));
+    await tester.pump();
+    expect(find.text('5 min'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('plan-estimate-decrease')));
+    await tester.pump();
+    expect(find.text('No estimate'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('polished list, sort, detail, and dialog surfaces stay stable', (
     tester,
   ) async {
@@ -1740,9 +1930,11 @@ void main() {
 
     expect(find.text('Task detail'), findsNothing);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
-    // Priority is conveyed in the metadata row, not beside the title or via
-    // the removed edit dialog.
-    expect(find.byTooltip('Priority: High'), findsOneWidget);
+    // Priority is conveyed by the editable property row and its small dot,
+    // not beside the title or via the removed edit dialog.
+    final priorityRow = find.byKey(ValueKey('task-priority-chip-${task.id}'));
+    await _ensureFinderVisible(tester, priorityRow);
+    expect(priorityRow, findsOneWidget);
     final titleFinder = find.textContaining('README screenshot');
     final titleBottomY = tester.getBottomLeft(titleFinder).dy;
     final dotCenterY = tester
@@ -1751,6 +1943,7 @@ void main() {
     expect(dotCenterY, greaterThan(titleBottomY));
 
     expect(find.byIcon(LucideIcons.squarePen300), findsNothing);
+    await _ensureFinderVisible(tester, titleFinder);
     await tester.tap(titleFinder);
     await tester.pumpAndSettle();
 
@@ -1785,6 +1978,108 @@ void main() {
     expect(find.text('Lists'), findsNothing);
     expect(find.text('You'), findsNothing);
     expect(find.byKey(const ValueKey('quick-add-open')), findsNothing);
+  });
+
+  testWidgets(
+    'detail plan and priority update and clear preserve core fields',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).single.id;
+      final due = testDateOnlyDueFromMillis(_todayStartMs());
+      final task = await fake.createTask(
+        listId: listId,
+        title: 'Keep the brief intact',
+        note: 'Planning metadata must not erase this note',
+        due: due,
+        scheduledAt: _todayStartMs() + const Duration(hours: 10).inMilliseconds,
+        estimatedMinutes: 25,
+        priority: 1,
+      );
+      await tester.pumpWidget(
+        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keep the brief intact'));
+      await tester.pumpAndSettle();
+
+      final planRow = find.byKey(ValueKey('task-plan-row-${task.id}'));
+      await _ensureFinderVisible(tester, planRow);
+      await tester.tap(planRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('plan-estimate-preset-60')));
+      await tester.tap(find.byKey(const ValueKey('plan-apply')));
+      await tester.pumpAndSettle();
+
+      final priorityRow = find.byKey(ValueKey('task-priority-chip-${task.id}'));
+      await _ensureFinderVisible(tester, priorityRow);
+      await tester.tap(priorityRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('priority-option-3')));
+      await tester.pumpAndSettle();
+
+      var updated = (await fake.getTasks(listId: listId)).single;
+      expect(updated.title, task.title);
+      expect(updated.note, task.note);
+      expect(taskDueCivilDate(updated.due), taskDueCivilDate(due));
+      expect(updated.scheduledAt, task.scheduledAt);
+      expect(updated.estimatedMinutes, 60);
+      expect(updated.priority, 3);
+
+      await _ensureFinderVisible(tester, planRow);
+      await tester.tap(planRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('plan-clear')));
+      await tester.pumpAndSettle();
+      await _ensureFinderVisible(tester, priorityRow);
+      await tester.tap(priorityRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('priority-option-0')));
+      await tester.pumpAndSettle();
+
+      updated = (await fake.getTasks(listId: listId)).single;
+      expect(updated.title, task.title);
+      expect(updated.note, task.note);
+      expect(taskDueCivilDate(updated.due), taskDueCivilDate(due));
+      expect(updated.scheduledAt, isNull);
+      expect(updated.estimatedMinutes, isNull);
+      expect(updated.priority, 0);
+    },
+  );
+
+  testWidgets('detail scheduled clear invalidates the Home smart view', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Scheduled only task',
+      scheduledAt: _todayStartMs() + const Duration(hours: 9).inMilliseconds,
+      estimatedMinutes: 25,
+    );
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Scheduled only task'), findsOneWidget);
+    await tester.tap(find.text('Scheduled only task'));
+    await tester.pumpAndSettle();
+
+    final planRow = find.byKey(ValueKey('task-plan-row-${task.id}'));
+    await _ensureFinderVisible(tester, planRow);
+    await tester.tap(planRow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('plan-clear')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scheduled only task'), findsNothing);
+    final updated = (await fake.getTasks(listId: listId)).single;
+    expect(updated.scheduledAt, isNull);
+    expect(updated.estimatedMinutes, isNull);
   });
 
   testWidgets('creating a list from list management updates the list', (
@@ -3684,8 +3979,7 @@ void main() {
     await tester.tap(find.text('Parent task'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Add subtask'));
-    await tester.pumpAndSettle();
+    await _ensureFinderVisible(tester, find.text('Add subtask'));
     await tester.tap(find.text('Add subtask'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Child task');
@@ -4040,7 +4334,9 @@ void main() {
     await tester.tap(find.text('Detail parent'));
     await tester.pumpAndSettle();
 
+    await _ensureFinderVisible(tester, find.text('Detail branch child'));
     expect(find.text('Detail branch child'), findsOneWidget);
+    await _ensureFinderVisible(tester, find.text('Detail grandchild'));
     expect(find.text('Detail grandchild'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Detail last child'),
@@ -4203,19 +4499,26 @@ void main() {
       find.byKey(const ValueKey('task-note-inline-field')),
       'Shelf-stable',
     );
+    await _ensureFinderVisible(tester, find.text('Subtasks'));
     await tester.tap(find.text('Subtasks'));
     await tester.pumpAndSettle();
 
     final listId = (await fake.getLists()).first.id;
     final task = (await fake.getTasks(listId: listId)).single;
-    await tester.tap(find.byKey(ValueKey('task-priority-chip-${task.id}')));
+    final priorityRow = find.byKey(ValueKey('task-priority-chip-${task.id}'));
+    await _ensureFinderVisible(tester, priorityRow);
+    await tester.tap(priorityRow);
     await tester.pumpAndSettle();
     await tester.tap(find.text('High').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Buy oat milk'), findsOneWidget);
     expect(find.text('Shelf-stable'), findsOneWidget);
-    expect(find.byTooltip('Priority: High'), findsOneWidget);
+    await _ensureFinderVisible(tester, priorityRow);
+    expect(
+      find.byKey(ValueKey('task-priority-dot-${task.id}')),
+      findsOneWidget,
+    );
 
     final active = await fake.getTasks(listId: listId);
     expect(active.single.title, 'Buy oat milk');
