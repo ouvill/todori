@@ -1198,6 +1198,27 @@ mod tests {
             operation_busy: std::sync::atomic::AtomicBool::new(false),
         };
 
+        let mut mismatched = completed.clone();
+        mismatched.active_duration_ms -= 1;
+        assert!(matches!(
+            client.finish_active_timer_session(mismatched),
+            Err(ClientError::Storage(
+                StorageError::CompletedTimerDurationMismatch { .. }
+            ))
+        ));
+        let timer = SqliteTimerSessionRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        assert_eq!(timer.load_active().unwrap(), Some(active.clone()));
+        assert!(matches!(
+            timer.get_completed(completed.id),
+            Err(StorageError::NotFound(_))
+        ));
+        assert!(
+            SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+                .list_outbox_heads(10)
+                .unwrap()
+                .is_empty()
+        );
+
         assert!(client
             .finish_active_timer_session(completed.clone())
             .is_err());

@@ -8,10 +8,10 @@ use std::{path::Path, str::FromStr, time::Duration};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
 use todori_domain::{
-    fractional_index_after, new_default_list, validate_active_timer_session,
-    validate_active_timer_update, validate_completed_timer_session, ActiveTimerSession, CivilDate,
-    CompletedTimerSession, DomainError, IanaTimeZone, List, Task, TaskDue, TaskStatus,
-    TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
+    fractional_index_after, new_default_list, restored_active_duration_ms,
+    validate_active_timer_session, validate_active_timer_update, validate_completed_timer_session,
+    ActiveTimerSession, CivilDate, CompletedTimerSession, DomainError, IanaTimeZone, List, Task,
+    TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
@@ -115,6 +115,10 @@ pub enum StorageError {
     ActiveTimerConflict(Uuid),
     #[error("invalid active timer update: {0}")]
     InvalidActiveTimerUpdate(#[source] DomainError),
+    #[error(
+        "completed timer duration does not match durable active state: expected {expected_ms}, got {actual_ms}"
+    )]
+    CompletedTimerDurationMismatch { expected_ms: i64, actual_ms: i64 },
     #[error("invalid task status in database: {0}")]
     InvalidStatus(String),
     #[error("invalid undo operation in database: {0}")]
@@ -719,6 +723,14 @@ impl<'connection> SqliteWriteTx<'connection> {
             return Err(StorageError::IncompatibleSchema(
                 "completed timer session does not match active work".to_string(),
             ));
+        }
+        let expected_duration = restored_active_duration_ms(&active, session.ended_at)
+            .map_err(StorageError::InvalidActiveTimerUpdate)?;
+        if session.active_duration_ms != expected_duration {
+            return Err(StorageError::CompletedTimerDurationMismatch {
+                expected_ms: expected_duration,
+                actual_ms: session.active_duration_ms,
+            });
         }
         let inserted = insert_completed_timer_session_on(&self.transaction, session)?;
         self.transaction
@@ -6953,6 +6965,25 @@ mod tests {
             Some(active.clone())
         );
 
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        let mut duration_mismatch = completed.clone();
+        duration_mismatch.active_duration_ms -= 1;
+        assert!(matches!(
+            transaction.finish_active_timer_session(duration_mismatch),
+            Err(StorageError::CompletedTimerDurationMismatch {
+                expected_ms: 500,
+                actual_ms: 499,
+            })
+        ));
+        drop(transaction);
+        assert_eq!(
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .load_active()
+                .unwrap(),
+            Some(active.clone())
+        );
+
         let mut repository =
             SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
         assert!(repository.insert_completed(completed.clone()).unwrap());
@@ -6967,6 +6998,93 @@ mod tests {
             SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap());
         assert_eq!(repository.load_active().unwrap(), None);
         assert_eq!(repository.get_completed(completed.id).unwrap(), completed);
+    }
+
+    #[test]
+    fn finish_running_timer_requires_restored_duration_and_accepts_pomodoro_target_instant() {
+        let file = NamedTempFile::new().unwrap();
+        let list = new_list("Timer".into(), "a0".into(), 1_000).unwrap();
+        let task = new_task(list.id, None, "Focus".into(), "a0".into(), 1_000).unwrap();
+        SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(list)
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let running = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Stopwatch,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Running,
+            started_at: 1_000,
+            last_resumed_at: Some(2_000),
+            accumulated_active_ms: 500,
+            target_duration_ms: None,
+        };
+        SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .start_active(running.clone(), 2_000)
+            .unwrap();
+        let completed = CompletedTimerSession {
+            id: running.session_id,
+            task_id: task.id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: running.started_at,
+            ended_at: 3_000,
+            active_duration_ms: 1_500,
+            created_at: 3_000,
+        };
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        let mut mismatch = completed.clone();
+        mismatch.active_duration_ms = 1_499;
+        assert!(matches!(
+            transaction.finish_active_timer_session(mismatch),
+            Err(StorageError::CompletedTimerDurationMismatch { .. })
+        ));
+        drop(transaction);
+        assert_eq!(
+            SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+                .load_active()
+                .unwrap(),
+            Some(running)
+        );
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert!(transaction.finish_active_timer_session(completed).unwrap());
+        transaction.commit().unwrap();
+
+        let pomodoro = ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: Some(task.id),
+            mode: TimerMode::Pomodoro,
+            phase: TimerPhase::Work,
+            state: TimerRunState::Running,
+            started_at: 10_000,
+            last_resumed_at: Some(15_000),
+            accumulated_active_ms: 5_000,
+            target_duration_ms: Some(25_000),
+        };
+        let reached_at = todori_domain::pomodoro_target_reached_at(&pomodoro).unwrap();
+        assert_eq!(reached_at, 35_000);
+        SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
+            .start_active(pomodoro.clone(), 15_000)
+            .unwrap();
+        let completed = CompletedTimerSession {
+            id: pomodoro.session_id,
+            task_id: task.id,
+            mode: TimerMode::Pomodoro,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: pomodoro.started_at,
+            ended_at: reached_at,
+            active_duration_ms: 25_000,
+            created_at: 40_000,
+        };
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        assert!(transaction.finish_active_timer_session(completed).unwrap());
+        transaction.commit().unwrap();
     }
 
     #[test]
