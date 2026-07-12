@@ -97,7 +97,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                       engine.active?.taskId == null ||
                       engine.active?.taskId == task.id;
                   if (_activeConflict || !belongsToTask) {
-                    return _FocusConflictState(onBack: _leaveFocus);
+                    return _FocusConflictState(
+                      inverse: isImmersive,
+                      onBack: _leaveFocus,
+                    );
                   }
                   if (engine.active != null) {
                     return _FocusActiveView(
@@ -1006,7 +1009,8 @@ class _FocusErrorState extends StatelessWidget {
 }
 
 class _FocusConflictState extends StatelessWidget {
-  const _FocusConflictState({required this.onBack});
+  const _FocusConflictState({required this.inverse, required this.onBack});
+  final bool inverse;
   final VoidCallback onBack;
   @override
   Widget build(BuildContext context) {
@@ -1022,10 +1026,18 @@ class _FocusConflictState extends StatelessWidget {
               Text(
                 l10n.focusActiveConflictTitle,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: inverse ? AppFocusColors.text : AppColors.ink,
+                ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              Text(l10n.focusActiveConflictBody, textAlign: TextAlign.center),
+              Text(
+                l10n.focusActiveConflictBody,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: inverse ? AppFocusColors.muted : AppColors.muted,
+                ),
+              ),
               const SizedBox(height: AppSpacing.lg),
               FilledButton(
                 onPressed: onBack,
