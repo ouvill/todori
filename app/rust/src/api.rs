@@ -2,10 +2,11 @@ use std::fmt::Write as _;
 
 use todori_client::chrono::{DateTime, Utc};
 use todori_client::{
-    AccountAuthResult, AccountSessionState, CalendarOccurrenceKind, CalendarOccurrenceView,
-    CalendarRange, CivilDate, CreateTaskCommand, HomeTaskView, List, ReminderView,
-    ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind,
-    TaskUndoView, UpdateTaskCommand, UtcInstant, Uuid,
+    AccountAuthResult, AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind,
+    CalendarOccurrenceView, CalendarRange, CivilDate, CompletedTimerSession, CreateTaskCommand,
+    HomeTaskView, List, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task,
+    TaskDue, TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase,
+    TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -106,6 +107,50 @@ pub struct CalendarOccurrenceDto {
     pub list_name: String,
     pub list_archived: bool,
     pub kind: CalendarOccurrenceKindDto,
+}
+
+pub enum TimerModeDto {
+    Pomodoro,
+    Stopwatch,
+}
+
+pub enum TimerPhaseDto {
+    Work,
+    ShortBreak,
+    LongBreak,
+}
+
+pub enum TimerRunStateDto {
+    Running,
+    Paused,
+}
+
+pub enum TimerFinishKindDto {
+    Completed,
+    Interrupted,
+}
+
+pub struct ActiveTimerSessionDto {
+    pub session_id: String,
+    pub task_id: Option<String>,
+    pub mode: TimerModeDto,
+    pub phase: TimerPhaseDto,
+    pub state: TimerRunStateDto,
+    pub started_at: DateTime<Utc>,
+    pub last_resumed_at: Option<DateTime<Utc>>,
+    pub accumulated_active_ms: i64,
+    pub target_duration_ms: Option<i64>,
+}
+
+pub struct CompletedTimerSessionDto {
+    pub id: String,
+    pub task_id: String,
+    pub mode: TimerModeDto,
+    pub finish_kind: TimerFinishKindDto,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: DateTime<Utc>,
+    pub active_duration_ms: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 pub struct ReminderDto {
@@ -319,6 +364,30 @@ pub fn get_tasks(list_id: String) -> Result<Vec<TaskDto>, String> {
     let list_id = parse_uuid(&list_id)?;
     client_result(client()?.get_tasks(list_id))
         .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+}
+
+pub fn get_active_timer_session() -> Result<Option<ActiveTimerSessionDto>, String> {
+    client_result(client()?.get_active_timer_session())
+        .map(|session| session.map(active_timer_to_dto))
+}
+
+pub fn save_active_timer_session(session: ActiveTimerSessionDto) -> Result<(), String> {
+    client_result(client()?.save_active_timer_session(parse_active_timer(session)?))
+}
+
+pub fn discard_active_timer_session() -> Result<bool, String> {
+    client_result(client()?.clear_active_timer_session())
+}
+
+pub fn finish_active_timer_session(session: CompletedTimerSessionDto) -> Result<bool, String> {
+    client_result(client()?.finish_active_timer_session(parse_completed_timer(session)?))
+}
+
+pub fn get_completed_timer_sessions(
+    task_id: String,
+) -> Result<Vec<CompletedTimerSessionDto>, String> {
+    client_result(client()?.get_completed_timer_sessions(parse_uuid(&task_id)?))
+        .map(|sessions| sessions.into_iter().map(completed_timer_to_dto).collect())
 }
 
 pub fn search_tasks(query: String) -> Result<Vec<TaskDto>, String> {
@@ -600,6 +669,122 @@ fn instant_to_datetime(instant: UtcInstant) -> DateTime<Utc> {
         .expect("UtcInstant is validated at construction")
 }
 
+fn parse_active_timer(value: ActiveTimerSessionDto) -> Result<ActiveTimerSession, String> {
+    Ok(ActiveTimerSession {
+        session_id: parse_uuid(&value.session_id)?,
+        task_id: value.task_id.as_deref().map(parse_uuid).transpose()?,
+        mode: parse_timer_mode(value.mode),
+        phase: parse_timer_phase(value.phase),
+        state: parse_timer_run_state(value.state),
+        started_at: value.started_at.timestamp_millis(),
+        last_resumed_at: value.last_resumed_at.map(|time| time.timestamp_millis()),
+        accumulated_active_ms: value.accumulated_active_ms,
+        target_duration_ms: value.target_duration_ms,
+    })
+}
+
+fn parse_completed_timer(value: CompletedTimerSessionDto) -> Result<CompletedTimerSession, String> {
+    Ok(CompletedTimerSession {
+        id: parse_uuid(&value.id)?,
+        task_id: parse_uuid(&value.task_id)?,
+        mode: parse_timer_mode(value.mode),
+        finish_kind: parse_timer_finish_kind(value.finish_kind),
+        started_at: value.started_at.timestamp_millis(),
+        ended_at: value.ended_at.timestamp_millis(),
+        active_duration_ms: value.active_duration_ms,
+        created_at: value.created_at.timestamp_millis(),
+    })
+}
+
+fn active_timer_to_dto(value: ActiveTimerSession) -> ActiveTimerSessionDto {
+    ActiveTimerSessionDto {
+        session_id: value.session_id.to_string(),
+        task_id: value.task_id.map(|id| id.to_string()),
+        mode: timer_mode_to_dto(value.mode),
+        phase: timer_phase_to_dto(value.phase),
+        state: timer_run_state_to_dto(value.state),
+        started_at: millis_to_datetime(value.started_at),
+        last_resumed_at: value.last_resumed_at.map(millis_to_datetime),
+        accumulated_active_ms: value.accumulated_active_ms,
+        target_duration_ms: value.target_duration_ms,
+    }
+}
+
+fn completed_timer_to_dto(value: CompletedTimerSession) -> CompletedTimerSessionDto {
+    CompletedTimerSessionDto {
+        id: value.id.to_string(),
+        task_id: value.task_id.to_string(),
+        mode: timer_mode_to_dto(value.mode),
+        finish_kind: timer_finish_kind_to_dto(value.finish_kind),
+        started_at: millis_to_datetime(value.started_at),
+        ended_at: millis_to_datetime(value.ended_at),
+        active_duration_ms: value.active_duration_ms,
+        created_at: millis_to_datetime(value.created_at),
+    }
+}
+
+fn millis_to_datetime(value: i64) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_millis(value).expect("domain timer timestamps are validated")
+}
+
+fn parse_timer_mode(value: TimerModeDto) -> TimerMode {
+    match value {
+        TimerModeDto::Pomodoro => TimerMode::Pomodoro,
+        TimerModeDto::Stopwatch => TimerMode::Stopwatch,
+    }
+}
+
+fn timer_mode_to_dto(value: TimerMode) -> TimerModeDto {
+    match value {
+        TimerMode::Pomodoro => TimerModeDto::Pomodoro,
+        TimerMode::Stopwatch => TimerModeDto::Stopwatch,
+    }
+}
+
+fn parse_timer_phase(value: TimerPhaseDto) -> TimerPhase {
+    match value {
+        TimerPhaseDto::Work => TimerPhase::Work,
+        TimerPhaseDto::ShortBreak => TimerPhase::ShortBreak,
+        TimerPhaseDto::LongBreak => TimerPhase::LongBreak,
+    }
+}
+
+fn timer_phase_to_dto(value: TimerPhase) -> TimerPhaseDto {
+    match value {
+        TimerPhase::Work => TimerPhaseDto::Work,
+        TimerPhase::ShortBreak => TimerPhaseDto::ShortBreak,
+        TimerPhase::LongBreak => TimerPhaseDto::LongBreak,
+    }
+}
+
+fn parse_timer_run_state(value: TimerRunStateDto) -> TimerRunState {
+    match value {
+        TimerRunStateDto::Running => TimerRunState::Running,
+        TimerRunStateDto::Paused => TimerRunState::Paused,
+    }
+}
+
+fn timer_run_state_to_dto(value: TimerRunState) -> TimerRunStateDto {
+    match value {
+        TimerRunState::Running => TimerRunStateDto::Running,
+        TimerRunState::Paused => TimerRunStateDto::Paused,
+    }
+}
+
+fn parse_timer_finish_kind(value: TimerFinishKindDto) -> TimerFinishKind {
+    match value {
+        TimerFinishKindDto::Completed => TimerFinishKind::Completed,
+        TimerFinishKindDto::Interrupted => TimerFinishKind::Interrupted,
+    }
+}
+
+fn timer_finish_kind_to_dto(value: TimerFinishKind) -> TimerFinishKindDto {
+    match value {
+        TimerFinishKind::Completed => TimerFinishKindDto::Completed,
+        TimerFinishKind::Interrupted => TimerFinishKindDto::Interrupted,
+    }
+}
+
 fn task_undo_to_dto(entry: TaskUndoView) -> TaskUndoDto {
     TaskUndoDto {
         id: entry.id.to_string(),
@@ -733,6 +918,12 @@ mod tests {
         ) -> Result<TaskDto, String> = create_task;
         let _: fn(String, Option<String>, Option<String>) -> Result<TaskDto, String> = reorder_task;
         let _: fn(String) -> Result<Vec<TaskDto>, String> = get_tasks;
+        let _: fn() -> Result<Option<ActiveTimerSessionDto>, String> = get_active_timer_session;
+        let _: fn(ActiveTimerSessionDto) -> Result<(), String> = save_active_timer_session;
+        let _: fn() -> Result<bool, String> = discard_active_timer_session;
+        let _: fn(CompletedTimerSessionDto) -> Result<bool, String> = finish_active_timer_session;
+        let _: fn(String) -> Result<Vec<CompletedTimerSessionDto>, String> =
+            get_completed_timer_sessions;
         let _: fn(String) -> Result<Vec<TaskDto>, String> = search_tasks;
         let _: fn(i64, i64) -> Result<Vec<HomeTaskDto>, String> = get_home_tasks;
         let _: fn(CalendarRangeInput) -> Result<Vec<CalendarOccurrenceDto>, String> =

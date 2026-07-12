@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -118347175;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 412714176;
 
 // Section: executor
 
@@ -487,6 +487,71 @@ fn wire__crate__api__delete_task_impl(
         },
     )
 }
+fn wire__crate__api__discard_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "discard_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::discard_active_timer_session()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__finish_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "finish_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session = <crate::api::CompletedTimerSessionDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::finish_active_timer_session(api_session)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__get_account_session_state_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -513,6 +578,38 @@ fn wire__crate__api__get_account_session_state_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::get_account_session_state()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__get_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::get_active_timer_session()?;
                     Ok(output_ok)
                 })())
             }
@@ -578,6 +675,39 @@ fn wire__crate__api__get_calendar_occurrences_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::get_calendar_occurrences(api_range)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__get_completed_timer_sessions_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_completed_timer_sessions",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_task_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::get_completed_timer_sessions(api_task_id)?;
                     Ok(output_ok)
                 })())
             }
@@ -1117,6 +1247,39 @@ fn wire__crate__api__reorder_task_impl(
         },
     )
 }
+fn wire__crate__api__save_active_timer_session_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "save_active_timer_session",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_session = <crate::api::ActiveTimerSessionDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::save_active_timer_session(api_session)?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__search_tasks_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1524,6 +1687,33 @@ impl SseDecode for crate::api::AccountSessionStateDto {
     }
 }
 
+impl SseDecode for crate::api::ActiveTimerSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_sessionId = <String>::sse_decode(deserializer);
+        let mut var_taskId = <Option<String>>::sse_decode(deserializer);
+        let mut var_mode = <crate::api::TimerModeDto>::sse_decode(deserializer);
+        let mut var_phase = <crate::api::TimerPhaseDto>::sse_decode(deserializer);
+        let mut var_state = <crate::api::TimerRunStateDto>::sse_decode(deserializer);
+        let mut var_startedAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+        let mut var_lastResumedAt =
+            <Option<chrono::DateTime<chrono::Utc>>>::sse_decode(deserializer);
+        let mut var_accumulatedActiveMs = <i64>::sse_decode(deserializer);
+        let mut var_targetDurationMs = <Option<i64>>::sse_decode(deserializer);
+        return crate::api::ActiveTimerSessionDto {
+            session_id: var_sessionId,
+            task_id: var_taskId,
+            mode: var_mode,
+            phase: var_phase,
+            state: var_state,
+            started_at: var_startedAt,
+            last_resumed_at: var_lastResumedAt,
+            accumulated_active_ms: var_accumulatedActiveMs,
+            target_duration_ms: var_targetDurationMs,
+        };
+    }
+}
+
 impl SseDecode for bool {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1599,6 +1789,30 @@ impl SseDecode for crate::api::CalendarRangeInput {
     }
 }
 
+impl SseDecode for crate::api::CompletedTimerSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_taskId = <String>::sse_decode(deserializer);
+        let mut var_mode = <crate::api::TimerModeDto>::sse_decode(deserializer);
+        let mut var_finishKind = <crate::api::TimerFinishKindDto>::sse_decode(deserializer);
+        let mut var_startedAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+        let mut var_endedAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+        let mut var_activeDurationMs = <i64>::sse_decode(deserializer);
+        let mut var_createdAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+        return crate::api::CompletedTimerSessionDto {
+            id: var_id,
+            task_id: var_taskId,
+            mode: var_mode,
+            finish_kind: var_finishKind,
+            started_at: var_startedAt,
+            ended_at: var_endedAt,
+            active_duration_ms: var_activeDurationMs,
+            created_at: var_createdAt,
+        };
+    }
+}
+
 impl SseDecode for crate::api::HomeTaskDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1634,6 +1848,20 @@ impl SseDecode for Vec<crate::api::CalendarOccurrenceDto> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::api::CalendarOccurrenceDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::CompletedTimerSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::CompletedTimerSessionDto>::sse_decode(
                 deserializer,
             ));
         }
@@ -1734,6 +1962,30 @@ impl SseDecode for Option<String> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<chrono::DateTime<chrono::Utc>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<chrono::DateTime<chrono::Utc>>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::ActiveTimerSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::ActiveTimerSessionDto>::sse_decode(
+                deserializer,
+            ));
         } else {
             return None;
         }
@@ -1965,6 +2217,55 @@ impl SseDecode for crate::api::TaskUndoDto {
     }
 }
 
+impl SseDecode for crate::api::TimerFinishKindDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::TimerFinishKindDto::Completed,
+            1 => crate::api::TimerFinishKindDto::Interrupted,
+            _ => unreachable!("Invalid variant for TimerFinishKindDto: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::TimerModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::TimerModeDto::Pomodoro,
+            1 => crate::api::TimerModeDto::Stopwatch,
+            _ => unreachable!("Invalid variant for TimerModeDto: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::TimerPhaseDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::TimerPhaseDto::Work,
+            1 => crate::api::TimerPhaseDto::ShortBreak,
+            2 => crate::api::TimerPhaseDto::LongBreak,
+            _ => unreachable!("Invalid variant for TimerPhaseDto: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::TimerRunStateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::TimerRunStateDto::Running,
+            1 => crate::api::TimerRunStateDto::Paused,
+            _ => unreachable!("Invalid variant for TimerRunStateDto: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for u8 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1998,35 +2299,44 @@ fn pde_ffi_dispatcher_primary_impl(
         10 => wire__crate__api__create_task_impl(port, ptr, rust_vec_len, data_len),
         11 => wire__crate__api__delete_list_impl(port, ptr, rust_vec_len, data_len),
         12 => wire__crate__api__delete_task_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__api__get_account_session_state_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__get_archived_lists_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__get_calendar_occurrences_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__get_home_tasks_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__get_latest_task_undo_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__get_list_reminders_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__get_lists_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__get_local_time_zone_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
+        13 => {
+            wire__crate__api__discard_active_timer_session_impl(port, ptr, rust_vec_len, data_len)
+        }
+        14 => wire__crate__api__finish_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__get_account_session_state_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__get_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__get_archived_lists_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__get_calendar_occurrences_impl(port, ptr, rust_vec_len, data_len),
+        19 => {
+            wire__crate__api__get_completed_timer_sessions_impl(port, ptr, rust_vec_len, data_len)
+        }
+        20 => wire__crate__api__get_home_tasks_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__get_latest_task_undo_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__get_list_reminders_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__get_lists_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__get_local_time_zone_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__save_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2087,6 +2397,34 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::AccountSessionStateDto>
     for crate::api::AccountSessionStateDto
 {
     fn into_into_dart(self) -> crate::api::AccountSessionStateDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::ActiveTimerSessionDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.session_id.into_into_dart().into_dart(),
+            self.task_id.into_into_dart().into_dart(),
+            self.mode.into_into_dart().into_dart(),
+            self.phase.into_into_dart().into_dart(),
+            self.state.into_into_dart().into_dart(),
+            self.started_at.into_into_dart().into_dart(),
+            self.last_resumed_at.into_into_dart().into_dart(),
+            self.accumulated_active_ms.into_into_dart().into_dart(),
+            self.target_duration_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::ActiveTimerSessionDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::ActiveTimerSessionDto>
+    for crate::api::ActiveTimerSessionDto
+{
+    fn into_into_dart(self) -> crate::api::ActiveTimerSessionDto {
         self
     }
 }
@@ -2169,6 +2507,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::CalendarRangeInput>
     for crate::api::CalendarRangeInput
 {
     fn into_into_dart(self) -> crate::api::CalendarRangeInput {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::CompletedTimerSessionDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.task_id.into_into_dart().into_dart(),
+            self.mode.into_into_dart().into_dart(),
+            self.finish_kind.into_into_dart().into_dart(),
+            self.started_at.into_into_dart().into_dart(),
+            self.ended_at.into_into_dart().into_dart(),
+            self.active_duration_ms.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::CompletedTimerSessionDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::CompletedTimerSessionDto>
+    for crate::api::CompletedTimerSessionDto
+{
+    fn into_into_dart(self) -> crate::api::CompletedTimerSessionDto {
         self
     }
 }
@@ -2368,6 +2733,78 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::TaskUndoDto> for crate::api::
         self
     }
 }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TimerFinishKindDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Completed => 0.into_dart(),
+            Self::Interrupted => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::TimerFinishKindDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TimerFinishKindDto>
+    for crate::api::TimerFinishKindDto
+{
+    fn into_into_dart(self) -> crate::api::TimerFinishKindDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TimerModeDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Pomodoro => 0.into_dart(),
+            Self::Stopwatch => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TimerModeDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TimerModeDto> for crate::api::TimerModeDto {
+    fn into_into_dart(self) -> crate::api::TimerModeDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TimerPhaseDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Work => 0.into_dart(),
+            Self::ShortBreak => 1.into_dart(),
+            Self::LongBreak => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TimerPhaseDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TimerPhaseDto> for crate::api::TimerPhaseDto {
+    fn into_into_dart(self) -> crate::api::TimerPhaseDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::TimerRunStateDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Running => 0.into_dart(),
+            Self::Paused => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::TimerRunStateDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::TimerRunStateDto>
+    for crate::api::TimerRunStateDto
+{
+    fn into_into_dart(self) -> crate::api::TimerRunStateDto {
+        self
+    }
+}
 
 impl SseEncode for chrono::DateTime<chrono::Utc> {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2399,6 +2836,21 @@ impl SseEncode for crate::api::AccountSessionStateDto {
         <Option<String>>::sse_encode(self.user_id, serializer);
         <Option<String>>::sse_encode(self.tenant_id, serializer);
         <Option<String>>::sse_encode(self.device_id, serializer);
+    }
+}
+
+impl SseEncode for crate::api::ActiveTimerSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.session_id, serializer);
+        <Option<String>>::sse_encode(self.task_id, serializer);
+        <crate::api::TimerModeDto>::sse_encode(self.mode, serializer);
+        <crate::api::TimerPhaseDto>::sse_encode(self.phase, serializer);
+        <crate::api::TimerRunStateDto>::sse_encode(self.state, serializer);
+        <chrono::DateTime<chrono::Utc>>::sse_encode(self.started_at, serializer);
+        <Option<chrono::DateTime<chrono::Utc>>>::sse_encode(self.last_resumed_at, serializer);
+        <i64>::sse_encode(self.accumulated_active_ms, serializer);
+        <Option<i64>>::sse_encode(self.target_duration_ms, serializer);
     }
 }
 
@@ -2457,6 +2909,20 @@ impl SseEncode for crate::api::CalendarRangeInput {
     }
 }
 
+impl SseEncode for crate::api::CompletedTimerSessionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.task_id, serializer);
+        <crate::api::TimerModeDto>::sse_encode(self.mode, serializer);
+        <crate::api::TimerFinishKindDto>::sse_encode(self.finish_kind, serializer);
+        <chrono::DateTime<chrono::Utc>>::sse_encode(self.started_at, serializer);
+        <chrono::DateTime<chrono::Utc>>::sse_encode(self.ended_at, serializer);
+        <i64>::sse_encode(self.active_duration_ms, serializer);
+        <chrono::DateTime<chrono::Utc>>::sse_encode(self.created_at, serializer);
+    }
+}
+
 impl SseEncode for crate::api::HomeTaskDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2486,6 +2952,16 @@ impl SseEncode for Vec<crate::api::CalendarOccurrenceDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::CalendarOccurrenceDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::CompletedTimerSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::CompletedTimerSessionDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -2562,6 +3038,26 @@ impl SseEncode for Option<String> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<chrono::DateTime<chrono::Utc>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <chrono::DateTime<chrono::Utc>>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::ActiveTimerSessionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::ActiveTimerSessionDto>::sse_encode(value, serializer);
         }
     }
 }
@@ -2722,6 +3218,71 @@ impl SseEncode for crate::api::TaskUndoDto {
         <String>::sse_encode(self.list_id, serializer);
         <String>::sse_encode(self.task_title, serializer);
         <i64>::sse_encode(self.created_at, serializer);
+    }
+}
+
+impl SseEncode for crate::api::TimerFinishKindDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::TimerFinishKindDto::Completed => 0,
+                crate::api::TimerFinishKindDto::Interrupted => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::TimerModeDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::TimerModeDto::Pomodoro => 0,
+                crate::api::TimerModeDto::Stopwatch => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::TimerPhaseDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::TimerPhaseDto::Work => 0,
+                crate::api::TimerPhaseDto::ShortBreak => 1,
+                crate::api::TimerPhaseDto::LongBreak => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::TimerRunStateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::TimerRunStateDto::Running => 0,
+                crate::api::TimerRunStateDto::Paused => 1,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
     }
 }
 

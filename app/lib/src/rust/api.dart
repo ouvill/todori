@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `parse_status`, `parse_task_due`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -129,6 +129,23 @@ Future<TaskDto> reorderTask({
 
 Future<List<TaskDto>> getTasks({required String listId}) =>
     RustLib.instance.api.crateApiGetTasks(listId: listId);
+
+Future<ActiveTimerSessionDto?> getActiveTimerSession() =>
+    RustLib.instance.api.crateApiGetActiveTimerSession();
+
+Future<void> saveActiveTimerSession({required ActiveTimerSessionDto session}) =>
+    RustLib.instance.api.crateApiSaveActiveTimerSession(session: session);
+
+Future<bool> discardActiveTimerSession() =>
+    RustLib.instance.api.crateApiDiscardActiveTimerSession();
+
+Future<bool> finishActiveTimerSession({
+  required CompletedTimerSessionDto session,
+}) => RustLib.instance.api.crateApiFinishActiveTimerSession(session: session);
+
+Future<List<CompletedTimerSessionDto>> getCompletedTimerSessions({
+  required String taskId,
+}) => RustLib.instance.api.crateApiGetCompletedTimerSessions(taskId: taskId);
 
 Future<List<TaskDto>> searchTasks({required String query}) =>
     RustLib.instance.api.crateApiSearchTasks(query: query);
@@ -282,6 +299,57 @@ class AccountSessionStateDto {
           deviceId == other.deviceId;
 }
 
+class ActiveTimerSessionDto {
+  final String sessionId;
+  final String? taskId;
+  final TimerModeDto mode;
+  final TimerPhaseDto phase;
+  final TimerRunStateDto state;
+  final DateTime startedAt;
+  final DateTime? lastResumedAt;
+  final PlatformInt64 accumulatedActiveMs;
+  final PlatformInt64? targetDurationMs;
+
+  const ActiveTimerSessionDto({
+    required this.sessionId,
+    this.taskId,
+    required this.mode,
+    required this.phase,
+    required this.state,
+    required this.startedAt,
+    this.lastResumedAt,
+    required this.accumulatedActiveMs,
+    this.targetDurationMs,
+  });
+
+  @override
+  int get hashCode =>
+      sessionId.hashCode ^
+      taskId.hashCode ^
+      mode.hashCode ^
+      phase.hashCode ^
+      state.hashCode ^
+      startedAt.hashCode ^
+      lastResumedAt.hashCode ^
+      accumulatedActiveMs.hashCode ^
+      targetDurationMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ActiveTimerSessionDto &&
+          runtimeType == other.runtimeType &&
+          sessionId == other.sessionId &&
+          taskId == other.taskId &&
+          mode == other.mode &&
+          phase == other.phase &&
+          state == other.state &&
+          startedAt == other.startedAt &&
+          lastResumedAt == other.lastResumedAt &&
+          accumulatedActiveMs == other.accumulatedActiveMs &&
+          targetDurationMs == other.targetDurationMs;
+}
+
 class CalendarOccurrenceDto {
   final TaskDto task;
   final String listName;
@@ -354,6 +422,53 @@ class CalendarRangeInput {
           endOn == other.endOn &&
           startAt == other.startAt &&
           endAt == other.endAt;
+}
+
+class CompletedTimerSessionDto {
+  final String id;
+  final String taskId;
+  final TimerModeDto mode;
+  final TimerFinishKindDto finishKind;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final PlatformInt64 activeDurationMs;
+  final DateTime createdAt;
+
+  const CompletedTimerSessionDto({
+    required this.id,
+    required this.taskId,
+    required this.mode,
+    required this.finishKind,
+    required this.startedAt,
+    required this.endedAt,
+    required this.activeDurationMs,
+    required this.createdAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      taskId.hashCode ^
+      mode.hashCode ^
+      finishKind.hashCode ^
+      startedAt.hashCode ^
+      endedAt.hashCode ^
+      activeDurationMs.hashCode ^
+      createdAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CompletedTimerSessionDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          taskId == other.taskId &&
+          mode == other.mode &&
+          finishKind == other.finishKind &&
+          startedAt == other.startedAt &&
+          endedAt == other.endedAt &&
+          activeDurationMs == other.activeDurationMs &&
+          createdAt == other.createdAt;
 }
 
 class HomeTaskDto {
@@ -696,3 +811,11 @@ class TaskUndoDto {
           taskTitle == other.taskTitle &&
           createdAt == other.createdAt;
 }
+
+enum TimerFinishKindDto { completed, interrupted }
+
+enum TimerModeDto { pomodoro, stopwatch }
+
+enum TimerPhaseDto { work, shortBreak, longBreak }
+
+enum TimerRunStateDto { running, paused }

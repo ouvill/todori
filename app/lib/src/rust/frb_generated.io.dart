@@ -31,10 +31,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AccountSessionStateDto dco_decode_account_session_state_dto(dynamic raw);
 
   @protected
+  ActiveTimerSessionDto dco_decode_active_timer_session_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  DateTime dco_decode_box_autoadd_Chrono_Utc(dynamic raw);
+
+  @protected
+  ActiveTimerSessionDto dco_decode_box_autoadd_active_timer_session_dto(
+    dynamic raw,
+  );
+
+  @protected
   CalendarRangeInput dco_decode_box_autoadd_calendar_range_input(dynamic raw);
+
+  @protected
+  CompletedTimerSessionDto dco_decode_box_autoadd_completed_timer_session_dto(
+    dynamic raw,
+  );
 
   @protected
   int dco_decode_box_autoadd_i_32(dynamic raw);
@@ -63,6 +79,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CalendarRangeInput dco_decode_calendar_range_input(dynamic raw);
 
   @protected
+  CompletedTimerSessionDto dco_decode_completed_timer_session_dto(dynamic raw);
+
+  @protected
   HomeTaskDto dco_decode_home_task_dto(dynamic raw);
 
   @protected
@@ -73,6 +92,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CalendarOccurrenceDto> dco_decode_list_calendar_occurrence_dto(
+    dynamic raw,
+  );
+
+  @protected
+  List<CompletedTimerSessionDto> dco_decode_list_completed_timer_session_dto(
     dynamic raw,
   );
 
@@ -96,6 +120,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  DateTime? dco_decode_opt_box_autoadd_Chrono_Utc(dynamic raw);
+
+  @protected
+  ActiveTimerSessionDto? dco_decode_opt_box_autoadd_active_timer_session_dto(
+    dynamic raw,
+  );
 
   @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
@@ -131,6 +163,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto dco_decode_task_undo_dto(dynamic raw);
 
   @protected
+  TimerFinishKindDto dco_decode_timer_finish_kind_dto(dynamic raw);
+
+  @protected
+  TimerModeDto dco_decode_timer_mode_dto(dynamic raw);
+
+  @protected
+  TimerPhaseDto dco_decode_timer_phase_dto(dynamic raw);
+
+  @protected
+  TimerRunStateDto dco_decode_timer_run_state_dto(dynamic raw);
+
+  @protected
   int dco_decode_u_8(dynamic raw);
 
   @protected
@@ -153,10 +197,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ActiveTimerSessionDto sse_decode_active_timer_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  DateTime sse_decode_box_autoadd_Chrono_Utc(SseDeserializer deserializer);
+
+  @protected
+  ActiveTimerSessionDto sse_decode_box_autoadd_active_timer_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   CalendarRangeInput sse_decode_box_autoadd_calendar_range_input(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CompletedTimerSessionDto sse_decode_box_autoadd_completed_timer_session_dto(
     SseDeserializer deserializer,
   );
 
@@ -195,6 +257,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CompletedTimerSessionDto sse_decode_completed_timer_session_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   HomeTaskDto sse_decode_home_task_dto(SseDeserializer deserializer);
 
   @protected
@@ -205,6 +272,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CalendarOccurrenceDto> sse_decode_list_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<CompletedTimerSessionDto> sse_decode_list_completed_timer_session_dto(
     SseDeserializer deserializer,
   );
 
@@ -228,6 +300,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  DateTime? sse_decode_opt_box_autoadd_Chrono_Utc(SseDeserializer deserializer);
+
+  @protected
+  ActiveTimerSessionDto? sse_decode_opt_box_autoadd_active_timer_session_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
@@ -269,6 +349,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto sse_decode_task_undo_dto(SseDeserializer deserializer);
 
   @protected
+  TimerFinishKindDto sse_decode_timer_finish_kind_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  TimerModeDto sse_decode_timer_mode_dto(SseDeserializer deserializer);
+
+  @protected
+  TimerPhaseDto sse_decode_timer_phase_dto(SseDeserializer deserializer);
+
+  @protected
+  TimerRunStateDto sse_decode_timer_run_state_dto(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer);
 
   @protected
@@ -293,11 +387,35 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_active_timer_session_dto(
+    ActiveTimerSessionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_Chrono_Utc(
+    DateTime self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_active_timer_session_dto(
+    ActiveTimerSessionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_calendar_range_input(
     CalendarRangeInput self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_completed_timer_session_dto(
+    CompletedTimerSessionDto self,
     SseSerializer serializer,
   );
 
@@ -347,6 +465,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_completed_timer_session_dto(
+    CompletedTimerSessionDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_home_task_dto(HomeTaskDto self, SseSerializer serializer);
 
   @protected
@@ -358,6 +482,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_calendar_occurrence_dto(
     List<CalendarOccurrenceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_completed_timer_session_dto(
+    List<CompletedTimerSessionDto> self,
     SseSerializer serializer,
   );
 
@@ -390,6 +520,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_Chrono_Utc(
+    DateTime? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_active_timer_session_dto(
+    ActiveTimerSessionDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
@@ -435,6 +577,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_task_undo_dto(TaskUndoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_timer_finish_kind_dto(
+    TimerFinishKindDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_timer_mode_dto(TimerModeDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_timer_phase_dto(TimerPhaseDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_timer_run_state_dto(
+    TimerRunStateDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
