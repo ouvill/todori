@@ -140,6 +140,49 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeSmartListTooltip => 'Open Home';
 
   @override
+  String get openSearchTooltip => 'Search tasks';
+
+  @override
+  String get searchFieldHint => 'Search tasks and notes';
+
+  @override
+  String get searchFieldSemantics => 'Search tasks and notes';
+
+  @override
+  String get clearSearchTooltip => 'Clear search';
+
+  @override
+  String get searchEmptyTitle => 'Find what you need.';
+
+  @override
+  String get searchEmptyBody =>
+      'Search task titles and notes across every list.';
+
+  @override
+  String get searchNoResultsTitle => 'Nothing found.';
+
+  @override
+  String searchNoResultsBody(String query) {
+    return 'No tasks match “$query”.';
+  }
+
+  @override
+  String get searchFailed => 'Search could not be completed.';
+
+  @override
+  String get searchLoadingSemantics => 'Searching tasks';
+
+  @override
+  String searchArchivedListLabel(String listName) {
+    return '$listName · Archived';
+  }
+
+  @override
+  String searchResultSemantics(String title, String listName, String status) {
+    return '$title, $listName, $status';
+  }
+
+  @override
   String showHomeSectionTooltip(String section) {
     return 'Show $section tasks';
   }

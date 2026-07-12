@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:todori/src/screens/account_screen.dart';
 import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
+import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
 import 'package:todori/src/ui/app_navigation_shell.dart';
@@ -64,6 +65,25 @@ GoRouter buildAppRouter() {
                 ],
               ),
             ],
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/search',
+        name: 'search',
+        pageBuilder: (context, state) =>
+            _detailPage(state: state, child: const SearchScreen()),
+        routes: [
+          GoRoute(
+            path: 'tasks/:listId/:taskId',
+            name: 'searchTaskDetail',
+            pageBuilder: (context, state) => _detailPage(
+              state: state,
+              child: TaskDetailScreen(
+                listId: state.pathParameters['listId']!,
+                taskId: state.pathParameters['taskId']!,
+              ),
+            ),
           ),
         ],
       ),

@@ -140,6 +140,48 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeSmartListTooltip => 'ホームを開く';
 
   @override
+  String get openSearchTooltip => 'タスクを検索';
+
+  @override
+  String get searchFieldHint => 'タスクとノートを検索';
+
+  @override
+  String get searchFieldSemantics => 'タスクとノートを検索';
+
+  @override
+  String get clearSearchTooltip => '検索をクリア';
+
+  @override
+  String get searchEmptyTitle => '必要なものを探す。';
+
+  @override
+  String get searchEmptyBody => 'すべてのリストからタスクのタイトルとノートを検索できます。';
+
+  @override
+  String get searchNoResultsTitle => '見つかりませんでした。';
+
+  @override
+  String searchNoResultsBody(String query) {
+    return '「$query」に一致するタスクはありません。';
+  }
+
+  @override
+  String get searchFailed => '検索できませんでした。';
+
+  @override
+  String get searchLoadingSemantics => 'タスクを検索中';
+
+  @override
+  String searchArchivedListLabel(String listName) {
+    return '$listName · アーカイブ済み';
+  }
+
+  @override
+  String searchResultSemantics(String title, String listName, String status) {
+    return '$title、$listName、$status';
+  }
+
+  @override
   String showHomeSectionTooltip(String section) {
     return '$sectionのタスクを表示';
   }

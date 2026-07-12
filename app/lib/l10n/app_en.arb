@@ -75,6 +75,35 @@
   "hideCompletedTasksTooltip": "Hide closed tasks",
   "homeListMenuTooltip": "Open lists",
   "homeSmartListTooltip": "Open Home",
+  "openSearchTooltip": "Search tasks",
+  "searchFieldHint": "Search tasks and notes",
+  "searchFieldSemantics": "Search tasks and notes",
+  "clearSearchTooltip": "Clear search",
+  "searchEmptyTitle": "Find what you need.",
+  "searchEmptyBody": "Search task titles and notes across every list.",
+  "searchNoResultsTitle": "Nothing found.",
+  "searchNoResultsBody": "No tasks match “{query}”.",
+  "@searchNoResultsBody": {
+    "placeholders": {
+      "query": { "type": "String" }
+    }
+  },
+  "searchFailed": "Search could not be completed.",
+  "searchLoadingSemantics": "Searching tasks",
+  "searchArchivedListLabel": "{listName} · Archived",
+  "@searchArchivedListLabel": {
+    "placeholders": {
+      "listName": { "type": "String" }
+    }
+  },
+  "searchResultSemantics": "{title}, {listName}, {status}",
+  "@searchResultSemantics": {
+    "placeholders": {
+      "title": { "type": "String" },
+      "listName": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
   "showHomeSectionTooltip": "Show {section} tasks",
   "@showHomeSectionTooltip": {
     "placeholders": {

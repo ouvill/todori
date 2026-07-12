@@ -11,6 +11,7 @@ import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
@@ -106,6 +107,7 @@ class TasksScreen extends ConsumerWidget {
           : AppBar(
               title: Text(l10n.tasksTitle),
               actions: [
+                const AppHeaderSearchAction(),
                 ?listActionsMenu,
                 sortMenu,
                 const SizedBox(width: AppSpacing.sm),
@@ -1528,6 +1530,7 @@ class _HomeTasksHeader extends StatelessWidget {
               listActionsMenu!,
               const SizedBox(width: AppSpacing.xs),
             ],
+            const AppHeaderSearchAction(),
             Padding(padding: const EdgeInsets.only(bottom: 1), child: sortMenu),
           ],
         ),

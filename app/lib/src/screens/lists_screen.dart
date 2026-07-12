@@ -6,6 +6,7 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -102,13 +103,20 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
             AppSpacing.xl,
           ),
           children: [
-            Text(
-              l10n.listsTitle,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: colorScheme.onSurface,
-                fontSize: 28,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.listsTitle,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const AppHeaderSearchAction(),
+              ],
             ),
             const SizedBox(height: AppSpacing.lg),
             Column(

@@ -5,6 +5,7 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/states.dart';
+import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/theme.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
@@ -62,13 +63,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   AppSpacing.xl,
                 ),
                 children: [
-                  Text(
-                    l10n.accountTitle,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.accountTitle,
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                      const AppHeaderSearchAction(),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   if (account.loggedIn)

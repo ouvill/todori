@@ -338,6 +338,78 @@ abstract class AppLocalizations {
   /// **'Open Home'**
   String get homeSmartListTooltip;
 
+  /// No description provided for @openSearchTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks'**
+  String get openSearchTooltip;
+
+  /// No description provided for @searchFieldHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks and notes'**
+  String get searchFieldHint;
+
+  /// No description provided for @searchFieldSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks and notes'**
+  String get searchFieldSemantics;
+
+  /// No description provided for @clearSearchTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get clearSearchTooltip;
+
+  /// No description provided for @searchEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find what you need.'**
+  String get searchEmptyTitle;
+
+  /// No description provided for @searchEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Search task titles and notes across every list.'**
+  String get searchEmptyBody;
+
+  /// No description provided for @searchNoResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing found.'**
+  String get searchNoResultsTitle;
+
+  /// No description provided for @searchNoResultsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'No tasks match “{query}”.'**
+  String searchNoResultsBody(String query);
+
+  /// No description provided for @searchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Search could not be completed.'**
+  String get searchFailed;
+
+  /// No description provided for @searchLoadingSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching tasks'**
+  String get searchLoadingSemantics;
+
+  /// No description provided for @searchArchivedListLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{listName} · Archived'**
+  String searchArchivedListLabel(String listName);
+
+  /// No description provided for @searchResultSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, {listName}, {status}'**
+  String searchResultSemantics(String title, String listName, String status);
+
   /// No description provided for @showHomeSectionTooltip.
   ///
   /// In en, this message translates to:

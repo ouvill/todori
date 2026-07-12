@@ -11,6 +11,7 @@
 //
 // Usage: `sh tool/visual_qa.sh` from `app/`, or directly:
 //   TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -18,11 +19,15 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/rust/api.dart' show TaskDto;
+import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -166,6 +171,109 @@ void main() {
     _useTextScale(tester, 2.0);
     await _seedRealisticData(tester);
     await _screenshot(tester, 'home_tasks_text_scale_2');
+  });
+
+  testWidgets('search_empty: immersive empty-query state', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpSearchVisual(tester, await _searchVisualData());
+    await _screenshot(tester, 'search_empty');
+  });
+
+  testWidgets('search_loading: quiet in-progress state', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _PendingVisualSearchBridge();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpSearchVisual(tester, fake, query: 'review', settle: false);
+    await tester.pump(const Duration(milliseconds: 80));
+    await _screenshotCurrentFrame(tester, 'search_loading');
+  });
+
+  testWidgets('search_results: active results with title and note', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
+    await _screenshot(tester, 'search_results');
+  });
+
+  testWidgets('search_zero: explicit no-result state', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpSearchVisual(
+      tester,
+      await _searchVisualData(),
+      query: 'unfindable',
+    );
+    await _screenshot(tester, 'search_zero');
+  });
+
+  testWidgets('search_error: recoverable search failure', (tester) async {
+    _setMobileViewport(tester);
+    final fake = _ErrorVisualSearchBridge();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpSearchVisual(tester, fake, query: 'review');
+    await _screenshot(tester, 'search_error');
+  });
+
+  testWidgets('search_archived_closed: archived list and closed statuses', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpSearchVisual(
+      tester,
+      await _searchVisualData(),
+      query: 'archive',
+    );
+    await _screenshot(tester, 'search_archived_closed');
+  });
+
+  testWidgets('search_narrow_320: results at 320px', (tester) async {
+    _setNarrowViewport(tester);
+    await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
+    await _screenshot(tester, 'search_narrow_320');
+  });
+
+  testWidgets('search_text_scale_2: results at Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _pumpSearchVisual(tester, await _searchVisualData(), query: 'review');
+    await _screenshot(tester, 'search_text_scale_2');
+  });
+
+  testWidgets('search_ja: localized result context', (tester) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    await _pumpSearchVisual(tester, await _searchVisualData(), query: 'レビュー');
+    await _screenshot(tester, 'search_ja');
+  });
+
+  testWidgets('search_rtl: directional padding and actions mirror', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final fake = await _searchVisualData();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          taskSearchDebounceDurationProvider.overrideWithValue(Duration.zero),
+        ],
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTodoriTheme(Brightness.light),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: const SearchScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'review');
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'search_rtl');
   });
 
   testWidgets('quick_add_home_normal: Home quick add bar', (tester) async {
@@ -1098,6 +1206,81 @@ Future<_SeedData> _seedRealisticData(WidgetTester tester) async {
 int _todayStartMs() {
   final now = DateTime.now();
   return DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+}
+
+Future<FakeBridgeService> _searchVisualData() async {
+  final fake = FakeBridgeService();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final archive = await fake.createList(name: 'Archive', sortOrder: 'a1');
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'Review the release outline',
+    note: 'Keep the launch sequence calm and concise.',
+    priority: 3,
+  );
+  await fake.createTask(
+    listId: inbox.id,
+    title: 'レビューのフィードバックを反映する',
+    note: '次のリリースに向けて要点を整理。',
+    priority: 2,
+  );
+  final done = await fake.createTask(
+    listId: archive.id,
+    title: 'Archive review decisions',
+    note: 'Final notes from the completed review.',
+  );
+  final skipped = await fake.createTask(
+    listId: archive.id,
+    title: 'Archive review alternative',
+  );
+  await fake.setTaskStatus(taskId: done.id, status: 'done');
+  await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
+  await fake.archiveList(listId: archive.id);
+  return fake;
+}
+
+Future<void> _pumpSearchVisual(
+  WidgetTester tester,
+  FakeBridgeService fake, {
+  String? query,
+  bool settle = true,
+}) async {
+  await tester.pumpWidget(
+    TodoriApp(
+      overrides: [
+        bridgeServiceProvider.overrideWithValue(fake),
+        taskSearchDebounceDurationProvider.overrideWithValue(Duration.zero),
+      ],
+    ),
+  );
+  await tester.pumpAndSettle();
+  final englishSearch = find.byTooltip('Search tasks');
+  final searchAction = englishSearch.evaluate().isNotEmpty
+      ? englishSearch
+      : find.byTooltip('タスクを検索');
+  await tester.tap(searchAction);
+  await tester.pumpAndSettle();
+  if (query != null) {
+    await tester.enterText(find.byType(TextField), query);
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
+  }
+}
+
+class _PendingVisualSearchBridge extends FakeBridgeService {
+  final Completer<List<TaskDto>> _pending = Completer<List<TaskDto>>();
+
+  @override
+  Future<List<TaskDto>> searchTasks({required String query}) => _pending.future;
+}
+
+class _ErrorVisualSearchBridge extends FakeBridgeService {
+  @override
+  Future<List<TaskDto>> searchTasks({required String query}) =>
+      Future<List<TaskDto>>.error(StateError('visual search failure'));
 }
 
 Future<void> _seedArchivedListData(WidgetTester tester) async {
