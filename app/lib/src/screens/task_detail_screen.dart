@@ -38,7 +38,9 @@ class TaskDetailScreen extends ConsumerWidget {
     final tasksAsync = ref.watch(tasksProvider(listId));
 
     return Scaffold(
+      backgroundColor: AppColors.canvas,
       appBar: AppBar(
+        backgroundColor: AppColors.canvas,
         title: const SizedBox.shrink(),
         actions: [
           detailAsync.maybeWhen(
