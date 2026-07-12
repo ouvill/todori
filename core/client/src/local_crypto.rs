@@ -328,6 +328,8 @@ mod tests {
                     note: String::new(),
                     priority: 0,
                     due: None,
+                    scheduled_at: None,
+                    estimated_minutes: None,
                     now_ms: NOW + 1,
                 },
                 &context.mutation_context(),

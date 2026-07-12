@@ -253,6 +253,9 @@ pub fn create_task(
     parent_task_id: Option<String>,
     due: Option<TaskDueInput>,
     note: Option<String>,
+    priority: Option<i32>,
+    scheduled_at: Option<i64>,
+    estimated_minutes: Option<i32>,
 ) -> Result<TaskDto, String> {
     let command = CreateTaskCommand {
         list_id: parse_uuid(&list_id)?,
@@ -260,6 +263,9 @@ pub fn create_task(
         parent_task_id: parent_task_id.as_deref().map(parse_uuid).transpose()?,
         due: due.map(parse_task_due).transpose()?,
         note,
+        priority: priority.unwrap_or(0),
+        scheduled_at,
+        estimated_minutes,
     };
     client_result(client()?.create_task(command)).map(task_to_dto)
 }
@@ -312,6 +318,8 @@ pub fn update_task(
     note: String,
     priority: i32,
     due: Option<TaskDueInput>,
+    scheduled_at: Option<i64>,
+    estimated_minutes: Option<i32>,
 ) -> Result<TaskDto, String> {
     let command = UpdateTaskCommand {
         task_id: parse_uuid(&task_id)?,
@@ -319,6 +327,8 @@ pub fn update_task(
         note,
         priority,
         due: due.map(parse_task_due).transpose()?,
+        scheduled_at,
+        estimated_minutes,
     };
     client_result(client()?.update_task(command)).map(task_to_dto)
 }

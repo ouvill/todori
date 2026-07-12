@@ -448,7 +448,17 @@ class FakeBridgeService implements BridgeService {
     String? parentTaskId,
     Object? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) async {
+    if (priority < 0 || priority > 3) {
+      throw Exception('task priority must be between 0 and 3');
+    }
+    if (estimatedMinutes != null &&
+        (estimatedMinutes <= 0 || estimatedMinutes % 5 != 0)) {
+      throw Exception('estimated minutes must be a positive multiple of 5');
+    }
     final taskSeq = _taskSeq++;
     final siblings =
         _tasks
@@ -469,8 +479,10 @@ class FakeBridgeService implements BridgeService {
       title: title,
       note: note,
       status: 'todo',
-      priority: 0,
+      priority: priority,
       due: _normalizeFakeDue(due),
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
       sortOrder: sortOrder,
       createdAt: _fakeTimestamp(100 + taskSeq),
       updatedAt: _fakeTimestamp(100 + taskSeq),
@@ -592,12 +604,18 @@ class FakeBridgeService implements BridgeService {
     required String note,
     required int priority,
     Object? due,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) async {
     if (title.trim().isEmpty) {
       throw Exception('task title must not be empty');
     }
     if (priority < 0 || priority > 3) {
       throw Exception('task priority must be between 0 and 3');
+    }
+    if (estimatedMinutes != null &&
+        (estimatedMinutes <= 0 || estimatedMinutes % 5 != 0)) {
+      throw Exception('estimated minutes must be a positive multiple of 5');
     }
     final index = _tasks.indexWhere((task) => task.id == taskId);
     final task = _tasks[index];
@@ -611,8 +629,8 @@ class FakeBridgeService implements BridgeService {
       status: task.status,
       priority: priority,
       due: _normalizeFakeDue(due),
-      scheduledAt: task.scheduledAt,
-      estimatedMinutes: task.estimatedMinutes,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
       sortOrder: task.sortOrder,
       completedAt: task.completedAt,
       closedReason: task.closedReason,

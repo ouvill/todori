@@ -80,6 +80,9 @@ class _SlowCreateFakeBridgeService extends FakeBridgeService {
     String? parentTaskId,
     Object? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) async {
     final completer = Completer<void>();
     _pendingCreates.add(completer);
@@ -90,6 +93,9 @@ class _SlowCreateFakeBridgeService extends FakeBridgeService {
       parentTaskId: parentTaskId,
       due: due,
       note: note,
+      priority: priority,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
   }
 

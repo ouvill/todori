@@ -399,6 +399,9 @@ fn wire__crate__api__create_task_impl(
             let api_parent_task_id = <Option<String>>::sse_decode(&mut deserializer);
             let api_due = <Option<crate::api::TaskDueInput>>::sse_decode(&mut deserializer);
             let api_note = <Option<String>>::sse_decode(&mut deserializer);
+            let api_priority = <Option<i32>>::sse_decode(&mut deserializer);
+            let api_scheduled_at = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_estimated_minutes = <Option<i32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -408,6 +411,9 @@ fn wire__crate__api__create_task_impl(
                         api_parent_task_id,
                         api_due,
                         api_note,
+                        api_priority,
+                        api_scheduled_at,
+                        api_estimated_minutes,
                     )?;
                     Ok(output_ok)
                 })())
@@ -1411,6 +1417,8 @@ fn wire__crate__api__update_task_impl(
             let api_note = <String>::sse_decode(&mut deserializer);
             let api_priority = <i32>::sse_decode(&mut deserializer);
             let api_due = <Option<crate::api::TaskDueInput>>::sse_decode(&mut deserializer);
+            let api_scheduled_at = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_estimated_minutes = <Option<i32>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -1420,6 +1428,8 @@ fn wire__crate__api__update_task_impl(
                         api_note,
                         api_priority,
                         api_due,
+                        api_scheduled_at,
+                        api_estimated_minutes,
                     )?;
                     Ok(output_ok)
                 })())

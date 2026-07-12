@@ -103,12 +103,18 @@ Future<TaskDto> createTask({
   String? parentTaskId,
   TaskDueInput? due,
   String? note,
+  int? priority,
+  PlatformInt64? scheduledAt,
+  int? estimatedMinutes,
 }) => RustLib.instance.api.crateApiCreateTask(
   listId: listId,
   title: title,
   parentTaskId: parentTaskId,
   due: due,
   note: note,
+  priority: priority,
+  scheduledAt: scheduledAt,
+  estimatedMinutes: estimatedMinutes,
 );
 
 Future<TaskDto> reorderTask({
@@ -147,12 +153,16 @@ Future<TaskDto> updateTask({
   required String note,
   required int priority,
   TaskDueInput? due,
+  PlatformInt64? scheduledAt,
+  int? estimatedMinutes,
 }) => RustLib.instance.api.crateApiUpdateTask(
   taskId: taskId,
   title: title,
   note: note,
   priority: priority,
   due: due,
+  scheduledAt: scheduledAt,
+  estimatedMinutes: estimatedMinutes,
 );
 
 Future<TaskDto> setTaskStatus({

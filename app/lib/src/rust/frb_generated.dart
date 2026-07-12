@@ -115,6 +115,9 @@ abstract class RustLibApi extends BaseApi {
     String? parentTaskId,
     TaskDueInput? due,
     String? note,
+    int? priority,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   });
 
   Future<void> crateApiDeleteList({required String listId});
@@ -208,6 +211,8 @@ abstract class RustLibApi extends BaseApi {
     required String note,
     required int priority,
     TaskDueInput? due,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   });
 }
 
@@ -512,6 +517,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     String? parentTaskId,
     TaskDueInput? due,
     String? note,
+    int? priority,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -522,6 +530,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_String(parentTaskId, serializer);
           sse_encode_opt_box_autoadd_task_due_input(due, serializer);
           sse_encode_opt_String(note, serializer);
+          sse_encode_opt_box_autoadd_i_32(priority, serializer);
+          sse_encode_opt_box_autoadd_i_64(scheduledAt, serializer);
+          sse_encode_opt_box_autoadd_i_32(estimatedMinutes, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -534,7 +545,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, parentTaskId, due, note],
+        argValues: [
+          listId,
+          title,
+          parentTaskId,
+          due,
+          note,
+          priority,
+          scheduledAt,
+          estimatedMinutes,
+        ],
         apiImpl: this,
       ),
     );
@@ -542,7 +562,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "parentTaskId", "due", "note"],
+    argNames: [
+      "listId",
+      "title",
+      "parentTaskId",
+      "due",
+      "note",
+      "priority",
+      "scheduledAt",
+      "estimatedMinutes",
+    ],
   );
 
   @override
@@ -1424,6 +1453,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String note,
     required int priority,
     TaskDueInput? due,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1434,6 +1465,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(note, serializer);
           sse_encode_i_32(priority, serializer);
           sse_encode_opt_box_autoadd_task_due_input(due, serializer);
+          sse_encode_opt_box_autoadd_i_64(scheduledAt, serializer);
+          sse_encode_opt_box_autoadd_i_32(estimatedMinutes, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1446,7 +1479,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiUpdateTaskConstMeta,
-        argValues: [taskId, title, note, priority, due],
+        argValues: [
+          taskId,
+          title,
+          note,
+          priority,
+          due,
+          scheduledAt,
+          estimatedMinutes,
+        ],
         apiImpl: this,
       ),
     );
@@ -1454,7 +1495,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUpdateTaskConstMeta => const TaskConstMeta(
     debugName: "update_task",
-    argNames: ["taskId", "title", "note", "priority", "due"],
+    argNames: [
+      "taskId",
+      "title",
+      "note",
+      "priority",
+      "due",
+      "scheduledAt",
+      "estimatedMinutes",
+    ],
   );
 
   @protected

@@ -338,8 +338,19 @@ void main() {
     'updateTask persists editable task fields through Rust bridge',
     () async {
       final list = await createList(name: 'Editing', sortOrder: 'd0');
-      final task = await createTask(listId: list.id, title: 'Draft title');
+      const initialScheduledAt = 1782800000000;
+      final task = await createTask(
+        listId: list.id,
+        title: 'Draft title',
+        priority: 1,
+        scheduledAt: initialScheduledAt,
+        estimatedMinutes: 25,
+      );
+      expect(task.priority, 1);
+      expect(task.scheduledAt, initialScheduledAt);
+      expect(task.estimatedMinutes, 25);
       const dueAt = 1782864000000;
+      const scheduledAt = 1782846000000;
 
       final updated = await updateTask(
         taskId: task.id,
@@ -347,6 +358,8 @@ void main() {
         note: 'Updated note',
         priority: 2,
         due: taskDueInput(testDateTimeDueFromMillis(dueAt)),
+        scheduledAt: scheduledAt,
+        estimatedMinutes: 45,
       );
 
       expect(updated.id, task.id);
@@ -354,6 +367,8 @@ void main() {
       expect(updated.note, 'Updated note');
       expect(updated.priority, 2);
       expect(taskDueInstant(updated.due)?.millisecondsSinceEpoch, dueAt);
+      expect(updated.scheduledAt, scheduledAt);
+      expect(updated.estimatedMinutes, 45);
       expect(updated.updatedAt, greaterThanOrEqualTo(task.updatedAt));
 
       final persisted = (await getTasks(
@@ -363,6 +378,8 @@ void main() {
       expect(persisted.note, 'Updated note');
       expect(persisted.priority, 2);
       expect(taskDueInstant(persisted.due)?.millisecondsSinceEpoch, dueAt);
+      expect(persisted.scheduledAt, scheduledAt);
+      expect(persisted.estimatedMinutes, 45);
 
       final cleared = await updateTask(
         taskId: task.id,
@@ -370,10 +387,14 @@ void main() {
         note: '',
         priority: 0,
         due: null,
+        scheduledAt: null,
+        estimatedMinutes: null,
       );
       expect(cleared.note, '');
       expect(cleared.priority, 0);
       expect(taskDueInstant(cleared.due), isNull);
+      expect(cleared.scheduledAt, isNull);
+      expect(cleared.estimatedMinutes, isNull);
     },
   );
 

@@ -1,8 +1,9 @@
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
-    unarchive_list as domain_unarchive_list, update_due, update_note, update_priority,
-    update_title, validate_parent_for, List, Task, TaskDue, TaskStatus, Uuid,
+    unarchive_list as domain_unarchive_list, update_due, update_estimated_minutes, update_note,
+    update_priority, update_scheduled_at, update_title, validate_parent_for, List, Task, TaskDue,
+    TaskStatus, Uuid,
 };
 use todori_storage::{
     open_encrypted, HomeTask, ListRepository, Reminder, ReminderRepository, SqliteWriteTx,
@@ -26,6 +27,9 @@ pub struct CreateTaskCommand {
     pub parent_task_id: Option<Uuid>,
     pub due: Option<TaskDue>,
     pub note: Option<String>,
+    pub priority: i32,
+    pub scheduled_at: Option<i64>,
+    pub estimated_minutes: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +46,8 @@ pub struct UpdateTaskCommand {
     pub note: String,
     pub priority: i32,
     pub due: Option<TaskDue>,
+    pub scheduled_at: Option<i64>,
+    pub estimated_minutes: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +203,7 @@ impl TodoriClient {
     }
 
     pub fn create_task(&self, command: CreateTaskCommand) -> Result<Task, ClientError> {
+        validate_task_planning(command.priority, command.estimated_minutes)?;
         let _guard = self.operation_guard()?;
         let now = now_ms()?;
         match self.local_mutation_state()? {
@@ -208,6 +215,9 @@ impl TodoriClient {
                     parent_task_id: command.parent_task_id,
                     due: command.due,
                     note: command.note,
+                    priority: command.priority,
+                    scheduled_at: command.scheduled_at,
+                    estimated_minutes: command.estimated_minutes,
                     now_ms: now,
                 },
                 &sync,
@@ -280,9 +290,7 @@ impl TodoriClient {
     }
 
     pub fn update_task(&self, command: UpdateTaskCommand) -> Result<Task, ClientError> {
-        if !(0..=3).contains(&command.priority) {
-            return Err(ClientError::InvalidPriority);
-        }
+        validate_task_planning(command.priority, command.estimated_minutes)?;
         let _guard = self.operation_guard()?;
         let now = now_ms()?;
         match self.local_mutation_state()? {
@@ -294,6 +302,8 @@ impl TodoriClient {
                     note: command.note,
                     priority: command.priority,
                     due: command.due,
+                    scheduled_at: command.scheduled_at,
+                    estimated_minutes: command.estimated_minutes,
                     now_ms: now,
                 },
                 &sync,
@@ -551,6 +561,9 @@ impl TodoriClient {
         if let Some(due) = command.due {
             task = update_due(task, Some(due), now)?;
         }
+        task = update_priority(task, command.priority, now)?;
+        task = update_scheduled_at(task, command.scheduled_at, now)?;
+        task = update_estimated_minutes(task, command.estimated_minutes, now)?;
         if let Some(parent_id) = command.parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
                 match transaction.get_task(parent_id) {
@@ -629,7 +642,9 @@ impl TodoriClient {
         let task = update_title(before.clone(), command.title, now)?;
         let task = update_note(task, command.note, now)?;
         let task = update_priority(task, command.priority, now)?;
-        let updated = update_due(task, command.due, now)?;
+        let task = update_due(task, command.due, now)?;
+        let task = update_scheduled_at(task, command.scheduled_at, now)?;
+        let updated = update_estimated_minutes(task, command.estimated_minutes, now)?;
         transaction.update_with_undo(before, updated.clone(), TaskUndoOperation::Edit, now)?;
         transaction.commit()?;
         Ok(updated)
@@ -719,6 +734,19 @@ impl TodoriClient {
         transaction.commit()?;
         Ok(())
     }
+}
+
+fn validate_task_planning(
+    priority: i32,
+    estimated_minutes: Option<i32>,
+) -> Result<(), ClientError> {
+    if !(0..=3).contains(&priority) {
+        return Err(ClientError::InvalidPriority);
+    }
+    if estimated_minutes.is_some_and(|minutes| minutes <= 0 || minutes % 5 != 0) {
+        return Err(ClientError::InvalidEstimatedMinutes);
+    }
+    Ok(())
 }
 
 fn validate_reorder_ids(
@@ -844,9 +872,42 @@ mod tests {
             note: String::new(),
             priority: 4,
             due: None,
+            scheduled_at: None,
+            estimated_minutes: None,
         });
 
         assert!(matches!(result, Err(ClientError::InvalidPriority)));
+        assert!(!client.db_path.exists());
+    }
+
+    #[test]
+    fn create_task_rejects_invalid_estimate_before_writing() {
+        let temp = TempDir::new().unwrap();
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path: temp.path().join("profile.sqlite3"),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        let result = client.create_task(CreateTaskCommand {
+            list_id: Uuid::now_v7(),
+            title: "invalid".into(),
+            parent_task_id: None,
+            due: None,
+            note: None,
+            priority: 0,
+            scheduled_at: None,
+            estimated_minutes: Some(24),
+        });
+
+        assert!(matches!(result, Err(ClientError::InvalidEstimatedMinutes)));
         assert!(!client.db_path.exists());
     }
 

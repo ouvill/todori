@@ -5,7 +5,8 @@ use std::path::Path;
 
 use thiserror::Error;
 use todori_domain::{
-    update_due, update_note, update_priority, update_title, List, Task, TaskDue, Uuid,
+    update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
+    update_title, List, Task, TaskDue, Uuid,
 };
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
@@ -51,6 +52,8 @@ pub enum ClientError {
     Busy,
     #[error("task priority must be between 0 and 3")]
     InvalidPriority,
+    #[error("estimated minutes must be a positive multiple of 5")]
+    InvalidEstimatedMinutes,
     #[error("local IANA time zone is unavailable")]
     LocalTimeZoneUnavailable,
 }
@@ -68,6 +71,8 @@ pub struct UpdateTaskInput {
     pub note: String,
     pub priority: i32,
     pub due: Option<TaskDue>,
+    pub scheduled_at: Option<i64>,
+    pub estimated_minutes: Option<i32>,
     pub now_ms: i64,
 }
 
@@ -107,7 +112,9 @@ impl SqliteMutationService {
         let task = update_title(before.clone(), input.title, input.now_ms)?;
         let task = update_note(task, input.note, input.now_ms)?;
         let task = update_priority(task, input.priority, input.now_ms)?;
-        let updated = update_due(task, input.due, input.now_ms)?;
+        let task = update_due(task, input.due, input.now_ms)?;
+        let task = update_scheduled_at(task, input.scheduled_at, input.now_ms)?;
+        let updated = update_estimated_minutes(task, input.estimated_minutes, input.now_ms)?;
 
         transaction.update_with_undo(
             before,
@@ -380,6 +387,8 @@ mod tests {
             note: "atomic".to_string(),
             priority: 2,
             due: Some(TaskDue::date_time(BASE_MS + 60_000, "UTC").unwrap()),
+            scheduled_at: Some(BASE_MS + 30_000),
+            estimated_minutes: Some(45),
             now_ms: BASE_MS + 1_000,
         }
     }
@@ -392,6 +401,9 @@ mod tests {
             .update_task(update_input(fixture.task.id), &fixture.sync)
             .unwrap();
         assert_eq!(updated.title, "after");
+        assert_eq!(updated.priority, 2);
+        assert_eq!(updated.scheduled_at, Some(BASE_MS + 30_000));
+        assert_eq!(updated.estimated_minutes, Some(45));
 
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
@@ -414,10 +426,15 @@ mod tests {
             .get_record_state(TASKS_COLLECTION, fixture.task.id)
             .unwrap()
             .unwrap();
-        assert!(matches!(
-            state.state,
-            SyncRecordSemanticState::Live { plaintext_json, .. } if plaintext_json != "baseline"
-        ));
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("expected live task state");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("expected task plaintext");
+        };
+        assert_eq!(plaintext.priority.value, 2);
+        assert_eq!(plaintext.scheduled_at.value, Some(BASE_MS + 30_000));
+        assert_eq!(plaintext.estimated_minutes.value, Some(45));
     }
 
     #[test]

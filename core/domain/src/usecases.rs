@@ -15,6 +15,10 @@ use crate::entities::{List, Task, TaskDue, TaskStatus};
 pub enum DomainError {
     #[error("task title must not be empty")]
     EmptyTitle,
+    #[error("task priority must be between 0 and 3")]
+    InvalidPriority,
+    #[error("estimated minutes must be a positive multiple of 5")]
+    InvalidEstimatedMinutes,
     #[error("list name must not be empty")]
     EmptyName,
     #[error("invalid task status transition")]
@@ -120,6 +124,9 @@ pub fn update_note(mut task: Task, note: String, now_ms: i64) -> Result<Task, Do
 
 /// タスク優先度を更新する。
 pub fn update_priority(mut task: Task, priority: i32, now_ms: i64) -> Result<Task, DomainError> {
+    if !(0..=3).contains(&priority) {
+        return Err(DomainError::InvalidPriority);
+    }
     task.priority = priority;
     task.updated_at = now_ms;
     Ok(task)
@@ -149,6 +156,9 @@ pub fn update_estimated_minutes(
     estimated_minutes: Option<i32>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
+    if estimated_minutes.is_some_and(|minutes| minutes <= 0 || minutes % 5 != 0) {
+        return Err(DomainError::InvalidEstimatedMinutes);
+    }
     task.estimated_minutes = estimated_minutes;
     task.updated_at = now_ms;
     Ok(task)
@@ -375,6 +385,37 @@ mod tests {
         assert_eq!(task.scheduled_at, Some(LATER + 3));
         assert_eq!(task.estimated_minutes, Some(45));
         assert_eq!(task.updated_at, LATER + 4);
+    }
+
+    #[test]
+    fn planning_attributes_reject_invalid_priority_and_estimate() {
+        let task = task_fixture();
+        assert_eq!(
+            update_priority(task.clone(), -1, LATER).unwrap_err(),
+            DomainError::InvalidPriority
+        );
+        assert_eq!(
+            update_priority(task.clone(), 4, LATER).unwrap_err(),
+            DomainError::InvalidPriority
+        );
+        for invalid in [0, -5, 1, 24, 26] {
+            assert_eq!(
+                update_estimated_minutes(task.clone(), Some(invalid), LATER).unwrap_err(),
+                DomainError::InvalidEstimatedMinutes
+            );
+        }
+        assert_eq!(
+            update_estimated_minutes(task.clone(), None, LATER)
+                .unwrap()
+                .estimated_minutes,
+            None
+        );
+        assert_eq!(
+            update_estimated_minutes(task, Some(45), LATER)
+                .unwrap()
+                .estimated_minutes,
+            Some(45)
+        );
     }
 
     #[test]

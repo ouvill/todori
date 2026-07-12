@@ -69,6 +69,9 @@ abstract class BridgeService {
     String? parentTaskId,
     rust_api.TaskDueInput? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   });
 
   /// Returns tasks of `listId`.
@@ -90,6 +93,8 @@ abstract class BridgeService {
     required String note,
     required int priority,
     rust_api.TaskDueInput? due,
+    int? scheduledAt,
+    int? estimatedMinutes,
   });
 
   /// Transitions a task's status.
@@ -247,12 +252,18 @@ class FrbBridgeService implements BridgeService {
     String? parentTaskId,
     rust_api.TaskDueInput? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) => rust_api.createTask(
     listId: listId,
     title: title,
     parentTaskId: parentTaskId,
     due: due,
     note: note.isEmpty ? null : note,
+    priority: priority,
+    scheduledAt: scheduledAt,
+    estimatedMinutes: estimatedMinutes,
   );
 
   @override
@@ -279,12 +290,16 @@ class FrbBridgeService implements BridgeService {
     required String note,
     required int priority,
     rust_api.TaskDueInput? due,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) => rust_api.updateTask(
     taskId: taskId,
     title: title,
     note: note,
     priority: priority,
     due: due,
+    scheduledAt: scheduledAt,
+    estimatedMinutes: estimatedMinutes,
   );
 
   @override
