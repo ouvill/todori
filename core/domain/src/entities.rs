@@ -174,6 +174,68 @@ pub enum TaskStatus {
     WontDo,
 }
 
+/// Timerの計測方式。task statusとは独立した端末ローカル/実績属性である。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimerMode {
+    Pomodoro,
+    Stopwatch,
+}
+
+/// Active Timerが現在計測している区間。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimerPhase {
+    Work,
+    ShortBreak,
+    LongBreak,
+}
+
+/// Active Timerの端末ローカルな実行状態。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimerRunState {
+    Running,
+    Paused,
+}
+
+/// 同期するwork実績が通常完了か、明示保存された中断かを表す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimerFinishKind {
+    Completed,
+    Interrupted,
+}
+
+/// 端末ローカルだけに保存する、1 device 1 activeのTimer状態。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActiveTimerSession {
+    pub session_id: Uuid,
+    pub task_id: Option<Uuid>,
+    pub mode: TimerMode,
+    pub phase: TimerPhase,
+    pub state: TimerRunState,
+    pub started_at: i64,
+    pub last_resumed_at: i64,
+    pub accumulated_active_ms: i64,
+    pub target_duration_ms: Option<i64>,
+}
+
+/// 完了または明示保存した中断workを表すimmutableな同期実績。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompletedTimerSession {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub mode: TimerMode,
+    pub finish_kind: TimerFinishKind,
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub active_duration_ms: i64,
+    pub created_at: i64,
+}
+
 impl TaskStatus {
     /// 現在のステータスから `next` への遷移が許可されるかどうかを判定する。
     ///

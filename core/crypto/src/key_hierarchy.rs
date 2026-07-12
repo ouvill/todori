@@ -23,6 +23,8 @@ pub const WRAP_USER_SK_BY_MK_AAD: &[u8] = b"todori/wrap/user-x25519-sk-by-mk/v1"
 pub const WRAP_TENANT_DEK_BY_MK_AAD: &[u8] = b"todori/wrap/tenant-root-dek-by-mk/v1";
 pub const WRAP_LIST_DEK_BY_MK_AAD: &[u8] = b"todori/wrap/list-dek-by-mk/v1";
 pub const WRAP_LOCAL_LIST_DEK_BY_MK_AAD_PREFIX: &[u8] = b"todori/wrap/local-list-dek-by-mk/v1/";
+pub const WRAP_LOCAL_TENANT_ROOT_DEK_BY_MK_AAD_PREFIX: &[u8] =
+    b"todori/wrap/local-tenant-root-dek-by-mk/v1/";
 
 const RECOVERY_WORDS: &[&str] = &[
     "amber", "anchor", "apricot", "atlas", "bamboo", "beacon", "birch", "breeze", "cabin", "cedar",
@@ -191,10 +193,42 @@ pub fn unwrap_local_list_dek_with_master_key(
     unwrap_key(wrapped, master_key, &local_list_dek_wrap_aad(list_id))
 }
 
+pub fn wrap_local_tenant_root_dek_with_master_key(
+    tenant_id: &str,
+    tenant_dek: &[u8; KEY_LEN],
+    master_key: &[u8; KEY_LEN],
+) -> Result<Vec<u8>, KeyHierarchyError> {
+    wrap_key(
+        tenant_dek,
+        master_key,
+        &local_tenant_root_dek_wrap_aad(tenant_id),
+    )
+}
+
+pub fn unwrap_local_tenant_root_dek_with_master_key(
+    tenant_id: &str,
+    wrapped: &[u8],
+    master_key: &[u8; KEY_LEN],
+) -> Result<[u8; KEY_LEN], KeyHierarchyError> {
+    unwrap_key(
+        wrapped,
+        master_key,
+        &local_tenant_root_dek_wrap_aad(tenant_id),
+    )
+}
+
 fn local_list_dek_wrap_aad(list_id: &str) -> Vec<u8> {
     let mut aad = Vec::with_capacity(WRAP_LOCAL_LIST_DEK_BY_MK_AAD_PREFIX.len() + list_id.len());
     aad.extend_from_slice(WRAP_LOCAL_LIST_DEK_BY_MK_AAD_PREFIX);
     aad.extend_from_slice(list_id.as_bytes());
+    aad
+}
+
+fn local_tenant_root_dek_wrap_aad(tenant_id: &str) -> Vec<u8> {
+    let mut aad =
+        Vec::with_capacity(WRAP_LOCAL_TENANT_ROOT_DEK_BY_MK_AAD_PREFIX.len() + tenant_id.len());
+    aad.extend_from_slice(WRAP_LOCAL_TENANT_ROOT_DEK_BY_MK_AAD_PREFIX);
+    aad.extend_from_slice(tenant_id.as_bytes());
     aad
 }
 
@@ -356,5 +390,28 @@ mod tests {
             list_dek
         );
         assert!(unwrap_local_list_dek_with_master_key("list-b", &wrapped, &master_key).is_err());
+    }
+
+    #[test]
+    fn local_tenant_root_dek_wrap_is_bound_to_tenant_id_and_local_context() {
+        let master_key = key(0x10);
+        let tenant_dek = key(0x20);
+        let wrapped =
+            wrap_local_tenant_root_dek_with_master_key("tenant-a", &tenant_dek, &master_key)
+                .unwrap();
+
+        assert_eq!(
+            unwrap_local_tenant_root_dek_with_master_key("tenant-a", &wrapped, &master_key)
+                .unwrap(),
+            tenant_dek
+        );
+        assert!(
+            unwrap_local_tenant_root_dek_with_master_key("tenant-b", &wrapped, &master_key)
+                .is_err()
+        );
+        assert!(unwrap_tenant_root_dek_with_master_key(&wrapped, &master_key).is_err());
+        assert!(
+            unwrap_local_tenant_root_dek_with_master_key("tenant-a", &wrapped, &key(0x11)).is_err()
+        );
     }
 }

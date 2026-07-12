@@ -8,7 +8,12 @@ use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::entities::{List, Task, TaskDue, TaskStatus};
+use crate::entities::{
+    ActiveTimerSession, CompletedTimerSession, List, Task, TaskDue, TaskStatus, TimerPhase,
+    TimerRunState,
+};
+
+pub const MAX_TIMER_SESSION_DURATION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 
 /// domain crateのユースケースで発生する検証エラー。
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -37,6 +42,80 @@ pub enum DomainError {
     InvalidSortOrderBoundary,
     #[error("sort order space is exhausted")]
     SortOrderSpaceExhausted,
+    #[error("work timer phase requires a task and break phases must not reference a task")]
+    InvalidTimerTaskLink,
+    #[error("timer timestamps are inconsistent")]
+    InvalidTimerTimestamps,
+    #[error("timer duration is outside the allowed range")]
+    InvalidTimerDuration,
+    #[error("timer duration arithmetic overflowed")]
+    TimerDurationOverflow,
+}
+
+/// Active Timerの永続値がADR-018の復元契約を満たすか検証する。
+pub fn validate_active_timer_session(session: &ActiveTimerSession) -> Result<(), DomainError> {
+    let task_link_is_valid = match session.phase {
+        TimerPhase::Work => session.task_id.is_some(),
+        TimerPhase::ShortBreak | TimerPhase::LongBreak => session.task_id.is_none(),
+    };
+    if !task_link_is_valid {
+        return Err(DomainError::InvalidTimerTaskLink);
+    }
+    if session.last_resumed_at < session.started_at {
+        return Err(DomainError::InvalidTimerTimestamps);
+    }
+    if !(0..=MAX_TIMER_SESSION_DURATION_MS).contains(&session.accumulated_active_ms)
+        || session
+            .target_duration_ms
+            .is_some_and(|duration| !(1..=MAX_TIMER_SESSION_DURATION_MS).contains(&duration))
+    {
+        return Err(DomainError::InvalidTimerDuration);
+    }
+    Ok(())
+}
+
+/// Wall clockからActive Timerのpauseを除く復元時間を計算する。
+///
+/// 時計が逆行した区間は0へclampする。paused stateは保存済み累積値だけを返す。
+pub fn restored_active_duration_ms(
+    session: &ActiveTimerSession,
+    now_wall_ms: i64,
+) -> Result<i64, DomainError> {
+    validate_active_timer_session(session)?;
+    let duration = match session.state {
+        TimerRunState::Paused => session.accumulated_active_ms,
+        TimerRunState::Running => {
+            let active_span = now_wall_ms.saturating_sub(session.last_resumed_at).max(0);
+            session
+                .accumulated_active_ms
+                .checked_add(active_span)
+                .ok_or(DomainError::TimerDurationOverflow)?
+        }
+    };
+    if duration > MAX_TIMER_SESSION_DURATION_MS {
+        return Err(DomainError::InvalidTimerDuration);
+    }
+    Ok(duration)
+}
+
+/// 同期対象のimmutable work実績を厳密検証する。
+pub fn validate_completed_timer_session(
+    session: &CompletedTimerSession,
+) -> Result<(), DomainError> {
+    let elapsed = session
+        .ended_at
+        .checked_sub(session.started_at)
+        .ok_or(DomainError::InvalidTimerTimestamps)?;
+    if elapsed < 0 {
+        return Err(DomainError::InvalidTimerTimestamps);
+    }
+    if elapsed > MAX_TIMER_SESSION_DURATION_MS
+        || session.active_duration_ms <= 0
+        || session.active_duration_ms > elapsed
+    {
+        return Err(DomainError::InvalidTimerDuration);
+    }
+    Ok(())
 }
 
 /// タスクを作成する。
@@ -311,6 +390,105 @@ mod tests {
 
     fn task_in_list(list_id: Uuid, title: &str) -> Task {
         new_task(list_id, None, title.to_string(), "a0".to_string(), NOW).unwrap()
+    }
+
+    fn active_timer(state: TimerRunState, phase: TimerPhase) -> ActiveTimerSession {
+        ActiveTimerSession {
+            session_id: Uuid::now_v7(),
+            task_id: (phase == TimerPhase::Work).then(Uuid::now_v7),
+            mode: crate::TimerMode::Pomodoro,
+            phase,
+            state,
+            started_at: NOW,
+            last_resumed_at: NOW + 1_000,
+            accumulated_active_ms: 2_000,
+            target_duration_ms: Some(25 * 60 * 1_000),
+        }
+    }
+
+    fn completed_timer() -> CompletedTimerSession {
+        CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id: Uuid::now_v7(),
+            mode: crate::TimerMode::Stopwatch,
+            finish_kind: crate::TimerFinishKind::Completed,
+            started_at: NOW,
+            ended_at: NOW + 10_000,
+            active_duration_ms: 8_000,
+            created_at: NOW + 10_000,
+        }
+    }
+
+    #[test]
+    fn running_timer_restores_accumulated_and_current_wall_clock_span() {
+        let timer = active_timer(TimerRunState::Running, TimerPhase::Work);
+
+        assert_eq!(restored_active_duration_ms(&timer, NOW + 4_000), Ok(5_000));
+    }
+
+    #[test]
+    fn running_timer_clamps_wall_clock_rollback_and_paused_ignores_now() {
+        let running = active_timer(TimerRunState::Running, TimerPhase::Work);
+        assert_eq!(restored_active_duration_ms(&running, NOW), Ok(2_000));
+
+        let paused = active_timer(TimerRunState::Paused, TimerPhase::Work);
+        assert_eq!(
+            restored_active_duration_ms(&paused, NOW + MAX_TIMER_SESSION_DURATION_MS),
+            Ok(2_000)
+        );
+    }
+
+    #[test]
+    fn active_timer_requires_task_only_for_work_and_bounded_durations() {
+        let mut work = active_timer(TimerRunState::Running, TimerPhase::Work);
+        work.task_id = None;
+        assert_eq!(
+            validate_active_timer_session(&work),
+            Err(DomainError::InvalidTimerTaskLink)
+        );
+
+        let mut break_timer = active_timer(TimerRunState::Paused, TimerPhase::ShortBreak);
+        break_timer.task_id = Some(Uuid::now_v7());
+        assert_eq!(
+            validate_active_timer_session(&break_timer),
+            Err(DomainError::InvalidTimerTaskLink)
+        );
+
+        let mut invalid = active_timer(TimerRunState::Running, TimerPhase::LongBreak);
+        invalid.accumulated_active_ms = MAX_TIMER_SESSION_DURATION_MS + 1;
+        assert_eq!(
+            validate_active_timer_session(&invalid),
+            Err(DomainError::InvalidTimerDuration)
+        );
+    }
+
+    #[test]
+    fn completed_timer_requires_positive_active_time_within_elapsed_and_seven_days() {
+        let valid = completed_timer();
+        assert_eq!(validate_completed_timer_session(&valid), Ok(()));
+
+        for invalid_duration in [0, 10_001] {
+            let mut invalid = valid.clone();
+            invalid.active_duration_ms = invalid_duration;
+            assert_eq!(
+                validate_completed_timer_session(&invalid),
+                Err(DomainError::InvalidTimerDuration)
+            );
+        }
+
+        let mut reversed = valid.clone();
+        reversed.ended_at = reversed.started_at - 1;
+        assert_eq!(
+            validate_completed_timer_session(&reversed),
+            Err(DomainError::InvalidTimerTimestamps)
+        );
+
+        let mut too_long = valid;
+        too_long.ended_at = too_long.started_at + MAX_TIMER_SESSION_DURATION_MS + 1;
+        assert_eq!(
+            validate_completed_timer_session(&too_long),
+            Err(DomainError::InvalidTimerDuration)
+        );
     }
 
     #[test]
