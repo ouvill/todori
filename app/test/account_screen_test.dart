@@ -25,8 +25,8 @@ Future<void> _pumpAccountScreen(
 }
 
 Future<void> _enterCredentials(WidgetTester tester) async {
-  await tester.enterText(find.byType(TextField).at(1), 'alice@example.com');
-  await tester.enterText(find.byType(TextField).at(2), 'correct password');
+  await tester.enterText(find.byType(TextField).at(0), 'alice@example.com');
+  await tester.enterText(find.byType(TextField).at(1), 'correct password');
 }
 
 void main() {
@@ -45,7 +45,7 @@ void main() {
     await _pumpAccountScreen(tester, fake);
 
     await tester.enterText(
-      find.byType(TextField).first,
+      find.byType(TextField).last,
       'http://127.0.0.1:4000',
     );
     await tester.tap(find.byTooltip('Save server URL'));

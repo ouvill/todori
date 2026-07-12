@@ -6,8 +6,8 @@
 
 ## 現在
 
-- 進行中: なし。
-- 最新の完了: **task-98 ADR-016 Archive-first削除同期実装** — terminal tombstone、history purge、pull-before-push、server-trusted continuity、expired-device rebase、late descendant cascade、List DEK retirementを実装した。独立検証でP1 / P2 / P3なし。
+- 進行中: **task-100 プロトタイプ感を解消するプロダクトUI再設計** — Homeの挙動を維持し、主要画面の構成原理、密度、面、ワイドレイアウトを再構築する。
+- 最新の完了: **task-99 エレガントUI・IA全面再設計** — Homeのタスクツリーと完了体験を維持しながら、テーマ、主要画面、レスポンシブナビゲーション、画面階層、遷移演出を再設計した。独立検証でP1 / P2なし。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

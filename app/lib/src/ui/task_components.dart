@@ -15,7 +15,7 @@ import 'package:todori/src/ui/theme.dart';
 const _priorityHighCoral = Color(0xFFE8755A);
 const _priorityMediumAmber = Color(0xFFEDB73E);
 const _priorityLowSoftSage = Color(0xFFA8BEA8);
-const _homeTaskRowRootLeadingStart = AppSpacing.xs;
+const _homeTaskRowRootLeadingStart = 11.0;
 const _taskRowRootLeadingStart = 12.0;
 const _taskRowDepthIndent = AppSpacing.lg;
 const _taskCheckboxTapSize = 48.0;
@@ -129,78 +129,55 @@ class _QuickAddBarState extends State<QuickAddBar> {
     final enabled =
         widget.initialListId != null &&
         widget.listOptions.any((list) => list.id == widget.initialListId);
+    final iconOnly = MediaQuery.textScalerOf(context).scale(1) > 1.3;
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: viewInsets.bottom),
-      child: SafeArea(
-        top: false,
-        child: ColoredBox(
-          color: colorScheme.surfaceContainer,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.sm,
-              AppSpacing.md,
-              AppSpacing.sm,
-            ),
-            child: Tooltip(
-              message: l10n.quickAddOpenTooltip,
-              child: Semantics(
-                button: true,
-                enabled: enabled,
-                label: l10n.quickAddOpenSemantics,
-                child: Material(
-                  color: colorScheme.surface,
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    key: const ValueKey('quick-add-open'),
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: enabled ? _openSheet : null,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: colorScheme.outlineVariant),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsetsDirectional.fromSTEB(
-                          AppSpacing.md,
-                          AppSpacing.sm,
-                          AppSpacing.md,
-                          AppSpacing.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              LucideIcons.plus300,
-                              size: 20,
-                              color: enabled
-                                  ? colorScheme.primary
-                                  : colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Text(
-                                l10n.quickAddHint,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: enabled
-                                      ? colorScheme.onSurfaceVariant
-                                      : colorScheme.onSurfaceVariant.withValues(
-                                          alpha: 0.6,
-                                        ),
-                                ),
-                              ),
-                            ),
-                            Icon(
-                              LucideIcons.chevronUp300,
-                              size: 18,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ],
-                        ),
-                      ),
+      child: Tooltip(
+        message: l10n.quickAddOpenTooltip,
+        child: Semantics(
+          button: true,
+          enabled: enabled,
+          label: l10n.quickAddOpenSemantics,
+          child: Material(
+            color: enabled
+                ? colorScheme.primary
+                : colorScheme.surfaceContainerHighest,
+            elevation: 2,
+            shadowColor: colorScheme.shadow.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              key: const ValueKey('quick-add-open'),
+              borderRadius: BorderRadius.circular(999),
+              onTap: enabled ? _openSheet : null,
+              child: Padding(
+                padding: iconOnly
+                    ? const EdgeInsets.all(14)
+                    : const EdgeInsetsDirectional.fromSTEB(16, 12, 18, 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      LucideIcons.plus300,
+                      size: 19,
+                      color: enabled
+                          ? colorScheme.onPrimary
+                          : colorScheme.onSurfaceVariant,
                     ),
-                  ),
+                    if (!iconOnly) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        l10n.quickAddHint,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: enabled
+                              ? colorScheme.onPrimary
+                              : colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -213,6 +190,7 @@ class _QuickAddBarState extends State<QuickAddBar> {
   Future<void> _openSheet() async {
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       useSafeArea: true,
       barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.24),
@@ -482,6 +460,7 @@ class _TaskCreateSheetState extends State<_TaskCreateSheet> {
   Future<void> _showDueOptions() async {
     final selection = await showModalBottomSheet<_TaskCreateDueSelection>(
       context: context,
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (context) => const _TaskCreateDueSheet(),
     );
@@ -977,6 +956,7 @@ class AppHomeTaskRow extends StatelessWidget {
     final effectiveDepth = math.min(depth, 4);
     return Material(
       color: Colors.transparent,
+      shape: const RoundedRectangleBorder(),
       child: Stack(
         children: [
           if (effectiveDepth > 0)
@@ -994,7 +974,7 @@ class AppHomeTaskRow extends StatelessWidget {
             button: true,
             label: semanticLabel,
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
               onTap: onTap,
               child: Padding(
                 padding: EdgeInsetsDirectional.only(
@@ -1236,17 +1216,15 @@ class _HomeDueDatePill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Padding(
-        padding: const EdgeInsetsDirectional.fromSTEB(
-          AppSpacing.sm,
-          AppSpacing.xs,
-          AppSpacing.sm,
-          AppSpacing.xs,
-        ),
+        padding: const EdgeInsetsDirectional.fromSTEB(7, 2, 7, 2),
         child: Text(
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.labelMedium?.copyWith(color: foreground),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: foreground,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );

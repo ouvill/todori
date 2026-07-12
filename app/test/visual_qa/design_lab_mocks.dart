@@ -1,15 +1,23 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/ui/theme.dart';
 
 part 'design_lab_task_create_sheet_mock.dart';
 part 'design_lab_task_detail_mock.dart';
+part 'design_lab_product_direction_mock.dart';
+part 'design_lab_product_system_mock.dart';
+part 'design_lab_radical_direction_mock.dart';
+part 'design_lab_interactive.dart';
+part 'design_lab_production_coverage.dart';
 part 'design_lab_support_mocks.dart';
 
 enum DesignLabMock {
   taskList,
+  calendar,
   listOverview,
   focusTimer,
   taskDetail,
@@ -17,6 +25,13 @@ enum DesignLabMock {
   search,
   settings,
   timerSetup,
+  listTasks,
+  taskDetailEditing,
+  accountSignedOut,
+  taskActions,
+  dueDateSheet,
+  systemStates,
+  onboarding,
 }
 
 class DesignLabMockApp extends StatelessWidget {
@@ -30,14 +45,22 @@ class DesignLabMockApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTodoriTheme(Brightness.light),
       home: switch (mock) {
-        DesignLabMock.taskList => const _TaskListMock(),
-        DesignLabMock.listOverview => const _ListOverviewMock(),
-        DesignLabMock.focusTimer => const _FocusTimerMock(),
-        DesignLabMock.taskDetail => const _TaskDetailMock(),
-        DesignLabMock.taskCreateSheet => const _TaskCreateSheetMock(),
-        DesignLabMock.search => const _SearchMock(),
-        DesignLabMock.settings => const _SettingsMock(),
-        DesignLabMock.timerSetup => const _TimerSetupMock(),
+        DesignLabMock.taskList => _RadicalHomeMock(onTaskFocus: () {}),
+        DesignLabMock.calendar => _InteractiveCalendarMock(onTaskFocus: () {}),
+        DesignLabMock.listOverview => const _RadicalListsMock(),
+        DesignLabMock.focusTimer => const _RadicalFocusMock(),
+        DesignLabMock.taskDetail => const _RadicalDetailMock(),
+        DesignLabMock.taskCreateSheet => const _RadicalCreateMock(),
+        DesignLabMock.search => const _RadicalSearchMock(),
+        DesignLabMock.settings => const _RadicalAccountMock(),
+        DesignLabMock.timerSetup => const _RadicalFocusSetupMock(),
+        DesignLabMock.listTasks => _RadicalListTasksMock(onTaskFocus: () {}),
+        DesignLabMock.taskDetailEditing => const _RadicalTaskEditMock(),
+        DesignLabMock.accountSignedOut => const _RadicalAccountAccessMock(),
+        DesignLabMock.taskActions => const _RadicalActionSheetMock(),
+        DesignLabMock.dueDateSheet => const _RadicalDueDateSheetMock(),
+        DesignLabMock.systemStates => const _RadicalSystemStatesMock(),
+        DesignLabMock.onboarding => _RadicalOnboardingMock(onContinue: () {}),
       },
     );
   }
@@ -192,7 +215,10 @@ const _typoNewsreaderA = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Newsreader',
     fontWeight: FontWeight.w400,
@@ -208,7 +234,10 @@ const _typoNewsreaderA = _LabTypography(
 /// task-34; kept here only as a comparison baseline against 案A (the
 /// direction that replaced it).
 const _typoLoraB = _LabTypography(
-  todayHeading: _LabTypoOverride(fontFamily: 'Lora', fontWeight: FontWeight.w600),
+  todayHeading: _LabTypoOverride(
+    fontFamily: 'Lora',
+    fontWeight: FontWeight.w600,
+  ),
   tasksHeadline: _LabTypoOverride(
     fontFamily: 'Lora',
     fontWeight: FontWeight.w700,
@@ -232,7 +261,10 @@ const _typoSansOnlyC = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w700,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w700,
@@ -257,7 +289,10 @@ const _typoJaMinchoD = _LabTypography(
     fontFamily: 'Inter',
     fontWeight: FontWeight.w400,
   ),
-  focusTitle: _LabTypoOverride(fontFamily: 'Inter', fontWeight: FontWeight.w400),
+  focusTitle: _LabTypoOverride(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w400,
+  ),
   timerDigit: _LabTypoOverride(
     fontFamily: 'Newsreader',
     fontWeight: FontWeight.w400,
@@ -1193,6 +1228,8 @@ class _CompletedTodayRow extends StatelessWidget {
   }
 }
 
+// Retained for the legacy comparison while the unified system is reviewed.
+// ignore: unused_element
 class _ListOverviewMock extends StatelessWidget {
   const _ListOverviewMock();
 

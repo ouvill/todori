@@ -279,7 +279,7 @@ void main() {
     await tester.tap(find.text('作成日表示を確認する'));
     await tester.pumpAndSettle();
 
-    expect(find.text('タスク詳細'), findsOneWidget);
+    expect(find.text('タスク詳細'), findsNothing);
     expect(
       find.text('作成日時: ${formatAbsoluteDate('ja', task.createdAt)}'),
       findsOneWidget,
@@ -321,11 +321,13 @@ void main() {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
     await _openListsScreen(tester);
 
-    expect(find.text('LISTS'), findsOneWidget);
+    expect(find.text('Lists'), findsWidgets);
     expect(find.text('Inbox'), findsOneWidget);
   });
 
-  testWidgets('lists screen enters from the leading edge', (tester) async {
+  testWidgets('top-level navigation uses a subtle vertical transition', (
+    tester,
+  ) async {
     await _pumpAppWithSeedData(tester, listName: 'Inbox');
 
     await tester.tap(find.byTooltip('Open lists'));
@@ -334,8 +336,8 @@ void main() {
 
     final slideOffsets = tester
         .widgetList<SlideTransition>(find.byType(SlideTransition))
-        .map((transition) => transition.position.value.dx);
-    expect(slideOffsets.any((dx) => dx < 0), isTrue);
+        .map((transition) => transition.position.value.dy);
+    expect(slideOffsets.any((dy) => dy > 0), isTrue);
   });
 
   testWidgets('tapping a list navigates to its task list', (tester) async {
@@ -410,7 +412,6 @@ void main() {
       expect(find.text('Overdue'), findsOneWidget);
       expect(find.text('Today'), findsWidgets);
       expect(find.text('Tomorrow'), findsWidgets);
-      expect(find.text('Upcoming'), findsOneWidget);
       await _scrollUntilVisible(tester, find.text('Work overdue'));
       expect(find.text('Work overdue'), findsOneWidget);
       expect(
@@ -779,7 +780,7 @@ void main() {
     expect(tasks.single.title, 'Slow capture');
   });
 
-  testWidgets('lists screen puts Home first and Home row returns home', (
+  testWidgets('global navigation returns home and list actions stay ordered', (
     tester,
   ) async {
     final fake = FakeBridgeService();
@@ -798,8 +799,8 @@ void main() {
     await _openListsScreen(tester);
 
     expect(
-      tester.getTopLeft(find.text('Home')).dy,
-      lessThan(tester.getTopLeft(find.text('Inbox')).dy),
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
+      1,
     );
     expect(
       tester.getTopLeft(find.text('Work')).dy,
@@ -1286,7 +1287,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('No due child under home parent'));
     await tester.pumpAndSettle();
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.byTooltip('Task actions'), findsOneWidget);
     expect(find.text('No due child under home parent'), findsOneWidget);
 
@@ -1472,13 +1473,7 @@ void main() {
     expect(find.text('No due ancestor'), findsNothing);
     expect(find.text('Closed child without home ancestor'), findsNothing);
     expect(find.text('Closed'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('home-section-count-overdue')),
-        matching: find.text('0'),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('A little room to breathe.'), findsOneWidget);
   });
 
   testWidgets('long task titles survive narrow width and Dynamic Type', (
@@ -1554,14 +1549,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Add task'), findsOneWidget);
+      expect(find.text('A little room to breathe.'), findsOneWidget);
+      expect(find.text('Add task'), findsNothing);
       expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
       expect(find.byKey(const ValueKey('quick-add-field')), findsNothing);
       expect(find.byType(FloatingActionButton), findsNothing);
       expect(tester.takeException(), isNull);
 
-      await tester.ensureVisible(find.text('Add task'));
+      await tester.ensureVisible(find.byKey(const ValueKey('quick-add-open')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('quick-add-open')));
       await tester.pumpAndSettle();
@@ -1622,7 +1617,7 @@ void main() {
     await tester.tap(find.textContaining('README screenshot'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.textContaining('長いnoteでも詳細画面'), findsOneWidget);
     // Priority is conveyed in the metadata row, not beside the title or via
     // the removed edit dialog.
@@ -1658,7 +1653,7 @@ void main() {
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Task detail'), findsOneWidget);
+    expect(find.text('Task detail'), findsNothing);
     expect(find.text('Buy milk'), findsOneWidget);
     // No persistent Local protection/lock chip in the main task UI (see
     // `docs/design/visual-direction.md` Security Signal section); status
@@ -1961,6 +1956,35 @@ void main() {
     expect(checkboxFinder, findsOneWidget);
     expect(find.byTooltip('Mark task done'), findsOneWidget);
     expect(find.text('Closed'), findsNothing);
+  });
+
+  testWidgets('list completion invalidates the Home smart view', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Complete from Inbox',
+      dueAt: _todayStartMs(),
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Complete from Inbox'), findsOneWidget);
+
+    await _openListFromHome(tester, 'Inbox');
+    await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Home').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Complete from Inbox'), findsNothing);
+    expect(find.text('Today'), findsOneWidget);
   });
 
   testWidgets(
@@ -2646,6 +2670,12 @@ void main() {
     expect(find.text('Done task'), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-done-${task.id}')),
+    );
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
     await tester.pumpAndSettle();
 
@@ -2765,6 +2795,12 @@ void main() {
     expect(find.text('Skipped task'), findsOneWidget);
     expect(find.byTooltip('Reopen task'), findsOneWidget);
 
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(ValueKey('task-done-${task.id}')),
+    );
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-done-${task.id}')));
     await tester.pumpAndSettle();
 
@@ -2840,6 +2876,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
+    await tester.pumpAndSettle();
+    await _scrollUntilVisible(tester, find.text('Done task'));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Done task'));
     await tester.pumpAndSettle();
@@ -3571,7 +3610,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final childCheckbox = find.byKey(ValueKey('task-done-${child.id}'));
-      expect(find.text('Task detail'), findsOneWidget);
+      expect(find.text('Task detail'), findsNothing);
       expect(find.text('Parent detail task'), findsOneWidget);
       expect(find.text('Detail child task'), findsOneWidget);
       expect(childCheckbox, findsOneWidget);
@@ -3664,6 +3703,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
     await tester.pumpAndSettle();
 
+    await _scrollUntilVisible(tester, find.text('Done detail task'));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Done detail task'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-detail-done-${done.id}')));
@@ -3682,6 +3724,8 @@ void main() {
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
     await tester.pumpAndSettle();
     await tester.tap(wontDoRow);
     await tester.pumpAndSettle();
