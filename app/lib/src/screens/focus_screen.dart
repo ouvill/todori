@@ -94,7 +94,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                       engine.active?.taskId == null ||
                       engine.active?.taskId == task.id;
                   if (_activeConflict || !belongsToTask) {
-                    return _FocusConflictState(onBack: () => context.pop());
+                    return _FocusConflictState(onBack: _leaveFocus);
                   }
                   if (engine.active != null) {
                     return _FocusActiveView(
@@ -132,17 +132,20 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                     return _FocusFinishedView(
                       title: _l10n.focusBreakFinishedTitle,
                       body: _l10n.focusBreakFinishedBody,
-                      onDone: () => context.pop(),
+                      onDone: _leaveFocus,
                     );
                   }
                   final completion = engine.lastCompletion;
                   if (completion != null ||
                       _taskCompleted ||
-                      _sessionFinished) {
+                      _sessionFinished ||
+                      engine.isBreakPending) {
                     return _FocusFinishedView(
                       title: _l10n.focusFinishedTitle,
                       body: completion == null
-                          ? _l10n.undoCompleteMessage
+                          ? engine.isBreakPending
+                                ? _l10n.focusBreakPrompt
+                                : _l10n.undoCompleteMessage
                           : _l10n.focusFinishedBody(
                               _formatDuration(
                                 Duration(
@@ -151,14 +154,18 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                                 ),
                               ),
                             ),
-                      onStartBreak: completion?.mode == TimerModeDto.pomodoro
+                      onStartBreak: engine.isBreakPending
                           ? () => _runEngine(
                               () => ref
                                   .read(timerEngineProvider.notifier)
                                   .startBreak(),
                             )
                           : null,
-                      onDone: () => context.pop(),
+                      onDone: () => unawaited(
+                        _finishPromptAndExit(
+                          acknowledgeBreak: engine.isBreakPending,
+                        ),
+                      ),
                     );
                   }
                   return settingsAsync.when(
@@ -183,7 +190,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                           setState(() => _selectedMode = mode),
                       onStart: () => _start(task),
                       onSettings: () => _showSettings(settings),
-                      onClose: () => context.pop(),
+                      onClose: _leaveFocus,
                     ),
                   );
                 },
@@ -196,6 +203,29 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   }
 
   AppLocalizations get _l10n => AppLocalizations.of(context)!;
+
+  Future<void> _finishPromptAndExit({required bool acknowledgeBreak}) async {
+    if (acknowledgeBreak) {
+      final succeeded = await _runEngine(
+        () => ref.read(timerEngineProvider.notifier).skipBreak(),
+      );
+      if (!succeeded || !mounted) {
+        return;
+      }
+    }
+    _leaveFocus();
+  }
+
+  void _leaveFocus() {
+    if (!mounted) {
+      return;
+    }
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
+  }
 
   Future<void> _start(TaskDto task) async {
     await _runEngine(() async {
@@ -232,7 +262,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       setState(() => _sessionFinished = true);
     }
     if (exit) {
-      context.pop();
+      _leaveFocus();
     }
   }
 
@@ -252,14 +282,14 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       () => ref.read(timerEngineProvider.notifier).discard(),
     );
     if (succeeded && mounted) {
-      context.pop();
+      _leaveFocus();
     }
   }
 
   Future<void> _requestExit() async {
     final active = ref.read(timerEngineProvider).value?.active;
     if (active == null) {
-      if (mounted) context.pop();
+      _leaveFocus();
       return;
     }
     final action = await showModalBottomSheet<_FocusExitAction>(
@@ -878,7 +908,11 @@ class _FocusFinishedView extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm),
             ],
-            TextButton(onPressed: onDone, child: Text(l10n.focusDoneButton)),
+            TextButton(
+              key: const ValueKey('focus-done'),
+              onPressed: onDone,
+              child: Text(l10n.focusDoneButton),
+            ),
           ],
         ),
       ),

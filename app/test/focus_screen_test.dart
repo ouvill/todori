@@ -144,6 +144,60 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('Pomodoro break prompt survives restart and Done clears it', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Keep the break handoff durable',
+    );
+    final clock = _MutableTimerClock(DateTime.utc(2026, 7, 13, 10));
+
+    Future<GoRouter> pumpFreshApp() async {
+      final router = buildAppRouter();
+      await tester.pumpWidget(
+        TodoriApp(
+          router: router,
+          overrides: [
+            bridgeServiceProvider.overrideWithValue(fake),
+            timerClockProvider.overrideWithValue(clock),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go('/focus/$listId/${task.id}');
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    await pumpFreshApp();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 100));
+    clock.advance(const Duration(minutes: 1));
+    await tester.tap(find.byKey(const ValueKey('focus-finish')));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('focus-start-break')), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await pumpFreshApp();
+    expect(find.byKey(const ValueKey('focus-start-break')), findsOneWidget);
+    expect(find.text('Take a breath.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('focus-done')));
+    await tester.pumpAndSettle();
+    expect(await fake.getActiveTimerSession(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await pumpFreshApp();
+    expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-start-break')), findsNothing);
+  });
 }
 
 class _MutableTimerClock implements TimerClock {
