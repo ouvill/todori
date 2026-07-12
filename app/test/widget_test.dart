@@ -248,6 +248,14 @@ void main() {
         contains('Tomorrow'),
       );
       expect(formatRelativeDueDate(ja, 'ja', tomorrowDue), contains('明日'));
+
+      final zonedDue = dateTimeDueFromInstant(
+        DateTime.now().toUtc().add(const Duration(hours: 2)),
+        timeZone: 'America/New_York',
+      );
+      final compact = formatRelativeDueDate(en, 'en', zonedDue);
+      expect(compact, isNot(contains('America/New_York')));
+      expect(compact, isNot(contains('UTC')));
     },
   );
 

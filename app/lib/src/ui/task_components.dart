@@ -1366,11 +1366,10 @@ String formatHomeHeaderDate(String locale, DateTime date) {
   return DateFormat.MMMEd(locale).format(date);
 }
 
-/// Formats a due date as "Today"/"Tomorrow"/a short localized date (e.g.
-/// "Jul 5"), per the row Due pill convention in
-/// `docs/design/visual-direction.md`. Falls back to [AppLocalizations.noDueDate]
-/// when [due] is null (used for the task detail header, which always shows
-/// a due pill).
+/// Formats compact row metadata as "Today"/"Tomorrow"/a short localized date.
+/// Datetime rows include the saved wall-clock time, while the full IANA zone
+/// and UTC offset remain available in Task detail and Calendar. Long zone IDs
+/// would otherwise dominate and truncate the task stream.
 String formatRelativeDueDate(
   AppLocalizations l10n,
   String locale,
@@ -1398,9 +1397,7 @@ String formatRelativeDueDate(
   if (taskDueIsDateOnly(due)) {
     return dateLabel;
   }
-  final timeZone = taskDueSavedTimeZone(due)!;
-  return '$dateLabel · ${DateFormat.jm(locale).format(dueDateTime)} '
-      '$timeZone (${taskDueUtcOffsetLabel(dueDateTime)})';
+  return '$dateLabel · ${DateFormat.jm(locale).format(dueDateTime)}';
 }
 
 /// Whether [task] has a due date in the past and is not yet done. Used to
