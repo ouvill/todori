@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    realtime::{RealtimeGateway, RealtimeTicketResponse},
+    realtime::{observe_realtime, RealtimeEvent, RealtimeGateway, RealtimeTicketResponse},
     AppError, SharedState,
 };
 
@@ -25,12 +25,9 @@ async fn ticket(
     let token = super::sync::bearer_token(&headers)?;
     let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
     let Some(response) = realtime.issue_ticket(tenant_id, auth_context.device_id) else {
-        tracing::warn!(
-            event = "realtime_ticket_unavailable",
-            "realtime ticket unavailable"
-        );
+        observe_realtime(RealtimeEvent::TicketUnavailable);
         return Err(AppError::service_unavailable("realtime unavailable"));
     };
-    tracing::info!(event = "realtime_ticket_issued", "realtime ticket issued");
+    observe_realtime(RealtimeEvent::TicketIssued);
     Ok(Json(response))
 }

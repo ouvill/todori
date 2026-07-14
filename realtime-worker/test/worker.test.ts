@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject, SELF } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHANGE_FRAME, MAX_CONNECTIONS, type ConnectionAttachment } from "../src/contracts";
 import { verifyPublish, verifyTicket } from "../src/crypto";
 import fixture from "./fixtures/realtime-hmac-v1.json";
@@ -14,6 +14,8 @@ import {
   message,
   opaqueTag,
   publish,
+  signFixtureInput,
+  signPublishBody,
 } from "./helpers";
 
 const openSockets: WebSocket[] = [];
@@ -30,29 +32,54 @@ afterEach(() => {
 
 describe("ticket authentication", () => {
   it("matches the shared HMAC v1 fixture", async () => {
-    const payload = JSON.parse(fixture.ticket.payload);
-    expect(await verifyTicket(fixture.ticket.token, {
-      current: { id: payload.kid, encodedKey: fixture.ticket.key_base64url },
+    const vector = fixture.rust_generated;
+    const payload = JSON.parse(vector.ticket.payload);
+    expect(await verifyTicket(vector.ticket.token, {
+      current: { id: payload.kid, encodedKey: vector.ticket.key_base64url },
       previous: { id: "unused", encodedKey: env.TICKET_KEY_PREVIOUS },
     }, payload.iat)).toEqual(payload);
 
     const request = new Request("https://example.com/v1/publish", {
-      body: fixture.publish.body,
+      body: vector.publish.body,
       headers: {
-        "X-Todori-Realtime-Key-Id": fixture.publish.key_id,
-        "X-Todori-Realtime-Signature": fixture.publish.signature,
-        "X-Todori-Realtime-Timestamp": String(fixture.publish.timestamp),
+        "X-Todori-Realtime-Key-Id": vector.publish.key_id,
+        "X-Todori-Realtime-Signature": vector.publish.signature,
+        "X-Todori-Realtime-Timestamp": String(vector.publish.timestamp),
       },
       method: "POST",
     });
     const verified = await verifyPublish(request, {
       current: {
-        id: fixture.publish.key_id,
-        encodedKey: fixture.publish.key_base64url,
+        id: vector.publish.key_id,
+        encodedKey: vector.publish.key_base64url,
       },
       previous: { id: "unused", encodedKey: env.PUBLISH_KEY_PREVIOUS },
-    }, fixture.publish.timestamp);
-    expect(new TextDecoder().decode(verified?.body)).toBe(fixture.publish.body);
+    }, vector.publish.timestamp);
+    expect(new TextDecoder().decode(verified?.body)).toBe(vector.publish.body);
+  });
+
+  it("generates the TypeScript side of the bidirectional fixture", async () => {
+    const vector = fixture.typescript_generated;
+    const payload = JSON.parse(vector.ticket.payload);
+    expect(await issueTicket(payload, vector.ticket.key_base64url)).toBe(
+      vector.ticket.token,
+    );
+    const body = new TextEncoder().encode(vector.publish.body);
+    expect(await signPublishBody(
+      vector.publish.key_base64url,
+      vector.publish.timestamp,
+      body,
+    )).toBe(vector.publish.signature);
+
+    const identifiers = fixture.opaque_identifiers;
+    expect(await signFixtureInput(
+      identifiers.channel_key_base64url,
+      `todori-realtime-channel-v1\n${identifiers.tenant_id}`,
+    )).toBe(identifiers.channel);
+    expect(await signFixtureInput(
+      identifiers.channel_key_base64url,
+      `todori-realtime-device-v1\n${identifiers.tenant_id}\n${identifiers.device_id}`,
+    )).toBe(identifiers.device);
   });
 
   it("verifies the fixed ticket byte contract directly", async () => {
@@ -230,6 +257,37 @@ describe("connection lifecycle", () => {
     const closed = closeEvent(socket);
     socket.send("not allowed");
     expect((await closed).code).toBe(1008);
+  });
+});
+
+describe("structured observability", () => {
+  it("emits only allowlisted event names without opaque identifiers", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      accept(await connect(DEVICE_A));
+      expect((await SELF.fetch("https://example.com/v1/connect")).status).toBe(426);
+      expect((await publishPayload(DEVICE_A)).status).toBe(204);
+      expect((await SELF.fetch("https://example.com/v1/publish", {
+        method: "POST",
+      })).status).toBe(401);
+
+      const observations = info.mock.calls.map(([entry]) => JSON.parse(String(entry)));
+      expect(observations.map(({ event }) => event)).toEqual([
+        "realtime_connect_succeeded",
+        "realtime_connect_failed",
+        "realtime_publish_succeeded",
+        "realtime_publish_failed",
+      ]);
+      for (const observation of observations) {
+        expect(Object.keys(observation)).toEqual(["event"]);
+      }
+      const serialized = JSON.stringify(observations);
+      for (const forbidden of [CHANNEL, DEVICE_A, "ticket", "tenant", "record"]) {
+        expect(serialized).not.toContain(forbidden);
+      }
+    } finally {
+      info.mockRestore();
+    }
   });
 });
 

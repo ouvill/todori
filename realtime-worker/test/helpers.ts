@@ -42,21 +42,40 @@ export async function publish(
 ): Promise<Response> {
   const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
   const body = options.body ?? encoder.encode(JSON.stringify(payload));
-  const prefix = encoder.encode(`todori-realtime-publish-v1\n${timestamp}\n`);
-  const input = new Uint8Array(prefix.byteLength + body.byteLength);
-  input.set(prefix);
-  input.set(body, prefix.byteLength);
-  const signature = await sign(options.key ?? env.PUBLISH_KEY_CURRENT, input);
+  const signature = await signPublishBody(
+    options.key ?? env.PUBLISH_KEY_CURRENT,
+    timestamp,
+    body,
+  );
   return SELF.fetch("https://example.com/v1/publish", {
     body,
     headers: {
       "Content-Type": "application/json",
       "X-Todori-Realtime-Key-Id": options.kid ?? env.PUBLISH_KEY_CURRENT_ID,
-      "X-Todori-Realtime-Signature": encodeBase64Url(signature),
+      "X-Todori-Realtime-Signature": signature,
       "X-Todori-Realtime-Timestamp": String(timestamp),
     },
     method: "POST",
   });
+}
+
+export async function signPublishBody(
+  encodedKey: string,
+  timestamp: number,
+  body: Uint8Array,
+): Promise<string> {
+  const prefix = encoder.encode(`todori-realtime-publish-v1\n${timestamp}\n`);
+  const input = new Uint8Array(prefix.byteLength + body.byteLength);
+  input.set(prefix);
+  input.set(body, prefix.byteLength);
+  return encodeBase64Url(await sign(encodedKey, input));
+}
+
+export async function signFixtureInput(
+  encodedKey: string,
+  input: string,
+): Promise<string> {
+  return encodeBase64Url(await sign(encodedKey, encoder.encode(input)));
 }
 
 export function message(socket: WebSocket): Promise<string> {

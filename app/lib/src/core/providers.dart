@@ -48,6 +48,10 @@ final realtimeSocketConnectorProvider = Provider<RealtimeSocketConnector>(
   (ref) => const IoRealtimeSocketConnector(),
 );
 
+final realtimeEventSinkProvider = Provider<RealtimeEventSink>(
+  (ref) => systemRealtimeEventSink,
+);
+
 const taskSearchDebounceDuration = Duration(milliseconds: 250);
 
 final taskSearchDebounceDurationProvider = Provider<Duration>(
@@ -339,6 +343,7 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     final scheduler = RealtimeSyncScheduler(
       runSync: _performSync,
       timerFactory: ref.watch(realtimeTimerFactoryProvider),
+      observer: ref.watch(realtimeEventSinkProvider),
     );
     _scheduler = scheduler;
     scheduler.setForeground(_foreground);
@@ -359,7 +364,9 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     return _scheduler?.syncNow() ?? _performSync();
   }
 
-  void triggerRealtimeSync() => _scheduler?.trigger();
+  void triggerRealtimeSync([
+    RealtimeTriggerKind kind = RealtimeTriggerKind.localMutation,
+  ]) => _scheduler?.trigger(kind);
 
   void setRealtimeConnected(bool connected) {
     _connected = connected;
@@ -453,8 +460,11 @@ final realtimeConnectionControllerProvider =
         },
         connector: ref.watch(realtimeSocketConnectorProvider),
         timerFactory: ref.watch(realtimeTimerFactoryProvider),
+        observer: ref.watch(realtimeEventSinkProvider),
         onChanged: () {
-          ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
+          ref
+              .read(syncStatusProvider.notifier)
+              .triggerRealtimeSync(RealtimeTriggerKind.remoteHint);
         },
         onConnectionChanged: (connected) {
           ref.read(syncStatusProvider.notifier).setRealtimeConnected(connected);
