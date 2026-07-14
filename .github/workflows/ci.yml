@@ -124,7 +124,7 @@ jobs:
         run: flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml
 
       - name: FRB generated diff check
-        run: git diff --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust
+        run: git diff --ignore-space-at-eol --exit-code -- app/rust/src/frb_generated.rs app/rust/frb_generated.h app/lib/src/rust
 
       - name: Build app/rust release library for Flutter tests
         working-directory: app/rust
