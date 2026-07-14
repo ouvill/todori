@@ -1,7 +1,7 @@
 ---
 id: 019f621c-5840-7a41-83d4-df5c19640355
 title: Foreground realtime server gateway
-status: active
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -75,3 +75,32 @@ Workerはtenant identityやsessionを検証しない。Todori serverが既存req
 - accepted判定とbest-effort publishの証拠
 - auth、tamper、disabled、timeout test結果
 - production secret投入前に残る人間作業
+
+## 9. 完了報告
+
+### 実装
+
+- `POST /v2/tenants/{tenant_id}/realtime/ticket`を追加し、既存の`auth::authenticate`でsession、device失効、tenant membershipをrequest-time検証するようにした。
+- channel / device tagのdomain-separated HMAC、固定順ticket payload、300秒TTL、current / previous ticket key検証を実装した。responseの`expires_at`は署名payloadの整数秒`exp`と一致する。
+- accepted resultが1件以上あるpushのcommit後だけ、固定順bodyと3 headerをraw body contractで署名し、500ms以内でWorkerへpublishするようにした。timeout、network failure、non-2xxは分類して記録するが、commit済み`PushResponse`には影響させない。
+- realtimeの11環境変数は、全て未設定ならdisabled、部分設定ならstartup errorとした。disabled時も同期APIは継続し、ticket endpointだけ503を返す。
+- channel、ticket、publishの32-byte keyを用途分離し、ticket / publishのcurrent / previous rotation、URL scheme / path、canonical base64url、key ID、secret再利用をstartup時に検証するようにした。
+- logとerror responseにはsecret、ticket、tenant / device UUID、opaque identifierを含めない。server DB schema、sync protocol、`PushResponse` wire shapeは変更していない。
+
+### 検証
+
+- `cargo test -p todori-server`: PASS。lib 7/7、`auth_server` 1/1、`realtime_gateway` 2/2、`rls_hardening` 1/1、`sync_v2` 20/20。
+- `cargo test --workspace`: PASS。
+- `cargo fmt --all -- --check`、workspace clippy、app Rust release、Flutter analyze / test、hardcoded / boundary script、Workerの`npm ci` / typecheck / Vitest / Wrangler dry-run build、`git diff --check`: すべてPASS。
+- Node標準`crypto.createHmac`による独立再計算でticket / publish / channel / deviceの共通vectorが一致した。
+- `cargo tree`で`hmac 0.12.1`と既存`sha2 0.10.9`を確認した。
+- 独立検証担当が統合HEAD `7f585b2e1a8d38535a6944c06aff6335c1f3ab29`を再検証し、契約違反・ブロッキング指摘なしでPASSと判定した。
+
+### Commit
+
+- `6e9091a feat(realtime): add server ticket and publish gateway`
+- `7f585b2 fix(realtime): align ticket expiry precision`
+
+### 未解決事項
+
+- production Cloudflare resource作成、endpoint設定、ticket / publish / channel secret投入とrotation運用、実Cloudflare latency確認はdeploy時の人間作業として残す。このwork itemではdeploy、credential投入、AWS / Neon変更を行っていない。
