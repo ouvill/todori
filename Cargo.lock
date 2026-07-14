@@ -3427,6 +3427,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "todori-xtask"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "todori_app_bridge"
 version = "0.1.0"
 dependencies = [

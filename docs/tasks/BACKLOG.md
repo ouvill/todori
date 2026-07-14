@@ -1,12 +1,12 @@
 # Todori バックログ
 
-Next以外の未着手候補だけを置く。現在と次の3件は [`STATUS.md`](./STATUS.md)、完了履歴は既存 `task-*.md` とgit、マイルストーンは [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
+UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLater、Quick fixes、Icebox、人間作業はpilot後の移行判断まで保持するが、新規候補や新形式work itemの状態はこのファイルへ追加しない。新形式の状態は各 `work-*.md` のfront matter、長期方向は [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
 
 ## 運用ルール
 
 - 完了項目をこのファイルへ残さない。
-- 候補を `STATUS.md` のNextへ移す時にこのファイルから削除し、状態を重複させない。
-- task番号は実装着手が決まった時点で採番する。候補段階では採番しない。
+- pilot中は既存項目の全面移行を行わず、新しい候補を追加しない。
+- 新規work itemに連番を採番しない。UUIDv7の生成と作成方法は [`PLAYBOOK.md`](./PLAYBOOK.md) に従う。
 - Laterは最大20件を目安とする。上限を超えたら優先度を付けずIceboxへ移す。
 - 仕様変更・依存追加・暗号・鍵・課金・public/private境界は、人間承認後にtaskへ昇格する。
 - taskの結果はtask文書とgitへ残す。
@@ -59,4 +59,4 @@ task文書へ昇格せず、軽量レーンで処理できる候補である。
 4. ドッグフーディングで確認された具体的な問題
 5. プロダクトオーナーの明示的な決定
 
-出典のない候補を追加しない。追加時点ではtask文書を作らず、`STATUS.md` のNextへ昇格して着手が決まった段階で作成する。
+出典のない候補を作らない。pilot中に新規候補が必要になった場合は、出典を本文へ記録した `status: backlog` の新形式work itemとして作成する。このlegacy backlogには追加しない。

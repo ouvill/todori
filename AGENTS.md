@@ -27,7 +27,7 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `docs/05_設計判断記録.md` ── ADR（設計判断記録）
 - `docs/legal_overview.md` ── 公開版の法務・OSS方針（詳細な事業・法務メモはprivate repo側）
 - `docs/07_Phase1計画書.md` ── **現在の実行計画**。マイルストーン（M1〜M5）と完了条件を定義する
-- `docs/tasks/` ── 現在地、未着手候補、標準/重要変更の指示書と完了証拠。軽量作業はtask文書を省略できる
+- `docs/tasks/` ── UUIDv7 work item、標準/重要変更の指示書と完了証拠。長期方向はPhase計画書、work itemの状態はfront matterを正本とする。軽量作業はtask文書を省略できる
 
 **`docs/01`・`docs/02` の変更には人間承認が必要**である。`docs/03_技術仕様書.md` は2026-07-08にプロダクトオーナーが全面編集を許可した（コミットをチェックポイントとして復元可能なため）。ただし変更時は外科的差分とし、日付・ADR参照注記を維持すること。実装中に仕様と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、該当タスクの完了報告の「未解決事項」に記録すること。
 
@@ -67,7 +67,7 @@ sh app/tool/test_client_boundaries.sh
 - 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
 - `core/` はcrate群の配置ディレクトリでありcrate名ではない。Cargo packageは `todori-<role>`、Rust crate名は `todori_<role>` とし、bare `core` package/lib、dependency alias、曖昧なumbrella crateを作らない。`todori_app_bridge`だけはCargo / pod / FRB stemの固定契約として例外とする。
 - Flutter bridge、CLI、MCPのTodori共通入口は `todori-client` の `TodoriClient` とする。frontend adapterから `todori-crypto` / `todori-domain` / `todori-storage` / `todori-sync`へ直接依存せず、repository、暗号鍵、同期coordinatorを保持しない。`app/rust`はFRB公開関数、process内client handle、typed input / DTO変換だけに限定する。新しい共通機能は先に `core/client` のfrontend-neutral APIとして実装する。ローカル暗号化データ境界は`LocalProfile`、それを開く設定は`LocalProfileConfig`と呼び、ユーザー表示profileやruntime facadeと混同しない。詳細は `docs/dev/client-profile-architecture.md` を参照する。
-- 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。標準・重要変更は実装着手時に指示書へ昇格し、`docs/tasks/PLAYBOOK.md` のフェーズを通す。`## 9. 完了報告` は実装結果と独立検証の共同記録とする。候補段階や軽量作業ではtask文書を作らない。
+- 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。新規の標準・重要変更は `work-<UUIDv7>-<slug>.md` で管理し、状態はYAML front matterへ記録する。既存の連番taskは履歴として変更しない。`docs/tasks/PLAYBOOK.md` のフェーズを通し、`## 9. 完了報告` は実装結果と独立検証の共同記録とする。軽量作業ではtask文書を省略できる。
 
 ## 環境
 
@@ -96,4 +96,4 @@ sh app/tool/test_client_boundaries.sh
 
 ## 現在地とバックログ
 
-現在地と次の3候補は `docs/tasks/STATUS.md`、未着手候補は `docs/tasks/BACKLOG.md` を参照すること。
+長期の進行方向はPhase計画書、新形式work itemの状態は `docs/tasks/work-*.md` のfront matterを参照すること。`docs/tasks/STATUS.md` と `docs/tasks/BACKLOG.md` はUUIDv7 pilot中の移行案内とlegacy情報を保持する。
