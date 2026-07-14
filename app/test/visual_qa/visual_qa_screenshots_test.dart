@@ -140,16 +140,32 @@ void main() {
     await _screenshot(tester, 'focus_setup');
   });
 
-  testWidgets('focus_running: dark inverse work session', (tester) async {
+  testWidgets('focus_running: warm open-dial work session', (tester) async {
     _setMobileViewport(tester);
     await _pumpFocusVisual(tester, state: _FocusVisualState.running);
     await _screenshot(tester, 'focus_running');
   });
 
-  testWidgets('focus_paused: dark inverse paused controls', (tester) async {
+  testWidgets('focus_paused: warm open-dial paused controls', (tester) async {
     _setMobileViewport(tester);
     await _pumpFocusVisual(tester, state: _FocusVisualState.paused);
     await _screenshot(tester, 'focus_paused');
+  });
+
+  testWidgets('focus_session_options: warm action tray reaches the bottom', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.running);
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('focus-finish')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-discard')), findsOneWidget);
+    await _screenshot(
+      tester,
+      'focus_session_options',
+      expectedBottomCenter: AppColors.canvas,
+    );
   });
 
   testWidgets('focus_finished: recorded work handoff', (tester) async {
@@ -1391,7 +1407,7 @@ void main() {
     await _screenshot(tester, 'design_lab_list_overview');
   });
 
-  testWidgets('design_lab_focus_timer: dark horizon focus direction', (
+  testWidgets('design_lab_focus_timer: warm open-dial focus direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -1460,7 +1476,7 @@ void main() {
     await _screenshot(tester, 'design_lab_settings');
   });
 
-  testWidgets('design_lab_timer_setup: typographic focus setup direction', (
+  testWidgets('design_lab_timer_setup: warm open-dial setup direction', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -1633,7 +1649,7 @@ Future<void> _pumpFocusVisual(
     final scaffold = tester.widget<Scaffold>(
       find.byKey(const ValueKey('focus-screen')),
     );
-    expect(scaffold.backgroundColor, AppFocusColors.surface);
+    expect(scaffold.backgroundColor, AppColors.canvas);
     expect(
       tester.getSize(find.byKey(const ValueKey('focus-screen'))),
       tester.view.physicalSize / tester.view.devicePixelRatio,
@@ -1646,6 +1662,8 @@ Future<void> _pumpFocusVisual(
     await tester.pump();
   } else if (state == _FocusVisualState.finished) {
     clock.advance(const Duration(minutes: 12));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-finish')));
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const ValueKey('focus-finished')), findsOneWidget);
@@ -1661,12 +1679,18 @@ Future<void> _pumpFocusVisual(
     await tester.pump();
   } else if (state == _FocusVisualState.breakRunning) {
     clock.advance(const Duration(minutes: 12));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-finish')));
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-start-break')));
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('focus-break-running')), findsOneWidget);
     expect(find.byKey(const ValueKey('focus-complete-task')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 300));
+  } else {
+    // The wall-clock ticker does not keep scheduling frames continuously, so
+    // pump the route transition explicitly before capturing the stable state.
     await tester.pump(const Duration(milliseconds: 300));
   }
 }
@@ -1722,6 +1746,7 @@ Future<void> _pumpRestoredFocusVisual(WidgetTester tester) async {
     }
   }
   expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 Future<void> _pumpFocusErrorVisual(WidgetTester tester) async {
@@ -2610,7 +2635,9 @@ Future<void> _writeScreenshot(
 }
 
 Future<ui.Image> _flattenOnCanvas(ui.Image source) async {
-  final pixels = await source.toByteData(format: ui.ImageByteFormat.rawRgba);
+  final pixels = await source.toByteData(
+    format: ui.ImageByteFormat.rawStraightRgba,
+  );
   if (pixels == null) {
     throw StateError('Failed to inspect visual QA root capture.');
   }
@@ -2625,10 +2652,22 @@ Future<ui.Image> _flattenOnCanvas(ui.Image source) async {
         bytes[offset + 1] == 0 &&
         bytes[offset + 2] == 0 &&
         bytes[offset + 3] == 0xff;
-    if (bytes[offset + 3] == 0 || isRenderViewBackdrop) {
+    final alpha = bytes[offset + 3];
+    if (isRenderViewBackdrop) {
       bytes[offset] = canvasRed;
       bytes[offset + 1] = canvasGreen;
       bytes[offset + 2] = canvasBlue;
+      bytes[offset + 3] = 0xff;
+    } else if (alpha < 0xff) {
+      final inverseAlpha = 0xff - alpha;
+      bytes[offset] =
+          ((bytes[offset] * alpha + canvasRed * inverseAlpha) / 0xff).round();
+      bytes[offset +
+          1] = ((bytes[offset + 1] * alpha + canvasGreen * inverseAlpha) / 0xff)
+          .round();
+      bytes[offset +
+          2] = ((bytes[offset + 2] * alpha + canvasBlue * inverseAlpha) / 0xff)
+          .round();
       bytes[offset + 3] = 0xff;
     }
   }

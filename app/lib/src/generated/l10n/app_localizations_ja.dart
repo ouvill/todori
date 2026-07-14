@@ -921,10 +921,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get focusResumeButton => '再開';
 
   @override
+  String get focusSessionOptionsButton => 'セッションの操作';
+
+  @override
   String get focusAddTimeButton => '5分追加';
 
   @override
   String get focusFinishButton => '終了';
+
+  @override
+  String get focusFinishSessionButton => 'セッションを終了';
+
+  @override
+  String get focusEndBreakButton => '休憩を終了';
 
   @override
   String get focusSaveAndExitButton => '保存して終了';
@@ -943,6 +952,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get focusFinishedTitle => '集中時間を記録しました';
+
+  @override
+  String get focusFinishedSummary => '作業時間を保存しました。';
 
   @override
   String focusFinishedBody(String time) {

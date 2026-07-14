@@ -1,13 +1,13 @@
 # Todori UI Spec ── 拘束力のある具体値と判断規則
 
 > Status: binding implementation spec
-> Last updated: 2026-07-13
+> Last updated: 2026-07-14
 
 `docs/design/visual-direction.md` は方向性と哲学を扱う。本書は**実装時に従う具体値と判断規則**を定める。両者が矛盾した場合は本書が優先する。本書の変更は設計タスク（またはドッグフーディング/親レビュー起点のタスク）経由でのみ行う。実装エージェントが自己判断で本書を書き換えてはならない。
 
 「親しみやすく・落ち着いて・エレガント」という形容詞そのものを実装判断の根拠にしてはならない。形容詞は本書の規則へ翻訳済みである。指示書・完了報告・レビューはすべて本書のセクション番号か具体的な値/規則を引用して書くこと。
 
-## セクション0: 現行production採用契約（2026-07-13）
+## セクション0: 現行production採用契約（2026-07-14）
 
 プロダクトオーナーはInteractive Design Labの**single-canvas方向**をproductionへ採用した。本節は、2026-07-11以前のserif display、白いpanel、独立task surface、pill中心の規則より優先する。下段の過去裁定は判断履歴であり、本節と矛盾する外観を復活させる根拠にしない。
 
@@ -17,8 +17,8 @@
 - productionの基準書体はInterとする。通常画面のhero、screen title、section title、task title、本文、操作へNewsreader、Source Serif 4、Lora、システム明朝を使わない。ウェイト、サイズ、letter spacing、余白で階層を作る。
 - 角丸は形状に意味がある操作へ限定する。通常rowとsectionは角丸面を持たない。input / button / menuは8px、modal sheet / dialogは上端または外周12pxを基準とし、円形checkbox、中央capture、真にpill形状である選択操作だけ完全な丸を許可する。
 - pillは情報階層の既定表現にしない。task metadata、list count、section count、propertyはplain text、dot、2列property row、hairlineで表す。pillは選択中filter、短いpreset、状態を直接切り替えるcompact controlなど、形状自体に操作意味がある場合だけ使う。
-- 通常画面はlight surfaceだけを正式対象とする。dark inverseはFocus running / pausedの専用routeだけに許可し、通常のHome、Calendar、Lists、Task detail、Account、Onboarding、sheetへ流用しない。
-- 通常headerへブランド名、bird icon、マスコットを常設しない。マスコットはOnboarding / empty stateへ控えめに使用でき、Focusでは時間軸上の小さな進行表現として使用できる。
+- productionはFocusを含む全画面でlight surfaceだけを正式対象とする。Focusも`#F8F5EC`のwarm canvasを継続し、状態遷移で画面全体をdark inverseへ切り替えない。通常dark modeとFocus専用dark surfaceは対象外とする。
+- 通常headerへブランド名、bird icon、マスコットを常設しない。マスコットはOnboarding / empty stateへ控えめに使用できるが、Focusのsetup / active / finishedには置かない。
 
 ### 構造と操作
 
@@ -43,7 +43,7 @@
 - 柔らかな精度: 円形チェックボックス、warm canvas、低彩度色、Interの読みやすい本文。rounded cardやpillの量で親しみやすさを作らない。
 - 人間の言葉: 相対日付（Today/Tomorrow/短い月日表記）。ISO日付（`2026-07-05`のような形式）や内部ステータス文字列（`todo`/`in_progress`等の生値）をUIに出さない。
 - 日付・時刻の表記はホストOSの言語・ロケール設定に従う（2026-07-06人間指示）。`DateFormat` は固定パターン文字列ではなく skeleton API（`yMMMEd` 等）を用い、言語ごとの自然な語順・区切りをintlに委ねる。相対表記（Today/明日等）のl10n文言はこの原則の例外として維持する。
-- 挿絵・マスコットは空状態、オンボーディング、Focus時間軸だけに限定する。通常のタスク一覧・詳細・ダイアログには出さない。
+- 挿絵・マスコットは空状態とオンボーディングだけに限定する。通常のタスク一覧・詳細・ダイアログ・Focusには出さない。
 - Interのサイズ、weight、letter spacingの差で柔らかく明瞭な階層を作る。
 - **こうではない**: 派手な色、キャラの常駐、感嘆符、絵文字、画面全体のcelebration演出。
 
@@ -65,7 +65,7 @@
 
 ## セクション2: productionトークン
 
-以下はtask-106完了後のproduction実値である。過去のserif、独立surface、14〜28pxの常用角丸、情報pillは下段の裁定履歴にだけ残し、新規UIへ横展開しない。
+以下はtask-108で裁定した現行production契約である。task-108着手前のFocus inverse、過去のserif、独立surface、14〜28pxの常用角丸、情報pillは下段の裁定履歴にだけ残し、新規UIへ横展開しない。
 
 ### タイポグラフィ（role別）
 
@@ -121,7 +121,7 @@
 
 - production paletteはcanvas `#F8F5EC`、ink `#182019`、muted `#73786F`、forest `#1D6048`、sage `#BFD7C8`、subtle sage `#E9EFE8`、hairline `#D9DDD3`を正とする。
 - `AppColors.coral`（`#C96357`）: 期限切れの強調と通常light画面の破壊的操作だけに使う。`AppColors.amber`（`#C08B3E`）は小さな注意表現だけに使い、大面積の背景色にはしない。
-- Focus inverseはsurface `#183E31`、text `#F5F0E4`、muted `#AFC8BA`、hairline `#416A59`を正とする。inverse上の破壊色もtokenとして定義し、widget内へ色値を直書きしない。
+- Focusもproduction paletteのcanvas、ink、muted、forest、sage、subtle sage、hairlineを使う。active / paused / break / finished / system stateのために別の背景paletteを設けず、破壊的操作は通常light画面と同じcoral tokenを使う。
 - Priority dot色（固定・現行実装値）:
   - high (`priority == 3`) = `#E8755A`（coral）
   - medium (`priority == 2`) = `#EDB73E`（amber）
@@ -199,7 +199,7 @@ Completed見出しは控えめな1行とする。左寄せの小さな見出し 
 - **Capture**: mobile navigation中央の円形captureからroot navigator上のtask作成sheetを開く。sheetはhome indicatorまでwarm面を連続させ、Title / Note / List / Due / Plan / Priorityをhairline property rowで提供する。Dueはdate-only / datetime / clear、Planは予定日時と5分刻みの見積（25 / 45 / 60分preset）、Priorityはnone / low / medium / highを扱う。選択値を同一sheet内で保持し、作成は全属性を1回のcommandとして確定する。横スクロールpillや属性ごとの独立cardを作らない。
 - **Search**: `/search`はShell外のimmersive routeとし、入力、clear、blank、debounce中、結果、0件、error + retryを同じwarm canvasへ表示する。対象はtitle / note、全status、archive済みlist内taskで、deleted taskは除外する。結果行から詳細へ遷移し、戻ったときquery・結果・scroll contextを保持する。検索icon、hit target、ripple、semanticsの中心を一致させる。
 - **Calendar**: top-level destinationとしてWeek / Monthを提供する。WeekはTodayと同じtask row、checkbox、subtask tree、完了motionを使う。Monthは7列grid + 選択日のagendaとし、1024px以上は2 pane、720px幅はsingle paneを維持する。date-only due、datetime due、scheduled、completedを別occurrenceとして表示し、同じtaskのdueとscheduledを統合しない。Completedは`completed_at`基準の控えめなdisclosureとする。dragまたは同等のアクセシブルな日付変更menuは、掴んだoccurrenceだけを変更する。
-- **Focus**: `/focus/:listId/:taskId`はShell外の専用routeとする。setupは通常のwarm light canvas、running / pausedはFocus inverse surfaceを使い、Pomodoro / Stopwatch、setup、active conflict / restore、running、paused、add time、finish、discard、break、errorを明示的な状態として扱う。Pomodoro初期値はwork 25分 / short break 5分 / 4 workごとのlong breakとし、設定は端末ローカルで保持する。active conflictがinverse route上で発生した場合はtitleに`AppFocusColors.text`、本文に`AppFocusColors.muted`を明示して背景とのcontrastを維持し、light theme由来の既定文字色を流用しない。全taskへ常設CTAを置かず、open taskのtrailing swipeとTask detailから入る。見積時間と合計実績はTask detailの小さなproperty rowで比較できるようにする。
+- **Focus**: `/focus/:listId/:taskId`はShell外の専用routeとし、setup / running / paused / break / finished / restore / error / conflictをすべて同じwarm canvasで扱う。中央は開始角135度・描画範囲270度の細いopen dialとし、外周card、円形surface、heavy shadowを置かない。Pomodoroはhairline track上のforest arcを残り時間に応じて減少させ、pausedは値を保持したままsageへ弱める。Stopwatchは静的arcとelapsed clockを使い、存在しない完了率を表示しない。work / short break / long breakはphase labelとaccentで区別し、色だけへ依存しない。Pomodoro初期値はwork 25分 / short break 5分 / 4 workごとのlong breakとし、設定は端末ローカルで保持する。setupはtask title、compactなPomodoro / Stopwatch selector、preview dial、時間・設定、最大幅280pxのStartを1本の縦軸へ置く。activeの常設操作は64px級の円形Pause / Resumeと`Session options`だけにし、Add 5 min、finish、task complete、save exit、discardは状態別のwarm bottom sheetへ送る。close / system backも同じsheetへ到達し、sheet dismissalだけではsessionを終了しない。finishedはdial構図を維持し、記録時間、Start break、Doneだけを表示する。setup→runningは260msのfade + 0.985→1.0 scale、pause / resumeは180ms、finishedは260msでdialを記録結果へ収束させ、Reduce Motionでは即時切替する。全taskへ常設CTAを置かず、open taskのtrailing swipeとTask detailから入る。見積時間と合計実績はTask detailの小さなproperty rowで比較できるようにする。
 - **スワイプ/モーション**: open taskのleading swipeはcomplete、trailing swipeはFocus revealとする。closed taskのleading swipeはreopenで、trailing paneは表示しない。Due変更はTask detailのproperty sheetへ集約する。完了motionはセクション0のcheck path + 単一halo + strikethrough + hold + collapseを使い、多色particle、画面全体のconfetti、トロフィー、音、全画面演出を禁止する。
 - **リスト一覧**: Listsはグローバルナビゲーションから直接開くトップレベル領域とする。旧戻る矢印、Home行、Account overflowを置かない。Interのcompact見出しの下に、最大760pxの連続rowを置き、短いindex mark、文字階層、hairlineで区切る。外周card、count pill、行内chevronを置かない。New listはactive listの直後、Archivedはその下の低強度sectionとする。リスト単位操作は、そのlistを開いた画面の右上overflowに置く。
 - **Task detail**: headerはbackとoverflowだけに限定し、`Task detail`という重複見出しを表示しない。最大760pxのdocument canvasへ、親リンク → 円形チェック + Inter title → note → 罫線ベースのproperty rows → created → Subtasksを直接配置する。外周cardと属性pillを禁止する。既存属性は48px級操作領域で編集し、タイトルとnoteの閲覧 / 編集で同一TextStyleとbaselineを使う。Subtasksは子孫tree全体を同じcanvas上に表示し、connectorをcheckbox ringへ接触させない。ロック / 暗号化表現を常設しない。
@@ -237,7 +237,7 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 
 ## セクション5: 既知の逸脱（現状 spec 違反として認識済みのもの）
 
-- 現時点で既知のspec逸脱はない。Design Lab依存方向の静的guard、OnboardingのLucide統一、Focus inverseのdestructive/error token化はtask-107で解消済みである。
+- task-108着手時点では、productionとDesign LabのFocusに全面dark inverse、旧button hierarchy、旧Timer表現が残っており、上記warm open-dial規範からの既知逸脱である。task-108の実装・Visual QA・独立検証で解消し、完了時に本項を更新する。
 
 ## 裁定済み事項
 
@@ -262,6 +262,7 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 - **2026-07-11 人間裁定（task-99 IA / 画面遷移追補）**: 初回成果が既存の情報設計と遷移を保守的に残しすぎたというプロダクトオーナー指摘を受け、見た目だけでなくアプリシェル、画面階層、遷移演出も抜本変更の対象であることを明確化した。Home / Lists / Accountをレスポンシブなグローバルナビゲーションへ統合し、旧ハンバーガー、戻る矢印、Home重複行、Account overflowを撤去する。Homeのタスク選別、ツリー、完了体験だけを不変条件とする。
 - **2026-07-11 人間裁定（task-100 プロダクトUI再設計）**: task-99後も「プロトタイプ感が拭えず、エレガントにするには抜本変更が必要」と評価された。巨大見出し、全行独立カード、pill過多、Quick AddとNavigationBarの二重帯、モバイル構造を引き伸ばしたワイド画面を廃止対象とする。主要画面はcontent最大幅を持つ直接的なcanvasへ変更し、Homeの選別・ツリー・完了体験だけを不変条件とする。この裁定はtask-99外観規則のうち本書で置き換えた箇所に優先する。
 - **2026-07-13 人間裁定（Interactive Design Lab single-canvas本番採用）**: Interactive Design Labのsingle-canvas方向をproductionへ採用する。通常画面はInter主体、warm canvas、hairline、低角丸とし、serif、白panel、通常card、情報pillを常用しない。dark inverseはFocus専用とする。Design Labはfake data専用で独立させ、productionからimportしない。task-100時点ではCalendar完成までHomeの4期日sectionを維持し、Search / Calendar / Focusをscope外としたが、この暫定範囲はtask-103〜106の完了で解消済みである。現在の拘束契約はセクション0〜5を正とする。
+- **2026-07-14 人間裁定（Focus warm open-dial再設計）**: setupからrunning / pausedへの全面dark inverse切替を廃止し、Focus全状態をproduction共通のwarm canvasへ統一する。没入感はShell外route、情報量の削減、135度開始・270度のopen dial、単一のPause / Resume主操作で作る。Session終了系操作は状態別bottom sheetへ集約し、Focusへマスコットを置かない。task-106/107のdark inverse記述は当時の実装履歴として保持し、現行拘束契約はセクション0〜5を正とする。
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 

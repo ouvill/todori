@@ -1741,6 +1741,12 @@ abstract class AppLocalizations {
   /// **'Resume'**
   String get focusResumeButton;
 
+  /// No description provided for @focusSessionOptionsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Session options'**
+  String get focusSessionOptionsButton;
+
   /// No description provided for @focusAddTimeButton.
   ///
   /// In en, this message translates to:
@@ -1752,6 +1758,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Finish'**
   String get focusFinishButton;
+
+  /// No description provided for @focusFinishSessionButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish session'**
+  String get focusFinishSessionButton;
+
+  /// No description provided for @focusEndBreakButton.
+  ///
+  /// In en, this message translates to:
+  /// **'End break'**
+  String get focusEndBreakButton;
 
   /// No description provided for @focusSaveAndExitButton.
   ///
@@ -1788,6 +1806,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Focus recorded'**
   String get focusFinishedTitle;
+
+  /// No description provided for @focusFinishedSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Your focused work is safely recorded.'**
+  String get focusFinishedSummary;
 
   /// No description provided for @focusFinishedBody.
   ///

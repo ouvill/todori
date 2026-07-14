@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,7 +39,6 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     final engineAsync = ref.watch(timerEngineProvider);
     final settingsAsync = ref.watch(timerSettingsProvider);
     final active = engineAsync.value?.active;
-    final isImmersive = active != null;
 
     return PopScope<void>(
       canPop: active == null,
@@ -49,38 +49,13 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       },
       child: Scaffold(
         key: const ValueKey('focus-screen'),
-        backgroundColor: isImmersive
-            ? AppFocusColors.surface
-            : AppColors.canvas,
-        body: SafeArea(
-          child: tasksAsync.when(
-            loading: () => _FocusCenteredState(
-              inverse: isImmersive,
-              child: Semantics(
-                label: _l10n.focusRestoring,
-                liveRegion: true,
-                child: const AppLoadingState(),
-              ),
-            ),
-            error: (error, stackTrace) => _FocusErrorState(
-              inverse: isImmersive,
-              onRetry: () => ref.invalidate(tasksProvider(widget.listId)),
-              onExit: _leaveFocus,
-            ),
-            data: (tasks) {
-              final task = tasks
-                  .where((item) => item.id == widget.taskId)
-                  .firstOrNull;
-              if (task == null) {
-                return _FocusErrorState(
-                  inverse: isImmersive,
-                  onRetry: () => ref.invalidate(tasksProvider(widget.listId)),
-                  onExit: _leaveFocus,
-                );
-              }
-              return engineAsync.when(
+        backgroundColor: AppColors.canvas,
+        body: ColoredBox(
+          color: AppColors.canvas,
+          child: SafeArea(
+            child: _FocusStateTransition(
+              child: tasksAsync.when(
                 loading: () => _FocusCenteredState(
-                  inverse: isImmersive,
                   child: Semantics(
                     label: _l10n.focusRestoring,
                     liveRegion: true,
@@ -88,95 +63,22 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                   ),
                 ),
                 error: (error, stackTrace) => _FocusErrorState(
-                  inverse: isImmersive,
-                  onRetry: () => ref.invalidate(timerEngineProvider),
+                  onRetry: () => ref.invalidate(tasksProvider(widget.listId)),
                   onExit: _leaveFocus,
                 ),
-                data: (engine) {
-                  final belongsToTask =
-                      engine.active?.taskId == null ||
-                      engine.active?.taskId == task.id;
-                  if (_activeConflict || !belongsToTask) {
-                    return _FocusConflictState(
-                      inverse: isImmersive,
-                      onBack: _leaveFocus,
+                data: (tasks) {
+                  final task = tasks
+                      .where((item) => item.id == widget.taskId)
+                      .firstOrNull;
+                  if (task == null) {
+                    return _FocusErrorState(
+                      onRetry: () =>
+                          ref.invalidate(tasksProvider(widget.listId)),
+                      onExit: _leaveFocus,
                     );
                   }
-                  if (engine.active != null) {
-                    return _FocusActiveView(
-                      task: task,
-                      engine: engine,
-                      busy: _busy,
-                      onClose: _requestExit,
-                      onPause: () => _runEngine(
-                        () => ref.read(timerEngineProvider.notifier).pause(),
-                      ),
-                      onResume: () => _runEngine(
-                        () => ref.read(timerEngineProvider.notifier).resume(),
-                      ),
-                      onAddTime: engine.active!.mode == TimerModeDto.pomodoro
-                          ? () => _runEngine(
-                              () => ref
-                                  .read(timerEngineProvider.notifier)
-                                  .addTime(const Duration(minutes: 5)),
-                            )
-                          : null,
-                      onFinish: () => _finish(TimerFinishKindDto.completed),
-                      onSaveAndExit: engine.active!.phase == TimerPhaseDto.work
-                          ? () => _finish(
-                              TimerFinishKindDto.interrupted,
-                              exit: true,
-                            )
-                          : null,
-                      onDiscard: _discard,
-                      onCompleteTask: engine.active!.phase == TimerPhaseDto.work
-                          ? () => _completeTask(task)
-                          : null,
-                    );
-                  }
-                  if (_breakFinished) {
-                    return _FocusFinishedView(
-                      title: _l10n.focusBreakFinishedTitle,
-                      body: _l10n.focusBreakFinishedBody,
-                      onDone: _leaveFocus,
-                    );
-                  }
-                  final completion = engine.lastCompletion;
-                  if (completion != null ||
-                      _taskCompleted ||
-                      _sessionFinished ||
-                      engine.isBreakPending) {
-                    return _FocusFinishedView(
-                      title: _l10n.focusFinishedTitle,
-                      body: completion == null
-                          ? engine.isBreakPending
-                                ? _l10n.focusBreakPrompt
-                                : _l10n.undoCompleteMessage
-                          : _l10n.focusFinishedBody(
-                              _formatDuration(
-                                Duration(
-                                  milliseconds: completion.activeDurationMs
-                                      .toInt(),
-                                ),
-                              ),
-                            ),
-                      onStartBreak: engine.isBreakPending
-                          ? () => _runEngine(
-                              () => ref
-                                  .read(timerEngineProvider.notifier)
-                                  .startBreak(),
-                            )
-                          : null,
-                      onDone: () => unawaited(
-                        _finishPromptAndExit(
-                          acknowledgeBreak: engine.isBreakPending,
-                        ),
-                      ),
-                    );
-                  }
-                  return settingsAsync.when(
+                  return engineAsync.when(
                     loading: () => _FocusCenteredState(
-                      inverse: false,
                       child: Semantics(
                         label: _l10n.focusRestoring,
                         liveRegion: true,
@@ -184,25 +86,104 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                       ),
                     ),
                     error: (error, stackTrace) => _FocusErrorState(
-                      inverse: false,
-                      onRetry: () => ref.invalidate(timerSettingsProvider),
+                      onRetry: () => ref.invalidate(timerEngineProvider),
                       onExit: _leaveFocus,
                     ),
-                    data: (settings) => _FocusSetupView(
-                      task: task,
-                      settings: settings,
-                      selectedMode: _selectedMode,
-                      busy: _busy,
-                      onModeChanged: (mode) =>
-                          setState(() => _selectedMode = mode),
-                      onStart: () => _start(task),
-                      onSettings: () => _showSettings(settings),
-                      onClose: _leaveFocus,
-                    ),
+                    data: (engine) {
+                      final belongsToTask =
+                          engine.active?.taskId == null ||
+                          engine.active?.taskId == task.id;
+                      if (_activeConflict || !belongsToTask) {
+                        return _FocusConflictState(onBack: _leaveFocus);
+                      }
+                      if (engine.active != null) {
+                        return _FocusActiveView(
+                          task: task,
+                          engine: engine,
+                          busy: _busy,
+                          onClose: () => _showSessionOptions(task),
+                          onPause: () => _runEngine(
+                            () =>
+                                ref.read(timerEngineProvider.notifier).pause(),
+                          ),
+                          onResume: () => _runEngine(
+                            () =>
+                                ref.read(timerEngineProvider.notifier).resume(),
+                          ),
+                          onOptions: () => _showSessionOptions(task),
+                        );
+                      }
+                      if (_breakFinished) {
+                        return _FocusFinishedView(
+                          title: _l10n.focusBreakFinishedTitle,
+                          body: _l10n.focusBreakFinishedBody,
+                          onDone: _leaveFocus,
+                        );
+                      }
+                      final completion = engine.lastCompletion;
+                      if (completion != null ||
+                          _taskCompleted ||
+                          _sessionFinished ||
+                          engine.isBreakPending) {
+                        final recordedDuration = completion == null
+                            ? null
+                            : Duration(
+                                milliseconds: completion.activeDurationMs
+                                    .toInt(),
+                              );
+                        return _FocusFinishedView(
+                          title: _l10n.focusFinishedTitle,
+                          body: completion == null
+                              ? engine.isBreakPending
+                                    ? _l10n.focusBreakPrompt
+                                    : _l10n.undoCompleteMessage
+                              : _l10n.focusFinishedSummary,
+                          recordedTime: recordedDuration == null
+                              ? null
+                              : _formatDuration(recordedDuration),
+                          onStartBreak: engine.isBreakPending
+                              ? () => _runEngine(
+                                  () => ref
+                                      .read(timerEngineProvider.notifier)
+                                      .startBreak(),
+                                )
+                              : null,
+                          onDone: () => unawaited(
+                            _finishPromptAndExit(
+                              acknowledgeBreak: engine.isBreakPending,
+                            ),
+                          ),
+                        );
+                      }
+                      return settingsAsync.when(
+                        loading: () => _FocusCenteredState(
+                          child: Semantics(
+                            label: _l10n.focusRestoring,
+                            liveRegion: true,
+                            child: const AppLoadingState(),
+                          ),
+                        ),
+                        error: (error, stackTrace) => _FocusErrorState(
+                          onRetry: () => ref.invalidate(timerSettingsProvider),
+                          onExit: _leaveFocus,
+                        ),
+                        data: (settings) => _FocusSetupView(
+                          task: task,
+                          settings: settings,
+                          selectedMode: _selectedMode,
+                          busy: _busy,
+                          onModeChanged: (mode) =>
+                              setState(() => _selectedMode = mode),
+                          onStart: () => _start(task),
+                          onSettings: () => _showSettings(settings),
+                          onClose: _leaveFocus,
+                        ),
+                      );
+                    },
                   );
                 },
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
@@ -299,43 +280,50 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       _leaveFocus();
       return;
     }
-    final action = await showModalBottomSheet<_FocusExitAction>(
+    final task = ref
+        .read(tasksProvider(widget.listId))
+        .value
+        ?.where((item) => item.id == widget.taskId)
+        .firstOrNull;
+    await _showSessionOptions(task);
+  }
+
+  Future<void> _showSessionOptions(TaskDto? task) async {
+    final active = ref.read(timerEngineProvider).value?.active;
+    if (active == null) {
+      _leaveFocus();
+      return;
+    }
+    final action = await showModalBottomSheet<_FocusSessionAction>(
       context: context,
       useRootNavigator: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(LucideIcons.play300),
-              title: Text(_l10n.focusKeepSessionButton),
-              onTap: () => Navigator.pop(context, _FocusExitAction.keep),
-            ),
-            if (active.phase == TimerPhaseDto.work)
-              ListTile(
-                leading: const Icon(LucideIcons.save300),
-                title: Text(_l10n.focusSaveAndExitButton),
-                onTap: () => Navigator.pop(context, _FocusExitAction.save),
-              ),
-            ListTile(
-              leading: const Icon(LucideIcons.trash2300),
-              title: Text(_l10n.focusDiscardButton),
-              textColor: Theme.of(context).colorScheme.error,
-              iconColor: Theme.of(context).colorScheme.error,
-              onTap: () => Navigator.pop(context, _FocusExitAction.discard),
-            ),
-          ],
-        ),
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: AppColors.canvas,
+      builder: (context) => _FocusSessionSheet(
+        active: active,
+        canCompleteTask: task != null && active.phase == TimerPhaseDto.work,
       ),
     );
-    if (!mounted || action == null || action == _FocusExitAction.keep) {
+    if (!mounted || action == null) {
       return;
     }
-    if (action == _FocusExitAction.save) {
-      await _finish(TimerFinishKindDto.interrupted, exit: true);
-    } else {
-      await _discard();
+    switch (action) {
+      case _FocusSessionAction.addTime:
+        await _runEngine(
+          () => ref
+              .read(timerEngineProvider.notifier)
+              .addTime(const Duration(minutes: 5)),
+        );
+      case _FocusSessionAction.finish:
+        await _finish(TimerFinishKindDto.completed);
+      case _FocusSessionAction.completeTask:
+        if (task != null) await _completeTask(task);
+      case _FocusSessionAction.saveAndExit:
+        await _finish(TimerFinishKindDto.interrupted, exit: true);
+      case _FocusSessionAction.discard:
+        await _discard();
     }
   }
 
@@ -496,10 +484,19 @@ class _FocusSetupView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final preview = selectedMode == TimerModeDto.pomodoro
+        ? Duration(minutes: settings.workMinutes)
+        : Duration.zero;
+    final mediaSize = MediaQuery.sizeOf(context);
+    final dialSize = mediaSize.height < 700
+        ? 192.0
+        : mediaSize.width < 350
+        ? 220.0
+        : 264.0;
     return Align(
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 620),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: ListView(
           key: const ValueKey('focus-setup'),
           padding: const EdgeInsets.fromLTRB(
@@ -509,26 +506,35 @@ class _FocusSetupView extends StatelessWidget {
             AppSpacing.xl,
           ),
           children: [
-            _FocusHeader(inverse: false, onClose: onClose),
-            const SizedBox(height: AppSpacing.xl),
+            _FocusHeader(onClose: onClose),
+            const SizedBox(height: AppSpacing.lg),
             Text(
-              l10n.focusSetupTitle,
-              style: Theme.of(context).textTheme.headlineSmall,
+              task.title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              l10n.focusSetupBody,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            Text(task.title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: AppSpacing.lg),
             _FocusModeSelector(
               selectedMode: selectedMode,
               enabled: !busy,
               onChanged: onModeChanged,
             ),
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.lg),
+            Center(
+              child: _FocusDial(
+                diameter: dialSize,
+                clock: _formatClock(preview),
+                clockKey: const ValueKey('focus-preview-clock'),
+                semanticsLabel: selectedMode == TimerModeDto.pomodoro
+                    ? l10n.focusPomodoroSummary(
+                        settings.workMinutes,
+                        settings.shortBreakMinutes,
+                      )
+                    : l10n.focusStopwatchSummary,
+                progress: selectedMode == TimerModeDto.pomodoro ? 1 : null,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               selectedMode == TimerModeDto.pomodoro
                   ? l10n.focusPomodoroSummary(
@@ -536,26 +542,36 @@ class _FocusSetupView extends StatelessWidget {
                       settings.shortBreakMinutes,
                     )
                   : l10n.focusStopwatchSummary,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            FilledButton(
-              key: const ValueKey('focus-start'),
-              onPressed: busy || isTaskClosed(task) ? null : onStart,
-              style: const ButtonStyle(
-                minimumSize: WidgetStatePropertyAll(Size.fromHeight(52)),
+            if (selectedMode == TimerModeDto.pomodoro)
+              Center(
+                child: TextButton.icon(
+                  key: const ValueKey('focus-settings'),
+                  onPressed: busy ? null : onSettings,
+                  icon: const Icon(LucideIcons.slidersHorizontal300, size: 18),
+                  label: Text(l10n.focusSettingsButton),
+                  style: const ButtonStyle(
+                    minimumSize: WidgetStatePropertyAll(Size(48, 44)),
+                    foregroundColor: WidgetStatePropertyAll(AppColors.muted),
+                  ),
+                ),
               ),
-              child: Text(l10n.focusStartButton),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            TextButton.icon(
-              onPressed: busy ? null : onSettings,
-              icon: const Icon(LucideIcons.settings2300),
-              label: Text(l10n.focusSettingsButton),
-              style: const ButtonStyle(
-                minimumSize: WidgetStatePropertyAll(Size.fromHeight(48)),
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: SizedBox(
+                width: 280,
+                child: FilledButton(
+                  key: const ValueKey('focus-start'),
+                  onPressed: busy || isTaskClosed(task) ? null : onStart,
+                  style: const ButtonStyle(
+                    minimumSize: WidgetStatePropertyAll(Size.fromHeight(52)),
+                  ),
+                  child: Text(l10n.focusStartButton),
+                ),
               ),
             ),
           ],
@@ -579,57 +595,29 @@ class _FocusModeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final highScale = MediaQuery.textScalerOf(context).scale(16) > 21;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 360 || highScale) {
-          return Column(
-            key: const ValueKey('focus-mode-selector-stacked'),
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _FocusModeButton(
-                label: l10n.focusPomodoroMode,
-                selected: selectedMode == TimerModeDto.pomodoro,
-                onPressed: enabled
-                    ? () => onChanged(TimerModeDto.pomodoro)
-                    : null,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _FocusModeButton(
-                label: l10n.focusStopwatchMode,
-                selected: selectedMode == TimerModeDto.stopwatch,
-                onPressed: enabled
-                    ? () => onChanged(TimerModeDto.stopwatch)
-                    : null,
-              ),
-            ],
-          );
-        }
-        return SegmentedButton<TimerModeDto>(
-          key: const ValueKey('focus-mode-selector'),
-          showSelectedIcon: false,
-          segments: [
-            ButtonSegment(
-              value: TimerModeDto.pomodoro,
-              label: Text(l10n.focusPomodoroMode),
-            ),
-            ButtonSegment(
-              value: TimerModeDto.stopwatch,
-              label: Text(l10n.focusStopwatchMode),
-            ),
-          ],
-          selected: {selectedMode},
-          onSelectionChanged: enabled
-              ? (values) => onChanged(values.single)
-              : null,
-        );
-      },
+    return Wrap(
+      key: const ValueKey('focus-mode-selector'),
+      alignment: WrapAlignment.center,
+      spacing: AppSpacing.lg,
+      runSpacing: AppSpacing.xs,
+      children: [
+        _FocusModeTab(
+          label: l10n.focusPomodoroMode,
+          selected: selectedMode == TimerModeDto.pomodoro,
+          onPressed: enabled ? () => onChanged(TimerModeDto.pomodoro) : null,
+        ),
+        _FocusModeTab(
+          label: l10n.focusStopwatchMode,
+          selected: selectedMode == TimerModeDto.stopwatch,
+          onPressed: enabled ? () => onChanged(TimerModeDto.stopwatch) : null,
+        ),
+      ],
     );
   }
 }
 
-class _FocusModeButton extends StatelessWidget {
-  const _FocusModeButton({
+class _FocusModeTab extends StatelessWidget {
+  const _FocusModeTab({
     required this.label,
     required this.selected,
     required this.onPressed,
@@ -641,20 +629,38 @@ class _FocusModeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = ButtonStyle(
-      minimumSize: const WidgetStatePropertyAll(Size.fromHeight(52)),
-      backgroundColor: WidgetStatePropertyAll(
-        selected ? AppColors.subtleSage : Colors.transparent,
-      ),
-      side: const WidgetStatePropertyAll(BorderSide(color: AppColors.hairline)),
-    );
     return Semantics(
       selected: selected,
       button: true,
-      child: OutlinedButton(
+      child: TextButton(
         onPressed: onPressed,
-        style: style,
-        child: Text(label, textAlign: TextAlign.center),
+        style: const ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(120, 48)),
+          padding: WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: selected ? AppColors.forest : AppColors.muted,
+              ),
+            ),
+            const SizedBox(height: 6),
+            AnimatedContainer(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              width: selected ? 28 : 0,
+              height: 2,
+              color: AppColors.forest,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -668,11 +674,7 @@ class _FocusActiveView extends StatelessWidget {
     required this.onClose,
     required this.onPause,
     required this.onResume,
-    required this.onAddTime,
-    required this.onFinish,
-    required this.onSaveAndExit,
-    required this.onDiscard,
-    required this.onCompleteTask,
+    required this.onOptions,
   });
 
   final TaskDto task;
@@ -681,11 +683,7 @@ class _FocusActiveView extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onPause;
   final VoidCallback onResume;
-  final VoidCallback? onAddTime;
-  final VoidCallback onFinish;
-  final VoidCallback? onSaveAndExit;
-  final VoidCallback onDiscard;
-  final VoidCallback? onCompleteTask;
+  final VoidCallback onOptions;
 
   @override
   Widget build(BuildContext context) {
@@ -700,94 +698,94 @@ class _FocusActiveView extends StatelessWidget {
     final stateLabel = engine.isPaused
         ? l10n.focusPausedState
         : l10n.focusRunningState;
-    return Theme(
-      data: Theme.of(context).copyWith(
-        colorScheme: const ColorScheme.dark(
-          primary: AppFocusColors.text,
-          onPrimary: AppFocusColors.surface,
-          surface: AppFocusColors.surface,
-          onSurface: AppFocusColors.text,
-          onSurfaceVariant: AppFocusColors.muted,
-          outlineVariant: AppFocusColors.hairline,
-          error: AppFocusColors.error,
-        ),
-        scaffoldBackgroundColor: AppFocusColors.surface,
-      ),
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: ListView(
-            key: ValueKey(engine.isPaused ? 'focus-paused' : 'focus-running'),
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              4,
-              AppSpacing.md,
-              AppSpacing.xl,
+    final targetDurationMs = active.targetDurationMs;
+    final progress = targetDurationMs == null
+        ? null
+        : (display.inMilliseconds / targetDurationMs).clamp(0.0, 1.0);
+    final dialSize = MediaQuery.sizeOf(context).width < 350 ? 224.0 : 272.0;
+    final isBreak = active.phase != TimerPhaseDto.work;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: ListView(
+          key: ValueKey(
+            isBreak
+                ? engine.isPaused
+                      ? 'focus-break-paused'
+                      : 'focus-break-running'
+                : engine.isPaused
+                ? 'focus-paused'
+                : 'focus-running',
+          ),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            4,
+            AppSpacing.md,
+            AppSpacing.xl,
+          ),
+          children: [
+            _FocusHeader(onClose: onClose),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              phaseLabel,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: AppColors.muted,
+                letterSpacing: 1.4,
+              ),
             ),
-            children: [
-              _FocusHeader(inverse: true, onClose: onClose),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                phaseLabel,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppFocusColors.muted,
-                  letterSpacing: 1.4,
-                ),
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: _FocusDial(
+                diameter: dialSize,
+                clock: _formatClock(display),
+                semanticsLabel:
+                    '$phaseLabel. ${_formatDuration(display)}. $stateLabel',
+                progress: progress,
+                paused: engine.isPaused,
+                isBreak: isBreak,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Semantics(
-                label: '$phaseLabel. ${_formatDuration(display)}. $stateLabel',
-                child: SizedBox(
-                  height: 112,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _formatClock(display),
-                      key: const ValueKey('focus-clock'),
-                      maxLines: 1,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                        color: AppFocusColors.text,
-                        fontSize: 72,
-                        fontWeight: FontWeight.w500,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+            SizedBox(height: engine.isPaused ? AppSpacing.sm : AppSpacing.md),
+            AnimatedSwitcher(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              child: engine.isPaused
+                  ? Semantics(
+                      key: const ValueKey('focus-paused-label'),
+                      liveRegion: true,
+                      child: Text(
+                        stateLabel,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: AppColors.muted,
+                        ),
                       ),
+                    )
+                  : const SizedBox.shrink(
+                      key: ValueKey('focus-running-label-space'),
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              if (engine.isPaused) ...[
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    stateLabel,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AppFocusColors.muted,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-              ],
-              Text(
-                active.phase == TimerPhaseDto.work
-                    ? task.title
-                    : l10n.focusBreakPrompt,
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(color: AppFocusColors.text),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  FilledButton.icon(
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              active.phase == TimerPhaseDto.work
+                  ? task.title
+                  : l10n.focusBreakPrompt,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Center(
+              child: Semantics(
+                button: true,
+                label: engine.isPaused
+                    ? l10n.focusResumeButton
+                    : l10n.focusPauseButton,
+                child: SizedBox.square(
+                  dimension: 64,
+                  child: IconButton.filled(
                     key: ValueKey(
                       engine.isPaused ? 'focus-resume' : 'focus-pause',
                     ),
@@ -796,57 +794,48 @@ class _FocusActiveView extends StatelessWidget {
                         : engine.isPaused
                         ? onResume
                         : onPause,
-                    icon: Icon(
-                      engine.isPaused
-                          ? LucideIcons.play300
-                          : LucideIcons.pause300,
+                    tooltip: engine.isPaused
+                        ? l10n.focusResumeButton
+                        : l10n.focusPauseButton,
+                    icon: AnimatedSwitcher(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 180),
+                      child: Icon(
+                        engine.isPaused
+                            ? LucideIcons.play300
+                            : LucideIcons.pause300,
+                        key: ValueKey(
+                          engine.isPaused ? 'resume-icon' : 'pause-icon',
+                        ),
+                        size: 24,
+                      ),
                     ),
-                    label: Text(
-                      engine.isPaused
-                          ? l10n.focusResumeButton
-                          : l10n.focusPauseButton,
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppColors.forest,
+                      foregroundColor: AppColors.canvas,
+                      disabledBackgroundColor: AppColors.sage,
+                      disabledForegroundColor: AppColors.muted,
+                      shape: const CircleBorder(),
                     ),
-                    style: _focusButtonStyle(primary: true),
                   ),
-                  if (onAddTime != null)
-                    OutlinedButton.icon(
-                      key: const ValueKey('focus-add-time'),
-                      onPressed: busy ? null : onAddTime,
-                      icon: const Icon(LucideIcons.plus300),
-                      label: Text(l10n.focusAddTimeButton),
-                      style: _focusButtonStyle(),
-                    ),
-                  OutlinedButton.icon(
-                    key: const ValueKey('focus-finish'),
-                    onPressed: busy ? null : onFinish,
-                    icon: const Icon(LucideIcons.square300),
-                    label: Text(l10n.focusFinishButton),
-                    style: _focusButtonStyle(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              if (onCompleteTask != null)
-                TextButton.icon(
-                  key: const ValueKey('focus-complete-task'),
-                  onPressed: busy ? null : onCompleteTask,
-                  icon: const Icon(LucideIcons.circleCheck300),
-                  label: Text(l10n.focusCompleteTaskButton),
-                  style: _focusTextButtonStyle(),
                 ),
-              if (onSaveAndExit != null)
-                TextButton(
-                  onPressed: busy ? null : onSaveAndExit,
-                  style: _focusTextButtonStyle(),
-                  child: Text(l10n.focusSaveAndExitButton),
-                ),
-              TextButton(
-                onPressed: busy ? null : onDiscard,
-                style: _focusTextButtonStyle(destructive: true),
-                child: Text(l10n.focusDiscardButton),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: TextButton.icon(
+                key: const ValueKey('focus-session-options'),
+                onPressed: busy ? null : onOptions,
+                icon: const Icon(LucideIcons.ellipsis300, size: 18),
+                label: Text(l10n.focusSessionOptionsButton),
+                style: const ButtonStyle(
+                  minimumSize: WidgetStatePropertyAll(Size(48, 44)),
+                  foregroundColor: WidgetStatePropertyAll(AppColors.muted),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -858,12 +847,14 @@ class _FocusFinishedView extends StatelessWidget {
     required this.title,
     required this.body,
     required this.onDone,
+    this.recordedTime,
     this.onStartBreak,
   });
 
   final String title;
   final String body;
   final VoidCallback onDone;
+  final String? recordedTime;
   final VoidCallback? onStartBreak;
 
   @override
@@ -877,11 +868,12 @@ class _FocusFinishedView extends StatelessWidget {
           key: const ValueKey('focus-finished'),
           padding: const EdgeInsets.all(AppSpacing.lg),
           children: [
-            const SizedBox(height: 80),
-            Icon(
-              LucideIcons.circleCheck300,
-              size: 40,
-              color: Theme.of(context).colorScheme.primary,
+            const SizedBox(height: 48),
+            Center(
+              child: _FocusResultDial(
+                recordedTime: recordedTime,
+                semanticsLabel: '$title. $body',
+              ),
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
@@ -897,17 +889,27 @@ class _FocusFinishedView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
             if (onStartBreak != null) ...[
-              FilledButton(
-                key: const ValueKey('focus-start-break'),
-                onPressed: onStartBreak,
-                child: Text(l10n.focusStartBreakButton),
+              Center(
+                child: SizedBox(
+                  width: 280,
+                  child: FilledButton(
+                    key: const ValueKey('focus-start-break'),
+                    onPressed: onStartBreak,
+                    style: const ButtonStyle(
+                      minimumSize: WidgetStatePropertyAll(Size.fromHeight(52)),
+                    ),
+                    child: Text(l10n.focusStartBreakButton),
+                  ),
+                ),
               ),
               const SizedBox(height: AppSpacing.sm),
             ],
-            TextButton(
-              key: const ValueKey('focus-done'),
-              onPressed: onDone,
-              child: Text(l10n.focusDoneButton),
+            Center(
+              child: TextButton(
+                key: const ValueKey('focus-done'),
+                onPressed: onDone,
+                child: Text(l10n.focusDoneButton),
+              ),
             ),
           ],
         ),
@@ -917,9 +919,8 @@ class _FocusFinishedView extends StatelessWidget {
 }
 
 class _FocusHeader extends StatelessWidget {
-  const _FocusHeader({required this.inverse, required this.onClose});
+  const _FocusHeader({required this.onClose});
 
-  final bool inverse;
   final VoidCallback onClose;
 
   @override
@@ -934,14 +935,13 @@ class _FocusHeader extends StatelessWidget {
             onPressed: onClose,
             tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
             icon: const Icon(LucideIcons.x300),
-            color: inverse ? AppFocusColors.text : null,
           ),
           const Spacer(),
           Text(
             l10n.focusTitle,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: inverse ? AppFocusColors.muted : null,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(color: AppColors.muted),
           ),
           const Spacer(),
           const SizedBox(width: 48),
@@ -952,31 +952,24 @@ class _FocusHeader extends StatelessWidget {
 }
 
 class _FocusCenteredState extends StatelessWidget {
-  const _FocusCenteredState({required this.inverse, required this.child});
-  final bool inverse;
+  const _FocusCenteredState({required this.child});
   final Widget child;
   @override
   Widget build(BuildContext context) => Center(
     child: DefaultTextStyle.merge(
-      style: TextStyle(color: inverse ? AppFocusColors.text : AppColors.ink),
+      style: const TextStyle(color: AppColors.ink),
       child: child,
     ),
   );
 }
 
 class _FocusErrorState extends StatelessWidget {
-  const _FocusErrorState({
-    required this.inverse,
-    required this.onRetry,
-    required this.onExit,
-  });
-  final bool inverse;
+  const _FocusErrorState({required this.onRetry, required this.onExit});
   final VoidCallback onRetry;
   final VoidCallback onExit;
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final foreground = inverse ? AppFocusColors.text : AppColors.ink;
     return Center(
       child: Semantics(
         liveRegion: true,
@@ -989,14 +982,14 @@ class _FocusErrorState extends StatelessWidget {
                 onPressed: onExit,
                 tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                 icon: const Icon(LucideIcons.arrowLeft300),
-                color: foreground,
+                color: AppColors.ink,
               ),
               Icon(LucideIcons.cloudOff300, color: AppColors.coral),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 l10n.focusLoadFailed,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: foreground),
+                style: const TextStyle(color: AppColors.ink),
               ),
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(onPressed: onRetry, child: Text(l10n.retryButton)),
@@ -1009,8 +1002,7 @@ class _FocusErrorState extends StatelessWidget {
 }
 
 class _FocusConflictState extends StatelessWidget {
-  const _FocusConflictState({required this.inverse, required this.onBack});
-  final bool inverse;
+  const _FocusConflictState({required this.onBack});
   final VoidCallback onBack;
   @override
   Widget build(BuildContext context) {
@@ -1026,17 +1018,13 @@ class _FocusConflictState extends StatelessWidget {
               Text(
                 l10n.focusActiveConflictTitle,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: inverse ? AppFocusColors.text : AppColors.ink,
-                ),
+                style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 l10n.focusActiveConflictBody,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: inverse ? AppFocusColors.muted : AppColors.muted,
-                ),
+                style: const TextStyle(color: AppColors.muted),
               ),
               const SizedBox(height: AppSpacing.lg),
               FilledButton(
@@ -1051,6 +1039,316 @@ class _FocusConflictState extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FocusStateTransition extends StatelessWidget {
+  const _FocusStateTransition({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return ColoredBox(
+      color: AppColors.canvas,
+      child: SizedBox.expand(
+        child: AnimatedSwitcher(
+          duration: reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            fit: StackFit.expand,
+            alignment: Alignment.center,
+            children: [...previousChildren, ?currentChild],
+          ),
+          transitionBuilder: (child, animation) => Stack(
+            fit: StackFit.expand,
+            children: [
+              const ColoredBox(color: AppColors.canvas),
+              FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.985, end: 1).animate(animation),
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusDial extends StatelessWidget {
+  const _FocusDial({
+    required this.diameter,
+    required this.clock,
+    required this.semanticsLabel,
+    required this.progress,
+    this.clockKey = const ValueKey('focus-clock'),
+    this.paused = false,
+    this.isBreak = false,
+  });
+
+  final double diameter;
+  final String clock;
+  final String semanticsLabel;
+  final double? progress;
+  final Key clockKey;
+  final bool paused;
+  final bool isBreak;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final duration = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
+    final activeColor = isBreak ? AppColors.sage : AppColors.forest;
+    return Semantics(
+      container: true,
+      label: semanticsLabel,
+      excludeSemantics: true,
+      child: TweenAnimationBuilder<double>(
+        duration: duration,
+        curve: Curves.easeOutCubic,
+        tween: Tween<double>(end: progress ?? -1),
+        builder: (context, animatedProgress, child) =>
+            TweenAnimationBuilder<double>(
+              duration: duration,
+              curve: Curves.easeOutCubic,
+              tween: Tween<double>(end: paused ? 1 : 0),
+              builder: (context, pausedAmount, child) {
+                final arcColor = Color.lerp(
+                  activeColor,
+                  AppColors.sage,
+                  pausedAmount,
+                )!;
+                return CustomPaint(
+                  painter: _OpenDialPainter(
+                    progress: animatedProgress < 0
+                        ? null
+                        : animatedProgress.clamp(0, 1),
+                    arcColor: arcColor,
+                  ),
+                  child: child,
+                );
+              },
+              child: child,
+            ),
+        child: SizedBox.square(
+          dimension: diameter,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  clock,
+                  key: clockKey,
+                  maxLines: 1,
+                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                    fontSize: 64,
+                    fontWeight: FontWeight.w500,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusResultDial extends StatelessWidget {
+  const _FocusResultDial({this.recordedTime, required this.semanticsLabel});
+
+  final String? recordedTime;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    label: semanticsLabel,
+    excludeSemantics: true,
+    child: CustomPaint(
+      painter: const _OpenDialPainter(progress: null, arcColor: AppColors.sage),
+      child: SizedBox.square(
+        dimension: 220,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                LucideIcons.check300,
+                size: 30,
+                color: AppColors.forest,
+              ),
+              if (recordedTime != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  recordedTime!,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _OpenDialPainter extends CustomPainter {
+  const _OpenDialPainter({required this.progress, required this.arcColor});
+
+  final double? progress;
+  final Color arcColor;
+
+  static const _startAngle = 135 * math.pi / 180;
+  static const _sweepAngle = 270 * math.pi / 180;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final strokeInset = 4.0;
+    final rect =
+        Offset(strokeInset, strokeInset) &
+        Size(size.width - strokeInset * 2, size.height - strokeInset * 2);
+    final track = Paint()
+      ..color = AppColors.hairline
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(rect, _startAngle, _sweepAngle, false, track);
+
+    final value = progress;
+    final active = Paint()
+      ..color = arcColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = value == null ? 1.25 : 1.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      rect,
+      _startAngle,
+      value == null ? _sweepAngle : _sweepAngle * value,
+      false,
+      active,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _OpenDialPainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.arcColor != arcColor;
+}
+
+class _FocusSessionSheet extends StatelessWidget {
+  const _FocusSessionSheet({
+    required this.active,
+    required this.canCompleteTask,
+  });
+
+  final ActiveTimerSessionDto active;
+  final bool canCompleteTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isWork = active.phase == TimerPhaseDto.work;
+    final canAddTime = isWork && active.mode == TimerModeDto.pomodoro;
+    return Material(
+      color: AppColors.canvas,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          0,
+          AppSpacing.md,
+          AppSpacing.lg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10n.focusSessionOptionsButton,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            if (canAddTime)
+              _FocusSessionActionTile(
+                key: const ValueKey('focus-add-time'),
+                icon: LucideIcons.plus300,
+                label: l10n.focusAddTimeButton,
+                action: _FocusSessionAction.addTime,
+              ),
+            _FocusSessionActionTile(
+              key: const ValueKey('focus-finish'),
+              icon: LucideIcons.square300,
+              label: isWork
+                  ? l10n.focusFinishSessionButton
+                  : l10n.focusEndBreakButton,
+              action: _FocusSessionAction.finish,
+            ),
+            if (canCompleteTask)
+              _FocusSessionActionTile(
+                key: const ValueKey('focus-complete-task'),
+                icon: LucideIcons.circleCheck300,
+                label: l10n.focusCompleteTaskButton,
+                action: _FocusSessionAction.completeTask,
+              ),
+            if (isWork)
+              _FocusSessionActionTile(
+                key: const ValueKey('focus-save-and-exit'),
+                icon: LucideIcons.save300,
+                label: l10n.focusSaveAndExitButton,
+                action: _FocusSessionAction.saveAndExit,
+              ),
+            const Divider(height: 1, color: AppColors.hairline),
+            _FocusSessionActionTile(
+              key: const ValueKey('focus-discard'),
+              icon: LucideIcons.trash2300,
+              label: l10n.focusDiscardButton,
+              action: _FocusSessionAction.discard,
+              destructive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusSessionActionTile extends StatelessWidget {
+  const _FocusSessionActionTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.action,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final _FocusSessionAction action;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    minTileHeight: 52,
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(icon, size: 20),
+    title: Text(label),
+    textColor: destructive ? AppColors.coral : AppColors.ink,
+    iconColor: destructive ? AppColors.coral : AppColors.muted,
+    onTap: () => Navigator.pop(context, action),
+  );
 }
 
 class _TimerSettingDropdown extends StatelessWidget {
@@ -1082,28 +1380,6 @@ class _TimerSettingDropdown extends StatelessWidget {
     },
   );
 }
-
-ButtonStyle _focusButtonStyle({bool primary = false}) => ButtonStyle(
-  minimumSize: const WidgetStatePropertyAll(Size(148, 52)),
-  foregroundColor: WidgetStatePropertyAll(
-    primary ? AppFocusColors.surface : AppFocusColors.text,
-  ),
-  backgroundColor: WidgetStatePropertyAll(
-    primary ? AppFocusColors.text : Colors.transparent,
-  ),
-  side: primary
-      ? null
-      : const WidgetStatePropertyAll(
-          BorderSide(color: AppFocusColors.hairline),
-        ),
-);
-
-ButtonStyle _focusTextButtonStyle({bool destructive = false}) => ButtonStyle(
-  minimumSize: const WidgetStatePropertyAll(Size.fromHeight(48)),
-  foregroundColor: WidgetStatePropertyAll(
-    destructive ? AppFocusColors.error : AppFocusColors.muted,
-  ),
-);
 
 TimerSettings _copySettings(
   TimerSettings value, {
@@ -1137,4 +1413,4 @@ String _formatDuration(Duration duration) {
   return remainder == 0 ? '${hours}h' : '${hours}h ${remainder}m';
 }
 
-enum _FocusExitAction { keep, save, discard }
+enum _FocusSessionAction { addTime, finish, completeTask, saveAndExit, discard }

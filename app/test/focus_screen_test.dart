@@ -6,6 +6,7 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/timer/timer_engine.dart';
+import 'package:todori/src/ui/theme.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -53,6 +54,8 @@ void main() {
       expect(find.byKey(const ValueKey('focus-paused')), findsOneWidget);
       expect((await fake.getTasks(listId: listId)).single.status, 'todo');
 
+      await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('focus-complete-task')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
@@ -77,8 +80,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('focus-start-break')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-break-running')), findsOneWidget);
       expect(find.text('Save and exit'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+      await tester.pumpAndSettle();
+      expect(find.text('End break'), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-add-time')), findsNothing);
+      expect(find.byKey(const ValueKey('focus-complete-task')), findsNothing);
+      expect(find.byKey(const ValueKey('focus-save-and-exit')), findsNothing);
     },
   );
 
@@ -121,11 +130,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final stackedSelector = find.byKey(
-        const ValueKey('focus-mode-selector-stacked'),
-      );
-      await tester.scrollUntilVisible(stackedSelector, 160);
-      expect(stackedSelector, findsOneWidget);
+      final modeSelector = find.byKey(const ValueKey('focus-mode-selector'));
+      await tester.scrollUntilVisible(modeSelector, 160);
+      expect(modeSelector, findsOneWidget);
       final start = find.byKey(const ValueKey('focus-start'));
       await tester.scrollUntilVisible(start, 180);
       await tester.tap(start);
@@ -178,6 +185,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('focus-start')));
     await tester.pump(const Duration(milliseconds: 100));
     clock.advance(const Duration(minutes: 1));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-finish')));
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.byKey(const ValueKey('focus-start-break')), findsOneWidget);
@@ -226,12 +235,146 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-start')));
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('focus-complete-task')));
     await tester.pump(const Duration(milliseconds: 200));
 
     expect((await fake.getTasks(listId: listId)).single.status, 'todo');
     expect(await fake.getActiveTimerSession(), isNull);
     expect(await fake.getCompletedTimerSessions(taskId: task.id), isEmpty);
+  });
+
+  testWidgets(
+    'Focus keeps the warm canvas and groups secondary work actions in one sheet',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).single.id;
+      final task = await fake.createTask(
+        listId: listId,
+        title: 'Refine the quiet timer',
+      );
+      final router = buildAppRouter();
+      await tester.pumpWidget(
+        TodoriApp(
+          router: router,
+          overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go('/focus/$listId/${task.id}');
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Scaffold>(find.byKey(const ValueKey('focus-screen')))
+            .backgroundColor,
+        AppColors.canvas,
+      );
+      await tester.tap(find.byKey(const ValueKey('focus-start')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+      expect(
+        tester
+            .widget<Scaffold>(find.byKey(const ValueKey('focus-screen')))
+            .backgroundColor,
+        AppColors.canvas,
+      );
+      expect(find.byKey(const ValueKey('focus-add-time')), findsNothing);
+      expect(find.byKey(const ValueKey('focus-finish')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('focus-add-time')), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-finish')), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-complete-task')), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-save-and-exit')), findsOneWidget);
+      expect(find.byKey(const ValueKey('focus-discard')), findsOneWidget);
+
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('focus-pause')));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byKey(const ValueKey('focus-paused')), findsOneWidget);
+      expect(
+        tester
+            .widget<Scaffold>(find.byKey(const ValueKey('focus-screen')))
+            .backgroundColor,
+        AppColors.canvas,
+      );
+    },
+  );
+
+  testWidgets('Stopwatch uses a static dial and never offers add time', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Measure an open-ended session',
+    );
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Stopwatch'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('focus-add-time')), findsNothing);
+    expect(find.byKey(const ValueKey('focus-finish')), findsOneWidget);
+    expect(find.text('Finish session'), findsOneWidget);
+  });
+
+  testWidgets('Reduce Motion switches into Focus without a transition delay', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Enter focus without decorative motion',
+    );
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    final start = find.byKey(const ValueKey('focus-start'));
+    await tester.scrollUntilVisible(start, 120);
+    await tester.tap(start);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+    expect(
+      tester
+          .widget<Scaffold>(find.byKey(const ValueKey('focus-screen')))
+          .backgroundColor,
+      AppColors.canvas,
+    );
   });
 
   testWidgets('missing Focus task exposes a visible exit to Home', (

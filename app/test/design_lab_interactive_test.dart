@@ -68,7 +68,7 @@ void main() {
       find.byKey(const ValueKey('design-lab-task-focus-Prepare launch notes')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('SET FOCUS'), findsOneWidget);
+    expect(find.text('FOCUS'), findsOneWidget);
     await tester.tap(find.byIcon(LucideIcons.x300));
     await tester.pumpAndSettle();
     expect(find.text('MANUAL ORDER'), findsOneWidget);
@@ -147,7 +147,7 @@ void main() {
 
     await tester.tap(find.text('Begin a 25 minute focus'));
     await tester.pumpAndSettle();
-    expect(find.text('SET FOCUS'), findsOneWidget);
+    expect(find.text('FOCUS'), findsOneWidget);
 
     await tester.tap(find.text('45'));
     await tester.pump();
@@ -157,22 +157,67 @@ void main() {
     await tester.pump();
     expect(find.text('50'), findsOneWidget);
 
-    await tester.tap(find.text('Begin focus  →'));
+    await tester.tap(find.text('Start focus'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('FOCUS  ·  1 OF 4'), findsOneWidget);
     expect(find.text('50:00'), findsOneWidget);
+    expect(find.text('Session options'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('49:59'), findsOneWidget);
 
-    await tester.tap(find.text('Pause'));
-    await tester.pump();
-    expect(find.text('Resume'), findsOneWidget);
+    await tester.tap(find.byIcon(LucideIcons.pause300));
+    await tester.pumpAndSettle();
+    expect(find.text('PAUSED'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.play300), findsOneWidget);
 
-    await tester.tap(find.text('Finish'));
+    await tester.tap(find.text('Session options'));
+    await tester.pumpAndSettle();
+    expect(find.text('Finish session'), findsOneWidget);
+    expect(find.text('Add 5 minutes'), findsOneWidget);
+    await tester.tap(find.text('Finish session'));
+    await tester.pumpAndSettle();
+    expect(find.text('FOCUS RECORDED'), findsOneWidget);
+    expect(find.text('Start break'), findsOneWidget);
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('Begin a 25 minute focus'), findsOneWidget);
+  });
+
+  testWidgets('Design Lab stopwatch keeps the warm canvas and shares options', (
+    tester,
+  ) async {
+    _setDesignLabViewport(tester);
+    await tester.pumpWidget(const InteractiveDesignLabApp());
+
+    await tester.tap(find.text('Prepare launch notes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Begin a 25 minute focus'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stopwatch'));
+    await tester.pump();
+    expect(find.text('0:00'), findsOneWidget);
+
+    await tester.tap(find.text('Start focus'));
+    await tester.pumpAndSettle();
+    expect(find.text('STOPWATCH'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Scaffold &&
+            widget.backgroundColor == const Color(0xFFF3F0E7),
+      ),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('0:01'), findsOneWidget);
+
+    await tester.tap(find.byIcon(LucideIcons.x300));
+    await tester.pumpAndSettle();
+    expect(find.text('SESSION OPTIONS'), findsOneWidget);
+    expect(find.text('Add 5 minutes'), findsNothing);
+    expect(find.text('Finish session'), findsOneWidget);
   });
 }
 

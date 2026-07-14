@@ -940,10 +940,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get focusResumeButton => 'Resume';
 
   @override
+  String get focusSessionOptionsButton => 'Session options';
+
+  @override
   String get focusAddTimeButton => 'Add 5 minutes';
 
   @override
   String get focusFinishButton => 'Finish';
+
+  @override
+  String get focusFinishSessionButton => 'Finish session';
+
+  @override
+  String get focusEndBreakButton => 'End break';
 
   @override
   String get focusSaveAndExitButton => 'Save and exit';
@@ -963,6 +972,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get focusFinishedTitle => 'Focus recorded';
+
+  @override
+  String get focusFinishedSummary => 'Your focused work is safely recorded.';
 
   @override
   String focusFinishedBody(String time) {

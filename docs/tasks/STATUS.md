@@ -1,12 +1,12 @@
 # Todori 開発ステータス
 
-> 更新日: 2026-07-13
+> 更新日: 2026-07-14
 
 日常の作業開始地点である。完了履歴は各 `task-*.md` とgit、長期計画はPhase計画書、設計判断はADRを参照する。このファイルには現在と直近候補だけを置く。
 
 ## 現在
 
-- 進行中: なし。
+- 進行中: **task-108 Focus / Timer Visual Refinement** — Focus全状態をwarm canvasへ統一し、open dialとprimary + Session optionsの操作階層へ再構成する。
 - 保留: なし。
 - 最新の完了: **task-107 Integrated Product Finish** — 新UI、Capture、Search、Calendar、Focusのcontract・runtime・motion・Visual QAを統合し、独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。

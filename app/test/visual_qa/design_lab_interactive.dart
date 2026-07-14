@@ -192,7 +192,7 @@ class _InteractiveDesignLabShellState
       parentContext,
       builder: (routeContext) => _InteractiveFocusSetup(
         onClose: () => Navigator.of(routeContext).pop(),
-        onBegin: (durationMinutes) {
+        onBegin: (durationMinutes, isStopwatch) {
           Navigator.of(routeContext).pushReplacement(
             _labRoute(
               routeContext,
@@ -200,6 +200,7 @@ class _InteractiveDesignLabShellState
                 onClose: () => Navigator.of(focusContext).pop(),
                 onFinish: () => Navigator.of(focusContext).pop(),
                 durationMinutes: durationMinutes,
+                isStopwatch: isStopwatch,
               ),
             ),
           );
@@ -595,7 +596,7 @@ class _InteractiveFocusSetup extends StatefulWidget {
   const _InteractiveFocusSetup({required this.onClose, required this.onBegin});
 
   final VoidCallback onClose;
-  final ValueChanged<int> onBegin;
+  final void Function(int durationMinutes, bool isStopwatch) onBegin;
 
   @override
   State<_InteractiveFocusSetup> createState() => _InteractiveFocusSetupState();
@@ -603,13 +604,18 @@ class _InteractiveFocusSetup extends StatefulWidget {
 
 class _InteractiveFocusSetupState extends State<_InteractiveFocusSetup> {
   var _durationMinutes = 25;
+  var _isStopwatch = false;
 
   @override
   Widget build(BuildContext context) {
     return _RadicalFocusSetupMock(
       onClose: widget.onClose,
-      onBegin: () => widget.onBegin(_durationMinutes),
+      onBegin: () => widget.onBegin(_durationMinutes, _isStopwatch),
       durationMinutes: _durationMinutes,
+      isStopwatch: _isStopwatch,
+      onModeChanged: (isStopwatch) {
+        setState(() => _isStopwatch = isStopwatch);
+      },
       onDecrease: () => _changeDuration(-5),
       onIncrease: () => _changeDuration(5),
       onPresetSelected: (minutes) {
@@ -630,11 +636,13 @@ class _InteractiveFocusTimer extends StatefulWidget {
     required this.onClose,
     required this.onFinish,
     required this.durationMinutes,
+    required this.isStopwatch,
   });
 
   final VoidCallback onClose;
   final VoidCallback onFinish;
   final int durationMinutes;
+  final bool isStopwatch;
 
   @override
   State<_InteractiveFocusTimer> createState() => _InteractiveFocusTimerState();
@@ -642,15 +650,16 @@ class _InteractiveFocusTimer extends StatefulWidget {
 
 class _InteractiveFocusTimerState extends State<_InteractiveFocusTimer> {
   Timer? _timer;
-  late final int _totalSeconds;
-  late int _remainingSeconds;
+  late int _totalSeconds;
+  late int _displaySeconds;
   var _isPaused = false;
+  var _isFinished = false;
 
   @override
   void initState() {
     super.initState();
     _totalSeconds = widget.durationMinutes * 60;
-    _remainingSeconds = _totalSeconds;
+    _displaySeconds = widget.isStopwatch ? 0 : _totalSeconds;
     _timer = Timer.periodic(const Duration(seconds: 1), _tick);
   }
 
@@ -661,26 +670,80 @@ class _InteractiveFocusTimerState extends State<_InteractiveFocusTimer> {
   }
 
   void _tick(Timer timer) {
-    if (_isPaused || _remainingSeconds == 0) {
+    if (_isPaused || _isFinished) {
       return;
     }
-    setState(() => _remainingSeconds -= 1);
+    if (!widget.isStopwatch && _displaySeconds == 0) {
+      return;
+    }
+    setState(() {
+      _displaySeconds += widget.isStopwatch ? 1 : -1;
+    });
   }
 
   void _togglePause() {
     setState(() => _isPaused = !_isPaused);
   }
 
+  int get _recordedSeconds => widget.isStopwatch
+      ? _displaySeconds
+      : (_totalSeconds - _displaySeconds).clamp(0, _totalSeconds);
+
+  Future<void> _openSessionOptions() {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: _rInk.withValues(alpha: 0.3),
+      isScrollControlled: true,
+      builder: (sheetContext) => _RadicalFocusOptionsSheet(
+        isStopwatch: widget.isStopwatch,
+        onAddTime: () {
+          Navigator.of(sheetContext).pop();
+          setState(() {
+            _totalSeconds += 300;
+            _displaySeconds += 300;
+          });
+        },
+        onFinish: () {
+          Navigator.of(sheetContext).pop();
+          setState(() {
+            _isFinished = true;
+            _timer?.cancel();
+          });
+        },
+        onCompleteTask: () {
+          Navigator.of(sheetContext).pop();
+          widget.onFinish();
+        },
+        onSaveAndExit: () {
+          Navigator.of(sheetContext).pop();
+          widget.onFinish();
+        },
+        onDiscard: () {
+          Navigator.of(sheetContext).pop();
+          widget.onClose();
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final elapsed = _totalSeconds - _remainingSeconds;
+    if (_isFinished) {
+      return _RadicalFocusFinishedMock(
+        recordedSeconds: _recordedSeconds,
+        onStartBreak: () {},
+        onDone: widget.onFinish,
+      );
+    }
     return _RadicalFocusMock(
-      onClose: widget.onClose,
+      onClose: _openSessionOptions,
       onPause: _togglePause,
-      onFinish: widget.onFinish,
-      remainingSeconds: _remainingSeconds,
-      progress: elapsed / _totalSeconds,
+      onSessionOptions: _openSessionOptions,
+      remainingSeconds: _displaySeconds,
+      progress: widget.isStopwatch ? 0.74 : _displaySeconds / _totalSeconds,
       isPaused: _isPaused,
+      isStopwatch: widget.isStopwatch,
     );
   }
 }

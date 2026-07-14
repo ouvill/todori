@@ -31,17 +31,6 @@ abstract final class AppColors {
   static const amber = Color(0xFFC08B3E);
 }
 
-/// Future Focus-only inverse surface. These tokens are deliberately not wired
-/// into the normal application theme: Home, Lists, Detail, Account, and sheets
-/// remain on the light canvas regardless of the platform brightness.
-abstract final class AppFocusColors {
-  static const surface = Color(0xFF183E31);
-  static const text = Color(0xFFF5F0E4);
-  static const muted = Color(0xFFAFC8BA);
-  static const hairline = Color(0xFF416A59);
-  static const error = Color(0xFFF3A398);
-}
-
 /// Inter does not bundle CJK glyphs, so production explicitly falls back to a
 /// platform sans face. No serif fallback is part of the production hierarchy.
 const _cjkFontFamilyFallback = <String>[
@@ -52,9 +41,8 @@ const _cjkFontFamilyFallback = <String>[
 
 /// Builds Todori's normal, light-only product theme.
 ///
-/// [brightness] remains in the signature for existing callers. Normal screens
-/// intentionally stay on the warm light canvas; Focus owns its future inverse
-/// surface instead of inheriting a platform-wide dark theme.
+/// [brightness] remains in the signature for existing callers. Todori stays on
+/// the warm light canvas regardless of the platform-wide brightness setting.
 ThemeData buildTodoriTheme(Brightness brightness) {
   const colorScheme = ColorScheme.light(
     primary: AppColors.forest,
