@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/timer/timer_engine.dart';
@@ -283,6 +285,16 @@ void main() {
       );
       expect(find.byKey(const ValueKey('focus-add-time')), findsNothing);
       expect(find.byKey(const ValueKey('focus-finish')), findsNothing);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('focus-pause'))).shortestSide,
+        greaterThanOrEqualTo(64),
+      );
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('focus-session-options')))
+            .height,
+        greaterThanOrEqualTo(44),
+      );
 
       await tester.tap(find.byKey(const ValueKey('focus-session-options')));
       await tester.pumpAndSettle();
@@ -305,6 +317,95 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'close and system back open the same session sheet and discard confirms',
+    (tester) async {
+      final fake = FakeBridgeService();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final listId = (await fake.getLists()).single.id;
+      final task = await fake.createTask(
+        listId: listId,
+        title: 'Keep exit behavior predictable',
+      );
+      final router = buildAppRouter();
+      await tester.pumpWidget(
+        TodoriApp(
+          router: router,
+          overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go('/focus/$listId/${task.id}');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('focus-start')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(
+        find.byKey(const ValueKey('focus-close')).hitTestable().last,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('focus-discard')), findsOneWidget);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(await fake.getActiveTimerSession(), isNotNull);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('focus-discard')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('focus-discard')));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this session?'), findsOneWidget);
+      expect(await fake.getActiveTimerSession(), isNotNull);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(await fake.getActiveTimerSession(), isNotNull);
+
+      await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('focus-discard')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(await fake.getActiveTimerSession(), isNull);
+    },
+  );
+
+  testWidgets('Focus setup and active controls remain usable in RTL', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Read from either direction',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: FocusScreen(listId: listId, taskId: task.id),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('focus-mode-selector')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-preview-clock')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-pause')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-session-options')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Stopwatch uses a static dial and never offers add time', (
     tester,
