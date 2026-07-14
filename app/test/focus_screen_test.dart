@@ -422,6 +422,52 @@ void main() {
     expect(await fake.getActiveTimerSession(), isNotNull);
   });
 
+  testWidgets('system back from finished allows a new focus session', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Leave the finished state cleanly',
+    );
+    final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 10));
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          timerClockProvider.overrideWithValue(clock),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stopwatch'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    clock.advance(const Duration(minutes: 2));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('focus-finish')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('focus-finished')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-finished')), findsNothing);
+    expect(await fake.getCompletedTimerSessions(taskId: task.id), hasLength(1));
+  });
+
   testWidgets('Focus setup and active controls remain usable in RTL', (
     tester,
   ) async {

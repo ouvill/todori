@@ -38,13 +38,29 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     final tasksAsync = ref.watch(tasksProvider(widget.listId));
     final engineAsync = ref.watch(timerEngineProvider);
     final settingsAsync = ref.watch(timerSettingsProvider);
-    final active = engineAsync.value?.active;
+    final engine = engineAsync.value;
+    final active = engine?.active;
+    final hasFinishedState =
+        engine?.lastCompletion?.taskId == widget.taskId ||
+        engine?.isBreakPending == true ||
+        _breakFinished ||
+        _taskCompleted ||
+        _sessionFinished;
 
     return PopScope<void>(
-      canPop: active == null,
+      canPop: active == null && !hasFinishedState,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && active != null) {
+        if (didPop) {
+          return;
+        }
+        if (active != null) {
           unawaited(_requestExit());
+        } else if (hasFinishedState) {
+          unawaited(
+            _finishPromptAndExit(
+              acknowledgeBreak: engine?.isBreakPending == true,
+            ),
+          );
         }
       },
       child: Scaffold(
@@ -120,7 +136,10 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                           onDone: _leaveFocus,
                         );
                       }
-                      final completion = engine.lastCompletion;
+                      final completion =
+                          engine.lastCompletion?.taskId == task.id
+                          ? engine.lastCompletion
+                          : null;
                       if (completion != null ||
                           _taskCompleted ||
                           _sessionFinished ||
