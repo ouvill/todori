@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -17,7 +17,7 @@ use todori_sync::{
     account::ListDekBundleDto,
     protocol::{
         BaseScanResponse, ContinuityAckRequest, ContinuityAckResponse, PullResponse, PushRequest,
-        PushResponse, ResyncStartResponse, StableRecordCursor, SyncCollection,
+        PushResponse, PushStatus, ResyncStartResponse, StableRecordCursor, SyncCollection,
         SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER,
     },
 };
@@ -122,6 +122,7 @@ async fn scan_base(
 
 async fn push(
     State(state): State<SharedState>,
+    Extension(realtime): Extension<crate::realtime::RealtimeGateway>,
     Path(tenant_id): Path<Uuid>,
     headers: HeaderMap,
     Json(request): Json<PushRequest>,
@@ -129,9 +130,19 @@ async fn push(
     let token = bearer_token(&headers)?;
     let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
     require_current_protocol(&headers)?;
-    sync::push(&state.pool, tenant_id, auth_context, request)
-        .await
-        .map(Json)
+    let device_id = auth_context.device_id;
+    let response = sync::push(&state.pool, tenant_id, auth_context, request).await?;
+    if should_publish(&response) {
+        realtime.publish_change(tenant_id, device_id).await;
+    }
+    Ok(Json(response))
+}
+
+fn should_publish(response: &PushResponse) -> bool {
+    response
+        .results
+        .iter()
+        .any(|result| result.status == PushStatus::Accepted)
 }
 
 async fn pull(
@@ -208,7 +219,7 @@ async fn list_key_bundles(
         .map(Json)
 }
 
-fn bearer_token(headers: &HeaderMap) -> Result<&str, AppError> {
+pub(super) fn bearer_token(headers: &HeaderMap) -> Result<&str, AppError> {
     let value = headers
         .get(axum::http::header::AUTHORIZATION)
         .ok_or_else(AppError::unauthorized)?
@@ -229,4 +240,42 @@ fn require_current_protocol(headers: &HeaderMap) -> Result<(), AppError> {
         return Err(AppError::conflict("sync protocol upgrade required"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use todori_sync::protocol::{PushResult, SyncCollection};
+
+    #[test]
+    fn publish_is_attempted_only_when_at_least_one_result_is_accepted() {
+        for status in [
+            PushStatus::NoOp,
+            PushStatus::Conflict,
+            PushStatus::Superseded,
+        ] {
+            assert!(!should_publish(&response_with(status)));
+        }
+        assert!(should_publish(&response_with(PushStatus::Accepted)));
+        assert!(should_publish(&PushResponse {
+            results: vec![result(PushStatus::NoOp), result(PushStatus::Accepted),],
+        }));
+    }
+
+    fn response_with(status: PushStatus) -> PushResponse {
+        PushResponse {
+            results: vec![result(status)],
+        }
+    }
+
+    fn result(status: PushStatus) -> PushResult {
+        PushResult {
+            op_id: Uuid::nil(),
+            record_id: Uuid::nil(),
+            collection: SyncCollection::Tasks,
+            status,
+            seq: None,
+            current: None,
+        }
+    }
 }
