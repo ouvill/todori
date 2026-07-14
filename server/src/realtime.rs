@@ -1,7 +1,7 @@
 use std::{collections::HashMap, env, ffi::OsString, sync::Arc, time::Duration as StdDuration};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use reqwest::{redirect::Policy, Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
@@ -253,7 +253,10 @@ impl RealtimeGateway {
     ) -> Option<RealtimeTicketResponse> {
         let enabled = self.enabled.as_ref()?;
         let issued_at = now.timestamp();
-        let expires_at = now + Duration::seconds(TICKET_TTL_SECONDS);
+        // Keep the response timestamp identical to the whole-second `exp` signed
+        // into the ticket so clients never observe a later apparent expiry.
+        let expires_at = DateTime::from_timestamp(issued_at + TICKET_TTL_SECONDS, 0)
+            .expect("ticket expiry remains in the DateTime range");
         let channel = opaque_channel(&enabled.channel_key, tenant_id);
         let device = opaque_device(&enabled.channel_key, tenant_id, device_id);
         let payload = format!(
