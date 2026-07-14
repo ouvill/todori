@@ -6,9 +6,9 @@
 
 ## 現在
 
-- 進行中: **task-108 Focus / Timer Visual Refinement** — 実装・全品質ゲート・Visual QA是正済み。Simulatorまたは実機でのFocus motion確認と独立合格を待つ。
+- 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-107 Integrated Product Finish** — 新UI、Capture、Search、Calendar、Focusのcontract・runtime・motion・Visual QAを統合し、独立検証まで完了した。
+- 最新の完了: **task-108 Focus / Timer Visual Refinement** — Focus全状態をwarm open-dialへ統一し、全品質ゲート、Visual QA、iOS Simulator motionの独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

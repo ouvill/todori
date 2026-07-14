@@ -237,7 +237,7 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 
 ## セクション5: 既知の逸脱（現状 spec 違反として認識済みのもの）
 
-- task-108のproduction / Design Lab実装とVisual QAで、全面dark inverse、旧button hierarchy、旧Timer表現の既知逸脱は解消した。Simulatorまたは実機でのFocus motion最終確認だけをtask-108の人間確認として残す。
+- task-108のproduction / Design Lab実装とVisual QAで、全面dark inverse、旧button hierarchy、旧Timer表現の既知逸脱は解消した。iPhone 17 / iOS 26.5のproduction録画と独立検証で、warm canvasの連続性、color flashなし、setup / pause / resume / sheetのmotionも確認済みである。
 
 ## 裁定済み事項
 
