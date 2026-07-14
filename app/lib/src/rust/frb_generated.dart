@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -631770909;
+  int get rustContentHash => -425077568;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -115,15 +115,36 @@ abstract class RustLibApi extends BaseApi {
     String? parentTaskId,
     TaskDueInput? due,
     String? note,
+    int? priority,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   });
 
   Future<void> crateApiDeleteList({required String listId});
 
   Future<void> crateApiDeleteTask({required String taskId});
 
+  Future<bool> crateApiDiscardActiveTimerSession({
+    required String expectedSessionId,
+  });
+
+  Future<bool> crateApiFinishActiveTimerSession({
+    required CompletedTimerSessionDto session,
+  });
+
   Future<AccountSessionStateDto> crateApiGetAccountSessionState();
 
+  Future<ActiveTimerSessionDto?> crateApiGetActiveTimerSession();
+
   Future<List<ListDto>> crateApiGetArchivedLists();
+
+  Future<List<CalendarOccurrenceDto>> crateApiGetCalendarOccurrences({
+    required CalendarRangeInput range,
+  });
+
+  Future<List<CompletedTimerSessionDto>> crateApiGetCompletedTimerSessions({
+    required String taskId,
+  });
 
   Future<List<HomeTaskDto>> crateApiGetHomeTasks({
     required PlatformInt64 todayStartMs,
@@ -163,6 +184,10 @@ abstract class RustLibApi extends BaseApi {
     required PlatformInt64 nowMs,
   });
 
+  Future<DateTime> crateApiPomodoroTargetReachedAt({
+    required ActiveTimerSessionDto session,
+  });
+
   Future<ListDto> crateApiRenameList({
     required String listId,
     required String name,
@@ -196,11 +221,19 @@ abstract class RustLibApi extends BaseApi {
     required PlatformInt64 snoozedUntil,
   });
 
+  Future<ActiveTimerStartOutcomeDto> crateApiStartActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  });
+
   Future<SyncStatusDto> crateApiSyncNow();
 
   Future<ListDto> crateApiUnarchiveList({required String listId});
 
   Future<TaskDto> crateApiUndoTaskOperation({required String undoId});
+
+  Future<void> crateApiUpdateActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  });
 
   Future<TaskDto> crateApiUpdateTask({
     required String taskId,
@@ -208,6 +241,8 @@ abstract class RustLibApi extends BaseApi {
     required String note,
     required int priority,
     TaskDueInput? due,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   });
 }
 
@@ -512,6 +547,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     String? parentTaskId,
     TaskDueInput? due,
     String? note,
+    int? priority,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -522,6 +560,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_String(parentTaskId, serializer);
           sse_encode_opt_box_autoadd_task_due_input(due, serializer);
           sse_encode_opt_String(note, serializer);
+          sse_encode_opt_box_autoadd_i_32(priority, serializer);
+          sse_encode_opt_box_autoadd_i_64(scheduledAt, serializer);
+          sse_encode_opt_box_autoadd_i_32(estimatedMinutes, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -534,7 +575,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiCreateTaskConstMeta,
-        argValues: [listId, title, parentTaskId, due, note],
+        argValues: [
+          listId,
+          title,
+          parentTaskId,
+          due,
+          note,
+          priority,
+          scheduledAt,
+          estimatedMinutes,
+        ],
         apiImpl: this,
       ),
     );
@@ -542,7 +592,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiCreateTaskConstMeta => const TaskConstMeta(
     debugName: "create_task",
-    argNames: ["listId", "title", "parentTaskId", "due", "note"],
+    argNames: [
+      "listId",
+      "title",
+      "parentTaskId",
+      "due",
+      "note",
+      "priority",
+      "scheduledAt",
+      "estimatedMinutes",
+    ],
   );
 
   @override
@@ -602,6 +661,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "delete_task", argNames: ["taskId"]);
 
   @override
+  Future<bool> crateApiDiscardActiveTimerSession({
+    required String expectedSessionId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(expectedSessionId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 13,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiDiscardActiveTimerSessionConstMeta,
+        argValues: [expectedSessionId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDiscardActiveTimerSessionConstMeta =>
+      const TaskConstMeta(
+        debugName: "discard_active_timer_session",
+        argNames: ["expectedSessionId"],
+      );
+
+  @override
+  Future<bool> crateApiFinishActiveTimerSession({
+    required CompletedTimerSessionDto session,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_completed_timer_session_dto(
+            session,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 14,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiFinishActiveTimerSessionConstMeta,
+        argValues: [session],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFinishActiveTimerSessionConstMeta =>
+      const TaskConstMeta(
+        debugName: "finish_active_timer_session",
+        argNames: ["session"],
+      );
+
+  @override
   Future<AccountSessionStateDto> crateApiGetAccountSessionState() {
     return handler.executeNormal(
       NormalTask(
@@ -610,7 +738,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 15,
             port: port_,
           );
         },
@@ -629,6 +757,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_account_session_state", argNames: []);
 
   @override
+  Future<ActiveTimerSessionDto?> crateApiGetActiveTimerSession() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_opt_box_autoadd_active_timer_session_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetActiveTimerSessionConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetActiveTimerSessionConstMeta =>
+      const TaskConstMeta(debugName: "get_active_timer_session", argNames: []);
+
+  @override
   Future<List<ListDto>> crateApiGetArchivedLists() {
     return handler.executeNormal(
       NormalTask(
@@ -637,7 +793,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 17,
             port: port_,
           );
         },
@@ -656,6 +812,72 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "get_archived_lists", argNames: []);
 
   @override
+  Future<List<CalendarOccurrenceDto>> crateApiGetCalendarOccurrences({
+    required CalendarRangeInput range,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_calendar_range_input(range, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 18,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_calendar_occurrence_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetCalendarOccurrencesConstMeta,
+        argValues: [range],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetCalendarOccurrencesConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_calendar_occurrences",
+        argNames: ["range"],
+      );
+
+  @override
+  Future<List<CompletedTimerSessionDto>> crateApiGetCompletedTimerSessions({
+    required String taskId,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(taskId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 19,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_completed_timer_session_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGetCompletedTimerSessionsConstMeta,
+        argValues: [taskId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGetCompletedTimerSessionsConstMeta =>
+      const TaskConstMeta(
+        debugName: "get_completed_timer_sessions",
+        argNames: ["taskId"],
+      );
+
+  @override
   Future<List<HomeTaskDto>> crateApiGetHomeTasks({
     required PlatformInt64 todayStartMs,
     required PlatformInt64 tomorrowStartMs,
@@ -669,7 +891,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 20,
             port: port_,
           );
         },
@@ -698,7 +920,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 21,
             port: port_,
           );
         },
@@ -726,7 +948,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 22,
             port: port_,
           );
         },
@@ -755,7 +977,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 23,
             port: port_,
           );
         },
@@ -782,7 +1004,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 24,
             port: port_,
           );
         },
@@ -810,7 +1032,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 25,
             port: port_,
           );
         },
@@ -837,7 +1059,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 26,
             port: port_,
           );
         },
@@ -864,7 +1086,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 27,
             port: port_,
           );
         },
@@ -892,7 +1114,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 28,
             port: port_,
           );
         },
@@ -924,7 +1146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 29,
             port: port_,
           );
         },
@@ -955,7 +1177,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 30,
             port: port_,
           );
         },
@@ -983,7 +1205,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1015,7 +1237,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1047,7 +1269,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1069,6 +1291,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<DateTime> crateApiPomodoroTargetReachedAt({
+    required ActiveTimerSessionDto session,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_active_timer_session_dto(session, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 34,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_Chrono_Utc,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiPomodoroTargetReachedAtConstMeta,
+        argValues: [session],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPomodoroTargetReachedAtConstMeta =>
+      const TaskConstMeta(
+        debugName: "pomodoro_target_reached_at",
+        argNames: ["session"],
+      );
+
+  @override
   Future<ListDto> crateApiRenameList({
     required String listId,
     required String name,
@@ -1082,7 +1337,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1118,7 +1373,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1148,7 +1403,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1180,7 +1435,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1208,7 +1463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1242,7 +1497,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1278,7 +1533,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1312,7 +1567,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1333,6 +1588,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<ActiveTimerStartOutcomeDto> crateApiStartActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_active_timer_session_dto(session, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 43,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_active_timer_start_outcome_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiStartActiveTimerSessionConstMeta,
+        argValues: [session],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiStartActiveTimerSessionConstMeta =>
+      const TaskConstMeta(
+        debugName: "start_active_timer_session",
+        argNames: ["session"],
+      );
+
+  @override
   Future<SyncStatusDto> crateApiSyncNow() {
     return handler.executeNormal(
       NormalTask(
@@ -1341,7 +1629,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1369,7 +1657,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1397,7 +1685,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 46,
             port: port_,
           );
         },
@@ -1418,12 +1706,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<void> crateApiUpdateActiveTimerSession({
+    required ActiveTimerSessionDto session,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_active_timer_session_dto(session, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 47,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUpdateActiveTimerSessionConstMeta,
+        argValues: [session],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUpdateActiveTimerSessionConstMeta =>
+      const TaskConstMeta(
+        debugName: "update_active_timer_session",
+        argNames: ["session"],
+      );
+
+  @override
   Future<TaskDto> crateApiUpdateTask({
     required String taskId,
     required String title,
     required String note,
     required int priority,
     TaskDueInput? due,
+    PlatformInt64? scheduledAt,
+    int? estimatedMinutes,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1434,10 +1757,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(note, serializer);
           sse_encode_i_32(priority, serializer);
           sse_encode_opt_box_autoadd_task_due_input(due, serializer);
+          sse_encode_opt_box_autoadd_i_64(scheduledAt, serializer);
+          sse_encode_opt_box_autoadd_i_32(estimatedMinutes, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1446,7 +1771,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiUpdateTaskConstMeta,
-        argValues: [taskId, title, note, priority, due],
+        argValues: [
+          taskId,
+          title,
+          note,
+          priority,
+          due,
+          scheduledAt,
+          estimatedMinutes,
+        ],
         apiImpl: this,
       ),
     );
@@ -1454,7 +1787,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUpdateTaskConstMeta => const TaskConstMeta(
     debugName: "update_task",
-    argNames: ["taskId", "title", "note", "priority", "due"],
+    argNames: [
+      "taskId",
+      "title",
+      "note",
+      "priority",
+      "due",
+      "scheduledAt",
+      "estimatedMinutes",
+    ],
   );
 
   @protected
@@ -1497,9 +1838,64 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ActiveTimerSessionDto dco_decode_active_timer_session_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return ActiveTimerSessionDto(
+      sessionId: dco_decode_String(arr[0]),
+      taskId: dco_decode_opt_String(arr[1]),
+      mode: dco_decode_timer_mode_dto(arr[2]),
+      phase: dco_decode_timer_phase_dto(arr[3]),
+      state: dco_decode_timer_run_state_dto(arr[4]),
+      startedAt: dco_decode_Chrono_Utc(arr[5]),
+      lastResumedAt: dco_decode_opt_box_autoadd_Chrono_Utc(arr[6]),
+      accumulatedActiveMs: dco_decode_i_64(arr[7]),
+      targetDurationMs: dco_decode_opt_box_autoadd_i_64(arr[8]),
+    );
+  }
+
+  @protected
+  ActiveTimerStartOutcomeDto dco_decode_active_timer_start_outcome_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ActiveTimerStartOutcomeDto.values[raw as int];
+  }
+
+  @protected
   bool dco_decode_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as bool;
+  }
+
+  @protected
+  DateTime dco_decode_box_autoadd_Chrono_Utc(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_Chrono_Utc(raw);
+  }
+
+  @protected
+  ActiveTimerSessionDto dco_decode_box_autoadd_active_timer_session_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_active_timer_session_dto(raw);
+  }
+
+  @protected
+  CalendarRangeInput dco_decode_box_autoadd_calendar_range_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_calendar_range_input(raw);
+  }
+
+  @protected
+  CompletedTimerSessionDto dco_decode_box_autoadd_completed_timer_session_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_completed_timer_session_dto(raw);
   }
 
   @protected
@@ -1533,6 +1929,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarOccurrenceDto dco_decode_calendar_occurrence_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return CalendarOccurrenceDto(
+      task: dco_decode_task_dto(arr[0]),
+      listName: dco_decode_String(arr[1]),
+      listArchived: dco_decode_bool(arr[2]),
+      kind: dco_decode_calendar_occurrence_kind_dto(arr[3]),
+    );
+  }
+
+  @protected
+  CalendarOccurrenceKindDto dco_decode_calendar_occurrence_kind_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return CalendarOccurrenceKindDto_DateDue(
+          dueOn: dco_decode_String(raw[1]),
+        );
+      case 1:
+        return CalendarOccurrenceKindDto_DateTimeDue(
+          dueAt: dco_decode_Chrono_Utc(raw[1]),
+          timeZone: dco_decode_String(raw[2]),
+        );
+      case 2:
+        return CalendarOccurrenceKindDto_Scheduled(
+          scheduledAt: dco_decode_Chrono_Utc(raw[1]),
+        );
+      case 3:
+        return CalendarOccurrenceKindDto_Completed(
+          completedAt: dco_decode_Chrono_Utc(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  CalendarRangeInput dco_decode_calendar_range_input(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return CalendarRangeInput(
+      startOn: dco_decode_String(arr[0]),
+      endOn: dco_decode_String(arr[1]),
+      startAt: dco_decode_Chrono_Utc(arr[2]),
+      endAt: dco_decode_Chrono_Utc(arr[3]),
+    );
+  }
+
+  @protected
+  CompletedTimerSessionDto dco_decode_completed_timer_session_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return CompletedTimerSessionDto(
+      id: dco_decode_String(arr[0]),
+      taskId: dco_decode_String(arr[1]),
+      mode: dco_decode_timer_mode_dto(arr[2]),
+      finishKind: dco_decode_timer_finish_kind_dto(arr[3]),
+      startedAt: dco_decode_Chrono_Utc(arr[4]),
+      endedAt: dco_decode_Chrono_Utc(arr[5]),
+      activeDurationMs: dco_decode_i_64(arr[6]),
+      createdAt: dco_decode_Chrono_Utc(arr[7]),
+    );
+  }
+
+  @protected
   HomeTaskDto dco_decode_home_task_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1555,6 +2025,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  List<CalendarOccurrenceDto> dco_decode_list_calendar_occurrence_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_calendar_occurrence_dto)
+        .toList();
+  }
+
+  @protected
+  List<CompletedTimerSessionDto> dco_decode_list_completed_timer_session_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_completed_timer_session_dto)
+        .toList();
   }
 
   @protected
@@ -1611,6 +2101,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  DateTime? dco_decode_opt_box_autoadd_Chrono_Utc(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_Chrono_Utc(raw);
+  }
+
+  @protected
+  ActiveTimerSessionDto? dco_decode_opt_box_autoadd_active_timer_session_dto(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_active_timer_session_dto(raw);
   }
 
   @protected
@@ -1761,6 +2267,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TimerFinishKindDto dco_decode_timer_finish_kind_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TimerFinishKindDto.values[raw as int];
+  }
+
+  @protected
+  TimerModeDto dco_decode_timer_mode_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TimerModeDto.values[raw as int];
+  }
+
+  @protected
+  TimerPhaseDto dco_decode_timer_phase_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TimerPhaseDto.values[raw as int];
+  }
+
+  @protected
+  TimerRunStateDto dco_decode_timer_run_state_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return TimerRunStateDto.values[raw as int];
+  }
+
+  @protected
   int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1819,9 +2349,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ActiveTimerSessionDto sse_decode_active_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_sessionId = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_opt_String(deserializer);
+    var var_mode = sse_decode_timer_mode_dto(deserializer);
+    var var_phase = sse_decode_timer_phase_dto(deserializer);
+    var var_state = sse_decode_timer_run_state_dto(deserializer);
+    var var_startedAt = sse_decode_Chrono_Utc(deserializer);
+    var var_lastResumedAt = sse_decode_opt_box_autoadd_Chrono_Utc(deserializer);
+    var var_accumulatedActiveMs = sse_decode_i_64(deserializer);
+    var var_targetDurationMs = sse_decode_opt_box_autoadd_i_64(deserializer);
+    return ActiveTimerSessionDto(
+      sessionId: var_sessionId,
+      taskId: var_taskId,
+      mode: var_mode,
+      phase: var_phase,
+      state: var_state,
+      startedAt: var_startedAt,
+      lastResumedAt: var_lastResumedAt,
+      accumulatedActiveMs: var_accumulatedActiveMs,
+      targetDurationMs: var_targetDurationMs,
+    );
+  }
+
+  @protected
+  ActiveTimerStartOutcomeDto sse_decode_active_timer_start_outcome_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ActiveTimerStartOutcomeDto.values[inner];
+  }
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8() != 0;
+  }
+
+  @protected
+  DateTime sse_decode_box_autoadd_Chrono_Utc(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_Chrono_Utc(deserializer));
+  }
+
+  @protected
+  ActiveTimerSessionDto sse_decode_box_autoadd_active_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_active_timer_session_dto(deserializer));
+  }
+
+  @protected
+  CalendarRangeInput sse_decode_box_autoadd_calendar_range_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_calendar_range_input(deserializer));
+  }
+
+  @protected
+  CompletedTimerSessionDto sse_decode_box_autoadd_completed_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_completed_timer_session_dto(deserializer));
   }
 
   @protected
@@ -1859,6 +2455,98 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CalendarOccurrenceDto sse_decode_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_task = sse_decode_task_dto(deserializer);
+    var var_listName = sse_decode_String(deserializer);
+    var var_listArchived = sse_decode_bool(deserializer);
+    var var_kind = sse_decode_calendar_occurrence_kind_dto(deserializer);
+    return CalendarOccurrenceDto(
+      task: var_task,
+      listName: var_listName,
+      listArchived: var_listArchived,
+      kind: var_kind,
+    );
+  }
+
+  @protected
+  CalendarOccurrenceKindDto sse_decode_calendar_occurrence_kind_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_dueOn = sse_decode_String(deserializer);
+        return CalendarOccurrenceKindDto_DateDue(dueOn: var_dueOn);
+      case 1:
+        var var_dueAt = sse_decode_Chrono_Utc(deserializer);
+        var var_timeZone = sse_decode_String(deserializer);
+        return CalendarOccurrenceKindDto_DateTimeDue(
+          dueAt: var_dueAt,
+          timeZone: var_timeZone,
+        );
+      case 2:
+        var var_scheduledAt = sse_decode_Chrono_Utc(deserializer);
+        return CalendarOccurrenceKindDto_Scheduled(
+          scheduledAt: var_scheduledAt,
+        );
+      case 3:
+        var var_completedAt = sse_decode_Chrono_Utc(deserializer);
+        return CalendarOccurrenceKindDto_Completed(
+          completedAt: var_completedAt,
+        );
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  CalendarRangeInput sse_decode_calendar_range_input(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_startOn = sse_decode_String(deserializer);
+    var var_endOn = sse_decode_String(deserializer);
+    var var_startAt = sse_decode_Chrono_Utc(deserializer);
+    var var_endAt = sse_decode_Chrono_Utc(deserializer);
+    return CalendarRangeInput(
+      startOn: var_startOn,
+      endOn: var_endOn,
+      startAt: var_startAt,
+      endAt: var_endAt,
+    );
+  }
+
+  @protected
+  CompletedTimerSessionDto sse_decode_completed_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_taskId = sse_decode_String(deserializer);
+    var var_mode = sse_decode_timer_mode_dto(deserializer);
+    var var_finishKind = sse_decode_timer_finish_kind_dto(deserializer);
+    var var_startedAt = sse_decode_Chrono_Utc(deserializer);
+    var var_endedAt = sse_decode_Chrono_Utc(deserializer);
+    var var_activeDurationMs = sse_decode_i_64(deserializer);
+    var var_createdAt = sse_decode_Chrono_Utc(deserializer);
+    return CompletedTimerSessionDto(
+      id: var_id,
+      taskId: var_taskId,
+      mode: var_mode,
+      finishKind: var_finishKind,
+      startedAt: var_startedAt,
+      endedAt: var_endedAt,
+      activeDurationMs: var_activeDurationMs,
+      createdAt: var_createdAt,
+    );
+  }
+
+  @protected
   HomeTaskDto sse_decode_home_task_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_task = sse_decode_task_dto(deserializer);
@@ -1881,6 +2569,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  List<CalendarOccurrenceDto> sse_decode_list_calendar_occurrence_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CalendarOccurrenceDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_calendar_occurrence_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<CompletedTimerSessionDto> sse_decode_list_completed_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <CompletedTimerSessionDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_completed_timer_session_dto(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -1973,6 +2689,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  DateTime? sse_decode_opt_box_autoadd_Chrono_Utc(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_Chrono_Utc(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  ActiveTimerSessionDto? sse_decode_opt_box_autoadd_active_timer_session_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_active_timer_session_dto(deserializer));
     } else {
       return null;
     }
@@ -2194,6 +2936,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TimerFinishKindDto sse_decode_timer_finish_kind_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return TimerFinishKindDto.values[inner];
+  }
+
+  @protected
+  TimerModeDto sse_decode_timer_mode_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return TimerModeDto.values[inner];
+  }
+
+  @protected
+  TimerPhaseDto sse_decode_timer_phase_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return TimerPhaseDto.values[inner];
+  }
+
+  @protected
+  TimerRunStateDto sse_decode_timer_run_state_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return TimerRunStateDto.values[inner];
+  }
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8();
@@ -2243,9 +3017,71 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_active_timer_session_dto(
+    ActiveTimerSessionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.sessionId, serializer);
+    sse_encode_opt_String(self.taskId, serializer);
+    sse_encode_timer_mode_dto(self.mode, serializer);
+    sse_encode_timer_phase_dto(self.phase, serializer);
+    sse_encode_timer_run_state_dto(self.state, serializer);
+    sse_encode_Chrono_Utc(self.startedAt, serializer);
+    sse_encode_opt_box_autoadd_Chrono_Utc(self.lastResumedAt, serializer);
+    sse_encode_i_64(self.accumulatedActiveMs, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.targetDurationMs, serializer);
+  }
+
+  @protected
+  void sse_encode_active_timer_start_outcome_dto(
+    ActiveTimerStartOutcomeDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_Chrono_Utc(
+    DateTime self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_Chrono_Utc(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_active_timer_session_dto(
+    ActiveTimerSessionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_active_timer_session_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_calendar_range_input(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_completed_timer_session_dto(
+    CompletedTimerSessionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_completed_timer_session_dto(self, serializer);
   }
 
   @protected
@@ -2291,6 +3127,72 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_calendar_occurrence_dto(
+    CalendarOccurrenceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_task_dto(self.task, serializer);
+    sse_encode_String(self.listName, serializer);
+    sse_encode_bool(self.listArchived, serializer);
+    sse_encode_calendar_occurrence_kind_dto(self.kind, serializer);
+  }
+
+  @protected
+  void sse_encode_calendar_occurrence_kind_dto(
+    CalendarOccurrenceKindDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case CalendarOccurrenceKindDto_DateDue(dueOn: final dueOn):
+        sse_encode_i_32(0, serializer);
+        sse_encode_String(dueOn, serializer);
+      case CalendarOccurrenceKindDto_DateTimeDue(
+        dueAt: final dueAt,
+        timeZone: final timeZone,
+      ):
+        sse_encode_i_32(1, serializer);
+        sse_encode_Chrono_Utc(dueAt, serializer);
+        sse_encode_String(timeZone, serializer);
+      case CalendarOccurrenceKindDto_Scheduled(scheduledAt: final scheduledAt):
+        sse_encode_i_32(2, serializer);
+        sse_encode_Chrono_Utc(scheduledAt, serializer);
+      case CalendarOccurrenceKindDto_Completed(completedAt: final completedAt):
+        sse_encode_i_32(3, serializer);
+        sse_encode_Chrono_Utc(completedAt, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_calendar_range_input(
+    CalendarRangeInput self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.startOn, serializer);
+    sse_encode_String(self.endOn, serializer);
+    sse_encode_Chrono_Utc(self.startAt, serializer);
+    sse_encode_Chrono_Utc(self.endAt, serializer);
+  }
+
+  @protected
+  void sse_encode_completed_timer_session_dto(
+    CompletedTimerSessionDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.taskId, serializer);
+    sse_encode_timer_mode_dto(self.mode, serializer);
+    sse_encode_timer_finish_kind_dto(self.finishKind, serializer);
+    sse_encode_Chrono_Utc(self.startedAt, serializer);
+    sse_encode_Chrono_Utc(self.endedAt, serializer);
+    sse_encode_i_64(self.activeDurationMs, serializer);
+    sse_encode_Chrono_Utc(self.createdAt, serializer);
+  }
+
+  @protected
   void sse_encode_home_task_dto(HomeTaskDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_task_dto(self.task, serializer);
@@ -2308,6 +3210,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_list_calendar_occurrence_dto(
+    List<CalendarOccurrenceDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_calendar_occurrence_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_completed_timer_session_dto(
+    List<CompletedTimerSessionDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_completed_timer_session_dto(item, serializer);
+    }
   }
 
   @protected
@@ -2384,6 +3310,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_Chrono_Utc(
+    DateTime? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_Chrono_Utc(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_active_timer_session_dto(
+    ActiveTimerSessionDto? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_active_timer_session_dto(self, serializer);
     }
   }
 
@@ -2543,6 +3495,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.listId, serializer);
     sse_encode_String(self.taskTitle, serializer);
     sse_encode_i_64(self.createdAt, serializer);
+  }
+
+  @protected
+  void sse_encode_timer_finish_kind_dto(
+    TimerFinishKindDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_timer_mode_dto(TimerModeDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_timer_phase_dto(
+    TimerPhaseDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_timer_run_state_dto(
+    TimerRunStateDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected

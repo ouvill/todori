@@ -5,7 +5,7 @@ repo_root="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 
-mkdir -p "$fixture/app/rust/src" "$fixture/cli" "$fixture/mcp-server"
+mkdir -p "$fixture/app/rust/src" "$fixture/app/lib" "$fixture/cli" "$fixture/mcp-server"
 cp "$repo_root/app/rust/Cargo.toml" "$fixture/app/rust/Cargo.toml"
 cp "$repo_root/app/rust/src/api.rs" "$repo_root/app/rust/src/lib.rs" \
   "$repo_root/app/rust/src/client_handle.rs" "$fixture/app/rust/src/"
@@ -48,6 +48,11 @@ printf '%s\n' 'use std::sync::OnceLock;' 'static ROGUE: OnceLock<()> = OnceLock:
   "$fixture/app/rust/src/rogue_handle.rs"
 expect_failure rogue-process-handle
 rm "$fixture/app/rust/src/rogue_handle.rs"
+
+printf '%s\n' "import '../../test/visual_qa/design_lab_mocks.dart';" > \
+  "$fixture/app/lib/rogue_design_import.dart"
+expect_failure production-design-lab-import
+rm "$fixture/app/lib/rogue_design_import.dart"
 
 mkdir -p "$fixture/rogue"
 printf '%s\n' '[package]' 'name = "core"' > "$fixture/rogue/Cargo.toml"

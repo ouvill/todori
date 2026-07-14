@@ -1,12 +1,12 @@
 use todori_crypto::key_hierarchy::KEY_LEN;
-use todori_domain::{List, Task, Uuid};
+use todori_domain::{CompletedTimerSession, List, Task, Uuid};
 
 use crate::{
     encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
     SYNC_LOCAL_HLC_SETTING_KEY,
 };
 
-use crate::keys::{dek_for_list, LocalSyncKeys};
+use crate::keys::{dek_for_list, tenant_root_dek, LocalSyncKeys};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSyncOutboxEntry {
@@ -218,8 +218,32 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
     fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String>;
     fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String>;
+    fn list_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<Vec<Task>, String> {
+        Ok(self.get_task(task_id)?.into_iter().collect())
+    }
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String>;
     fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String>;
+    fn get_timer_session(&mut self, _id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
+        Ok(None)
+    }
+    fn upsert_timer_session_for_sync(
+        &mut self,
+        _session: CompletedTimerSession,
+    ) -> Result<(), String> {
+        Err("timer session storage is unavailable".to_string())
+    }
+    fn delete_timer_session_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn list_timer_sessions_by_task(
+        &mut self,
+        _task_id: Uuid,
+    ) -> Result<Vec<CompletedTimerSession>, String> {
+        Ok(Vec::new())
+    }
+    fn clear_active_timer_for_task(&mut self, _task_id: Uuid) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 pub trait LocalSyncWriteTransaction: LocalSyncStore {
@@ -294,6 +318,7 @@ pub trait LocalSyncAtomicStore: LocalSyncStore {
 pub struct BackfillSummary {
     pub enqueued_lists: usize,
     pub enqueued_tasks: usize,
+    pub enqueued_timer_sessions: usize,
     pub skipped_existing_outbox: usize,
     pub skipped_missing_dek: usize,
 }
@@ -304,6 +329,7 @@ pub fn enqueue_backfill<S, N>(
     device_id: &str,
     lists: &[List],
     tasks: &[Task],
+    timer_sessions: &[CompletedTimerSession],
     now_ms: &mut N,
 ) -> Result<BackfillSummary, String>
 where
@@ -340,6 +366,21 @@ where
         summary.enqueued_tasks += 1;
     }
 
+    let mut sorted_sessions = timer_sessions.iter().collect::<Vec<_>>();
+    sorted_sessions.sort_by_key(|session| (session.created_at, session.id));
+    for session in sorted_sessions {
+        if store.has_outbox_head(SyncCollection::TimerSessions, session.id)? {
+            summary.skipped_existing_outbox += 1;
+            continue;
+        }
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_timer_session_sync(store, keys, device_id, session, false, now_ms)?;
+        summary.enqueued_timer_sessions += 1;
+    }
+
     Ok(summary)
 }
 
@@ -372,6 +413,58 @@ where
             deleted,
             plaintext: &plaintext,
             dek: &dek,
+            revision_hlc: &hlc,
+            semantic_hlc: &encoded_hlc,
+            base_revision_hlc,
+        },
+        now_ms,
+    )
+}
+
+pub fn enqueue_timer_session_sync<S, N>(
+    store: &mut S,
+    keys: &LocalSyncKeys,
+    device_id: &str,
+    session: &CompletedTimerSession,
+    deleted: bool,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let dek = tenant_root_dek(keys)
+        .ok_or_else(|| "missing Tenant Root DEK for timer sync".to_string())?;
+    let hlc = tick_local_hlc(store, device_id, now_ms)?;
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    let previous_state = store.get_record_state(SyncCollection::TimerSessions, session.id)?;
+    if let Some(LocalSyncRecordState {
+        state: LocalSyncSemanticState::Live { plaintext_json, .. },
+        ..
+    }) = previous_state.as_ref()
+    {
+        let previous: SyncPlaintext =
+            serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
+        let SyncPlaintext::TimerSession(previous) = previous else {
+            return Err("sync failed".to_string());
+        };
+        if previous.value != *session {
+            return Err("immutable timer session contents conflict".to_string());
+        }
+    }
+    let base_revision_hlc = previous_state
+        .as_ref()
+        .and_then(|state| state.current_revision_hlc.clone());
+    let plaintext = SyncPlaintext::from_timer_session(session, hlc.clone())
+        .map_err(|_| "sync failed".to_string())?;
+    enqueue_plaintext(
+        store,
+        EnqueuePlaintextRequest {
+            record_id: session.id,
+            collection: SyncCollection::TimerSessions,
+            deleted,
+            plaintext: &plaintext,
+            dek,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -773,6 +866,7 @@ mod tests {
             "device-a",
             &[list.clone()],
             &[task.clone()],
+            &[],
             &mut now,
         )
         .unwrap();
@@ -802,6 +896,7 @@ mod tests {
             "device-a",
             &[list.clone()],
             &[task],
+            &[],
             &mut now,
         )
         .unwrap();
@@ -835,6 +930,7 @@ mod tests {
             "device-a",
             &[list],
             &[later.clone(), earlier.clone()],
+            &[],
             &mut now,
         )
         .unwrap();
@@ -864,6 +960,7 @@ mod tests {
             "device-a",
             &[missing_list.clone(), synced_list.clone()],
             &[missing_task.clone(), synced_task.clone()],
+            &[],
             &mut now,
         )
         .unwrap();
@@ -888,6 +985,7 @@ mod tests {
     fn sync_keys(list_ids: &[Uuid]) -> LocalSyncKeys {
         LocalSyncKeys {
             list_deks: list_ids.iter().map(|id| (*id, [7; KEY_LEN])).collect(),
+            tenant_root_dek: None,
         }
     }
 

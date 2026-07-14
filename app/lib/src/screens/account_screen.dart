@@ -5,6 +5,7 @@ import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/states.dart';
+import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/theme.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
@@ -62,13 +63,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   AppSpacing.xl,
                 ),
                 children: [
-                  Text(
-                    l10n.accountTitle,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.accountTitle,
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontSize: 28,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                      const AppHeaderSearchAction(),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   if (account.loggedIn)
@@ -237,6 +246,12 @@ class _ServerUrlSection extends StatelessWidget {
           onSubmitted: busy ? null : (_) => onSave(),
           decoration: InputDecoration(
             hintText: defaultSyncServerUrl,
+            border: const UnderlineInputBorder(),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
             suffixIcon: IconButton(
               tooltip: l10n.accountSaveServerUrlTooltip,
               onPressed: busy ? null : onSave,
@@ -300,7 +315,7 @@ class _SignedOutSection extends StatelessWidget {
           autofillHints: const [AutofillHints.email],
           decoration: InputDecoration(
             labelText: l10n.accountEmailLabel,
-            border: const OutlineInputBorder(),
+            border: const UnderlineInputBorder(),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -310,7 +325,7 @@ class _SignedOutSection extends StatelessWidget {
           autofillHints: const [AutofillHints.password],
           decoration: InputDecoration(
             labelText: l10n.accountPasswordLabel,
-            border: const OutlineInputBorder(),
+            border: const UnderlineInputBorder(),
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -321,6 +336,12 @@ class _SignedOutSection extends StatelessWidget {
           ),
           label: Text(
             registerMode ? l10n.accountRegisterButton : l10n.accountLoginButton,
+          ),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(50),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
         ),
         if (recoveryKey != null) ...[
@@ -415,6 +436,13 @@ class _SignedInSection extends StatelessWidget {
           onPressed: busy ? null : onLogout,
           icon: const Icon(LucideIcons.logOut300),
           label: Text(l10n.accountLogoutButton),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide.none,
+            alignment: AlignmentDirectional.centerStart,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
         ),
       ],
     );
@@ -475,6 +503,12 @@ class _SyncStatusSection extends StatelessWidget {
               onPressed: busy || running ? null : onSyncNow,
               icon: const Icon(LucideIcons.refreshCw300),
               label: Text(l10n.accountSyncNowButton),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide.none,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ],
         ),

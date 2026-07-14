@@ -4,8 +4,9 @@ use todori_crypto::key_hierarchy::{
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
-    unarchive_list as domain_unarchive_list, update_due, update_note, validate_parent_for, List,
-    Task, TaskDue, TaskStatus, Uuid,
+    unarchive_list as domain_unarchive_list, update_due, update_estimated_minutes, update_note,
+    update_priority, update_scheduled_at, validate_parent_for, List, Task, TaskDue, TaskStatus,
+    Uuid,
 };
 use todori_storage::{
     open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
@@ -23,6 +24,9 @@ pub struct CreateTaskInput {
     pub parent_task_id: Option<Uuid>,
     pub due: Option<TaskDue>,
     pub note: Option<String>,
+    pub priority: i32,
+    pub scheduled_at: Option<i64>,
+    pub estimated_minutes: Option<i32>,
     pub now_ms: i64,
 }
 
@@ -234,6 +238,9 @@ impl SqliteMutationService {
         if let Some(due) = input.due {
             task = update_due(task, Some(due), input.now_ms)?;
         }
+        task = update_priority(task, input.priority, input.now_ms)?;
+        task = update_scheduled_at(task, input.scheduled_at, input.now_ms)?;
+        task = update_estimated_minutes(task, input.estimated_minutes, input.now_ms)?;
         if let Some(parent_id) = input.parent_task_id {
             if !tasks.iter().any(|existing| existing.id == parent_id) {
                 match transaction.get_task(parent_id) {
@@ -485,6 +492,7 @@ mod tests {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
                     list_deks: vec![(list.id, [0x55; 32])],
+                    tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 },
             },
         }
@@ -497,6 +505,9 @@ mod tests {
             parent_task_id: None,
             due: Some(TaskDue::date_time(BASE_MS + 60_000, "UTC").unwrap()),
             note: Some("note".to_string()),
+            priority: 2,
+            scheduled_at: Some(BASE_MS + 30_000),
+            estimated_minutes: Some(45),
             now_ms: BASE_MS + 1,
         }
     }
@@ -509,7 +520,27 @@ mod tests {
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .unwrap();
         assert_eq!(created.title, "created");
+        assert_eq!(created.priority, 2);
+        assert_eq!(created.scheduled_at, Some(BASE_MS + 30_000));
+        assert_eq!(created.estimated_minutes, Some(45));
         assert_ne!(created.sort_order, fixture.task.sort_order);
+
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
+        let sync_state = SqliteSyncStateRepository::new(connection);
+        assert_eq!(sync_state.list_outbox_heads(10).unwrap().len(), 1);
+        let state = sync_state
+            .get_record_state(TASKS_COLLECTION, created.id)
+            .unwrap()
+            .unwrap();
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("expected live task state");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("expected task plaintext");
+        };
+        assert_eq!(plaintext.priority.value, 2);
+        assert_eq!(plaintext.scheduled_at.value, Some(BASE_MS + 30_000));
+        assert_eq!(plaintext.estimated_minutes.value, Some(45));
 
         let done = fixture
             .mutation_service

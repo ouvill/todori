@@ -310,6 +310,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         calls: 0,
         keys: LocalSyncKeys {
             list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+            tenant_root_dek: Some([0xe7; 32].into()),
         },
         fail: false,
     };
@@ -368,6 +369,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             (missing.id, missing_dek),
             (corrupt.id, corrupt_dek),
         ],
+        tenant_root_dek: Some([0xe7; 32].into()),
     };
     let mut replay_refresher = TestKeyRefresher {
         calls: 0,
@@ -506,6 +508,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             calls: 0,
             keys: LocalSyncKeys {
                 list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+                tenant_root_dek: Some([0xe7; 32].into()),
             },
             fail: false,
         };
@@ -576,6 +579,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
                 ActiveSyncContext {
                     keys: LocalSyncKeys {
                         list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+                        tenant_root_dek: Some([0xe7; 32].into()),
                     },
                     ..context.clone()
                 },
@@ -678,6 +682,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
                 (corrupt.id, corrupt_dek),
                 (unknown.id, unknown_dek),
             ],
+            tenant_root_dek: Some([0xe7; 32].into()),
         },
         ..context
     };
@@ -778,6 +783,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
         calls: 0,
         keys: LocalSyncKeys {
             list_deks: vec![(waiting.id, waiting_dek)],
+            tenant_root_dek: Some([0xe7; 32].into()),
         },
         fail: false,
     };
@@ -1358,6 +1364,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
         .unwrap();
     let initial_keys = LocalSyncKeys {
         list_deks: vec![(initial.id, [0xe4; 32])],
+        tenant_root_dek: Some([0xe7; 32].into()),
     };
     persist_local_crypto_context(
         &path_a,
@@ -1518,6 +1525,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
             .into_iter()
             .map(|material| (Uuid::parse_str(&material.list_id).unwrap(), *material.dek))
             .collect(),
+        tenant_root_dek: Some([0xe7; 32].into()),
     };
     let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
     run_sync_now(
@@ -1569,6 +1577,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
         device_id: "production-client-a".to_string(),
         keys: LocalSyncKeys {
             list_deks: vec![(list.id, list_dek)],
+            tenant_root_dek: Some([0xe7; 32].into()),
         },
     };
     let sync_b = LocalMutationContext {
@@ -1622,6 +1631,9 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
                 parent_task_id: None,
                 due: None,
                 note: Some("Base note".to_string()),
+                priority: 0,
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 1,
             },
             &sync_a,
@@ -1670,6 +1682,8 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
                 note: "Base note".to_string(),
                 priority: 0,
                 due: Some(todori_domain::TaskDue::date("2026-07-12").unwrap()),
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 200,
             },
             &sync_a,
@@ -1685,6 +1699,8 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
                 due: Some(
                     todori_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap(),
                 ),
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 201,
             },
             &sync_b,
@@ -1777,6 +1793,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         device_id: "rank-client-a".to_string(),
         keys: LocalSyncKeys {
             list_deks: vec![(list.id, list_dek)],
+            tenant_root_dek: Some([0xe7; 32].into()),
         },
     };
     let sync_b = LocalMutationContext {
@@ -1830,6 +1847,9 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 parent_task_id: None,
                 due: None,
                 note: None,
+                priority: 0,
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 1,
             },
             &sync_a,
@@ -1871,6 +1891,9 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 parent_task_id: None,
                 due: None,
                 note: None,
+                priority: 0,
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 200,
             },
             &sync_a,
@@ -1884,6 +1907,9 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
                 parent_task_id: None,
                 due: None,
                 note: None,
+                priority: 0,
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 201,
             },
             &sync_b,
@@ -2012,6 +2038,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
         .unwrap();
     let keys = LocalSyncKeys {
         list_deks: vec![(list.id, [0xe2; 32])],
+        tenant_root_dek: Some([0xe7; 32].into()),
     };
     let mutation = hlc(-4_000, 0, "list-live");
     let live_revision = hlc(-3_900, 0, "list-live-revision");
@@ -2058,6 +2085,9 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
                 parent_task_id: None,
                 due: None,
                 note: None,
+                priority: 0,
+                scheduled_at: None,
+                estimated_minutes: None,
                 now_ms: now + 1,
             },
             &LocalMutationContext {
@@ -2149,6 +2179,187 @@ fn tombstone_op(
         base_revision_hlc,
         revision_hlc,
         state: SyncRecordState::Tombstone { delete_hlc },
+    }
+}
+
+fn timer_live_op(
+    record_id: Uuid,
+    base_revision_hlc: Option<String>,
+    revision_hlc: String,
+    mutation_hlc: String,
+    blob: &[u8],
+) -> PushOp {
+    let mut op = live_op(
+        record_id,
+        base_revision_hlc,
+        revision_hlc,
+        mutation_hlc,
+        blob,
+    );
+    op.collection = SyncCollection::TimerSessions;
+    op
+}
+
+fn timer_tombstone_op(
+    record_id: Uuid,
+    base_revision_hlc: Option<String>,
+    revision_hlc: String,
+    delete_hlc: String,
+) -> PushOp {
+    let mut op = tombstone_op(record_id, base_revision_hlc, revision_hlc, delete_hlc);
+    op.collection = SyncCollection::TimerSessions;
+    op
+}
+
+#[tokio::test]
+async fn timer_session_live_is_immutable_and_tombstone_is_terminal_and_pullable() {
+    let fixture = Fixture::setup().await;
+    let record_id = Uuid::now_v7();
+    let mutation = hlc(-5_000, 0, "timer-mutation");
+    let revision = hlc(-4_900, 0, "timer-revision");
+    let create = timer_live_op(
+        record_id,
+        None,
+        revision.clone(),
+        mutation.clone(),
+        b"opaque-timer-session",
+    );
+
+    let accepted = fixture.push(create.clone()).await;
+    assert_eq!(accepted.status, PushStatus::Accepted);
+    let accepted_seq = accepted.seq.unwrap();
+
+    let mut retry_op = create;
+    retry_op.op_id = Uuid::now_v7();
+    let retry = fixture.push(retry_op).await;
+    assert_eq!(retry.status, PushStatus::NoOp);
+    assert_eq!(retry.seq, Some(accepted_seq));
+
+    let conflicting = fixture
+        .push(timer_live_op(
+            record_id,
+            Some(revision.clone()),
+            hlc(-4_000, 0, "timer-update-revision"),
+            hlc(-4_100, 0, "timer-update-mutation"),
+            b"different-opaque-timer-session",
+        ))
+        .await;
+    assert_eq!(conflicting.status, PushStatus::Conflict);
+    assert_eq!(conflicting.seq, Some(accepted_seq));
+    assert!(matches!(
+        conflicting.current.unwrap().state,
+        SyncRecordState::Live { .. }
+    ));
+
+    let live_pull = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        0,
+        Some(100),
+        None,
+    )
+    .await
+    .unwrap();
+    let live = live_pull
+        .records
+        .iter()
+        .find(|record| record.record_id == record_id)
+        .unwrap();
+    assert_eq!(live.collection, SyncCollection::TimerSessions);
+    assert!(matches!(live.state, SyncRecordState::Live { .. }));
+
+    let resync = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
+        .await
+        .unwrap();
+    let base = sync::scan_base(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        resync.generation,
+        None,
+        Some(100),
+    )
+    .await
+    .unwrap();
+    let stable_timer = base
+        .records
+        .iter()
+        .find(|record| record.record_id == record_id)
+        .unwrap();
+    assert_eq!(stable_timer.collection, SyncCollection::TimerSessions);
+    assert_eq!(
+        base.next_cursor.unwrap().collection,
+        SyncCollection::TimerSessions
+    );
+
+    let delete_revision = hlc(-3_000, 0, "timer-delete-revision");
+    let deleted = fixture
+        .push(timer_tombstone_op(
+            record_id,
+            Some(revision),
+            delete_revision.clone(),
+            hlc(-3_100, 0, "timer-delete"),
+        ))
+        .await;
+    assert_eq!(deleted.status, PushStatus::Accepted);
+
+    let resurrect = fixture
+        .push(timer_live_op(
+            record_id,
+            Some(delete_revision),
+            hlc(-2_000, 0, "timer-resurrect-revision"),
+            hlc(-2_100, 0, "timer-resurrect-mutation"),
+            b"resurrected-timer-session",
+        ))
+        .await;
+    assert_eq!(resurrect.status, PushStatus::Superseded);
+    assert!(matches!(
+        resurrect.current.unwrap().state,
+        SyncRecordState::Tombstone { .. }
+    ));
+
+    let tombstone_pull = sync::pull(
+        &fixture.pool,
+        fixture.tenant_id,
+        fixture.auth.clone(),
+        accepted_seq,
+        Some(100),
+        None,
+    )
+    .await
+    .unwrap();
+    let tombstone = tombstone_pull
+        .records
+        .iter()
+        .find(|record| record.record_id == record_id)
+        .unwrap();
+    assert_eq!(tombstone.collection, SyncCollection::TimerSessions);
+    assert!(matches!(tombstone.state, SyncRecordState::Tombstone { .. }));
+}
+
+#[tokio::test]
+async fn timer_migration_expands_every_server_collection_check() {
+    let fixture = Fixture::setup().await;
+    let constraints = query(
+        "SELECT conname, pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conname = ANY($1)
+         ORDER BY conname",
+    )
+    .bind(vec![
+        "device_resync_sessions_base_cursor_collection_check",
+        "sync_records_collection_check",
+        "sync_records_history_collection_check",
+    ])
+    .fetch_all(&fixture.admin_pool)
+    .await
+    .unwrap();
+
+    assert_eq!(constraints.len(), 3);
+    for row in constraints {
+        let definition: String = row.try_get("definition").unwrap();
+        assert!(definition.contains("timer_sessions"), "{definition}");
     }
 }
 

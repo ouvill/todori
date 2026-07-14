@@ -272,6 +272,179 @@ abstract class AppLocalizations {
   /// **'Home'**
   String get homeTitle;
 
+  /// No description provided for @calendarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar'**
+  String get calendarTitle;
+
+  /// No description provided for @calendarWeekTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get calendarWeekTab;
+
+  /// No description provided for @calendarMonthTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get calendarMonthTab;
+
+  /// No description provided for @calendarPreviousPeriodTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous period'**
+  String get calendarPreviousPeriodTooltip;
+
+  /// No description provided for @calendarNextPeriodTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Next period'**
+  String get calendarNextPeriodTooltip;
+
+  /// No description provided for @calendarGoToToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get calendarGoToToday;
+
+  /// No description provided for @calendarSelectedDaySemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected date: {date}'**
+  String calendarSelectedDaySemantics(String date);
+
+  /// No description provided for @calendarDayTaskCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No tasks} =1{1 task} other{{count} tasks}}'**
+  String calendarDayTaskCount(int count);
+
+  /// No description provided for @calendarCompletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get calendarCompletedTitle;
+
+  /// No description provided for @calendarShowCompletedTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show completed work'**
+  String get calendarShowCompletedTooltip;
+
+  /// No description provided for @calendarHideCompletedTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide completed work'**
+  String get calendarHideCompletedTooltip;
+
+  /// No description provided for @calendarEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing planned.'**
+  String get calendarEmptyTitle;
+
+  /// No description provided for @calendarEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose another day or capture what you want to make time for.'**
+  String get calendarEmptyBody;
+
+  /// No description provided for @calendarLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar could not be loaded.'**
+  String get calendarLoadFailed;
+
+  /// No description provided for @calendarLoadingSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading calendar'**
+  String get calendarLoadingSemantics;
+
+  /// No description provided for @calendarRetryButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get calendarRetryButton;
+
+  /// No description provided for @calendarDueKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get calendarDueKind;
+
+  /// No description provided for @calendarScheduledKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned'**
+  String get calendarScheduledKind;
+
+  /// No description provided for @calendarCompletedKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get calendarCompletedKind;
+
+  /// No description provided for @calendarArchivedListContext.
+  ///
+  /// In en, this message translates to:
+  /// **'{listName} · Archived'**
+  String calendarArchivedListContext(String listName);
+
+  /// No description provided for @calendarOccurrenceSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, {listName}, {kind}, {time}'**
+  String calendarOccurrenceSemantics(
+    String title,
+    String listName,
+    String kind,
+    String time,
+  );
+
+  /// No description provided for @calendarMoveDueTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move due date'**
+  String get calendarMoveDueTooltip;
+
+  /// No description provided for @calendarMoveScheduledTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Move planned date'**
+  String get calendarMoveScheduledTooltip;
+
+  /// No description provided for @calendarMoveOccurrenceSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{kind}: change date for {title}'**
+  String calendarMoveOccurrenceSemantics(String kind, String title);
+
+  /// No description provided for @calendarMoveSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change date'**
+  String get calendarMoveSheetTitle;
+
+  /// No description provided for @calendarMoveToToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get calendarMoveToToday;
+
+  /// No description provided for @calendarMoveToTomorrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow'**
+  String get calendarMoveToTomorrow;
+
+  /// No description provided for @calendarPickDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose date…'**
+  String get calendarPickDate;
+
   /// No description provided for @todayTitle.
   ///
   /// In en, this message translates to:
@@ -337,6 +510,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open Home'**
   String get homeSmartListTooltip;
+
+  /// No description provided for @openSearchTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks'**
+  String get openSearchTooltip;
+
+  /// No description provided for @searchFieldHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks and notes'**
+  String get searchFieldHint;
+
+  /// No description provided for @searchFieldSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Search tasks and notes'**
+  String get searchFieldSemantics;
+
+  /// No description provided for @clearSearchTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search'**
+  String get clearSearchTooltip;
+
+  /// No description provided for @searchEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find what you need.'**
+  String get searchEmptyTitle;
+
+  /// No description provided for @searchEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Search task titles and notes across every list.'**
+  String get searchEmptyBody;
+
+  /// No description provided for @searchNoResultsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing found.'**
+  String get searchNoResultsTitle;
+
+  /// No description provided for @searchNoResultsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'No tasks match “{query}”.'**
+  String searchNoResultsBody(String query);
+
+  /// No description provided for @searchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Search could not be completed.'**
+  String get searchFailed;
+
+  /// No description provided for @searchLoadingSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching tasks'**
+  String get searchLoadingSemantics;
+
+  /// No description provided for @searchArchivedListLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{listName} · Archived'**
+  String searchArchivedListLabel(String listName);
+
+  /// No description provided for @searchResultSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, {listName}, {status}'**
+  String searchResultSemantics(String title, String listName, String status);
 
   /// No description provided for @showHomeSectionTooltip.
   ///
@@ -457,6 +702,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Due: {dueAt}'**
   String taskCreateDueChipSemantics(String dueAt);
+
+  /// No description provided for @taskCreatePlanLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get taskCreatePlanLabel;
+
+  /// No description provided for @taskCreatePlanTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Set planned start and estimate'**
+  String get taskCreatePlanTooltip;
+
+  /// No description provided for @taskCreatePriorityTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose priority'**
+  String get taskCreatePriorityTooltip;
+
+  /// No description provided for @planNotSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not planned'**
+  String get planNotSet;
+
+  /// No description provided for @planSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get planSheetTitle;
+
+  /// No description provided for @plannedStartLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Planned start'**
+  String get plannedStartLabel;
+
+  /// No description provided for @setPlannedStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Set date and time'**
+  String get setPlannedStartButton;
+
+  /// No description provided for @estimateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimate'**
+  String get estimateLabel;
+
+  /// No description provided for @estimateNotSet.
+  ///
+  /// In en, this message translates to:
+  /// **'No estimate'**
+  String get estimateNotSet;
+
+  /// No description provided for @estimateMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String estimateMinutes(int minutes);
+
+  /// No description provided for @decreaseEstimateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease estimate by 5 minutes'**
+  String get decreaseEstimateTooltip;
+
+  /// No description provided for @increaseEstimateTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase estimate by 5 minutes'**
+  String get increaseEstimateTooltip;
+
+  /// No description provided for @clearPlanButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear plan'**
+  String get clearPlanButton;
+
+  /// No description provided for @planSaveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply plan'**
+  String get planSaveButton;
+
+  /// No description provided for @prioritySheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Priority'**
+  String get prioritySheetTitle;
+
+  /// No description provided for @selectedOptionSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected: {option}'**
+  String selectedOptionSemantics(String option);
 
   /// No description provided for @tasksEmpty.
   ///
@@ -1004,6 +1345,12 @@ abstract class AppLocalizations {
   /// **'Account'**
   String get accountTitle;
 
+  /// No description provided for @navigationYouLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get navigationYouLabel;
+
   /// No description provided for @accountLoadFailed.
   ///
   /// In en, this message translates to:
@@ -1213,6 +1560,342 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Page {current} of {total}'**
   String onboardingPagePosition(int current, int total);
+
+  /// No description provided for @focusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus'**
+  String get focusTitle;
+
+  /// No description provided for @focusSetupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how to focus'**
+  String get focusSetupTitle;
+
+  /// No description provided for @focusSetupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Stay with one task. The rest can wait.'**
+  String get focusSetupBody;
+
+  /// No description provided for @focusPomodoroMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro'**
+  String get focusPomodoroMode;
+
+  /// No description provided for @focusStopwatchMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopwatch'**
+  String get focusStopwatchMode;
+
+  /// No description provided for @focusPomodoroSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{work} min focus · {breakMinutes} min break'**
+  String focusPomodoroSummary(int work, int breakMinutes);
+
+  /// No description provided for @focusStopwatchSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Open-ended, with pause and resume'**
+  String get focusStopwatchSummary;
+
+  /// No description provided for @focusStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start focus'**
+  String get focusStartButton;
+
+  /// No description provided for @focusSettingsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro settings'**
+  String get focusSettingsButton;
+
+  /// No description provided for @focusSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pomodoro rhythm'**
+  String get focusSettingsTitle;
+
+  /// No description provided for @focusWorkMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus'**
+  String get focusWorkMinutesLabel;
+
+  /// No description provided for @focusShortBreakMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Short break'**
+  String get focusShortBreakMinutesLabel;
+
+  /// No description provided for @focusLongBreakMinutesLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break'**
+  String get focusLongBreakMinutesLabel;
+
+  /// No description provided for @focusLongBreakEveryLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break after'**
+  String get focusLongBreakEveryLabel;
+
+  /// No description provided for @focusNotificationsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Completion notification'**
+  String get focusNotificationsLabel;
+
+  /// No description provided for @focusNotificationsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Best effort while Todori is in the background'**
+  String get focusNotificationsBody;
+
+  /// No description provided for @focusWorkIntervals.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} focus sessions'**
+  String focusWorkIntervals(int count);
+
+  /// No description provided for @focusRestoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Restoring your focus session…'**
+  String get focusRestoring;
+
+  /// No description provided for @focusLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Todori couldn\'t restore this focus session.'**
+  String get focusLoadFailed;
+
+  /// No description provided for @focusActiveConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Another focus session is active'**
+  String get focusActiveConflictTitle;
+
+  /// No description provided for @focusActiveConflictBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish or discard the current session before starting this task.'**
+  String get focusActiveConflictBody;
+
+  /// No description provided for @focusRunningState.
+  ///
+  /// In en, this message translates to:
+  /// **'Focusing'**
+  String get focusRunningState;
+
+  /// No description provided for @focusPausedState.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get focusPausedState;
+
+  /// No description provided for @focusWorkPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus session'**
+  String get focusWorkPhase;
+
+  /// No description provided for @focusShortBreakPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Short break'**
+  String get focusShortBreakPhase;
+
+  /// No description provided for @focusLongBreakPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'Long break'**
+  String get focusLongBreakPhase;
+
+  /// No description provided for @focusBreakPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Take a breath.'**
+  String get focusBreakPrompt;
+
+  /// No description provided for @focusElapsedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Elapsed {time}'**
+  String focusElapsedLabel(String time);
+
+  /// No description provided for @focusPauseButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get focusPauseButton;
+
+  /// No description provided for @focusResumeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get focusResumeButton;
+
+  /// No description provided for @focusSessionOptionsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Session options'**
+  String get focusSessionOptionsButton;
+
+  /// No description provided for @focusAddTimeButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add 5 minutes'**
+  String get focusAddTimeButton;
+
+  /// No description provided for @focusFinishButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish'**
+  String get focusFinishButton;
+
+  /// No description provided for @focusFinishSessionButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Finish session'**
+  String get focusFinishSessionButton;
+
+  /// No description provided for @focusEndBreakButton.
+  ///
+  /// In en, this message translates to:
+  /// **'End break'**
+  String get focusEndBreakButton;
+
+  /// No description provided for @focusSaveAndExitButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and exit'**
+  String get focusSaveAndExitButton;
+
+  /// No description provided for @focusDiscardButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get focusDiscardButton;
+
+  /// No description provided for @focusDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard this session?'**
+  String get focusDiscardTitle;
+
+  /// No description provided for @focusDiscardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This session will end without saving work time.'**
+  String get focusDiscardBody;
+
+  /// No description provided for @focusCompleteTaskButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete task'**
+  String get focusCompleteTaskButton;
+
+  /// No description provided for @focusFinishedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus recorded'**
+  String get focusFinishedTitle;
+
+  /// No description provided for @focusFinishedSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Focused work recorded.'**
+  String get focusFinishedSummary;
+
+  /// No description provided for @focusFinishedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} of focused work recorded.'**
+  String focusFinishedBody(String time);
+
+  /// No description provided for @focusBreakFinishedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Break complete'**
+  String get focusBreakFinishedTitle;
+
+  /// No description provided for @focusBreakFinishedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Return when you\'re ready for the next focus session.'**
+  String get focusBreakFinishedBody;
+
+  /// No description provided for @focusStartBreakButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start break'**
+  String get focusStartBreakButton;
+
+  /// No description provided for @focusKeepSessionButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep focusing'**
+  String get focusKeepSessionButton;
+
+  /// No description provided for @focusDoneButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get focusDoneButton;
+
+  /// No description provided for @focusActionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t update this focus session. Try again.'**
+  String get focusActionFailed;
+
+  /// No description provided for @focusTaskCompleteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The session was saved, but the task could not be completed. Try completing it again.'**
+  String get focusTaskCompleteFailed;
+
+  /// No description provided for @focusEstimateActualLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus time'**
+  String get focusEstimateActualLabel;
+
+  /// No description provided for @focusEstimateActualValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{actual} actual · {estimate} estimated'**
+  String focusEstimateActualValue(String actual, String estimate);
+
+  /// No description provided for @focusActualOnlyValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{actual} recorded'**
+  String focusActualOnlyValue(String actual);
+
+  /// No description provided for @focusNoActualValue.
+  ///
+  /// In en, this message translates to:
+  /// **'No work recorded yet'**
+  String get focusNoActualValue;
+
+  /// No description provided for @timerNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus time is complete'**
+  String get timerNotificationTitle;
+
+  /// No description provided for @timerNotificationBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Todori to continue your focus rhythm.'**
+  String get timerNotificationBody;
 
   /// No description provided for @failedToStartTodori.
   ///

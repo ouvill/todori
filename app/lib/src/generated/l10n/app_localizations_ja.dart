@@ -105,6 +105,105 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeTitle => 'ホーム';
 
   @override
+  String get calendarTitle => 'カレンダー';
+
+  @override
+  String get calendarWeekTab => '週';
+
+  @override
+  String get calendarMonthTab => '月';
+
+  @override
+  String get calendarPreviousPeriodTooltip => '前の期間';
+
+  @override
+  String get calendarNextPeriodTooltip => '次の期間';
+
+  @override
+  String get calendarGoToToday => '今日';
+
+  @override
+  String calendarSelectedDaySemantics(String date) {
+    return '選択中の日付: $date';
+  }
+
+  @override
+  String calendarDayTaskCount(int count) {
+    return 'タスク $count件';
+  }
+
+  @override
+  String get calendarCompletedTitle => '完了済み';
+
+  @override
+  String get calendarShowCompletedTooltip => '完了した成果を表示';
+
+  @override
+  String get calendarHideCompletedTooltip => '完了した成果を隠す';
+
+  @override
+  String get calendarEmptyTitle => '予定はありません。';
+
+  @override
+  String get calendarEmptyBody => '別の日を選ぶか、時間を使いたいことを追加できます。';
+
+  @override
+  String get calendarLoadFailed => 'カレンダーを読み込めませんでした。';
+
+  @override
+  String get calendarLoadingSemantics => 'カレンダーを読み込み中';
+
+  @override
+  String get calendarRetryButton => '再試行';
+
+  @override
+  String get calendarDueKind => '期限';
+
+  @override
+  String get calendarScheduledKind => '予定';
+
+  @override
+  String get calendarCompletedKind => '完了';
+
+  @override
+  String calendarArchivedListContext(String listName) {
+    return '$listName · アーカイブ済み';
+  }
+
+  @override
+  String calendarOccurrenceSemantics(
+    String title,
+    String listName,
+    String kind,
+    String time,
+  ) {
+    return '$title、$listName、$kind、$time';
+  }
+
+  @override
+  String get calendarMoveDueTooltip => '期限日を移動';
+
+  @override
+  String get calendarMoveScheduledTooltip => '予定日を移動';
+
+  @override
+  String calendarMoveOccurrenceSemantics(String kind, String title) {
+    return '$kind: $titleの日付を変更';
+  }
+
+  @override
+  String get calendarMoveSheetTitle => '日付を変更';
+
+  @override
+  String get calendarMoveToToday => '今日';
+
+  @override
+  String get calendarMoveToTomorrow => '明日';
+
+  @override
+  String get calendarPickDate => '日付を選択…';
+
+  @override
   String get todayTitle => '今日';
 
   @override
@@ -138,6 +237,48 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get homeSmartListTooltip => 'ホームを開く';
+
+  @override
+  String get openSearchTooltip => 'タスクを検索';
+
+  @override
+  String get searchFieldHint => 'タスクとノートを検索';
+
+  @override
+  String get searchFieldSemantics => 'タスクとノートを検索';
+
+  @override
+  String get clearSearchTooltip => '検索をクリア';
+
+  @override
+  String get searchEmptyTitle => '必要なものを探す。';
+
+  @override
+  String get searchEmptyBody => 'すべてのリストからタスクのタイトルとノートを検索できます。';
+
+  @override
+  String get searchNoResultsTitle => '見つかりませんでした。';
+
+  @override
+  String searchNoResultsBody(String query) {
+    return '「$query」に一致するタスクはありません。';
+  }
+
+  @override
+  String get searchFailed => '検索できませんでした。';
+
+  @override
+  String get searchLoadingSemantics => 'タスクを検索中';
+
+  @override
+  String searchArchivedListLabel(String listName) {
+    return '$listName · アーカイブ済み';
+  }
+
+  @override
+  String searchResultSemantics(String title, String listName, String status) {
+    return '$title、$listName、$status';
+  }
 
   @override
   String showHomeSectionTooltip(String section) {
@@ -203,6 +344,58 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String taskCreateDueChipSemantics(String dueAt) {
     return '期限: $dueAt';
+  }
+
+  @override
+  String get taskCreatePlanLabel => '予定';
+
+  @override
+  String get taskCreatePlanTooltip => '開始予定と見積時間を設定';
+
+  @override
+  String get taskCreatePriorityTooltip => '優先度を選択';
+
+  @override
+  String get planNotSet => '予定なし';
+
+  @override
+  String get planSheetTitle => '予定';
+
+  @override
+  String get plannedStartLabel => '開始予定';
+
+  @override
+  String get setPlannedStartButton => '日時を設定';
+
+  @override
+  String get estimateLabel => '見積時間';
+
+  @override
+  String get estimateNotSet => '見積なし';
+
+  @override
+  String estimateMinutes(int minutes) {
+    return '$minutes分';
+  }
+
+  @override
+  String get decreaseEstimateTooltip => '見積時間を5分減らす';
+
+  @override
+  String get increaseEstimateTooltip => '見積時間を5分増やす';
+
+  @override
+  String get clearPlanButton => '予定をクリア';
+
+  @override
+  String get planSaveButton => '予定を適用';
+
+  @override
+  String get prioritySheetTitle => '優先度';
+
+  @override
+  String selectedOptionSemantics(String option) {
+    return '選択中: $option';
   }
 
   @override
@@ -516,6 +709,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountTitle => 'アカウント';
 
   @override
+  String get navigationYouLabel => '自分';
+
+  @override
   String get accountLoadFailed => 'アカウント状態を読み込めませんでした。';
 
   @override
@@ -627,6 +823,187 @@ class AppLocalizationsJa extends AppLocalizations {
   String onboardingPagePosition(int current, int total) {
     return '$totalページ中$currentページ';
   }
+
+  @override
+  String get focusTitle => '集中';
+
+  @override
+  String get focusSetupTitle => '集中のしかたを選ぶ';
+
+  @override
+  String get focusSetupBody => 'ひとつのタスクに向き合う時間です。ほかのことは、いったん置いておきましょう。';
+
+  @override
+  String get focusPomodoroMode => 'ポモドーロ';
+
+  @override
+  String get focusStopwatchMode => 'ストップウォッチ';
+
+  @override
+  String focusPomodoroSummary(int work, int breakMinutes) {
+    return '集中 $work分・休憩 $breakMinutes分';
+  }
+
+  @override
+  String get focusStopwatchSummary => '終了時刻を決めず、休止と再開ができます';
+
+  @override
+  String get focusStartButton => '集中を始める';
+
+  @override
+  String get focusSettingsButton => 'ポモドーロ設定';
+
+  @override
+  String get focusSettingsTitle => 'ポモドーロのリズム';
+
+  @override
+  String get focusWorkMinutesLabel => '集中';
+
+  @override
+  String get focusShortBreakMinutesLabel => '短い休憩';
+
+  @override
+  String get focusLongBreakMinutesLabel => '長い休憩';
+
+  @override
+  String get focusLongBreakEveryLabel => '長い休憩まで';
+
+  @override
+  String get focusNotificationsLabel => '終了時に通知';
+
+  @override
+  String get focusNotificationsBody => 'Todoriがバックグラウンド中は可能な範囲で通知します';
+
+  @override
+  String focusWorkIntervals(int count) {
+    return '集中 $count回';
+  }
+
+  @override
+  String get focusRestoring => '集中セッションを復元しています…';
+
+  @override
+  String get focusLoadFailed => '集中セッションを復元できませんでした。';
+
+  @override
+  String get focusActiveConflictTitle => '別の集中セッションが進行中です';
+
+  @override
+  String get focusActiveConflictBody => '現在のセッションを終了または破棄してから、このタスクを始めてください。';
+
+  @override
+  String get focusRunningState => '集中しています';
+
+  @override
+  String get focusPausedState => '一時停止中';
+
+  @override
+  String get focusWorkPhase => '集中セッション';
+
+  @override
+  String get focusShortBreakPhase => '短い休憩';
+
+  @override
+  String get focusLongBreakPhase => '長い休憩';
+
+  @override
+  String get focusBreakPrompt => 'ひと息つきましょう。';
+
+  @override
+  String focusElapsedLabel(String time) {
+    return '経過 $time';
+  }
+
+  @override
+  String get focusPauseButton => '一時停止';
+
+  @override
+  String get focusResumeButton => '再開';
+
+  @override
+  String get focusSessionOptionsButton => 'セッションの操作';
+
+  @override
+  String get focusAddTimeButton => '5分追加';
+
+  @override
+  String get focusFinishButton => '終了';
+
+  @override
+  String get focusFinishSessionButton => 'セッションを終了';
+
+  @override
+  String get focusEndBreakButton => '休憩を終了';
+
+  @override
+  String get focusSaveAndExitButton => '保存して終了';
+
+  @override
+  String get focusDiscardButton => '破棄';
+
+  @override
+  String get focusDiscardTitle => 'このセッションを破棄しますか？';
+
+  @override
+  String get focusDiscardBody => '作業時間を保存せずにセッションを終了します。';
+
+  @override
+  String get focusCompleteTaskButton => 'タスクを完了';
+
+  @override
+  String get focusFinishedTitle => '集中時間を記録しました';
+
+  @override
+  String get focusFinishedSummary => '作業時間を保存しました。';
+
+  @override
+  String focusFinishedBody(String time) {
+    return '$timeの作業時間を保存しました。';
+  }
+
+  @override
+  String get focusBreakFinishedTitle => '休憩が終わりました';
+
+  @override
+  String get focusBreakFinishedBody => '準備ができたら、次の集中を始めましょう。';
+
+  @override
+  String get focusStartBreakButton => '休憩を始める';
+
+  @override
+  String get focusKeepSessionButton => '集中を続ける';
+
+  @override
+  String get focusDoneButton => '完了';
+
+  @override
+  String get focusActionFailed => '集中セッションを更新できませんでした。もう一度お試しください。';
+
+  @override
+  String get focusTaskCompleteFailed =>
+      '集中時間は保存されましたが、タスクを完了できませんでした。もう一度タスクを完了してください。';
+
+  @override
+  String get focusEstimateActualLabel => '集中時間';
+
+  @override
+  String focusEstimateActualValue(String actual, String estimate) {
+    return '実績 $actual・見積 $estimate';
+  }
+
+  @override
+  String focusActualOnlyValue(String actual) {
+    return '実績 $actual';
+  }
+
+  @override
+  String get focusNoActualValue => '作業時間はまだありません';
+
+  @override
+  String get timerNotificationTitle => '集中時間が終わりました';
+
+  @override
+  String get timerNotificationBody => 'Todoriを開いて、次のリズムへ進みましょう。';
 
   @override
   String failedToStartTodori(String error) {

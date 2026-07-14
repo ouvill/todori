@@ -5,17 +5,29 @@ import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
+import 'package:todori/src/timer/timer_engine.dart';
+import 'package:todori/src/timer/timer_notifications.dart';
+import 'package:todori/src/timer/timer_settings.dart';
 import 'package:todori/src/rust/api.dart'
     show
         AccountAuthResultDto,
         AccountSessionStateDto,
+        CalendarOccurrenceDto,
+        CalendarOccurrenceKindDto_Completed,
+        CalendarOccurrenceKindDto_DateDue,
+        CalendarOccurrenceKindDto_DateTimeDue,
+        CalendarOccurrenceKindDto_Scheduled,
+        CalendarRangeInput,
+        CompletedTimerSessionDto,
         HomeTaskDto,
         ListDto,
         ReminderDto,
         SyncStatusDto,
         TaskDto,
         TaskDueDto,
-        TaskUndoDto;
+        TaskUndoDto,
+        TimerFinishKindDto,
+        TimerPhaseDto;
 
 /// The [BridgeService] used by the app.
 ///
@@ -26,6 +38,165 @@ import 'package:todori/src/rust/api.dart'
 final bridgeServiceProvider = Provider<BridgeService>(
   (ref) => const FrbBridgeService(),
 );
+
+const taskSearchDebounceDuration = Duration(milliseconds: 250);
+
+final taskSearchDebounceDurationProvider = Provider<Duration>(
+  (ref) => taskSearchDebounceDuration,
+);
+
+sealed class TaskSearchState {
+  const TaskSearchState();
+}
+
+final class TaskSearchIdle extends TaskSearchState {
+  const TaskSearchIdle();
+}
+
+final class TaskSearchLoading extends TaskSearchState {
+  const TaskSearchLoading(this.query);
+
+  final String query;
+}
+
+final class TaskSearchData extends TaskSearchState {
+  const TaskSearchData({required this.query, required this.items});
+
+  final String query;
+  final List<TaskSearchResult> items;
+}
+
+final class TaskSearchError extends TaskSearchState {
+  const TaskSearchError({
+    required this.query,
+    required this.error,
+    required this.stackTrace,
+  });
+
+  final String query;
+  final Object error;
+  final StackTrace stackTrace;
+}
+
+class TaskSearchResult {
+  const TaskSearchResult({
+    required this.task,
+    required this.listName,
+    required this.listArchived,
+  });
+
+  final TaskDto task;
+  final String listName;
+  final bool listArchived;
+}
+
+class TaskSearchNotifier extends Notifier<TaskSearchState> {
+  Timer? _debounceTimer;
+  var _generation = 0;
+  var _disposed = false;
+
+  @override
+  TaskSearchState build() {
+    ref.onDispose(() {
+      _disposed = true;
+      _generation += 1;
+      _debounceTimer?.cancel();
+    });
+    return const TaskSearchIdle();
+  }
+
+  void setQuery(String value) {
+    final query = value.trim();
+    _debounceTimer?.cancel();
+    if (query.isEmpty) {
+      _generation += 1;
+      state = const TaskSearchIdle();
+      return;
+    }
+
+    _startSearch(query, debounce: true);
+  }
+
+  /// Re-runs the current non-empty query after a task, list, or sync mutation.
+  ///
+  /// Search results are snapshots rather than a derived task provider, so
+  /// preserving and immediately refreshing the query prevents a detail edit
+  /// from leaving a stale row behind when the user returns to Search.
+  void refresh() {
+    final query = switch (state) {
+      TaskSearchLoading(:final query) => query,
+      TaskSearchData(:final query) => query,
+      TaskSearchError(:final query) => query,
+      TaskSearchIdle() => null,
+    };
+    if (query != null) {
+      _debounceTimer?.cancel();
+      _startSearch(query, debounce: false);
+    }
+  }
+
+  void _startSearch(String query, {required bool debounce}) {
+    final generation = ++_generation;
+
+    state = TaskSearchLoading(query);
+    final delay = ref.read(taskSearchDebounceDurationProvider);
+    if (!debounce || delay == Duration.zero) {
+      unawaited(_search(query, generation));
+      return;
+    }
+    _debounceTimer = Timer(delay, () {
+      unawaited(_search(query, generation));
+    });
+  }
+
+  void clear() => setQuery('');
+
+  Future<void> _search(String query, int generation) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    try {
+      final taskFuture = bridge.searchTasks(query: query);
+      final activeListsFuture = bridge.getLists();
+      final archivedListsFuture = bridge.getArchivedLists();
+      final tasks = await taskFuture;
+      final activeLists = await activeListsFuture;
+      final archivedLists = await archivedListsFuture;
+      if (_disposed || generation != _generation) {
+        return;
+      }
+      final listsById = {
+        for (final list in activeLists) list.id: list,
+        for (final list in archivedLists) list.id: list,
+      };
+      state = TaskSearchData(
+        query: query,
+        items: List.unmodifiable(
+          tasks.map((task) {
+            final list = listsById[task.listId];
+            return TaskSearchResult(
+              task: task,
+              listName: list?.name ?? '',
+              listArchived: list?.archivedAt != null,
+            );
+          }),
+        ),
+      );
+    } catch (error, stackTrace) {
+      if (_disposed || generation != _generation) {
+        return;
+      }
+      state = TaskSearchError(
+        query: query,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+}
+
+final taskSearchProvider =
+    NotifierProvider<TaskSearchNotifier, TaskSearchState>(
+      TaskSearchNotifier.new,
+    );
 
 const uiModeSettingKey = 'ui_mode';
 const onboardingCompletedSettingKey = 'onboarding_completed';
@@ -145,6 +316,7 @@ final accountProvider =
 
 class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
   Timer? _pollTimer;
+  Future<void>? _syncInFlight;
 
   @override
   FutureOr<SyncStatusDto> build() async {
@@ -154,24 +326,58 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     final status = await bridge.getSyncStatus();
     if (account.loggedIn && status.loggedIn) {
       _startPolling();
-      unawaited(syncNow());
+      _runAutomaticSync();
     }
     return status;
   }
 
-  Future<void> syncNow() async {
+  Future<void> syncNow() {
+    final inFlight = _syncInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+    late final Future<void> operation;
+    operation = _performSync().whenComplete(() {
+      if (identical(_syncInFlight, operation)) {
+        _syncInFlight = null;
+      }
+    });
+    _syncInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _performSync() async {
     final current = state.value;
     if (current != null) {
       state = AsyncData(_copySyncStatus(current, running: true));
     }
-    final status = await ref.read(bridgeServiceProvider).syncNow();
-    state = AsyncData(status);
-    ref.invalidate(listsProvider);
-    ref.invalidate(archivedListsProvider);
-    ref.invalidate(tasksProvider);
-    ref.invalidate(homeTasksProvider);
-    ref.invalidate(latestTaskUndoProvider);
-    ref.invalidate(taskRemindersProvider);
+    try {
+      final status = await ref.read(bridgeServiceProvider).syncNow();
+      state = AsyncData(status);
+      ref.invalidate(listsProvider);
+      ref.invalidate(archivedListsProvider);
+      ref.invalidate(tasksProvider);
+      ref.invalidate(homeTasksProvider);
+      ref.invalidate(calendarOccurrencesProvider);
+      ref.invalidate(latestTaskUndoProvider);
+      ref.invalidate(taskRemindersProvider);
+      ref.invalidate(completedTimerSessionsProvider);
+      ref.invalidate(timerEngineProvider);
+      ref.read(taskSearchProvider.notifier).refresh();
+    } catch (_) {
+      final failed = state.value;
+      if (failed != null) {
+        state = AsyncData(_copySyncStatus(failed, running: false));
+      }
+      try {
+        final recovered = await ref.read(bridgeServiceProvider).getSyncStatus();
+        state = AsyncData(_copySyncStatus(recovered, running: false));
+      } catch (_) {
+        // Preserve the non-running snapshot above when status recovery also
+        // fails. Sync failures are represented by SyncStatus, never by an
+        // unhandled Future from automatic polling or a button callback.
+      }
+    }
   }
 
   Future<void> syncOnResume() async {
@@ -189,9 +395,13 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       final status = state.value;
       if (status != null && status.loggedIn && !status.running) {
-        unawaited(syncNow());
+        _runAutomaticSync();
       }
     });
+  }
+
+  void _runAutomaticSync() {
+    unawaited(syncNow().catchError((_) {}));
   }
 }
 
@@ -238,6 +448,84 @@ final reminderNotificationServiceProvider =
         gateway: ref.watch(reminderNotificationGatewayProvider),
       ),
     );
+
+final timerClockProvider = Provider<TimerClock>(
+  (ref) => const SystemTimerClock(),
+);
+
+final timerNotificationGatewayProvider = Provider<TimerNotificationGateway>(
+  (ref) => FlutterLocalTimerNotificationGateway(),
+);
+
+final timerNotificationServiceProvider = Provider<TimerNotificationService>(
+  (ref) =>
+      TimerNotificationService(ref.watch(timerNotificationGatewayProvider)),
+);
+
+final timerSettingsProvider =
+    AsyncNotifierProvider<TimerSettingsNotifier, TimerSettings>(
+      () => TimerSettingsNotifier(
+        bridgeServiceProvider,
+        timerNotificationServiceProvider,
+      ),
+    );
+
+final completedTimerSessionsProvider =
+    FutureProvider.family<List<CompletedTimerSessionDto>, String>(
+      (ref, taskId) => ref
+          .watch(bridgeServiceProvider)
+          .getCompletedTimerSessions(taskId: taskId),
+    );
+
+final timerEngineProvider =
+    AsyncNotifierProvider<TimerEngineController, TimerEngineState>(
+      () => TimerEngineController(
+        bridgeServiceProvider,
+        timerNotificationServiceProvider,
+        timerClockProvider,
+        (taskId) => completedTimerSessionsProvider(taskId),
+      ),
+    );
+
+class TaskCompletionTimerSaveException implements Exception {
+  const TaskCompletionTimerSaveException();
+}
+
+/// Serializes the one cross-feature completion invariant shared by every UI:
+/// matching Focus work must be durably saved before the task becomes done.
+class TaskCompletionCoordinator {
+  TaskCompletionCoordinator(this._ref);
+
+  final Ref _ref;
+
+  Future<T> complete<T>({
+    required String taskId,
+    required Future<T> Function() setDone,
+  }) async {
+    final engine = await _ref.read(timerEngineProvider.future);
+    final active = engine.active;
+    final matchingWork =
+        active?.taskId == taskId && active?.phase == TimerPhaseDto.work;
+    final activeBreak = active != null && active.phase != TimerPhaseDto.work;
+    if (matchingWork || activeBreak) {
+      final activeSession = active!;
+      final completed = await _ref
+          .read(timerEngineProvider.notifier)
+          .finish(kind: TimerFinishKindDto.completed);
+      final remaining = _ref.read(timerEngineProvider).value?.active;
+      final wasCleared = remaining?.sessionId != activeSession.sessionId;
+      final workWasSaved = !matchingWork || completed != null;
+      if (!wasCleared || !workWasSaved) {
+        throw const TaskCompletionTimerSaveException();
+      }
+    }
+    return setDone();
+  }
+}
+
+final taskCompletionCoordinatorProvider = Provider<TaskCompletionCoordinator>(
+  (ref) => TaskCompletionCoordinator(ref),
+);
 
 /// Provides the reserved F-01 UI mode setting.
 ///
@@ -310,6 +598,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     final sortOrder = nextSortOrder(state.value?.length ?? 0);
     await bridge.createList(name: name, sortOrder: sortOrder);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Renames `listId` and refreshes [listsProvider].
@@ -318,6 +607,9 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.renameList(listId: listId, name: name);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Archives `listId` and refreshes active and archived list collections.
@@ -326,6 +618,9 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.archiveList(listId: listId);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<int> countTasks(String listId) {
@@ -342,6 +637,11 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
         .cancelReminders(reminders);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(completedTimerSessionsProvider);
+    ref.invalidate(homeTasksProvider);
+    ref.invalidate(timerEngineProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -362,6 +662,9 @@ class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
     await bridge.unarchiveList(listId: listId);
     ref.invalidateSelf();
     ref.invalidate(listsProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+    ref.invalidate(homeTasksProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -418,6 +721,173 @@ homeLocalRangesMs({DateTime? now}) {
   );
 }
 
+/// Value identity for a Calendar query. Civil dates select date-only due
+/// occurrences while UTC instants select datetime/scheduled/completed ones.
+class CalendarRange {
+  const CalendarRange._({
+    required this.startOn,
+    required this.endOn,
+    required this.startAt,
+    required this.endAt,
+  });
+
+  factory CalendarRange.local({
+    required DateTime start,
+    required DateTime end,
+  }) {
+    if (start.isUtc || end.isUtc) {
+      throw ArgumentError('calendar range boundaries must be viewer-local');
+    }
+    if (start.hour != 0 ||
+        start.minute != 0 ||
+        start.second != 0 ||
+        start.millisecond != 0 ||
+        start.microsecond != 0 ||
+        end.hour != 0 ||
+        end.minute != 0 ||
+        end.second != 0 ||
+        end.millisecond != 0 ||
+        end.microsecond != 0) {
+      throw ArgumentError('calendar range boundaries must be local midnight');
+    }
+    if (!end.isAfter(start)) {
+      throw ArgumentError('calendar range must be non-empty');
+    }
+    final startOn = _civilDateFromFields(start);
+    final endOn = _civilDateFromFields(end);
+    if (startOn.compareTo(endOn) >= 0) {
+      throw ArgumentError('calendar civil range must be increasing');
+    }
+    return CalendarRange._(
+      startOn: startOn,
+      endOn: endOn,
+      startAt: start.toUtc(),
+      endAt: end.toUtc(),
+    );
+  }
+
+  factory CalendarRange.day(DateTime day) {
+    final local = day.toLocal();
+    return CalendarRange.local(
+      start: DateTime(local.year, local.month, local.day),
+      end: DateTime(local.year, local.month, local.day + 1),
+    );
+  }
+
+  final String startOn;
+  final String endOn;
+  final DateTime startAt;
+  final DateTime endAt;
+
+  CalendarRangeInput toInput() => CalendarRangeInput(
+    startOn: startOn,
+    endOn: endOn,
+    startAt: startAt,
+    endAt: endAt,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CalendarRange &&
+          startOn == other.startOn &&
+          endOn == other.endOn &&
+          startAt == other.startAt &&
+          endAt == other.endAt;
+
+  @override
+  int get hashCode => Object.hash(startOn, endOn, startAt, endAt);
+}
+
+String _civilDateFromFields(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';
+
+class CalendarOccurrencesNotifier
+    extends AsyncNotifier<List<CalendarOccurrenceDto>> {
+  CalendarOccurrencesNotifier(this.range);
+
+  final CalendarRange range;
+
+  @override
+  FutureOr<List<CalendarOccurrenceDto>> build() {
+    return ref
+        .watch(bridgeServiceProvider)
+        .getCalendarOccurrences(range: range.toInput());
+  }
+
+  Future<void> moveOccurrence({
+    required CalendarOccurrenceDto occurrence,
+    required DateTime targetDate,
+  }) async {
+    final task = occurrence.task;
+    var due = task.due;
+    var scheduledAt = task.scheduledAt;
+    final target = targetDate.toLocal();
+
+    switch (occurrence.kind) {
+      case CalendarOccurrenceKindDto_DateDue():
+        due = dateOnlyDue(target);
+      case CalendarOccurrenceKindDto_DateTimeDue(:final dueAt, :final timeZone):
+        final savedWallClock = taskDueDisplayDate(
+          TaskDueDto.dateTime(dueAt: dueAt, timeZone: timeZone),
+        );
+        due = dateTimeDue(
+          localDateTime: DateTime(
+            target.year,
+            target.month,
+            target.day,
+            savedWallClock.hour,
+            savedWallClock.minute,
+            savedWallClock.second,
+            savedWallClock.millisecond,
+            savedWallClock.microsecond,
+          ),
+          timeZone: timeZone,
+        );
+      case CalendarOccurrenceKindDto_Scheduled(
+        scheduledAt: final savedScheduledAt,
+      ):
+        final savedWallClock = savedScheduledAt.toLocal();
+        scheduledAt = DateTime(
+          target.year,
+          target.month,
+          target.day,
+          savedWallClock.hour,
+          savedWallClock.minute,
+          savedWallClock.second,
+          savedWallClock.millisecond,
+        ).millisecondsSinceEpoch;
+      case CalendarOccurrenceKindDto_Completed():
+        throw StateError('completed occurrences cannot be moved');
+    }
+
+    final updated = await ref
+        .read(bridgeServiceProvider)
+        .updateTask(
+          taskId: task.id,
+          title: task.title,
+          note: task.note,
+          priority: task.priority,
+          due: due == null ? null : taskDueInput(due),
+          scheduledAt: scheduledAt,
+          estimatedMinutes: task.estimatedMinutes,
+        );
+    ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
+    ref.read(taskSearchProvider.notifier).refresh();
+  }
+}
+
+final calendarOccurrencesProvider =
+    AsyncNotifierProvider.family<
+      CalendarOccurrencesNotifier,
+      List<CalendarOccurrenceDto>,
+      CalendarRange
+    >(CalendarOccurrencesNotifier.new);
+
 /// Manages the tasks of a single list, keyed by `listId`.
 ///
 /// Invalidate strategy: [createTask], [updateTask], [setStatus] and [deleteTask] each
@@ -446,6 +916,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     String? parentTaskId,
     TaskDueDto? due,
     String note = '',
+    int priority = 0,
+    int? scheduledAt,
+    int? estimatedMinutes,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.createTask(
@@ -454,9 +927,14 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       parentTaskId: parentTaskId,
       due: due == null ? null : taskDueInput(due),
       note: note,
+      priority: priority,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Updates editable task fields and refreshes the task list.
@@ -466,6 +944,8 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     required String note,
     required int priority,
     required TaskDueDto? due,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.updateTask(
@@ -474,10 +954,14 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       note: note,
       priority: priority,
       due: due == null ? null : taskDueInput(due),
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
@@ -487,6 +971,8 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       note: task.note,
       priority: task.priority,
       due: due,
+      scheduledAt: task.scheduledAt,
+      estimatedMinutes: task.estimatedMinutes,
     );
     ref.invalidate(homeTasksProvider);
   }
@@ -501,11 +987,21 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     final reminders = status == 'done' || status == 'wont_do'
         ? await bridge.getTaskReminders(taskId: taskId)
         : const <ReminderDto>[];
-    await bridge.setTaskStatus(
-      taskId: taskId,
-      status: status,
-      closedReason: closedReason,
-    );
+    Future<void> persistStatus() async {
+      await bridge.setTaskStatus(
+        taskId: taskId,
+        status: status,
+        closedReason: closedReason,
+      );
+    }
+
+    if (status == 'done') {
+      await ref
+          .read(taskCompletionCoordinatorProvider)
+          .complete(taskId: taskId, setDone: persistStatus);
+    } else {
+      await persistStatus();
+    }
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)
@@ -514,7 +1010,9 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<int> countDescendants(String taskId) {
@@ -530,8 +1028,12 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
         .read(reminderNotificationServiceProvider)
         .cancelReminders(reminders);
     ref.invalidate(taskRemindersProvider(taskId));
+    ref.invalidate(completedTimerSessionsProvider(taskId));
+    ref.invalidate(timerEngineProvider);
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   /// Moves `taskId` between sibling boundaries and refreshes the task list.
@@ -572,6 +1074,9 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     required String listId,
     required String title,
     required TaskDueDto? due,
+    required int priority,
+    required int? scheduledAt,
+    required int? estimatedMinutes,
     String note = '',
   }) async {
     final bridge = ref.read(bridgeServiceProvider);
@@ -580,9 +1085,14 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       title: title,
       due: due == null ? null : taskDueInput(due),
       note: note,
+      priority: priority,
+      scheduledAt: scheduledAt,
+      estimatedMinutes: estimatedMinutes,
     );
     ref.invalidate(tasksProvider(listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> setStatus(
@@ -594,11 +1104,16 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
     final reminders = status == 'done' || status == 'wont_do'
         ? await bridge.getTaskReminders(taskId: taskId)
         : const <ReminderDto>[];
-    final updated = await bridge.setTaskStatus(
+    Future<TaskDto> persistStatus() => bridge.setTaskStatus(
       taskId: taskId,
       status: status,
       closedReason: closedReason,
     );
+    final updated = status == 'done'
+        ? await ref
+              .read(taskCompletionCoordinatorProvider)
+              .complete(taskId: taskId, setDone: persistStatus)
+        : await persistStatus();
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)
@@ -607,7 +1122,9 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       ref.invalidate(taskRemindersProvider(taskId));
     }
     ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 
   Future<void> updateDue(TaskDto task, TaskDueDto? due) async {
@@ -618,10 +1135,14 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       note: task.note,
       priority: task.priority,
       due: due == null ? null : taskDueInput(due),
+      scheduledAt: task.scheduledAt,
+      estimatedMinutes: task.estimatedMinutes,
     );
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
   }
 }
 
@@ -668,7 +1189,9 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .undoTaskOperation(undoId: undoId);
     ref.invalidate(tasksProvider(restored.listId));
     ref.invalidate(homeTasksProvider);
+    ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
+    ref.read(taskSearchProvider.notifier).refresh();
     await ref.read(tasksProvider(restored.listId).future);
     return restored;
   }

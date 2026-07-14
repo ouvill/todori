@@ -5,16 +5,17 @@ use std::path::Path;
 
 use thiserror::Error;
 use todori_domain::{
-    update_due, update_note, update_priority, update_title, List, Task, TaskDue, Uuid,
+    update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
+    update_title, CompletedTimerSession, List, Task, TaskDue, Uuid,
 };
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
 use todori_sync::{
-    enqueue_list_sync, enqueue_task_sync, EncryptedSyncState, LocalMutationSyncStore,
-    LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
-    SyncCollection,
+    enqueue_list_sync, enqueue_task_sync, enqueue_timer_session_sync, EncryptedSyncState,
+    LocalMutationSyncStore, LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState,
+    NewLocalSyncOutboxEntry, SyncCollection,
 };
 
 #[derive(Debug, Error)]
@@ -51,8 +52,14 @@ pub enum ClientError {
     Busy,
     #[error("task priority must be between 0 and 3")]
     InvalidPriority,
+    #[error("estimated minutes must be a positive multiple of 5")]
+    InvalidEstimatedMinutes,
     #[error("local IANA time zone is unavailable")]
     LocalTimeZoneUnavailable,
+    #[error("another active timer already exists: {0}")]
+    ActiveTimerConflict(Uuid),
+    #[error("calendar range must contain increasing civil-date and instant bounds")]
+    InvalidCalendarRange,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +75,8 @@ pub struct UpdateTaskInput {
     pub note: String,
     pub priority: i32,
     pub due: Option<TaskDue>,
+    pub scheduled_at: Option<i64>,
+    pub estimated_minutes: Option<i32>,
     pub now_ms: i64,
 }
 
@@ -107,7 +116,9 @@ impl SqliteMutationService {
         let task = update_title(before.clone(), input.title, input.now_ms)?;
         let task = update_note(task, input.note, input.now_ms)?;
         let task = update_priority(task, input.priority, input.now_ms)?;
-        let updated = update_due(task, input.due, input.now_ms)?;
+        let task = update_due(task, input.due, input.now_ms)?;
+        let task = update_scheduled_at(task, input.scheduled_at, input.now_ms)?;
+        let updated = update_estimated_minutes(task, input.estimated_minutes, input.now_ms)?;
 
         transaction.update_with_undo(
             before,
@@ -155,6 +166,26 @@ pub(crate) fn enqueue_list_in_transaction(
         &sync.keys,
         &sync.device_id,
         list,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn enqueue_timer_session_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    session: &CompletedTimerSession,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_timer_session_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        session,
         deleted,
         &mut now,
     )
@@ -368,6 +399,7 @@ mod tests {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
                     list_deks: vec![(list.id, [0x44; 32])],
+                    tenant_root_dek: None,
                 },
             },
         }
@@ -380,6 +412,8 @@ mod tests {
             note: "atomic".to_string(),
             priority: 2,
             due: Some(TaskDue::date_time(BASE_MS + 60_000, "UTC").unwrap()),
+            scheduled_at: Some(BASE_MS + 30_000),
+            estimated_minutes: Some(45),
             now_ms: BASE_MS + 1_000,
         }
     }
@@ -392,6 +426,9 @@ mod tests {
             .update_task(update_input(fixture.task.id), &fixture.sync)
             .unwrap();
         assert_eq!(updated.title, "after");
+        assert_eq!(updated.priority, 2);
+        assert_eq!(updated.scheduled_at, Some(BASE_MS + 30_000));
+        assert_eq!(updated.estimated_minutes, Some(45));
 
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
@@ -414,10 +451,15 @@ mod tests {
             .get_record_state(TASKS_COLLECTION, fixture.task.id)
             .unwrap()
             .unwrap();
-        assert!(matches!(
-            state.state,
-            SyncRecordSemanticState::Live { plaintext_json, .. } if plaintext_json != "baseline"
-        ));
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("expected live task state");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("expected task plaintext");
+        };
+        assert_eq!(plaintext.priority.value, 2);
+        assert_eq!(plaintext.scheduled_at.value, Some(BASE_MS + 30_000));
+        assert_eq!(plaintext.estimated_minutes.value, Some(45));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Shared spacing rhythm for production UI.
 abstract final class AppSpacing {
   static const double xs = 4;
   static const double sm = 8;
@@ -8,295 +9,331 @@ abstract final class AppSpacing {
   static const double xl = 32;
 }
 
+/// Radius is reserved for controls whose shape communicates interaction.
+/// Rows, sections, and task streams intentionally do not use these values.
 abstract final class AppRadius {
-  static const double sm = 10;
-  static const double md = 14;
-  static const double lg = 20;
-  static const double xl = 28;
+  static const double sm = 8;
+  static const double md = 8;
+  static const double lg = 12;
+  static const double xl = 12;
 }
 
-const _seedColor = Color(0xFF285E46);
-const _lightSurface = Color(0xFFFFFDF8);
-const _lightSurfaceContainer = Color(0xFFF8F7F2);
-const _lightSurfaceContainerHigh = Color(0xFFEDF2EA);
-const _lightCoral = Color(0xFFE8755A);
-const _darkSurface = Color(0xFF141915);
-const _darkSurfaceContainer = Color(0xFF101411);
-const _darkSurfaceContainerHigh = Color(0xFF202820);
+/// Binding production palette from UI Spec section 0.
+abstract final class AppColors {
+  static const canvas = Color(0xFFF8F5EC);
+  static const ink = Color(0xFF182019);
+  static const muted = Color(0xFF73786F);
+  static const forest = Color(0xFF1D6048);
+  static const sage = Color(0xFFBFD7C8);
+  static const subtleSage = Color(0xFFE9EFE8);
+  static const hairline = Color(0xFFD9DDD3);
+  static const coral = Color(0xFFC96357);
+  static const amber = Color(0xFFC08B3E);
+}
 
-/// The bundled brand fonts (`assets/fonts/Newsreader`, `assets/fonts/Inter`)
-/// only ship Latin glyphs, per the 2026-07-06 typography ruling (see
-/// `docs/design/ui-spec.md` 裁定済み事項) that Japanese continues to render
-/// through the platform's own fallback rather than bundling a new Japanese
-/// font. This list makes that fallback explicit rather than implicit: real
-/// devices normally resolve missing glyphs to a system CJK font
-/// automatically even without this, but declaring it here is harmless when
-/// the family isn't present (Flutter simply skips it) and it is also what
-/// lets the `visual_qa` screenshot harness -- which runs in an isolated
-/// `flutter test` environment with no automatic system font fallback --
-/// render Japanese seed data by registering a real Hiragino font under the
-/// `Hiragino Sans` family name (see
-/// `test/visual_qa/visual_qa_screenshots_test.dart`).
-///
-/// This is the sans-serif fallback used for the `Inter` base font family
-/// (every text role except [displayMedium]'s Today heading).
+/// Inter does not bundle CJK glyphs, so production explicitly falls back to a
+/// platform sans face. No serif fallback is part of the production hierarchy.
 const _cjkFontFamilyFallback = <String>[
   'Hiragino Sans',
   'Noto Sans CJK JP',
   'Noto Sans JP',
 ];
 
-/// Japanese fallback for the `Newsreader` display serif used by the
-/// `displayMedium` text style (the Today heading) only. Apple platforms
-/// resolve this to the serif ヒラギノ明朝 ProN; OSes without a bundled
-/// Japanese serif (e.g. stock Android) fall through to their own default
-/// body font, which is an accepted degradation per the 2026-07-06
-/// typography ruling.
-const _serifCjkFontFamilyFallback = <String>[
-  'Hiragino Mincho ProN',
-  'Noto Serif CJK JP',
-  'Noto Serif JP',
-];
-
+/// Builds Todori's normal, light-only product theme.
+///
+/// [brightness] remains in the signature for existing callers. Todori stays on
+/// the warm light canvas regardless of the platform-wide brightness setting.
 ThemeData buildTodoriTheme(Brightness brightness) {
-  final generatedScheme = ColorScheme.fromSeed(
-    seedColor: _seedColor,
-    brightness: brightness,
+  const colorScheme = ColorScheme.light(
+    primary: AppColors.forest,
+    onPrimary: Color(0xFFF8F5EC),
+    primaryContainer: AppColors.subtleSage,
+    onPrimaryContainer: AppColors.ink,
+    secondary: Color(0xFF526A5D),
+    onSecondary: Color(0xFFF8F5EC),
+    secondaryContainer: Color(0xFFECEFE8),
+    onSecondaryContainer: AppColors.ink,
+    error: AppColors.coral,
+    onError: Color(0xFFF8F5EC),
+    surface: AppColors.canvas,
+    onSurface: AppColors.ink,
+    onSurfaceVariant: AppColors.muted,
+    outline: Color(0xFFAEB4AA),
+    outlineVariant: AppColors.hairline,
+    surfaceContainerLowest: AppColors.canvas,
+    surfaceContainerLow: AppColors.canvas,
+    surfaceContainer: AppColors.canvas,
+    surfaceContainerHigh: AppColors.subtleSage,
+    surfaceContainerHighest: Color(0xFFE2E8E0),
+    shadow: Colors.transparent,
+    scrim: Color(0x66182019),
   );
-  final colorScheme = generatedScheme.copyWith(
-    primary: brightness == Brightness.light
-        ? const Color(0xFF285E46)
-        : const Color(0xFF9CD8B3),
-    onPrimary: brightness == Brightness.light
-        ? Colors.white
-        : const Color(0xFF0D1C13),
-    primaryContainer: brightness == Brightness.light
-        ? const Color(0xFFE3EEE4)
-        : const Color(0xFF1B4A31),
-    onPrimaryContainer: brightness == Brightness.light
-        ? const Color(0xFF163B28)
-        : const Color(0xFFDDF3E2),
-    secondaryContainer: brightness == Brightness.light
-        ? const Color(0xFFF0F0E8)
-        : const Color(0xFF2B372E),
-    surface: brightness == Brightness.light ? _lightSurface : _darkSurface,
-    surfaceContainer: brightness == Brightness.light
-        ? _lightSurfaceContainer
-        : _darkSurfaceContainer,
-    surfaceContainerHighest: brightness == Brightness.light
-        ? _lightSurfaceContainerHigh
-        : _darkSurfaceContainerHigh,
-    outlineVariant: brightness == Brightness.light
-        ? const Color(0xFFDDE4DA)
-        : const Color(0xFF3A493D),
-    error: brightness == Brightness.light
-        ? _lightCoral
-        : const Color(0xFFFFB4A8),
-  );
+
   final base = ThemeData(
+    brightness: Brightness.light,
     colorScheme: colorScheme,
     useMaterial3: true,
-    // Inter is the UI body typeface (see `assets/fonts/Inter`) and covers
-    // every text role except `displayMedium` (the Home date and first-run
-    // onboarding headings, overridden below to Newsreader).
-    // `fontFamilyFallback` applies to every style
-    // derived from this `ThemeData` (since `copyWith` preserves it unless a
-    // style explicitly sets its own), covering Japanese glyphs Inter does
-    // not ship.
     fontFamily: 'Inter',
     fontFamilyFallback: _cjkFontFamilyFallback,
   );
+  final textTheme = base.textTheme.copyWith(
+    displayLarge: base.textTheme.displayLarge?.copyWith(
+      color: AppColors.ink,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+      letterSpacing: -1.4,
+      height: 1.05,
+    ),
+    displayMedium: base.textTheme.displayMedium?.copyWith(
+      color: AppColors.ink,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+      letterSpacing: -1.1,
+      height: 1.08,
+    ),
+    displaySmall: base.textTheme.displaySmall?.copyWith(
+      color: AppColors.ink,
+      fontFamily: 'Inter',
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.8,
+      height: 1.1,
+    ),
+    headlineSmall: base.textTheme.headlineSmall?.copyWith(
+      color: AppColors.ink,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.5,
+      height: 1.15,
+    ),
+    titleLarge: base.textTheme.titleLarge?.copyWith(
+      color: AppColors.ink,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.35,
+      height: 1.2,
+    ),
+    titleMedium: base.textTheme.titleMedium?.copyWith(
+      color: AppColors.ink,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.2,
+      height: 1.28,
+    ),
+    titleSmall: base.textTheme.titleSmall?.copyWith(
+      color: AppColors.ink,
+      fontWeight: FontWeight.w600,
+      height: 1.3,
+    ),
+    bodyLarge: base.textTheme.bodyLarge?.copyWith(
+      color: AppColors.ink,
+      height: 1.45,
+    ),
+    bodyMedium: base.textTheme.bodyMedium?.copyWith(
+      color: AppColors.ink,
+      height: 1.45,
+    ),
+    bodySmall: base.textTheme.bodySmall?.copyWith(
+      color: AppColors.muted,
+      height: 1.4,
+    ),
+    labelLarge: base.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0,
+    ),
+    labelMedium: base.textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.1,
+    ),
+    labelSmall: base.textTheme.labelSmall?.copyWith(
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.9,
+    ),
+  );
+
+  final controlShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadius.sm),
+  );
+  final sheetShape = RoundedRectangleBorder(
+    borderRadius: const BorderRadius.vertical(
+      top: Radius.circular(AppRadius.lg),
+    ),
+  );
 
   return base.copyWith(
-    scaffoldBackgroundColor: colorScheme.surfaceContainer,
+    textTheme: textTheme,
+    primaryTextTheme: textTheme,
+    scaffoldBackgroundColor: AppColors.canvas,
+    canvasColor: AppColors.canvas,
+    splashColor: AppColors.forest.withValues(alpha: 0.08),
+    highlightColor: AppColors.forest.withValues(alpha: 0.06),
+    hoverColor: AppColors.forest.withValues(alpha: 0.04),
+    focusColor: AppColors.forest.withValues(alpha: 0.08),
+    shadowColor: Colors.transparent,
     appBarTheme: AppBarTheme(
       centerTitle: false,
-      backgroundColor: colorScheme.surfaceContainer,
-      foregroundColor: colorScheme.onSurface,
+      backgroundColor: AppColors.canvas,
+      foregroundColor: AppColors.ink,
       elevation: 0,
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
-      titleTextStyle: base.textTheme.titleLarge?.copyWith(
-        color: colorScheme.onSurface,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.35,
-      ),
+      titleTextStyle: textTheme.titleLarge,
     ),
-    cardTheme: CardThemeData(
-      color: colorScheme.surface,
+    cardTheme: const CardThemeData(
+      color: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
       elevation: 0,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        side: BorderSide(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.9),
-        ),
-      ),
+      shape: RoundedRectangleBorder(),
     ),
-    dividerTheme: DividerThemeData(
-      color: colorScheme.outlineVariant,
+    dividerTheme: const DividerThemeData(
+      color: AppColors.hairline,
       space: 1,
       thickness: 1,
     ),
-    floatingActionButtonTheme: FloatingActionButtonThemeData(
-      backgroundColor: colorScheme.primary,
-      foregroundColor: colorScheme.onPrimary,
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: AppColors.canvas,
+      modalBackgroundColor: AppColors.canvas,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
-      focusElevation: 1,
-      hoverElevation: 1,
-      highlightElevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      modalElevation: 0,
+      shape: sheetShape,
+      dragHandleColor: AppColors.hairline,
+    ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: AppColors.forest,
+      foregroundColor: Color(0xFFF8F5EC),
+      elevation: 0,
+      focusElevation: 0,
+      hoverElevation: 0,
+      highlightElevation: 0,
+      shape: CircleBorder(),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      height: 64,
+      height: 58,
       elevation: 0,
-      backgroundColor: colorScheme.surface,
-      indicatorColor: colorScheme.primaryContainer,
-      indicatorShape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
-      ),
+      backgroundColor: AppColors.canvas,
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: Colors.transparent,
       iconTheme: WidgetStateProperty.resolveWith((states) {
         return IconThemeData(
-          size: 21,
+          size: 20,
           color: states.contains(WidgetState.selected)
-              ? colorScheme.primary
-              : colorScheme.onSurfaceVariant,
+              ? AppColors.forest
+              : AppColors.muted,
         );
       }),
       labelTextStyle: WidgetStateProperty.resolveWith((states) {
-        return base.textTheme.labelSmall?.copyWith(
+        return textTheme.labelSmall?.copyWith(
           color: states.contains(WidgetState.selected)
-              ? colorScheme.primary
-              : colorScheme.onSurfaceVariant,
+              ? AppColors.forest
+              : AppColors.muted,
           fontWeight: states.contains(WidgetState.selected)
               ? FontWeight.w700
               : FontWeight.w500,
+          letterSpacing: 0.1,
         );
       }),
     ),
     inputDecorationTheme: InputDecorationTheme(
+      filled: false,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: 13,
+      ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderSide: const BorderSide(color: AppColors.hairline),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderSide: const BorderSide(color: AppColors.hairline),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderSide: const BorderSide(color: AppColors.forest, width: 1.25),
       ),
-      filled: false,
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderSide: const BorderSide(color: AppColors.coral),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderSide: const BorderSide(color: AppColors.coral, width: 1.25),
+      ),
     ),
-    listTileTheme: ListTileThemeData(
-      iconColor: colorScheme.onSurfaceVariant,
-      contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+    listTileTheme: const ListTileThemeData(
+      iconColor: AppColors.muted,
+      textColor: AppColors.ink,
+      contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      shape: RoundedRectangleBorder(),
     ),
     chipTheme: base.chipTheme.copyWith(
-      backgroundColor: colorScheme.surfaceContainer,
-      side: BorderSide(
-        color: colorScheme.outlineVariant.withValues(alpha: 0.72),
-      ),
-      labelStyle: base.textTheme.labelMedium?.copyWith(
-        color: colorScheme.primary,
+      backgroundColor: Colors.transparent,
+      selectedColor: AppColors.subtleSage,
+      disabledColor: Colors.transparent,
+      side: const BorderSide(color: AppColors.hairline),
+      labelStyle: textTheme.labelMedium?.copyWith(color: AppColors.ink),
+      secondaryLabelStyle: textTheme.labelMedium?.copyWith(
+        color: AppColors.forest,
       ),
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-    ),
-    textTheme: base.textTheme.copyWith(
-      // Newsreader (brand display serif) is scoped to `displayMedium` only
-      // -- Home date and first-run onboarding headings -- per the 2026-07-06
-      // typography ruling and 2026-07-10 onboarding extension
-      // ("28px級以上かつ1画面1〜2箇所" rule, `docs/design/ui-spec.md`
-      // セクション2). Its Japanese fallback is the system serif
-      // (`_serifCjkFontFamilyFallback`), distinct from the sans-serif
-      // fallback the rest of the app inherits from `ThemeData.fontFamily`.
-      // Every other role stays on the base Inter typeface.
-      displayMedium: base.textTheme.displayMedium?.copyWith(
-        fontFamily: 'Newsreader',
-        fontFamilyFallback: _serifCjkFontFamilyFallback,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -1.2,
-      ),
-      headlineSmall: base.textTheme.headlineSmall?.copyWith(
-        color: colorScheme.onSurface,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.5,
-      ),
-      titleMedium: base.textTheme.titleMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.2,
-        height: 1.28,
-      ),
-      labelMedium: base.textTheme.labelMedium?.copyWith(
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.1,
-      ),
-      bodyLarge: base.textTheme.bodyLarge?.copyWith(height: 1.45),
-      bodyMedium: base.textTheme.bodyMedium?.copyWith(height: 1.45),
+      shape: controlShape,
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: colorScheme.surface,
+      backgroundColor: AppColors.canvas,
       surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      shadowColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        side: const BorderSide(color: AppColors.hairline),
       ),
-      titleTextStyle: base.textTheme.titleLarge?.copyWith(
-        color: colorScheme.onSurface,
-        fontWeight: FontWeight.w700,
-      ),
+      titleTextStyle: textTheme.titleLarge,
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: colorScheme.surface,
+      color: AppColors.canvas,
       elevation: 0,
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        side: const BorderSide(color: AppColors.hairline),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: brightness == Brightness.light
-          ? const Color(0xFF24382D)
-          : colorScheme.surfaceContainerHighest,
-      contentTextStyle: base.textTheme.bodyMedium?.copyWith(
-        color: brightness == Brightness.light
-            ? Colors.white
-            : colorScheme.onSurface,
+      backgroundColor: const Color(0xFF24382D),
+      contentTextStyle: textTheme.bodyMedium?.copyWith(
+        color: const Color(0xFFF8F5EC),
       ),
-      actionTextColor: brightness == Brightness.light
-          ? const Color(0xFFF6E7B7)
-          : const Color(0xFFFFDFA8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
+      actionTextColor: const Color(0xFFF6E7B7),
+      elevation: 0,
+      shape: controlShape,
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size(48, 44),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
+        elevation: 0,
+        shape: controlShape,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(48, 44),
-        side: BorderSide(color: colorScheme.outlineVariant),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
+        side: const BorderSide(color: AppColors.hairline),
+        shape: controlShape,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         minimumSize: const Size(48, 44),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
+        shape: controlShape,
+      ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(44),
+        padding: EdgeInsets.zero,
+        alignment: Alignment.center,
+        shape: controlShape,
       ),
     ),
   );

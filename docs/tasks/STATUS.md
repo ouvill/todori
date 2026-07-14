@@ -1,14 +1,14 @@
 # Todori 開発ステータス
 
-> 更新日: 2026-07-12
+> 更新日: 2026-07-14
 
 日常の作業開始地点である。完了履歴は各 `task-*.md` とgit、長期計画はPhase計画書、設計判断はADRを参照する。このファイルには現在と直近候補だけを置く。
 
 ## 現在
 
 - 進行中: なし。
-- 保留: **task-100 プロトタイプ感を解消するプロダクトUI再設計** — Design Labの方向評価を再開するまで保留する。
-- 最新の完了: **task-101 日付期限と日時締切の意味論再設計** — 期限を日付のみ / 日時指定のtyped unionへ分離し、DB v17、sync v4、FRB sealed union、Today / scheduled分類を統合した。独立検証でP1 / P2 / P3なし。
+- 保留: なし。
+- 最新の完了: **task-108 Focus / Timer Visual Refinement** — Focus全状態をwarm open-dialへ統一し、全品質ゲート、Visual QA、iOS Simulator motionの独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
 - Phase 2: P2-M1〜M5の自律実装完了。macOS + iOS Simulatorの2台同期を確認済み。
 

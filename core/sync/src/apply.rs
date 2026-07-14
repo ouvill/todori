@@ -954,6 +954,141 @@ where
     match record.collection {
         SyncCollection::Lists => apply_pull_list(record, context, store, now_ms, summary),
         SyncCollection::Tasks => apply_pull_task(record, context, store, now_ms, summary),
+        SyncCollection::TimerSessions => {
+            apply_pull_timer_session(record, context, store, now_ms, summary)
+        }
+    }
+}
+
+fn apply_pull_timer_session<S, N>(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    summary: &mut SyncRunSummary,
+) -> Result<ApplyDisposition, String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
+    let local_state = store.get_record_state(SyncCollection::TimerSessions, record.record_id)?;
+    if let Some(LocalSyncRecordState {
+        state: LocalSyncSemanticState::Tombstone { delete_hlc },
+        ..
+    }) = local_state.as_ref()
+    {
+        enqueue_rebased_tombstone(
+            store,
+            RebaseTombstoneRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::TimerSessions,
+                delete_hlc,
+                device_id: &context.device_id,
+                base_revision_hlc: Some(&record.revision_hlc),
+            },
+            now_ms,
+        )?;
+        return Ok(ApplyDisposition::Rebased);
+    }
+
+    match &record.state {
+        EncryptedSyncState::Tombstone { delete_hlc } => {
+            store.delete_outbox_head(SyncCollection::TimerSessions, record.record_id)?;
+            store.delete_timer_session_for_sync(record.record_id)?;
+            store.put_record_state(
+                SyncCollection::TimerSessions,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Tombstone {
+                        delete_hlc: delete_hlc.clone(),
+                    },
+                },
+                now_ms()?,
+            )?;
+            summary.deleted_count += 1;
+            Ok(ApplyDisposition::AppliedCurrent)
+        }
+        EncryptedSyncState::Live { mutation_hlc, blob } => {
+            let Some(dek) = crate::tenant_root_dek(&context.keys) else {
+                return Ok(ApplyDisposition::Deferred(
+                    PullFailureReason::MissingDek,
+                    None,
+                ));
+            };
+            let plaintext = decrypt_plaintext(
+                dek,
+                crate::TIMER_SESSIONS_COLLECTION,
+                &record.record_id.to_string(),
+                blob,
+            )
+            .map_err(|error| {
+                classify_envelope_error(error, None, blob.first().copied().unwrap_or(0))
+            });
+            let plaintext = match plaintext {
+                Ok(value) => value,
+                Err(disposition) => return Ok(disposition),
+            };
+            let SyncPlaintext::TimerSession(incoming) = &plaintext else {
+                return Ok(ApplyDisposition::Deferred(
+                    PullFailureReason::InvalidPlaintext,
+                    None,
+                ));
+            };
+            let task_state =
+                store.get_record_state(SyncCollection::Tasks, incoming.value.task_id)?;
+            if let Some(LocalSyncRecordState {
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+                ..
+            }) = task_state
+            {
+                enqueue_rebased_tombstone(
+                    store,
+                    RebaseTombstoneRequest {
+                        record_id: record.record_id,
+                        collection: SyncCollection::TimerSessions,
+                        delete_hlc: &delete_hlc,
+                        device_id: &context.device_id,
+                        base_revision_hlc: Some(&record.revision_hlc),
+                    },
+                    now_ms,
+                )?;
+                return Ok(ApplyDisposition::Rebased);
+            }
+            if store.get_task(incoming.value.task_id)?.is_none() {
+                return Ok(ApplyDisposition::Deferred(
+                    PullFailureReason::MissingDependency,
+                    Some(incoming.value.task_id),
+                ));
+            }
+            if let Some(existing) = store.get_timer_session(record.record_id)? {
+                if existing != incoming.value {
+                    return Ok(ApplyDisposition::Deferred(
+                        PullFailureReason::InvalidPlaintext,
+                        None,
+                    ));
+                }
+            } else {
+                store.upsert_timer_session_for_sync(incoming.value.clone())?;
+            }
+            store.delete_outbox_head(SyncCollection::TimerSessions, record.record_id)?;
+            store.put_record_state(
+                SyncCollection::TimerSessions,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Live {
+                        mutation_hlc: mutation_hlc.clone(),
+                        plaintext_json: serde_json::to_string(&plaintext)
+                            .map_err(|_| "sync failed".to_string())?,
+                    },
+                },
+                now_ms()?,
+            )?;
+            summary.applied_count += 1;
+            Ok(ApplyDisposition::AppliedCurrent)
+        }
     }
 }
 
@@ -974,6 +1109,13 @@ where
         EncryptedSyncState::Tombstone { delete_hlc } => {
             store.delete_outbox_head(SyncCollection::Lists, record.record_id)?;
             let known_tasks = store.list_tasks_by_list_for_sync(record.record_id)?;
+            summary.deleted_count += cascade_timer_sessions_for_tasks(
+                store,
+                &known_tasks,
+                delete_hlc,
+                &context.device_id,
+                now_ms,
+            )?;
             for task in &known_tasks {
                 store.delete_outbox_head(SyncCollection::Tasks, task.id)?;
                 let base_revision = store
@@ -1123,6 +1265,14 @@ where
     let (incoming_mutation_hlc, _blob) = match &record.state {
         EncryptedSyncState::Tombstone { delete_hlc } => {
             store.delete_outbox_head(SyncCollection::Tasks, record.record_id)?;
+            let known_tasks = store.list_task_subtree_for_sync(record.record_id)?;
+            summary.deleted_count += cascade_timer_sessions_for_tasks(
+                store,
+                &known_tasks,
+                delete_hlc,
+                &context.device_id,
+                now_ms,
+            )?;
             let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
             summary.deleted_count += deleted;
             store.put_record_state(
@@ -1169,7 +1319,9 @@ where
     };
     let incoming_list_id = match &incoming {
         SyncPlaintext::Task(task) => task.placement.value.list_id,
-        SyncPlaintext::List(_) => return Err("sync failed".to_string()),
+        SyncPlaintext::List(_) | SyncPlaintext::TimerSession(_) => {
+            return Err("sync failed".to_string())
+        }
     };
     let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
         incoming_dek
@@ -1206,6 +1358,14 @@ where
     }
     if let TaskDependencyDisposition::Deleted(delete_hlc) = dependency {
         store.delete_outbox_head(SyncCollection::Tasks, record.record_id)?;
+        let known_tasks = store.list_task_subtree_for_sync(record.record_id)?;
+        summary.deleted_count += cascade_timer_sessions_for_tasks(
+            store,
+            &known_tasks,
+            &delete_hlc,
+            &context.device_id,
+            now_ms,
+        )?;
         let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
         summary.deleted_count += deleted;
         enqueue_rebased_tombstone(
@@ -1225,6 +1385,14 @@ where
     if matches!(dependency, TaskDependencyDisposition::Missing) {
         let delete_hlc = record.revision_hlc.clone();
         store.delete_outbox_head(SyncCollection::Tasks, record.record_id)?;
+        let known_tasks = store.list_task_subtree_for_sync(record.record_id)?;
+        summary.deleted_count += cascade_timer_sessions_for_tasks(
+            store,
+            &known_tasks,
+            &delete_hlc,
+            &context.device_id,
+            now_ms,
+        )?;
         let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
         summary.deleted_count += deleted;
         enqueue_rebased_tombstone(
@@ -1272,6 +1440,42 @@ where
     } else {
         ApplyDisposition::AppliedCurrent
     })
+}
+
+fn cascade_timer_sessions_for_tasks<S, N>(
+    store: &mut S,
+    tasks: &[Task],
+    delete_hlc: &str,
+    device_id: &str,
+    now_ms: &mut N,
+) -> Result<usize, String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let mut deleted = 0;
+    for task in tasks {
+        for session in store.list_timer_sessions_by_task(task.id)? {
+            store.delete_outbox_head(SyncCollection::TimerSessions, session.id)?;
+            let base_revision = store
+                .get_record_state(SyncCollection::TimerSessions, session.id)?
+                .and_then(|state| state.current_revision_hlc);
+            enqueue_rebased_tombstone(
+                store,
+                RebaseTombstoneRequest {
+                    record_id: session.id,
+                    collection: SyncCollection::TimerSessions,
+                    delete_hlc,
+                    device_id,
+                    base_revision_hlc: base_revision.as_deref(),
+                },
+                now_ms,
+            )?;
+            deleted += usize::from(store.delete_timer_session_for_sync(session.id)?);
+        }
+        store.clear_active_timer_for_task(task.id)?;
+    }
+    Ok(deleted)
 }
 
 fn task_dependency_disposition<S>(
@@ -1594,17 +1798,21 @@ mod tests {
     use std::collections::HashMap;
 
     use todori_crypto::key_hierarchy::KEY_LEN;
-    use todori_domain::new_task;
+    use todori_domain::{new_task, CompletedTimerSession, TimerFinishKind, TimerMode};
+    use zeroize::Zeroizing;
 
     use super::*;
     use crate::{
         encrypt_plaintext, LocalMutationSyncStore, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry,
+        TimerSessionPlaintext, TIMER_SESSIONS_COLLECTION,
     };
 
     #[derive(Default)]
     struct FakeStore {
         lists: HashMap<Uuid, List>,
         tasks: HashMap<Uuid, Task>,
+        timer_sessions: HashMap<Uuid, CompletedTimerSession>,
+        active_timer_task: Option<Uuid>,
         record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
         outbox: Vec<LocalSyncOutboxEntry>,
     }
@@ -1753,8 +1961,193 @@ mod tests {
         }
 
         fn delete_task_subtree_for_sync(&mut self, _task_id: Uuid) -> Result<usize, String> {
-            Ok(0)
+            Ok(usize::from(self.tasks.remove(&_task_id).is_some()))
         }
+
+        fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
+            Ok(self.timer_sessions.get(&id).cloned())
+        }
+
+        fn upsert_timer_session_for_sync(
+            &mut self,
+            session: CompletedTimerSession,
+        ) -> Result<(), String> {
+            self.timer_sessions.insert(session.id, session);
+            Ok(())
+        }
+
+        fn delete_timer_session_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+            Ok(self.timer_sessions.remove(&id).is_some())
+        }
+
+        fn list_timer_sessions_by_task(
+            &mut self,
+            task_id: Uuid,
+        ) -> Result<Vec<CompletedTimerSession>, String> {
+            Ok(self
+                .timer_sessions
+                .values()
+                .filter(|session| session.task_id == task_id)
+                .cloned()
+                .collect())
+        }
+
+        fn clear_active_timer_for_task(&mut self, task_id: Uuid) -> Result<bool, String> {
+            let matched = self.active_timer_task == Some(task_id);
+            if matched {
+                self.active_timer_task = None;
+            }
+            Ok(matched)
+        }
+    }
+
+    #[test]
+    fn remote_task_tombstone_cascades_timer_with_same_delete_hlc_and_clears_active() {
+        let list_id = uuid(90);
+        let task_id = uuid(91);
+        let session_id = uuid(92);
+        let task = new_task(
+            list_id,
+            None,
+            "timed".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1_799_000_000_000,
+        )
+        .unwrap();
+        let mut task = task;
+        task.id = task_id;
+        let session = CompletedTimerSession {
+            id: session_id,
+            task_id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1_799_000_000_000,
+            ended_at: 1_799_000_060_000,
+            active_duration_ms: 60_000,
+            created_at: 1_799_000_060_000,
+        };
+        let delete_hlc = Hlc {
+            wall_ms: 1_799_000_070_000,
+            counter: 0,
+            device_id: "remote".to_string(),
+        }
+        .encode()
+        .unwrap();
+        let record = PullRecord {
+            seq: 1,
+            record_id: task_id,
+            collection: SyncCollection::Tasks,
+            revision_hlc: delete_hlc.clone(),
+            state: EncryptedSyncState::Tombstone {
+                delete_hlc: delete_hlc.clone(),
+            },
+        };
+        let mut store = FakeStore::default();
+        store.lists.insert(list_id, sample_list(list_id, false));
+        store.tasks.insert(task_id, task);
+        store.timer_sessions.insert(session_id, session);
+        store.active_timer_task = Some(task_id);
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_task(
+            &record,
+            &context_for(list_id, [9; KEY_LEN]),
+            &mut store,
+            &mut now,
+            &mut summary,
+        )
+        .unwrap();
+
+        assert!(!store.timer_sessions.contains_key(&session_id));
+        assert_eq!(store.active_timer_task, None);
+        let timer_tombstone = store
+            .outbox
+            .iter()
+            .find(|entry| entry.collection == SyncCollection::TimerSessions)
+            .unwrap();
+        assert_eq!(timer_tombstone.record_id, session_id);
+        assert_eq!(
+            timer_tombstone.state,
+            EncryptedSyncState::Tombstone { delete_hlc }
+        );
+    }
+
+    #[test]
+    fn late_timer_uses_terminal_task_delete_hlc() {
+        let list_id = uuid(93);
+        let task_id = uuid(94);
+        let session_id = uuid(95);
+        let root = [0x95; KEY_LEN];
+        let session = CompletedTimerSession {
+            id: session_id,
+            task_id,
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1_799_000_000_000,
+            ended_at: 1_799_000_030_000,
+            active_duration_ms: 30_000,
+            created_at: 1_799_000_030_000,
+        };
+        let session_hlc = Hlc {
+            wall_ms: 1_799_000_050_000,
+            counter: 0,
+            device_id: "remote".into(),
+        };
+        let task_delete_hlc = Hlc {
+            wall_ms: 1_799_000_040_000,
+            counter: 0,
+            device_id: "deleting-device".into(),
+        }
+        .encode()
+        .unwrap();
+        let plaintext = SyncPlaintext::TimerSession(TimerSessionPlaintext {
+            value: session,
+            hlc: session_hlc.clone(),
+        });
+        let record = PullRecord {
+            record_id: session_id,
+            collection: SyncCollection::TimerSessions,
+            seq: 1,
+            revision_hlc: session_hlc.encode().unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: session_hlc.encode().unwrap(),
+                blob: encrypt_plaintext(
+                    &root,
+                    TIMER_SESSIONS_COLLECTION,
+                    &session_id.to_string(),
+                    &plaintext,
+                )
+                .unwrap(),
+            },
+        };
+        let mut context = context_for(list_id, [0x93; KEY_LEN]);
+        context.keys.tenant_root_dek = Some(Zeroizing::new(root));
+        let mut store = FakeStore::default();
+        store.record_states.insert(
+            (SyncCollection::Tasks, task_id),
+            LocalSyncRecordState {
+                current_revision_hlc: Some(task_delete_hlc.clone()),
+                state: LocalSyncSemanticState::Tombstone {
+                    delete_hlc: task_delete_hlc.clone(),
+                },
+            },
+        );
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        assert_eq!(
+            apply_pull_timer_session(&record, &context, &mut store, &mut now, &mut summary)
+                .unwrap(),
+            ApplyDisposition::Rebased
+        );
+        let tombstone = store.outbox.first().unwrap();
+        assert_eq!(
+            tombstone.state,
+            EncryptedSyncState::Tombstone {
+                delete_hlc: task_delete_hlc
+            }
+        );
     }
 
     #[test]
@@ -2278,6 +2671,7 @@ mod tests {
         let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
         let moved_keys = LocalSyncKeys {
             list_deks: vec![(list_b, dek_b)],
+            tenant_root_dek: None,
         };
         let SyncPlaintext::Task(decrypted_move) =
             decrypt_task_plaintext(&moved_record, Some(&existing), &moved_keys).unwrap()
@@ -2293,6 +2687,7 @@ mod tests {
             encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
         let all_keys = LocalSyncKeys {
             list_deks: vec![(list_a, dek_a), (list_b, dek_b)],
+            tenant_root_dek: None,
         };
         assert_eq!(
             decrypt_task_plaintext(&mismatched_record, Some(&existing), &all_keys),
@@ -2311,6 +2706,7 @@ mod tests {
 
         let no_matching_key = LocalSyncKeys {
             list_deks: vec![(list_b, [0x62; KEY_LEN])],
+            tenant_root_dek: None,
         };
         assert_eq!(
             decrypt_task_plaintext(&moved_record, Some(&existing), &no_matching_key),
@@ -2428,6 +2824,7 @@ mod tests {
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
                 list_deks: vec![(list_id, dek)],
+                tenant_root_dek: None,
             },
         }
     }
@@ -2461,9 +2858,9 @@ mod tests {
 }
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
-    assert!(upgrade_block_is_active("5:3"));
+    assert!(upgrade_block_is_active("6:3"));
     assert!(upgrade_block_is_active("4:4"));
-    assert!(!upgrade_block_is_active("4:3"));
+    assert!(!upgrade_block_is_active("5:3"));
     assert!(!upgrade_block_is_active("0:0"));
     assert!(upgrade_block_is_active("invalid"));
 }

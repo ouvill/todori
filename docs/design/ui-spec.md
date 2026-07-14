@@ -1,49 +1,78 @@
 # Todori UI Spec ── 拘束力のある具体値と判断規則
 
 > Status: binding implementation spec
-> Last updated: 2026-07-11
+> Last updated: 2026-07-14
 
 `docs/design/visual-direction.md` は方向性と哲学を扱う。本書は**実装時に従う具体値と判断規則**を定める。両者が矛盾した場合は本書が優先する。本書の変更は設計タスク（またはドッグフーディング/親レビュー起点のタスク）経由でのみ行う。実装エージェントが自己判断で本書を書き換えてはならない。
 
 「親しみやすく・落ち着いて・エレガント」という形容詞そのものを実装判断の根拠にしてはならない。形容詞は本書の規則へ翻訳済みである。指示書・完了報告・レビューはすべて本書のセクション番号か具体的な値/規則を引用して書くこと。
 
+## セクション0: 現行production採用契約（2026-07-14）
+
+プロダクトオーナーはInteractive Design Labの**single-canvas方向**をproductionへ採用した。本節は、2026-07-11以前のserif display、白いpanel、独立task surface、pill中心の規則より優先する。下段の過去裁定は判断履歴であり、本節と矛盾する外観を復活させる根拠にしない。
+
+### 視覚文法
+
+- 通常画面は`#F8F5EC`のwarm canvas 1枚を基礎とする。文字位置、余白、短いaccent line、`#D9DDD3`のhairlineで階層を作り、白いsection panel、外周card、通常task card、card-in-cardを置かない。
+- productionの基準書体はInterとする。通常画面のhero、screen title、section title、task title、本文、操作へNewsreader、Source Serif 4、Lora、システム明朝を使わない。ウェイト、サイズ、letter spacing、余白で階層を作る。
+- 角丸は形状に意味がある操作へ限定する。通常rowとsectionは角丸面を持たない。input / button / menuは8px、modal sheet / dialogは上端または外周12pxを基準とし、円形checkbox、中央capture、真にpill形状である選択操作だけ完全な丸を許可する。
+- pillは情報階層の既定表現にしない。task metadata、list count、section count、propertyはplain text、dot、2列property row、hairlineで表す。pillは選択中filter、短いpreset、状態を直接切り替えるcompact controlなど、形状自体に操作意味がある場合だけ使う。
+- productionはFocusを含む全画面でlight surfaceだけを正式対象とする。Focusも`#F8F5EC`のwarm canvasを継続し、状態遷移で画面全体をdark inverseへ切り替えない。通常dark modeとFocus専用dark surfaceは対象外とする。
+- 通常headerへブランド名、bird icon、マスコットを常設しない。マスコットはOnboarding / empty stateへ控えめに使用できるが、Focusのsetup / active / finishedには置かない。
+
+### 構造と操作
+
+- HomeはTodayを1本の連続streamとして表示し、今日予定（`scheduled_at`）、今日が期限のtask、期限超過taskを統合する。期限超過は行内の短いcoral metadataで区別し、Tomorrow / UpcomingはCalendarへ集約する。各task最大1回表示、subtask tree、完了 / reopen / Undoを維持し、`completed_at`が今日の成果だけを小さなCompleted disclosureに表示する。
+- task rowはtransparentな連続streamとし、行間のhairlineまたは余白で区切る。checkbox、priority dot、title、短いcontext metadataを同じ基準線へ整列し、通常時の外周面、chevron、常設CTAを置かない。
+- subtask connectorはcheckboxの円へ接触させない。横棒はring手前約4pxで終端し、親checkbox直下にも余白を設けて幹線が円を貫かないようにする。3階層以上でも本文幅を優先する。
+- mobile navigationはHome / Calendar / Lists / YouのLucide icon + 小さなlabel + active underlineを低強度で表示し、中央captureだけを円形primary actionにする。Search、task detail、Focusなどの専用routeではglobal navigationを隠す。
+- Search、Calendar、Focusはproductionの実データ・provider・routeへ接続済みである。Design Labのfake route/stateは見た目とinteractionの探索用に限り、productionの実装根拠またはfallbackとして扱わない。
+- edge icon buttonは44px以上、task checkboxは48px級のhit targetを持ち、icon / ring / ripple / semantics boundsの中心を一致させる。LTR / RTLのleading / trailingへ追従する。
+- 完了motionはpress 90ms級、fill約200ms、タップ後130msからcheck path約330ms、単一halo約520ms、strikethrough、500msの結果保持、420msのheight collapseを順に行う。行はfadeしながら最大4px上へ抜け、後続行は同じheight factorへ追従する。通常完了に多色particleを使わない。checkbox ringは1.0px級、check pathは1.4px級とし、light hapticを添える。Reduce Motionでは装飾motionと保持遅延を省略して状態を即時確定する。
+
+### Design Lab境界
+
+- Design Labはfake data専用の独立環境とする。`app/tool/design_lab_main.dart`と`app/test/visual_qa/`のmock、route、state、componentをproduction codeからimportしてはならない。
+- productionへ昇格するのは裁定済みtoken、構成規則、interaction timingであり、production側のcomponentとして実データ・provider・l10n・semantics契約に沿って実装する。
+- production codeからDesign Labへの依存をboundary checkまたは同等の静的検査で検出する。Design Labがproduction componentを参照することは、探索環境を壊さない範囲で許可する。
+
 ## セクション1: 形容詞の翻訳表
 
 ### 親しみやすい（friendly）とは
 
-- 丸いフォルム: 円形チェックボックス、pill型チップ（角丸999）、カードの角丸（セクション2のRadius表の値）。
+- 柔らかな精度: 円形チェックボックス、warm canvas、低彩度色、Interの読みやすい本文。rounded cardやpillの量で親しみやすさを作らない。
 - 人間の言葉: 相対日付（Today/Tomorrow/短い月日表記）。ISO日付（`2026-07-05`のような形式）や内部ステータス文字列（`todo`/`in_progress`等の生値）をUIに出さない。
 - 日付・時刻の表記はホストOSの言語・ロケール設定に従う（2026-07-06人間指示）。`DateFormat` は固定パターン文字列ではなく skeleton API（`yMMMEd` 等）を用い、言語ごとの自然な語順・区切りをintlに委ねる。相対表記（Today/明日等）のl10n文言はこの原則の例外として維持する。
-- 挿絵・マスコットは空状態とオンボーディングのみ。通常のタスク一覧・詳細・ダイアログには出さない。
-- ディスプレイセリフ（Newsreader＋システム和文セリフ）の柔らかい見出し（Homeの主見出し、オンボーディング、Listsのプロダクト名。セクション2参照）。
+- 挿絵・マスコットは空状態とオンボーディングだけに限定する。通常のタスク一覧・詳細・ダイアログ・Focusには出さない。
+- Interのサイズ、weight、letter spacingの差で柔らかく明瞭な階層を作る。
 - **こうではない**: 派手な色、キャラの常駐、感嘆符、絵文字、画面全体のcelebration演出。
 
 ### 落ち着いた（calm）とは
 
-- 背景sage × 表面warm whiteの2層構造のみ。第3の面色を発明しない。
-- 影なし・1pxのthin border（dialog/sheet/FABのみ最小限の`elevation`可、値はセクション2参照）。
+- warm canvas 1層を通常画面の基礎とし、surfaceを重ねて階層を作らない。
+- 影なし・hairline中心とする。dialog / sheet / 中央captureだけ、背景から分離する最小限のelevationを許可する。
 - 1画面の色数上限: 緑系2（primary / primaryContainer）＋中立2（onSurface / onSurfaceVariant）＋アクセント最大1（coral または amber、どちらか一方のみを主に使う）。
 - 同じ情報を画面内に2回出さない（例: pending数はTasksセクション見出しの1箇所のみ）。
 - **こうではない**: 灰色一色の無機質さ、要素を全部薄くすること。
 
 ### エレガント（elegant）とは
 
-- セリフ見出し（ディスプレイセリフ: Newsreader＋システム和文セリフ、1画面1箇所）とサンセリフ本文（Inter）の対比。
+- Interのtype scale、weight、letter spacingと正確な余白による階層。
 - 余白による分離。線・囲み・カードを増やして分離しない（card-in-card禁止）。
 - 正確な整列: dot・チェック・テキストの整列基準を明示指定する（「なんとなく上寄せ」禁止。セクション3参照）。
-- 小さく精密なメタデータ（チップは行あたり最大2個）。
+- 小さく精密なメタデータ。dot、plain label、property rowを優先し、pillを既定にしない。
 - **こうではない**: 装飾の追加。エレガンスは足して作るものではなく、削って整えた結果である。
 
-## セクション2: 拘束トークン（現行実装の実値を正とする）
+## セクション2: productionトークン
 
-以下は `app/lib/src/ui/theme.dart` と `app/lib/src/ui/task_components.dart` の現行実装から転記した実値である。この表にない値を新規に発明してはならない。値を変えたい場合は設計タスクとして本書を更新してから実装する。
+以下はtask-108で裁定した現行production契約である。task-108着手前のFocus inverse、過去のserif、独立surface、14〜28pxの常用角丸、情報pillは下段の裁定履歴にだけ残し、新規UIへ横展開しない。
 
 ### タイポグラフィ（role別）
 
 | Role | 使用箇所 | TextTheme | フォント | Weight | 色 |
 |---|---|---|---|---|---|
 | AppBarタイトル | Tasks/TaskDetail画面のAppBar `title` | `titleLarge`（AppBarThemeの`titleTextStyle`経由） | Inter | w600 | `colorScheme.onSurface` |
-| Home主見出し / 初回オンボーディング見出し / Listsプロダクト名 | Homeの `Home`、オンボーディング各ページの主見出し、Listsの `Todori` の各1箇所 | `displayMedium`。Home/Listsは42px級、オンボーディングは既存display値 | Newsreader（欧文）＋ システム和文セリフフォールバック（`fontFamilyFallback`に`'Hiragino Mincho ProN'`等） | w600、line-height 1.02級 | `colorScheme.onSurface` |
+| 主見出し / オンボーディング見出し | Home、Lists、Onboardingの主見出し | `displayMedium`または画面密度に応じたcompact title | Inter + システム角ゴシックfallback | w600、line-height 1.05級 | `colorScheme.onSurface` |
 | Home日付キッカー | Home主見出し上のローカライズ日付 | `labelMedium` | Inter | w600、letter spacing 0.9級 | `colorScheme.onSurfaceVariant` |
 | Homeリスト名ラベル | Home行タイトル下の小さなアイコン+リスト名 | `labelMedium` または `bodySmall` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant` |
 | セクション見出し（Tasks） | 「Tasks」セクション見出し行 | `headlineSmall` | Inter | w700（テーマ既定） | `colorScheme.primary`（呼び出し側で上書き。テーマ既定は`onSurface`） |
@@ -52,28 +81,25 @@
 | タスク行タイトル | `AppTaskRow` のタイトル | `titleMedium` | Inter | w600（テーマ既定） | 未完了=`onSurface` / 完了=`onSurfaceVariant`+取り消し線 |
 | タスク詳細タイトル | Task detail見出し | `headlineSmall` | Inter | w700（テーマ既定） | `colorScheme.onSurface`（上書きなし） |
 | タスク詳細メモ | note本文 | `bodyLarge` | Inter | 既定 | `colorScheme.onSurfaceVariant`（line-height 1.35） |
-| メタデータpill文字 | `TaskMetadata`のpillラベル | `labelMedium` | Inter | w600（テーマ既定） | `colorScheme.primary`、または`emphasisColor`（例: 期限切れcoral） |
+| メタデータ文字 | `TaskMetadata`のplain label | `labelMedium` | Inter | w600（テーマ既定） | `colorScheme.onSurfaceVariant`、期限超過のみcoral |
 | Subtasks小見出し | 詳細画面の「Subtasks」 | `titleMedium` | Inter | w600（テーマ既定） | 既定色（上書きなし） |
 | 作成日キャプション | 詳細画面のcreated at | `bodySmall` | Inter | 既定 | `colorScheme.onSurfaceVariant` |
 
-- 基準フォント: `fontFamily: 'Inter'`（`ThemeData`既定）。Newsreaderのセリフ上書きはHome主見出し、Listsプロダクト名、初回オンボーディングの主見出しなど、**28px級以上かつ1画面1箇所**のdisplayロールだけに使う。日付キッカー、`titleLarge`・`headlineSmall`・`titleMedium`・`labelMedium`・本文系はセリフ化しない。
-- 日本語グリフはNewsreader/Interにバンドルされないため、`fontFamilyFallback` を経由してプラットフォームフォールバックへ委ねる（新規日本語フォント同梱はしない、2026-07-06タイポ裁定）。display主見出しの和文は明朝系フォールバック（`'Hiragino Mincho ProN'`等）、その他Inter適用箇所の和文は角ゴシック系フォールバック（`'Hiragino Sans'`等）を使う。
-- ビューポート幅に応じた文字サイズのスケーリングはしない。プラットフォームのテキストスケーリングと折返しに委ねる。
+- 基準フォントは`Inter`とし、displayを含む通常画面の全roleへ適用する。Newsreader / Source Serif 4 / Loraは比較履歴assetに残してよいが、production themeとproduction widgetから参照しない。
+- 日本語グリフはInterにバンドルされないため、`fontFamilyFallback`を経由してプラットフォームの角ゴシック系へ委ねる（新規日本語フォント同梱はしない）。通常画面へ明朝系fallbackを指定しない。
+- 本文と主要操作はビューポート幅に応じて文字サイズを縮小せず、プラットフォームのテキストスケーリングと折返しに委ねる。常設mobile navigationの短いdestination labelだけは、icon + labelを欠落させず1行で保つため最大1.3倍へclampできる。省略だけでdestinationを判別させず、tooltip / semanticsはclampしない完全なlabelを持つ。
 
-> この表は2026-07-06タイポ裁定後の目標状態であり、task-34で本番実装（`app/lib/src/ui/theme.dart` / `app/pubspec.yaml`）へ反映済みである。以後この表を変更したい場合は設計タスクとして本書を更新してから実装すること。
-
-### 角丸（Radius、現行値をcanon化）
+### 角丸（Radius）
 
 | 用途 | 値 | 出典 |
 |---|---:|---|
-| 小さな操作面 | 10 | `AppRadius.sm`。リストアイコン、セクション折畳みink等 |
-| 入力・Button・Task row・PopupMenu・SnackBar | 14 | `AppRadius.md` |
-| 汎用`Card`・Dialog・Quick Add | 20 | `AppRadius.lg` |
-| 空状態など単独の静かな大面 | 28 | `AppRadius.xl` |
-| FAB | 18 | `theme.dart` `floatingActionButtonTheme` |
-| Chip/pill（メタデータpill、pending badge、list name pill等） | 999（完全な丸） | `task_components.dart` `_MetadataPill`、`tasks_screen.dart` 各pill |
+| input / button / menu等の操作面 | 8 | `AppRadius.sm` / `AppRadius.md` |
+| sheet / dialog等の分離面 | 12 | `AppRadius.lg` / `AppRadius.xl` |
+| 通常row / section | 0（面を持たない） | warm canvas上のtransparent stream + hairline |
+| 円形checkbox / capture | 完全な円 | 形状自体が操作意味を持つcontrol |
+| 選択filter / duration preset | pillを許可 | compactな選択操作に限定 |
 
-**この表にない角丸値を発明しない。** 新しい面が必要になったら上記のいずれかの値を再利用する。
+新しいradiusを追加して通常rowや情報metadataへ面を復活させない。既存widget固有のradiusが上表と異なる場合は、意味のある操作形状かを確認し、単なる移行残りなら既知の逸脱として扱う。
 
 ### 間隔（AppSpacing、`theme.dart`で定義された5段階のみを使う）
 
@@ -86,20 +112,22 @@
 | `AppSpacing.xl` | 32 |
 
 - 画面横padding: 通常画面とHomeは `AppSpacing.md`（16）。行内部で48pxタップ領域を確保し、利用可能な本文幅を優先する。
-- 行内padding: 実装は縦`AppSpacing.xs`（4）〜`AppSpacing.sm`（8）程度、横は通常行で左端インデント（`AppSpacing.md` + 深さ×`AppSpacing.lg`）＋右端`AppSpacing.sm`。Home行は左右12〜16px級に収め、深さ表示がない横断行もセクション3の軽い独立surface規則に従う。
+- 行内padding: 実装は縦`AppSpacing.xs`（4）〜`AppSpacing.sm`（8）程度、横は通常行で左端インデント（`AppSpacing.md` + 深さ×`AppSpacing.md`以下）＋右端`AppSpacing.sm`。Home行は本文幅を優先し、通常rowへ独立surface paddingを加えない。
 - セクション間: `AppSpacing.lg`（24）〜`AppSpacing.xl`（32）。Home主見出しとセクション群の間は `AppSpacing.lg`（24）を基準とする。
-- メタデータ内の間隔（pill同士、アイコンとラベル）: `AppSpacing.xs`（4）。
+- メタデータ内の間隔（dot、icon、plain label同士）: `AppSpacing.xs`（4）。
 - `AppSpacing`にない中間値を一般化して新規トークンにしない。task-99裁定の固定コンポーネント値として、Home行leading 11、Quick Add縦padding 12、Task detail surface下padding 18、空状態padding 28/30だけを例外として許容する。他の用途へ横展開しない。
 
 ### 色（用途の拘束。パレット本体は`visual-direction.md`参照）
 
-- `coral`（`#E8755A`）: 期限切れの強調、破壊的操作（削除確定）、high priority dotのみ。装飾や通常状態には使わない。
-- `amber`（`#EDB73E`）: medium priority dot、タイマー詳細（将来機能）、小さな強調のみ。大面積の背景色にはしない。
+- production paletteはcanvas `#F8F5EC`、ink `#182019`、muted `#73786F`、forest `#1D6048`、sage `#BFD7C8`、subtle sage `#E9EFE8`、hairline `#D9DDD3`を正とする。
+- `AppColors.coral`（`#C96357`）: 期限切れの強調と通常light画面の破壊的操作だけに使う。`AppColors.amber`（`#C08B3E`）は小さな注意表現だけに使い、大面積の背景色にはしない。
+- Focusもproduction paletteのcanvas、ink、muted、forest、sage、subtle sage、hairlineを使う。active / paused / break / finished / system stateのために別の背景paletteを設けず、破壊的操作は通常light画面と同じcoral tokenを使う。
 - Priority dot色（固定・現行実装値）:
   - high (`priority == 3`) = `#E8755A`（coral）
   - medium (`priority == 2`) = `#EDB73E`（amber）
   - low (`priority == 1`) = `#A8BEA8`（softSage）
   - none (`priority <= 0`) = dot自体を描画しない（非表示。色を透明にするのではなくウィジェットを出さない）
+- Priority専用のcoral / amberは通常paletteのcoral / amberと同一値ではない。用途を混同して転用しない。
 - 1画面のアクセント色は原則1系統（coral or amber）に絞る。両方を同時に主張させない。
 
 ### サイズ
@@ -108,8 +136,8 @@
 - チェックボックス/完了アイコンのタップ領域: 48×48（`AppTaskCheckbox`の`SizedBox(width: 48, height: 48)`）。
 - 行右端のシェブロン/並び替えコントロールの領域: 高さ48（`SizedBox(height: 48)`で中央揃え）。
 - Homeセクション折畳み行: 最小高さ48。見出し、件数、chevronを行全体で同じタップ領域に含める。
-- メタデータpill内アイコン: 15px。
-- チップは1行あたり最大2個。3個目が必要になったら詳細画面へ送る（セクション3参照）。
+- メタデータicon: 15px以下。iconなしのplain labelを優先する。
+- 一覧metadataは2要素まで。3個目が必要になったら詳細画面へ送る（セクション3参照）。
 
 ## セクション3: コンポーネント解剖図
 
@@ -119,67 +147,79 @@
 
 1. 円形チェック/完了アイコン（48×48タップ領域）
 2. タイトル（`titleMedium`、折返し可）
-3. メタデータ行（タイトルの下、最大2チップ + priority dot。priority dotはpriorityが1以上のときのみメタデータ行の先頭に置く）
+3. メタデータ行（タイトルの下、最大2つのplain label + priority dot。priority dotはpriorityが1以上のときのみ表示する）
 4. 右端: 通常表示では何も置かない。手動並び替えモードでも上下移動ボタンは置かず、長押しドラッグ&ドロップで順序を変更する
 
-**整列規則（重要）**: チェックボックス（先頭コントロール）は「タイトルの1行目」と垂直センター整列させる。行全体（複数行になったメタデータ込みの高さ）とのセンター整列ではない。priority dotはタイトル脇へ置かず、メタデータ行の先頭で日付pillと同じ行の中央に揃える。
+**整列規則（重要）**: チェックボックス（先頭コントロール）は「タイトルの1行目」と垂直センター整列させる。行全体（複数行になったメタデータ込みの高さ）とのセンター整列ではない。priority dotはタイトル脇へ置かず、メタデータ行の先頭で日付labelと同じ行の中央に揃える。
 
-メタデータの順序: priority dot（priority noneの場合は非表示）→ 日付pill（相対表記: Today/Tomorrow/短い月日）→ 進捗pill（`1/3`形式）。3個目のメタデータが必要になった場合はチップを増やさず詳細画面へ送る。priority noneのときはメタデータ行の先頭が日付pillになる。
+メタデータの順序: priority dot（priority noneの場合は非表示）→ 日付label（相対表記: Today/Tomorrow/短い月日）→ 進捗label（`1/3`形式）。3個目のメタデータが必要になった場合は一覧へ増やさず詳細画面へ送る。
 
-完了行の表現: チェックはfilled/mutedのcheck_circle系アイコン、タイトルはstrikethrough + `onSurfaceVariant`、行の面（Material color）はやや不透明度を下げて背景に沈める（現行実装は`surface.withValues(alpha: 0.72)`、borderも`outlineVariant.withValues(alpha: 0.7)`）。
+datetime dueの一覧metadataは、相対日付 + 保存済みtimezoneでのwall-clock時刻までをcompactに表示する。IANA timezone IDとUTC offsetはtask streamを圧迫するため一覧へ出さず、Task detailとCalendarで完全な値を確認できるようにする。date-only dueへ時刻またはtimezoneを補わない。
+
+完了行の表現: checkboxは未完了ringと同心のmuted fill + 細いcheck path、タイトルはstrikethrough + `onSurfaceVariant`とする。通常行と同じtransparent streamを保ち、完了専用のsurface、外周border、`check_circle`へのglyph差し替えを使わない。priorityや緊急metadataはmuteする。
 
 Closed（`done` / `wont_do`）状態のルートタスク行の先頭コントロールをタップすると、確認ダイアログなしで `todo` へ再オープンする。これは2026-07-07ドッグフーディング由来の規則であり、既存の完了時Undoスナックバー動線とは独立した操作である。
 
 チェックボックスは表示される場所すべて（一覧のルート行、ネストされたサブタスク行、詳細画面のSubtasks行、アーカイブ済みリストを開いた画面内）で常にトグルとして機能する。未完了（`todo` / `in_progress`）をタップした場合は `done` へ、Closed（`done` / `wont_do`）をタップした場合は `todo` へ遷移する。未完了子孫を持つタスクを完了する場合の確認ダイアログは維持する。閲覧専用のチェックボックスまたは見た目だけの完了アイコンを作らない。この規則は2026-07-07ドッグフーディング第2回由来である。
 
-チェックボックス表現: 未チェックリングはstroke 1.5px級・`onSurfaceVariant`系のmuted色とする。チェックON時は、円の塗りとチェックマーク線のpath描画を250ms級で行い、チェック点から6〜10粒の局所パーティクルを放射する。パーティクルはチェックボックス中心から半径24px級に収め、coral / amber / sage系のブランド色を使い、500ms級でfade + scale outする。タイトルの取り消し線は左から右へ300ms級で伸び、複数行では行ごとに連続して伸長する。チェックONの一連モーションは総時間800ms以内、操作非ブロックとする。チェックOFF時はパーティクルを出さず、150ms級の静かな戻りにする。OSのReduce Motionが有効な場合は、パーティクルと取り消し線伸長を無効化し、状態を即時反映する。既存の `TextDecoration.lineThrough` は完了状態の静的表示として維持し、遷移時のみアニメーション描画で上書きする。この規則は2026-07-08ドッグフーディング第5回、および2026-07-08人間裁定（チェック完了モーション）由来である。
+チェックボックス表現: 未チェックringはstroke 1.0px級のmuted green、check pathは1.4px級とする。チェックON時はセクション0のpress → fill → check path → 単一halo → strikethrough → 500ms保持 → 420ms collapseを使う。haloはcheck本体と同じCanvas中心から描き、多色particleは出さない。チェックOFF時は祝祭motionなしに静かに戻す。OSのReduce Motionが有効な場合は装飾motionと保持遅延を無効化し、状態を即時反映する。静的な完了表示と遷移終了frameはピクセル一致させる。この規則は2026-07-08裁定をInteractive Design Labの2026-07-12調整で置き換えたものである。
 
-チェック完了モーションの精度補足（2026-07-08#受け入れFB由来）: タップ領域とタップ時エフェクトはチェック円と同心にする。48px級ヒット円の中心はチェック円中心と一致し、視覚上の左寄せや階層インデント後もInk波紋の中心がずれないこと。取り消し線は、アニメーション終了フレームと完了後の静止状態がピクセル一致すること。同一レンダリング経路で描く、またはTextDecorationメトリクスへ完全に整合させるなど方式は問わないが、複数行を含めて終了瞬間に線の高さ・太さ・位置がジャンプしてはならない。完了による行の退場/再配置は、完了モーション（約800ms）の再生後にフェード/スライドで行う。行ごとに独立してペンディング状態を管理し、複数行の同時完了、連打、アニメーション中の再オープンに耐えること。Reduce Motion時は遅延せず即時に再構成を反映する。
+チェック完了モーションの精度補足: 48px級hit target、ring、check path、halo、rippleは同心にする。取り消し線は終了frameと完了後の静止状態をピクセル一致させ、複数行でも線の高さ・太さ・位置をjumpさせない。行ごとに独立してpending状態を管理し、複数行の同時完了、連打、motion中のreopenに耐える。Homeと通常Listでopen streamからCompletedへ移るroot rowは、widget identityとtask snapshotを保持したまま500ms保持後、420msのheightFactorでfadeしながら最大4px上へ退場し、後続行を滑らかに詰める。親配下に残るnested rowは同じcheck / halo / strikeをその場で再生し、階層位置をcollapseさせない。Reduce Motion時は遅延せず即時に再構成する。
 
 アニメーション再生中のリスト保持は、ウィジェット部分木の差し替えではなくデータの凍結で行う（条件付きラッパー挿入による再マウント禁止。2026-07-08確立）。
 
 ### タスク一覧構造
 
-Homeのタスク行群は、Overdue / Today / Tomorrow / Upcoming の4セクションに分ける。全セクションを囲う大きなパネルは置かず、余白と3px級の短いセクションアクセントで分ける。各タスク行はwarm whiteの軽い独立surface + 1px `outlineVariant` とし、elevation、強いborder、card-in-cardの見え方は禁止する。タスクが1件もない場合は0件セクション群を並べず、sproutアイコン、短い見出し、説明だけの単独空状態を表示する。
+Homeのタスク行群はTodayの1セクションとする。今日予定（`scheduled_at`）、今日が期限のdate-only / datetime due、期限超過taskを1本のstreamへ統合し、期限超過だけを行内のcoral metadataで示す。Tomorrow / UpcomingはCalendarで扱い、期日も予定もないroot taskは通常Listで扱う。全体を囲うpanelは置かず、各task rowはwarm canvas上のtransparent streamとし、必要最小限のhairlineで区切る。taskが1件もない場合は0件sectionを置かず、短い見出し、説明、必要なら控えめなマスコットだけのempty stateを表示する。
 
-各セクションは、見出し + 件数バッジ + 開閉chevronで構成する。Overdue見出しはcoral、Today/Tomorrow/UpcomingはprimaryまたはonSurface系を使い、色だけに依存せず見出し文言でも意味を伝える。Upcomingは明後日以降の期日ありルートタスクを含める。期日なしルートタスクはHome対象外である。
+Todayは見出し + 未完了件数 + 開閉chevronで構成する。期限超過件数を別の大見出しやbadgeとして重複表示しない。CompletedはTodayより弱い小見出し + 件数 + 開閉chevronとし、`completed_at`がローカルの今日に入る成果だけを表示する。`done` / `wont_do`というstatusだけでCompletedの日付を推定しない。
 
-Homeでは各タスクを最大1回だけ表示する。自分の期日でOverdue / Today / Tomorrow / Upcomingのいずれかに該当する未完了タスクは、その該当セクションに単独行として1回表示する。期日なし等で自分ではHomeセクションに該当しないタスクは、Homeに表示される直近の祖先タスクの下に同伴表示する。同伴サブツリーを構築するときは、既に単独表示される未完了子孫とその配下を剪定し、親配下と単独行の重複を作らない。完了（`done` / `wont_do`）タスクは期日に関わらず日付セクションへ単独表示しない。Homeに表示される直近の祖先があれば、その下にmuted + 取り消し線の既存表現で同伴する。表示中祖先がない完了ルートタスクはClosedセクションへ入り、表示中祖先がない完了サブタスクはHomeに表示しない。この規則は2026-07-08人間裁定（Home重複表示の解消 / Home完了タスクの単独表示抑止）由来であり、task-55時点の「親配下とより早いセクションの両方に表示」規則を置き換える。
+Homeでは各taskを最大1回だけ表示する。自分のdueまたはscheduleでTodayへ該当する未完了taskは単独行として1回表示する。自分では該当しない子孫は、Homeに表示される直近祖先の下に同伴表示する。同伴subtreeの構築時は、既に単独表示される未完了子孫とその配下を剪定し、親配下と単独行の重複を作らない。完了taskはTodayへ単独表示せず、表示中祖先がある場合だけその下へmuted + strikethroughで同伴する。今日完了したroot taskはCompletedへ表示し、表示中祖先がない完了subtaskはHomeに単独表示しない。この規則は2026-07-08の重複抑止を維持しつつ、task-104で4期日区分をTodayへ統合した現行契約である。
 
-Home行は、左からチェック、タイトル/小さな文脈ラベル、右寄せメタデータの順に構成する。親を持たないルートタスクでは、タイトル下にリスト名を小さなラベル（アイコン + リスト名）として表示し、従来のリスト名pillを置き換える。単独表示された行がサブタスクである場合は、リスト名ラベルではなく、階層アイコン + 直近の親タスク名（1行省略）を表示する。親タスク名ラベルは、同一リスト内でリスト名が冗長になることを避けるための親コンテキストであり、semanticsにも親タスク名を含める。priority dot + 日付pillは行右側へ寄せ、日付pillは枠線なしの色付きpillにする。日付pillの面色は、期日超過=淡coral、今日=淡sage、明日以降=淡amberを基本とし、テキスト色は既存トークンのcoral/primary/amber系に従う。ただし完了（`done` / `wont_do`）行の日付pillは、緊急色を使わず `onSurfaceVariant` 系のmutedな淡地・淡文字にする（2026-07-08裁定）。Home行は、ルートタスクのチェック円の左端をセクション見出しの左端と同じx位置に揃える（現行実装ではセクション内容基準で4px、パネルpadding込みで12px級）。48×48タップ領域は維持し、サブタスクの各階層は24px刻みの相対インデントを保ったまま同じ基準から左へ寄せる。この規則は2026-07-08ドッグフーディング第6回、および2026-07-08人間裁定（Home重複表示の解消）由来である。
+Home行は、左からチェック、タイトル / 小さな文脈label、右寄せmetadataの順に構成する。親を持たないroot taskでは、タイトル下にlist名をplain labelとして表示する。単独表示されたsubtaskではlist名の代わりに階層icon + 直近の親task名（1行省略）を表示し、semanticsにも親contextを含める。priority dot + 日付labelは右側へ寄せ、外周pillや面色を使わない。期限超過はcoralの短いtext、今日 / 明日以降はmuted / primary textで区別し、完了行では緊急色をmuteする。root checkboxの左端はsection labelの左端と揃え、48×48 hit targetを維持する。subtaskは各階層12〜16px級の相対indentとし、3階層以上でも本文幅を確保する。この規則は2026-07-08の構造裁定をsingle-canvas向けに置き換える。
 
-Closedセクションに入るのはルートタスクのみ。サブタスクは状態に関わらず、表示中の親または直近祖先がある場合だけその下に表示し、閉じたサブタスクは muted + 取り消し線で親にぶら下がる。ツリーごとClosedへ移動するのは親自身が閉じたときだけ。Homeでは、期日つきの完了サブタスク/孫タスクであっても日付セクションに単独表示せず、表示中祖先がなければHomeから隠す。この規則は2026-07-07ドッグフーディング、および2026-07-08人間裁定（Home完了タスクの単独表示抑止）由来であり、サブタスク関係を一覧上で失わないための構造規範である。
+Completed disclosureに単独表示するのは今日完了したroot taskだけとする。subtaskは状態に関わらず、表示中の親または直近祖先がある場合だけその下に表示し、閉じたsubtaskはmuted + strikethroughで親にぶら下がる。ツリーごとCompletedへ移るのは親自身が今日完了したときだけ。通常List画面のClosedは全closed taskを扱う別の一覧契約であり、HomeのCompletedと同一視しない。
 
 サブタスクの階層ガイドは、縦線を親チェックボックスの水平中心から降ろし、子の横棒はその縦線から子チェックボックスの垂直中心へ向かうが、円リングの手前4px程度で終端してリングへ接触/貫入させない。各深さの子のチェックボックス中心は同一のx座標列に整列する。最後の子はL字（└）として縦線を横棒で終端し、同じ親の後続兄弟がある子はT字（├）として縦線を継続する。3階層以上のネストでは、未完了の祖先階層の縦線が子孫行まで正しく続く。この規則は2026-07-07ドッグフーディング第2回、2026-07-08ドッグフーディング第5回、および2026-07-08ドッグフーディング第6回由来である。
 
-Closedセクション見出しは、Design Labの「Completed today N」に近い控えめな1行とする。中央寄せまたは左寄せの小さな見出し + 件数 + 開閉chevron 1つで構成し、見出し自体を大きなカードや強いボタンにしない。
+Completed見出しは控えめな1行とする。左寄せの小さな見出し + 件数 + 開閉chevron 1つで構成し、見出し自体を大きなcardや強いbuttonにしない。
 
 手動並び替えはドラッグ&ドロップ（長押し）で行う。並び替えは同一親内の兄弟間のみ許可し、別親の間や階層をまたぐ位置にはドロップできない。上下移動ボタンは置かず、アクセシビリティはreorder semanticsアクション（Move up / Move down）で担保する。この規則は2026-07-07ドッグフーディング第3回由来である。
 
 ### チップ/pill
 
-- 情報表示専用。ボタンとして機能させない（画面が明示的にinteractiveにする場合を除く）。
-- プレフィックス付き冗長ラベル（`Due:` `Status:` `Priority:`）を禁止。アイコン＋短い語のみ（例: 相対日付そのもの、`1/3`）。
-- 角丸999、`labelMedium`、アイコン15px、border thin（`outlineVariant`ベース、強調時は`emphasisColor`のalpha 0.6）。Home行の日付pillに限り、2026-07-07 Home裁定によりborderなしの淡色塗りを使う。
+- 情報表示の既定表現にしない。due、status、priority、countはplain label、dot、property rowで示す。
+- プレフィックス付き冗長ラベル（`Due:` `Status:` `Priority:`）を一覧へ出さない。詳細のproperty rowではlabelとvalueを別columnへ分ける。
+- 完全な丸は選択中filter、duration preset、中央captureなど形状に操作意味がある場合だけ許可する。非interactive metadataをpillで囲まない。
 
 ### 画面規範
 
-- **Home**: ルート画面はTodayではなくHomeである。小さなInterの日付キッカー + 34px級セリフの `Home` を同じcompact headerへまとめ、右端へソートを置く。通常画面にsproutを常設しない。Overdue / Today / Tomorrow / Upcomingは余白で区切るが、タスク1件ごとの独立カードは禁止し、透明な連続task canvasとして表示する。通常タスク行の右端chevronは禁止し、行タップで詳細へ遷移できることはsemanticsで明示する。Home横断ビューでは手動並び替えを行わない。本文はモバイルで画面幅を使い、ワイド画面では920pxを上限として中央配置する。
-- **Homeセクション**: Overdue（見出しcoral）/ Today / Tomorrow / Upcoming（明後日以降、期日ありタスク）を表示する。各セクションは件数バッジ付きで折りたたみ可能にする。日付セクションへの単独表示は未完了タスクのみで、件数バッジも未完了の該当タスクのみを数える。期日なしルートタスクはHome対象外であり、従来どおり通常リスト画面で扱う。Homeでは1タスク1表示を原則とし、自分の期日でセクションに該当する未完了タスクはそのセクションに単独行として表示する。期日なし等で自分では該当しない子孫は、Homeに表示される直近の祖先の下に同伴表示する。同伴サブツリー内に既に単独表示される未完了子孫がある場合は、その子孫と配下を剪定する。完了（`done` / `wont_do`）タスクは期日に関わらず日付セクションへ単独表示しない。Homeに表示される直近祖先がいれば、その下にmuted + 取り消し線で同伴する。表示中祖先がない完了ルートタスクはClosedセクションへ表示し、表示中祖先がない完了サブタスクはHomeに表示しない。単独表示されたサブタスクは、リスト名ラベルの代わりに階層アイコン + 直近の親タスク名を表示し、semanticsにも親コンテキストを含める。ルートタスクは従来どおりリスト名ラベルを表示する。この規則は2026-07-08人間裁定（Home重複表示の解消 / Home完了タスクの単独表示抑止）由来であり、2026-07-08ドッグフーディング第4回由来のサブツリー同伴規則を重複なし・完了単独表示なしへ改訂する。
-- **Homeクイック追加**: 画面下部をNavigationBarとは別の大きな帯で占有せず、右下のcompact extended actionからroot navigator上のタスク作成シートを開く。シートはドラッグハンドル、大きなタイトル入力（自動フォーカス）、Note入力、List選択、Due選択、Add taskボタンで構成する。既定値はHomeでは既定Inbox+今日、通常リスト画面では当該リスト+期日なしとする。追加後もシートは開いたまま入力がクリアされ、連続追加できる。時刻（Plan）と自然言語日付解析は実装まで置かない。
-- **Homeスワイプ/モーション**: leading swipeは完了、trailing swipeは期日変更に割り当てる。チェック、行の出入り、セクション開閉は150〜250ms級の軽いアニメーションを基本にする。例外として、チェック完了時だけはチェックボックス起点の局所的な小パーティクル（半径24px級・0.5秒級・ブランド色）を「完了の静かな喜び」として許容する。画面全体のconfetti、トロフィー、音、全画面演出、過剰なcelebrationは禁止する。
-- **リスト一覧**: Listsはグローバルナビゲーションから直接開くトップレベル領域とする。旧戻る矢印、Home行、Account overflowを置かない。28px級Inter見出しの下に、最大760pxの連続したナビゲーション行を置き、巨大な外周カードや画面幅いっぱいのワイド行を禁止する。行内に操作メニューやchevronを置かない。New listはactive listの直後、Archivedはその下の低強度セクションとする。リスト単位の操作（改名/アーカイブ/削除）は、そのリストを開いた画面の右上overflowメニューに置く。
-- **Task detail**: AppBarはbackとoverflowだけに限定し、`Task detail`という重複見出しを表示しない。最大760pxのdocument canvasへ、親リンク → 円形チェック + `headlineSmall`タイトル → note → 低強度のinline metadata → created → divider → Subtasksを直接配置し、巨大な外周カードとpill群を禁止する。期日・優先度・reminderはタップで編集して即保存し、48px級操作領域を維持する。タイトルとnoteはタップでその場のTextFieldに変わり、フォーカス喪失/確定で保存する。空タイトルは保存せず元に戻す。読み取り表示と編集状態は同一のTextStyle、padding、strut/line-heightを使う。右上の一括編集ボタンと一括編集ダイアログは禁止し、削除・status変更などのoverflowは維持する。Subtasksは子孫ツリー全体を同じcanvas上に階層ガイド付きで表示し、行カードを重ねない。ロック/暗号化の常設表現は禁止する。
-- **Account**: 最大620pxのsettings canvasとし、28px級Inter見出し → login/registerの下線tab → credential fields → primary action → divider → Server URLの順にする。Server URLを画面最初の巨大フォームにせず、保存操作はfield末尾のiconへ統合する。ログイン後はaccount identityとsync状態を先に表示し、接続設定は同じ下段へ維持する。
+- **Home**: ルート画面はHomeである。小さなInterの日付キッカー + Interのcompact titleを同じheaderへまとめ、検索edge actionを見出し行の右端へ置く。検索だけのtoolbar rowを作らない。Todayへ今日予定・今日due・Overdueを統合し、Tomorrow / UpcomingはCalendarへ送る。通常task rowの独立cardと右端chevronを禁止し、行タップで詳細へ遷移できることはsemanticsで明示する。Home横断ビューでは手動並び替えを行わない。本文はモバイルで画面幅を使い、ワイド画面では920pxを上限として中央配置する。
+- **Homeセクション**: Todayの未完了件数だけを見出しに表示し、Overdueは各行のcoral metadataで示す。Completedは`completed_at`が今日のroot taskだけを控えめに開閉表示する。各task最大1回、単独表示される子孫の剪定、直近祖先下へのsubtree同伴、親contextを含むsemanticsを維持する。
+- **Capture**: mobile navigation中央の円形captureからroot navigator上のtask作成sheetを開く。sheetはhome indicatorまでwarm面を連続させ、Title / Note / List / Due / Plan / Priorityをhairline property rowで提供する。Dueはdate-only / datetime / clear、Planは予定日時と5分刻みの見積（25 / 45 / 60分preset）、Priorityはnone / low / medium / highを扱う。選択値を同一sheet内で保持し、作成は全属性を1回のcommandとして確定する。横スクロールpillや属性ごとの独立cardを作らない。
+- **Search**: `/search`はShell外のimmersive routeとし、入力、clear、blank、debounce中、結果、0件、error + retryを同じwarm canvasへ表示する。対象はtitle / note、全status、archive済みlist内taskで、deleted taskは除外する。結果行から詳細へ遷移し、戻ったときquery・結果・scroll contextを保持する。検索icon、hit target、ripple、semanticsの中心を一致させる。
+- **Calendar**: top-level destinationとしてWeek / Monthを提供する。WeekはTodayと同じtask row、checkbox、subtask tree、完了motionを使う。Monthは7列grid + 選択日のagendaとし、1024px以上は2 pane、720px幅はsingle paneを維持する。date-only due、datetime due、scheduled、completedを別occurrenceとして表示し、同じtaskのdueとscheduledを統合しない。Completedは`completed_at`基準の控えめなdisclosureとする。dragまたは同等のアクセシブルな日付変更menuは、掴んだoccurrenceだけを変更する。
+- **Focus**: `/focus/:listId/:taskId`はShell外の専用routeとし、setup / running / paused / break / finished / restore / error / conflictをすべて同じwarm canvasで扱う。中央は開始角135度・描画範囲270度の細いopen dialとし、外周card、円形surface、heavy shadowを置かない。Pomodoroはhairline track上のforest arcを残り時間に応じて減少させ、pausedは値を保持したままsageへ弱める。Stopwatchは静的arcとelapsed clockを使い、存在しない完了率を表示しない。work / short break / long breakはphase labelとaccentで区別し、色だけへ依存しない。Pomodoro初期値はwork 25分 / short break 5分 / 4 workごとのlong breakとし、設定は端末ローカルで保持する。running中のPomodoro work / breakがwall-clock targetへ到達したら、foregroundのdisplay tickから既存settlementを実行して自動的にfinishedへ遷移する。workはtarget時刻までの実績を保存してbreak pendingへ進み、breakはwork実績を追加せず`Break complete`へ進む。settlement失敗時はdurable active sessionを残し、次のtick / resume / restartで再試行する。setupはtask title、compactなPomodoro / Stopwatch selector、preview dial、時間・設定、最大幅280pxのStartを1本の縦軸へ置く。activeの常設操作は64px級の円形Pause / Resumeと`Session options`だけにし、Add 5 min、finish、task complete、save exit、discardは状態別のwarm bottom sheetへ送る。close / system backも同じsheetへ到達し、sheet dismissalだけではsessionを終了しない。finishedはdial構図を維持し、記録時間、Start break、Doneだけを表示する。setup→runningは260msのfade + 0.985→1.0 scale、pause / resumeは180ms、finishedは260msでdialを記録結果へ収束させ、Reduce Motionでは即時切替する。全taskへ常設CTAを置かず、open taskのtrailing swipeとTask detailから入る。見積時間と合計実績はTask detailの小さなproperty rowで比較できるようにする。
+- **スワイプ/モーション**: open taskのleading swipeはcomplete、trailing swipeはFocus revealとする。closed taskのleading swipeはreopenで、trailing paneは表示しない。Due変更はTask detailのproperty sheetへ集約する。完了motionはセクション0のcheck path + 単一halo + strikethrough + hold + collapseを使い、多色particle、画面全体のconfetti、トロフィー、音、全画面演出を禁止する。
+- **リスト一覧**: Listsはグローバルナビゲーションから直接開くトップレベル領域とする。旧戻る矢印、Home行、Account overflowを置かない。Interのcompact見出しの下に、最大760pxの連続rowを置き、短いindex mark、文字階層、hairlineで区切る。外周card、count pill、行内chevronを置かない。New listはactive listの直後、Archivedはその下の低強度sectionとする。リスト単位操作は、そのlistを開いた画面の右上overflowに置く。
+- **Task detail**: headerはbackとoverflowだけに限定し、`Task detail`という重複見出しを表示しない。最大760pxのdocument canvasへ、親リンク → 円形チェック + Inter title → note → 罫線ベースのproperty rows → created → Subtasksを直接配置する。外周cardと属性pillを禁止する。既存属性は48px級操作領域で編集し、タイトルとnoteの閲覧 / 編集で同一TextStyleとbaselineを使う。Subtasksは子孫tree全体を同じcanvas上に表示し、connectorをcheckbox ringへ接触させない。ロック / 暗号化表現を常設しない。
+- **Account**: 最大620pxのborderless settings canvasとし、Interのcompact見出し → account identity / sign-in action → sync state → hairline → Server URLの順にする。各設定はcardやpillではなくrowとhairlineで分ける。Server URLを最初の巨大formにせず、保存操作はfield末尾iconへ統合する。
 - **Dialog**: 文章主体、装飾なし。destructiveのみcoralを使う。
+
+### Task statusとTimer state
+
+- `todo` / `in_progress` / `done` / `wont_do`はKanbanまたはユーザーの明示的なtask操作だけで変更する。`in_progress`をFocus中・Timer作動中の表示語または自動遷移先として使わない。
+- Focus / Pomodoro / Stopwatchのstart、pause、resume、finish、discardはtask statusを変更しない。running / pausedはsessionのruntime stateでありtask propertyではない。
+- Focus中の「Complete task」は、現在のwork sessionを保存終了できた後にだけtaskを`done`へ変更する。session保存が失敗した場合はtask statusを維持し、再試行可能なerrorを表示する。
+- Complete task後のUndoはtaskをreopenするだけとし、Timerを自動再開しない。task完了以外のFocus finishでも、保存した実績とtask statusを混同しない。
 
 ### グローバルナビゲーションと遷移
 
-- Home / Lists / Accountは同格のトップレベル領域とする。幅720px未満ではMaterial 3 `NavigationBar`、720px以上では左`NavigationRail`を常設し、各領域へ1操作で移動できるようにする。
-- モバイルのNavigationBarは64px級、surface背景、primaryContainerのcompact選択indicator、Lucide icon、短いラベル、上端1px borderで構成する。NavigationRailは同じ3項目とsprout brand markを持ち、contentとの境界は1px `outlineVariant`とする。
-- Home / Lists / Accountの切替は220ms級のfade + 2%未満の縦移動、Listsからリスト内タスク一覧は260ms級の短い右→左slide + fade、タスク詳細は240ms級のfade + 0.985→1.0 scaleとする。
-- タスク詳細ではグローバルナビゲーションを隠し、AppBar backで元の一覧へ戻る没入画面とする。リスト内タスク一覧ではグローバルナビゲーションを維持する。
-- Quick Addと期日選択のmodal bottom sheetはroot navigatorへ表示し、NavigationBarやNavigationRailによって利用可能高が狭まらないようにする。
+- Home / Calendar / Lists / Youは同格のトップレベル領域とする。幅720px未満では低いcustom navigation面、720px以上では同じ情報設計のcompact railを用い、各領域へ1操作で移動できるようにする。
+- mobile navigationはwarm canvasにLucide icon + 小さなlabel + active underlineを置き、pill形の選択indicatorを使わない。大きなtext scaleでも全destinationのiconとlabelを残し、labelは最大1.3倍にclampして1行省略できる。中央captureだけを緑の円形primary actionとする。wide railへsprout / bird / ブランド名を常設しない。
+- Home / Calendar / Lists / Youの切替は220ms級のfade + 2%未満の縦移動、Listsからリスト内タスク一覧は260ms級の短い右→左slide + fade、タスク詳細は240ms級のfade + 0.985→1.0 scaleとする。
+- Search、Task detail、Focusではグローバルナビゲーションを隠し、back / closeで元の文脈へ戻る没入画面とする。リスト内タスク一覧ではグローバルナビゲーションを維持する。
+- Captureと期日選択のmodal bottom sheetはroot navigatorへ表示し、global navigationによって利用可能高が狭まらないようにする。
 
 ### Undoスナックバー
 
@@ -197,13 +237,13 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 
 ## セクション5: 既知の逸脱（現状 spec 違反として認識済みのもの）
 
-- なし（2026-07-07時点）。
+- task-108のproduction / Design Lab実装とVisual QAで、全面dark inverse、旧button hierarchy、旧Timer表現の既知逸脱は解消した。iPhone 17 / iOS 26.5のproduction録画と独立検証で、warm canvasの連続性、color flashなし、setup / pause / resume / sheetのmotionも確認済みである。
 
 ## 裁定済み事項
 
 - **2026-07-06 人間裁定**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、**calm発展形の単一方向**（現行 `design_lab_task_list.png` 等の8画面）へ集約された。dense案・smart lists単独案はclosed。smart listsの概念は `design_lab_list_overview` に吸収済み。以後のセッションはこの3案比較を再開しない。本番への反映は別タスクの指示書で範囲を定めて行う。
 - **2026-07-06 人間裁定**: 本番アイコンセットとして `lucide_icons_flutter` を採用する。本番反映時は全画面で Lucide に統一し、Material Icons と同一画面で混在させない。tooltip/semanticsは維持する。反映は別タスクの指示書で行う。
-- **2026-07-06 人間裁定（タイポグラフィ）**: Design Labの4案比較（A: Newsreader範囲制限 / B: Lora現行 / C: オールInter / D: A+和文明朝）の結果、**D案の構成を採用**する。ただし和文明朝フォントは容量とロケール（欧米展開時に不要）の理由で**同梱しない**。和文はシステムフォントのセリフ（Apple系: ヒラギノ明朝 ProN）へフォールバックし、明朝非搭載OS（Android標準等）ではシステム標準書体へ自然に劣化することを許容する。具体構成:
+- **2026-07-06 人間裁定（タイポグラフィ、履歴）**: Design Labの4案比較（A: Newsreader範囲制限 / B: Lora現行 / C: オールInter / D: A+和文明朝）の結果、当時は**D案の構成を採用**した。これは2026-07-13 single-canvas本番採用で通常画面をall Interへ変更したため、現在の拘束規範ではない。具体構成:
   - ディスプレイ書体: Newsreader（欧文、既存同梱アセット）＋ システム和文セリフフォールバック
   - セリフの適用範囲: **28px級以上かつ1画面1〜2箇所のみ**（現行画面ではToday見出しのみ。将来のタイマー数字も対象）
   - AppBarタイトル・セクション見出し（Tasks等）・タスク/詳細タイトル・本文: すべてInter
@@ -216,12 +256,14 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 - **2026-07-07 人間裁定（Home改善サイクル第1回）**: `assets/brand/explorations/home-20260707/` の3案（A: TickTick方向、B: Todoist方向、C: 現行構造polish）を比較し、A案の構造（効率重視・Overdue/Todayグルーピング・常設quick add・swipe前提）とC案の行表現を組み合わせたハイブリッドを採用する。人間調整として、横幅の外マージンと内paddingを圧縮し、トップ部分を圧縮し、Tomorrow/Upcomingセクションを含める。これによりルートは「Today」ではなく「Home」と再定義する。`flutter_animate` / `flutter_slidable` の追加はこの裁定で承認済みだが、実装は個別タスク指示書の範囲に従う。
 - **2026-07-08 人間裁定（Home重複表示の解消）**: task-55の「子がより早いセクションに該当する場合は親配下と該当セクションの両方に表示」規則は、3階層それぞれに期日が付くケースで同一タスクが最大3回表示されノイズになるため廃止する。以後Homeでは各タスクを最大1回だけ表示する。自分の期日でセクションに該当するタスクは単独行として表示し、自分では該当しない子孫だけをHomeに表示される直近祖先の下に同伴する。同伴サブツリー構築時は、既に単独表示される子孫とその配下を剪定する。単独表示されたサブタスクはリスト名ラベルではなく階層アイコン + 直近の親タスク名を表示し、semanticsにも親コンテキストを含める。
 - **2026-07-08 人間裁定（Home完了タスクの単独表示抑止）**: 完了済みなのに期日超過のサブサブタスクがOverdueへ単独表示され続けるドッグフーディング指摘を受け、日付セクションへの単独表示を未完了タスクのみに限定する。完了（`done` / `wont_do`）タスクは期日に関わらず日付セクションへ単独表示しない。Homeに表示される直近祖先がいれば、その下にmuted + 取り消し線で同伴する。表示中祖先がない完了ルートタスクはClosedセクションへ表示し、表示中祖先がない完了サブタスクはHomeに表示しない。セクション件数は未完了の該当タスクのみを数える。
-- **2026-07-08 人間裁定（チェック完了モーション）**: Any.doの左から右へ伸びる取り消し線と、Xのハートに近いチェック起点の小パーティクルを参照し、チェックON時の完了モーションを「チェック線path描画 → チェック点から局所パーティクル → タイトル取り消し線の左から右への伸長」として定義する。既存のcelebration禁止は全廃せず、チェックボックス起点の局所的な小パーティクル（半径24px級・0.5秒級・ブランド色）だけを完了の静かな喜びとして許容する。画面全体のconfetti、トロフィー、音、全画面演出は引き続き禁止する。
+- **2026-07-08 人間裁定（チェック完了モーション、履歴）**: 当時はチェック起点の局所particleを許容した。このparticle裁定は2026-07-12 Design Lab調整とセクション0の単一halo契約で置き換え済みであり、現在のproductionへparticleを復活させる根拠にしない。画面全体のconfetti、トロフィー、音、全画面演出の禁止は維持する。
 - **2026-07-08 人間裁定（起動時の無音原則）**: 通常のアプリ起動でOSの権限確認・パスワード入力（Keychainプロンプト等）を出してはならない。E2EEアプリとして、文脈のない権限要求は信頼を損なう。セキュリティ関連の許可が必要な場合は、初回オンボーディングで目的を説明した直後に一度だけ求める。日常の起動・通常操作は無音であることを必須要件とする。
 - **2026-07-11 人間裁定（task-99 UI全面再設計）**: 既存デザインに拘束されない抜本的な再設計を許可し、Homeのタスク管理挙動、サブタスクツリー、完了モーションを保持することを必須とした。視覚構造はwarm neutralの編集面、日付キッカー + `Home` display見出し、余白で分けた期日セクション、軽い独立task surface、浮遊Quick Add、単独空状態へ更新する。ListsとTask detailも同じsurface/radius/typographyへ統一する。この裁定は2026-07-06/07の旧Home外観規則のうち、本書で具体的に置き換えた箇所に優先する。
 - **2026-07-11 人間裁定（task-99 IA / 画面遷移追補）**: 初回成果が既存の情報設計と遷移を保守的に残しすぎたというプロダクトオーナー指摘を受け、見た目だけでなくアプリシェル、画面階層、遷移演出も抜本変更の対象であることを明確化した。Home / Lists / Accountをレスポンシブなグローバルナビゲーションへ統合し、旧ハンバーガー、戻る矢印、Home重複行、Account overflowを撤去する。Homeのタスク選別、ツリー、完了体験だけを不変条件とする。
 - **2026-07-11 人間裁定（task-100 プロダクトUI再設計）**: task-99後も「プロトタイプ感が拭えず、エレガントにするには抜本変更が必要」と評価された。巨大見出し、全行独立カード、pill過多、Quick AddとNavigationBarの二重帯、モバイル構造を引き伸ばしたワイド画面を廃止対象とする。主要画面はcontent最大幅を持つ直接的なcanvasへ変更し、Homeの選別・ツリー・完了体験だけを不変条件とする。この裁定はtask-99外観規則のうち本書で置き換えた箇所に優先する。
+- **2026-07-13 人間裁定（Interactive Design Lab single-canvas本番採用）**: Interactive Design Labのsingle-canvas方向をproductionへ採用する。通常画面はInter主体、warm canvas、hairline、低角丸とし、serif、白panel、通常card、情報pillを常用しない。dark inverseはFocus専用とする。Design Labはfake data専用で独立させ、productionからimportしない。task-100時点ではCalendar完成までHomeの4期日sectionを維持し、Search / Calendar / Focusをscope外としたが、この暫定範囲はtask-103〜106の完了で解消済みである。現在の拘束契約はセクション0〜5を正とする。
+- **2026-07-14 人間裁定（Focus warm open-dial再設計）**: setupからrunning / pausedへの全面dark inverse切替を廃止し、Focus全状態をproduction共通のwarm canvasへ統一する。没入感はShell外route、情報量の削減、135度開始・270度のopen dial、単一のPause / Resume主操作で作る。Session終了系操作は状態別bottom sheetへ集約し、Focusへマスコットを置かない。task-106/107のdark inverse記述は当時の実装履歴として保持し、現行拘束契約はセクション0〜5を正とする。
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）
 
-- タスク行右側のaffordance: chevron継続か、将来のFocus開始ボタンか（Focus timer実装時に決定）。
+- 現時点で本書に記録された未決事項はない。新しい未決事項は実装で仮決めせず、設計taskへ追加して人間裁定を得る。

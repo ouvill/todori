@@ -82,6 +82,11 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     ))
     .execute(pool)
     .await?;
+    raw_sql(include_str!(
+        "../migrations/202607130001_timer_sessions.sql"
+    ))
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

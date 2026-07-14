@@ -57,6 +57,57 @@
   "createButton": "Create",
   "tasksTitle": "Tasks",
   "homeTitle": "Home",
+  "calendarTitle": "Calendar",
+  "calendarWeekTab": "Week",
+  "calendarMonthTab": "Month",
+  "calendarPreviousPeriodTooltip": "Previous period",
+  "calendarNextPeriodTooltip": "Next period",
+  "calendarGoToToday": "Today",
+  "calendarSelectedDaySemantics": "Selected date: {date}",
+  "@calendarSelectedDaySemantics": {
+    "placeholders": { "date": { "type": "String" } }
+  },
+  "calendarDayTaskCount": "{count, plural, =0{No tasks} =1{1 task} other{{count} tasks}}",
+  "@calendarDayTaskCount": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "calendarCompletedTitle": "Completed",
+  "calendarShowCompletedTooltip": "Show completed work",
+  "calendarHideCompletedTooltip": "Hide completed work",
+  "calendarEmptyTitle": "Nothing planned.",
+  "calendarEmptyBody": "Choose another day or capture what you want to make time for.",
+  "calendarLoadFailed": "Calendar could not be loaded.",
+  "calendarLoadingSemantics": "Loading calendar",
+  "calendarRetryButton": "Try again",
+  "calendarDueKind": "Due",
+  "calendarScheduledKind": "Planned",
+  "calendarCompletedKind": "Completed",
+  "calendarArchivedListContext": "{listName} · Archived",
+  "@calendarArchivedListContext": {
+    "placeholders": { "listName": { "type": "String" } }
+  },
+  "calendarOccurrenceSemantics": "{title}, {listName}, {kind}, {time}",
+  "@calendarOccurrenceSemantics": {
+    "placeholders": {
+      "title": { "type": "String" },
+      "listName": { "type": "String" },
+      "kind": { "type": "String" },
+      "time": { "type": "String" }
+    }
+  },
+  "calendarMoveDueTooltip": "Move due date",
+  "calendarMoveScheduledTooltip": "Move planned date",
+  "calendarMoveOccurrenceSemantics": "{kind}: change date for {title}",
+  "@calendarMoveOccurrenceSemantics": {
+    "placeholders": {
+      "kind": { "type": "String" },
+      "title": { "type": "String" }
+    }
+  },
+  "calendarMoveSheetTitle": "Change date",
+  "calendarMoveToToday": "Today",
+  "calendarMoveToTomorrow": "Tomorrow",
+  "calendarPickDate": "Choose date…",
   "todayTitle": "Today",
   "homeOverdueSectionTitle": "Overdue",
   "homeTomorrowSectionTitle": "Tomorrow",
@@ -75,6 +126,35 @@
   "hideCompletedTasksTooltip": "Hide closed tasks",
   "homeListMenuTooltip": "Open lists",
   "homeSmartListTooltip": "Open Home",
+  "openSearchTooltip": "Search tasks",
+  "searchFieldHint": "Search tasks and notes",
+  "searchFieldSemantics": "Search tasks and notes",
+  "clearSearchTooltip": "Clear search",
+  "searchEmptyTitle": "Find what you need.",
+  "searchEmptyBody": "Search task titles and notes across every list.",
+  "searchNoResultsTitle": "Nothing found.",
+  "searchNoResultsBody": "No tasks match “{query}”.",
+  "@searchNoResultsBody": {
+    "placeholders": {
+      "query": { "type": "String" }
+    }
+  },
+  "searchFailed": "Search could not be completed.",
+  "searchLoadingSemantics": "Searching tasks",
+  "searchArchivedListLabel": "{listName} · Archived",
+  "@searchArchivedListLabel": {
+    "placeholders": {
+      "listName": { "type": "String" }
+    }
+  },
+  "searchResultSemantics": "{title}, {listName}, {status}",
+  "@searchResultSemantics": {
+    "placeholders": {
+      "title": { "type": "String" },
+      "listName": { "type": "String" },
+      "status": { "type": "String" }
+    }
+  },
   "showHomeSectionTooltip": "Show {section} tasks",
   "@showHomeSectionTooltip": {
     "placeholders": {
@@ -114,6 +194,32 @@
       "dueAt": {
         "type": "String"
       }
+    }
+  },
+  "taskCreatePlanLabel": "Plan",
+  "taskCreatePlanTooltip": "Set planned start and estimate",
+  "taskCreatePriorityTooltip": "Choose priority",
+  "planNotSet": "Not planned",
+  "planSheetTitle": "Plan",
+  "plannedStartLabel": "Planned start",
+  "setPlannedStartButton": "Set date and time",
+  "estimateLabel": "Estimate",
+  "estimateNotSet": "No estimate",
+  "estimateMinutes": "{minutes} min",
+  "@estimateMinutes": {
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
+  "decreaseEstimateTooltip": "Decrease estimate by 5 minutes",
+  "increaseEstimateTooltip": "Increase estimate by 5 minutes",
+  "clearPlanButton": "Clear plan",
+  "planSaveButton": "Apply plan",
+  "prioritySheetTitle": "Priority",
+  "selectedOptionSemantics": "Selected: {option}",
+  "@selectedOptionSemantics": {
+    "placeholders": {
+      "option": { "type": "String" }
     }
   },
   "tasksEmpty": "No tasks yet. Tap + to create one.",
@@ -329,6 +435,7 @@
   "moveTaskUpTooltip": "Move task up",
   "moveTaskDownTooltip": "Move task down",
   "accountTitle": "Account",
+  "navigationYouLabel": "You",
   "accountLoadFailed": "Could not load account state.",
   "accountLoginTab": "Log in",
   "accountRegisterTab": "Register",
@@ -381,6 +488,80 @@
       }
     }
   },
+  "focusTitle": "Focus",
+  "focusSetupTitle": "Choose how to focus",
+  "focusSetupBody": "Stay with one task. The rest can wait.",
+  "focusPomodoroMode": "Pomodoro",
+  "focusStopwatchMode": "Stopwatch",
+  "focusPomodoroSummary": "{work} min focus · {breakMinutes} min break",
+  "@focusPomodoroSummary": {
+    "placeholders": {
+      "work": {"type": "int"},
+      "breakMinutes": {"type": "int"}
+    }
+  },
+  "focusStopwatchSummary": "Open-ended, with pause and resume",
+  "focusStartButton": "Start focus",
+  "focusSettingsButton": "Pomodoro settings",
+  "focusSettingsTitle": "Pomodoro rhythm",
+  "focusWorkMinutesLabel": "Focus",
+  "focusShortBreakMinutesLabel": "Short break",
+  "focusLongBreakMinutesLabel": "Long break",
+  "focusLongBreakEveryLabel": "Long break after",
+  "focusNotificationsLabel": "Completion notification",
+  "focusNotificationsBody": "Best effort while Todori is in the background",
+  "focusWorkIntervals": "{count} focus sessions",
+  "@focusWorkIntervals": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "focusRestoring": "Restoring your focus session…",
+  "focusLoadFailed": "Todori couldn't restore this focus session.",
+  "focusActiveConflictTitle": "Another focus session is active",
+  "focusActiveConflictBody": "Finish or discard the current session before starting this task.",
+  "focusRunningState": "Focusing",
+  "focusPausedState": "Paused",
+  "focusWorkPhase": "Focus session",
+  "focusShortBreakPhase": "Short break",
+  "focusLongBreakPhase": "Long break",
+  "focusBreakPrompt": "Take a breath.",
+  "focusElapsedLabel": "Elapsed {time}",
+  "@focusElapsedLabel": {"placeholders": {"time": {"type": "String"}}},
+  "focusPauseButton": "Pause",
+  "focusResumeButton": "Resume",
+  "focusSessionOptionsButton": "Session options",
+  "focusAddTimeButton": "Add 5 minutes",
+  "focusFinishButton": "Finish",
+  "focusFinishSessionButton": "Finish session",
+  "focusEndBreakButton": "End break",
+  "focusSaveAndExitButton": "Save and exit",
+  "focusDiscardButton": "Discard",
+  "focusDiscardTitle": "Discard this session?",
+  "focusDiscardBody": "This session will end without saving work time.",
+  "focusCompleteTaskButton": "Complete task",
+  "focusFinishedTitle": "Focus recorded",
+  "focusFinishedSummary": "Focused work recorded.",
+  "focusFinishedBody": "{time} of focused work recorded.",
+  "@focusFinishedBody": {"placeholders": {"time": {"type": "String"}}},
+  "focusBreakFinishedTitle": "Break complete",
+  "focusBreakFinishedBody": "Return when you're ready for the next focus session.",
+  "focusStartBreakButton": "Start break",
+  "focusKeepSessionButton": "Keep focusing",
+  "focusDoneButton": "Done",
+  "focusActionFailed": "Couldn't update this focus session. Try again.",
+  "focusTaskCompleteFailed": "The session was saved, but the task could not be completed. Try completing it again.",
+  "focusEstimateActualLabel": "Focus time",
+  "focusEstimateActualValue": "{actual} actual · {estimate} estimated",
+  "@focusEstimateActualValue": {
+    "placeholders": {
+      "actual": {"type": "String"},
+      "estimate": {"type": "String"}
+    }
+  },
+  "focusActualOnlyValue": "{actual} recorded",
+  "@focusActualOnlyValue": {"placeholders": {"actual": {"type": "String"}}},
+  "focusNoActualValue": "No work recorded yet",
+  "timerNotificationTitle": "Focus time is complete",
+  "timerNotificationBody": "Open Todori to continue your focus rhythm.",
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

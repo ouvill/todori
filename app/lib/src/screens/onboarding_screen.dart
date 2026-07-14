@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/ui/theme.dart';
 
@@ -63,20 +64,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final pages = [
       _OnboardingPageData(
-        icon: Icons.spa_outlined,
+        icon: LucideIcons.sprout300,
         title: l10n.onboardingWelcomeTitle,
         body: l10n.onboardingWelcomeBody,
         semanticLabel: l10n.onboardingWelcomeArtworkSemantics,
       ),
       _OnboardingPageData(
-        icon: Icons.shield_outlined,
+        icon: LucideIcons.shieldCheck300,
         title: l10n.onboardingPrivacyTitle,
         body: l10n.onboardingPrivacyBody,
         note: l10n.onboardingPrivacyNote,
         semanticLabel: l10n.onboardingPrivacyArtworkSemantics,
       ),
       _OnboardingPageData(
-        icon: Icons.check_rounded,
+        icon: LucideIcons.circleCheck300,
         title: l10n.onboardingBeginTitle,
         body: l10n.onboardingBeginBody,
         semanticLabel: l10n.onboardingBeginArtworkSemantics,
@@ -138,28 +139,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     child: ExcludeSemantics(
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          for (var index = 0; index < pages.length; index++)
-                            AnimatedContainer(
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 180),
-                              curve: Curves.easeOutCubic,
-                              width: index == _pageIndex
-                                  ? AppSpacing.lg
-                                  : AppSpacing.sm,
-                              height: AppSpacing.sm,
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.xs,
-                              ),
-                              decoration: BoxDecoration(
-                                color: index == _pageIndex
+                          for (
+                            var index = 0;
+                            index < pages.length;
+                            index++
+                          ) ...[
+                            Expanded(
+                              child: AnimatedContainer(
+                                duration:
+                                    MediaQuery.disableAnimationsOf(context)
+                                    ? Duration.zero
+                                    : const Duration(milliseconds: 180),
+                                curve: Curves.easeOutCubic,
+                                height: index <= _pageIndex ? 2 : 1,
+                                color: index <= _pageIndex
                                     ? colorScheme.primary
                                     : colorScheme.outlineVariant,
-                                borderRadius: BorderRadius.circular(999),
                               ),
                             ),
+                            if (index != pages.length - 1)
+                              const SizedBox(width: AppSpacing.xs),
+                          ],
                         ],
                       ),
                     ),
@@ -179,6 +180,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   FilledButton(
                     key: const ValueKey('onboarding-primary-action'),
                     onPressed: _submitting ? null : _advance,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                     child: _submitting
                         ? SizedBox.square(
                             dimension: AppSpacing.lg,
@@ -240,9 +247,11 @@ class _OnboardingPage extends StatelessWidget {
         context,
       )!.onboardingPagePosition(pageIndex + 1, pageCount),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.xl,
+          AppSpacing.lg,
+          AppSpacing.md,
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -250,42 +259,41 @@ class _OnboardingPage extends StatelessWidget {
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Semantics(
                 image: true,
                 label: data.semanticLabel,
                 child: ExcludeSemantics(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: SizedBox.square(
-                      dimension: AppSpacing.xl * 4,
+                  child: SizedBox.square(
+                    dimension: 52,
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
                       child: Icon(
                         data.icon,
-                        size: AppSpacing.xl * 1.5,
+                        size: 28,
                         color: colorScheme.primary,
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.xl),
+              const SizedBox(height: AppSpacing.lg),
               Text(
                 data.title,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.displayMedium?.copyWith(
-                  color: colorScheme.primary,
-                  fontSize: AppSpacing.xl,
-                  height: 1,
+                textAlign: TextAlign.start,
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  color: colorScheme.onSurface,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.8,
+                  height: 1.08,
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
                 data.body,
-                textAlign: TextAlign.center,
+                textAlign: TextAlign.start,
                 style: theme.textTheme.bodyLarge?.copyWith(
                   color: colorScheme.onSurface,
                   height: 1.45,
@@ -293,20 +301,30 @@ class _OnboardingPage extends StatelessWidget {
               ),
               if (data.note != null) ...[
                 const SizedBox(height: AppSpacing.md),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: colorScheme.outlineVariant),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    start: AppSpacing.md,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    child: Text(
-                      data.note!,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        height: 1.4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(
+                          color: colorScheme.outlineVariant,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        start: AppSpacing.md,
+                      ),
+                      child: Text(
+                        data.note!,
+                        textAlign: TextAlign.start,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ),

@@ -76,7 +76,7 @@ fn aad(collection: &str, record_id: &str) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::hlc::Hlc;
-    use todori_domain::{new_list, List};
+    use todori_domain::{new_list, CompletedTimerSession, List, TimerFinishKind, TimerMode, Uuid};
 
     fn key(byte: u8) -> [u8; 32] {
         [byte; 32]
@@ -135,6 +135,42 @@ mod tests {
             decrypt_plaintext(&key(0x42), "lists", &other_record_id, &blob),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         );
+    }
+
+    #[test]
+    fn timer_session_uses_existing_envelope_and_rejects_wrong_tenant_root_dek() {
+        let session = CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id: Uuid::now_v7(),
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1_000,
+            ended_at: 2_000,
+            active_duration_ms: 900,
+            created_at: 2_001,
+        };
+        let plaintext = SyncPlaintext::from_timer_session(
+            &session,
+            Hlc {
+                wall_ms: 2_001,
+                counter: 0,
+                device_id: "device-a".into(),
+            },
+        )
+        .unwrap();
+        let record_id = session.id.to_string();
+        let blob = encrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &plaintext).unwrap();
+
+        assert_eq!(blob[0], 3);
+        assert_eq!(
+            decrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &blob).unwrap(),
+            plaintext
+        );
+        assert!(matches!(
+            decrypt_plaintext(&key(0x24), "timer_sessions", &record_id, &blob),
+            Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
+        ));
+        assert!(decrypt_plaintext(&key(0x42), "tasks", &record_id, &blob).is_err());
     }
 
     #[test]

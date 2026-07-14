@@ -896,6 +896,13 @@ async fn apply_push_op(
     if stored.revision_hlc == op.revision_hlc && stored.state == op.state {
         return Ok(op.result(PushStatus::NoOp, Some((stored.seq, None))));
     }
+    if op.collection == SyncCollection::TimerSessions
+        && matches!(stored.state, StoredState::Live { .. })
+        && matches!(op.state, StoredState::Live { .. })
+    {
+        let seq = stored.seq;
+        return Ok(op.result(PushStatus::Conflict, Some((seq, Some(stored)))));
+    }
     if stored.revision_hlc == op.revision_hlc
         || op.base_revision_hlc.as_deref() != Some(stored.revision_hlc.as_str())
         || op.revision_hlc <= stored.revision_hlc

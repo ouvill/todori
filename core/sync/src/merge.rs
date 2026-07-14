@@ -144,6 +144,12 @@ pub fn merge_lww(
                 &mut incoming_won,
             ),
         }),
+        (SyncPlaintext::TimerSession(a), SyncPlaintext::TimerSession(b)) => {
+            if a.value != b.value {
+                return Err(FieldMapError::ImmutableConflict);
+            }
+            SyncPlaintext::TimerSession(if a.hlc >= b.hlc { a.clone() } else { b.clone() })
+        }
         _ => return Err(FieldMapError::KindMismatch),
     };
     Ok(MergeResult {
@@ -300,5 +306,32 @@ mod tests {
             Some(TaskDue::date_time(1_783_798_200_000, "Asia/Tokyo").unwrap())
         );
         assert_eq!(value.due.hlc, h(2, "b"));
+    }
+
+    #[test]
+    fn timer_session_merge_is_idempotent_but_never_merges_different_content() {
+        use todori_domain::{CompletedTimerSession, TimerFinishKind, TimerMode};
+
+        let session = CompletedTimerSession {
+            id: Uuid::now_v7(),
+            task_id: Uuid::now_v7(),
+            mode: TimerMode::Stopwatch,
+            finish_kind: TimerFinishKind::Completed,
+            started_at: 1,
+            ended_at: 10,
+            active_duration_ms: 8,
+            created_at: 11,
+        };
+        let local = SyncPlaintext::from_timer_session(&session, h(1, "a")).unwrap();
+        let identical = SyncPlaintext::from_timer_session(&session, h(2, "b")).unwrap();
+        assert!(merge_lww(&local, &identical).is_ok());
+
+        let mut conflicting = session;
+        conflicting.active_duration_ms = 7;
+        let conflicting = SyncPlaintext::from_timer_session(&conflicting, h(3, "c")).unwrap();
+        assert_eq!(
+            merge_lww(&local, &conflicting),
+            Err(FieldMapError::ImmutableConflict)
+        );
     }
 }

@@ -38,7 +38,9 @@ class TaskDetailScreen extends ConsumerWidget {
     final tasksAsync = ref.watch(tasksProvider(listId));
 
     return Scaffold(
+      backgroundColor: AppColors.canvas,
       appBar: AppBar(
+        backgroundColor: AppColors.canvas,
         title: const SizedBox.shrink(),
         actions: [
           detailAsync.maybeWhen(
@@ -92,6 +94,18 @@ class TaskDetailScreen extends ConsumerWidget {
           final locale = Localizations.localeOf(context).toLanguageTag();
           final remindersAsync = ref.watch(taskRemindersProvider(task.id));
           final reminder = remindersAsync.asData?.value.firstOrNull;
+          final completedSessionsAsync = ref.watch(
+            completedTimerSessionsProvider(task.id),
+          );
+          final completedSessions =
+              completedSessionsAsync.asData?.value ??
+              const <CompletedTimerSessionDto>[];
+          final actualDuration = Duration(
+            milliseconds: completedSessions.fold<int>(
+              0,
+              (total, session) => total + session.activeDurationMs.toInt(),
+            ),
+          );
           return Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
@@ -189,7 +203,13 @@ class TaskDetailScreen extends ConsumerWidget {
                           task: task,
                           reminder: reminder,
                           stats: stats,
+                          actualDuration: actualDuration,
                           locale: locale,
+                          onStartFocus: isTaskClosed(task)
+                              ? null
+                              : () => context.push(
+                                  '/focus/${task.listId}/${task.id}',
+                                ),
                           onSelectDueDate: () => _selectDue(context, ref, task),
                           onClearDueDate: task.due == null
                               ? null
@@ -199,12 +219,9 @@ class TaskDetailScreen extends ConsumerWidget {
                                   task,
                                   due: null,
                                 ),
-                          onPrioritySelected: (priority) => _updateTaskFields(
-                            context,
-                            ref,
-                            task,
-                            priority: priority,
-                          ),
+                          onSelectPlan: () => _selectPlan(context, ref, task),
+                          onSelectPriority: () =>
+                              _selectPriority(context, ref, task),
                           onSelectReminder: () =>
                               _selectReminder(context, ref, task, reminder),
                           onClearReminder: reminder == null
@@ -334,8 +351,8 @@ class TaskDetailScreen extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.sm),
                   Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(LucideIcons.plus300),
+                    child: TextButton.icon(
+                      icon: const Icon(LucideIcons.plus300, size: 18),
                       label: Text(l10n.addSubtaskButton),
                       onPressed: () => _createSubtask(context, ref, task),
                     ),
@@ -378,6 +395,8 @@ class TaskDetailScreen extends ConsumerWidget {
     String? note,
     int? priority,
     Object? due = _unchangedDue,
+    Object? scheduledAt = _unchangedScheduledAt,
+    Object? estimatedMinutes = _unchangedEstimatedMinutes,
   }) async {
     final nextTitle = title ?? task.title;
     final nextNote = note ?? task.note;
@@ -385,11 +404,20 @@ class TaskDetailScreen extends ConsumerWidget {
     final nextDue = identical(due, _unchangedDue)
         ? task.due
         : due as TaskDueDto?;
+    final nextScheduledAt = identical(scheduledAt, _unchangedScheduledAt)
+        ? task.scheduledAt
+        : scheduledAt as int?;
+    final nextEstimatedMinutes =
+        identical(estimatedMinutes, _unchangedEstimatedMinutes)
+        ? task.estimatedMinutes
+        : estimatedMinutes as int?;
 
     if (nextTitle == task.title &&
         nextNote == task.note &&
         nextPriority == task.priority &&
-        nextDue == task.due) {
+        nextDue == task.due &&
+        nextScheduledAt == task.scheduledAt &&
+        nextEstimatedMinutes == task.estimatedMinutes) {
       return true;
     }
 
@@ -402,6 +430,8 @@ class TaskDetailScreen extends ConsumerWidget {
             note: nextNote,
             priority: nextPriority,
             due: nextDue,
+            scheduledAt: nextScheduledAt,
+            estimatedMinutes: nextEstimatedMinutes,
           );
       ref.invalidate(homeTasksProvider);
       if (context.mounted) {
@@ -420,6 +450,41 @@ class TaskDetailScreen extends ConsumerWidget {
       }
       return false;
     }
+  }
+
+  Future<void> _selectPlan(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final value = await showTaskPlanSheet(
+      context: context,
+      initialValue: TaskPlanValue(
+        scheduledAt: task.scheduledAt,
+        estimatedMinutes: task.estimatedMinutes,
+      ),
+    );
+    if (value == null || !context.mounted) return;
+    await _updateTaskFields(
+      context,
+      ref,
+      task,
+      scheduledAt: value.scheduledAt,
+      estimatedMinutes: value.estimatedMinutes,
+    );
+  }
+
+  Future<void> _selectPriority(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+  ) async {
+    final selection = await showTaskPrioritySheet(
+      context: context,
+      selectedPriority: task.priority,
+    );
+    if (selection == null || !context.mounted) return;
+    await _updateTaskFields(context, ref, task, priority: selection.value);
   }
 
   Future<void> _selectDue(
@@ -796,6 +861,36 @@ String formatReminderDateTime(String locale, int epochMs) {
       '${DateFormat.jm(locale).format(dateTime)}';
 }
 
+String _focusSummaryLabel(
+  AppLocalizations l10n, {
+  required int? estimatedMinutes,
+  required Duration actualDuration,
+}) {
+  final hasActual = actualDuration > Duration.zero;
+  final hasEstimate = estimatedMinutes != null;
+  if (!hasActual && !hasEstimate) {
+    return l10n.focusNoActualValue;
+  }
+  final actual = _compactDuration(actualDuration);
+  if (!hasEstimate) {
+    return l10n.focusActualOnlyValue(actual);
+  }
+  return l10n.focusEstimateActualValue(
+    hasActual ? actual : _compactDuration(Duration.zero),
+    _compactDuration(Duration(minutes: estimatedMinutes)),
+  );
+}
+
+String _compactDuration(Duration duration) {
+  final minutes = duration.inMinutes;
+  if (minutes < 60) {
+    return '${minutes}m';
+  }
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  return remainder == 0 ? '${hours}h' : '${hours}h ${remainder}m';
+}
+
 TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
   for (final task in tasks) {
     if (task.id == taskId) {
@@ -806,6 +901,8 @@ TaskDto? _findTaskById(List<TaskDto> tasks, String taskId) {
 }
 
 const Object _unchangedDue = Object();
+const Object _unchangedScheduledAt = Object();
+const Object _unchangedEstimatedMinutes = Object();
 
 enum _TaskDueMode { date, dateTime }
 
@@ -974,7 +1071,7 @@ class _InlineTitleEditorState extends State<_InlineTitleEditor> {
         button: true,
         label: widget.semanticLabel,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(8),
           onTap: _startEditing,
           child: Padding(
             padding: _inlineEditorPadding,
@@ -1136,7 +1233,7 @@ class _InlineNoteEditorState extends State<_InlineNoteEditor> {
         button: true,
         label: widget.semanticLabel,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(8),
           onTap: _startEditing,
           child: Padding(
             padding: _inlineEditorPadding,
@@ -1178,7 +1275,7 @@ class _ParentTaskLink extends StatelessWidget {
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(8),
             onTap: onTap,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 48),
@@ -1224,10 +1321,13 @@ class _EditableTaskMetadata extends StatelessWidget {
     required this.task,
     required this.reminder,
     required this.stats,
+    required this.actualDuration,
     required this.locale,
+    required this.onStartFocus,
     required this.onSelectDueDate,
     required this.onClearDueDate,
-    required this.onPrioritySelected,
+    required this.onSelectPlan,
+    required this.onSelectPriority,
     required this.onSelectReminder,
     required this.onClearReminder,
   });
@@ -1235,10 +1335,13 @@ class _EditableTaskMetadata extends StatelessWidget {
   final TaskDto task;
   final ReminderDto? reminder;
   final SubtaskStats stats;
+  final Duration actualDuration;
   final String locale;
+  final VoidCallback? onStartFocus;
   final VoidCallback onSelectDueDate;
   final VoidCallback? onClearDueDate;
-  final ValueChanged<int> onPrioritySelected;
+  final VoidCallback onSelectPlan;
+  final VoidCallback onSelectPriority;
   final VoidCallback onSelectReminder;
   final VoidCallback? onClearReminder;
 
@@ -1250,27 +1353,36 @@ class _EditableTaskMetadata extends StatelessWidget {
     final reminderLabel = reminder == null
         ? l10n.reminderChipEmpty
         : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
-    return Wrap(
-      spacing: AppSpacing.xs,
-      runSpacing: AppSpacing.xs,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    return Column(
       children: [
-        _DetailPill(
-          icon: taskStatusIcon(task.status),
-          label: taskStatusLabel(l10n, task.status),
-        ),
-        if (task.priority > 0)
-          PriorityDot(
-            key: ValueKey('task-priority-dot-${task.id}'),
-            priority: task.priority,
-            semanticLabel: l10n.taskPriority(
-              taskPriorityLabel(l10n, task.priority),
-            ),
-            isMuted: isTaskClosed(task),
+        if (onStartFocus != null)
+          _DetailPropertyRow(
+            key: ValueKey('task-focus-row-${task.id}'),
+            icon: LucideIcons.timer300,
+            property: l10n.focusTitle,
+            label: l10n.focusStartButton,
+            tooltip: l10n.focusStartButton,
+            onTap: onStartFocus,
           ),
-        _DetailPill(
+        _DetailPropertyRow(
+          key: ValueKey('task-focus-summary-${task.id}'),
+          icon: LucideIcons.clock300,
+          property: l10n.focusEstimateActualLabel,
+          label: _focusSummaryLabel(
+            l10n,
+            estimatedMinutes: task.estimatedMinutes,
+            actualDuration: actualDuration,
+          ),
+        ),
+        _DetailPropertyRow(
+          icon: taskStatusIcon(task.status),
+          property: taskStatusLabel(l10n, task.status),
+          label: '',
+        ),
+        _DetailPropertyRow(
           key: ValueKey('task-due-chip-${task.id}'),
           icon: LucideIcons.calendarDays300,
+          property: l10n.dueDateLabel,
           label: dueLabel,
           tooltip: task.due == null
               ? l10n.setDueDateButton
@@ -1278,69 +1390,60 @@ class _EditableTaskMetadata extends StatelessWidget {
           semanticLabel: overdue ? l10n.taskDueOverdue(dueLabel) : null,
           emphasisColor: overdue ? priorityDotColor(3) : null,
           onTap: onSelectDueDate,
-          trailing: onClearDueDate == null
+          clearKey: ValueKey('task-clear-due-${task.id}'),
+          clearTooltip: l10n.clearDueDateButton,
+          onClear: onClearDueDate,
+        ),
+        _DetailPropertyRow(
+          key: ValueKey('task-plan-row-${task.id}'),
+          icon: LucideIcons.calendarClock300,
+          property: l10n.taskCreatePlanLabel,
+          label: formatTaskPlanValue(
+            l10n,
+            locale: locale,
+            scheduledAt: task.scheduledAt,
+            estimatedMinutes: task.estimatedMinutes,
+          ),
+          tooltip: l10n.taskCreatePlanTooltip,
+          onTap: onSelectPlan,
+        ),
+        _DetailPropertyRow(
+          key: ValueKey('task-priority-chip-${task.id}'),
+          icon: LucideIcons.flag300,
+          property: l10n.priorityLabel,
+          label: taskPriorityLabel(l10n, task.priority),
+          tooltip: l10n.changePriorityTooltip,
+          semanticLabel: l10n.taskPriority(
+            taskPriorityLabel(l10n, task.priority),
+          ),
+          marker: task.priority == 0
               ? null
-              : SizedBox.square(
-                  dimension: 32,
-                  child: IconButton(
-                    key: ValueKey('task-clear-due-${task.id}'),
-                    tooltip: l10n.clearDueDateButton,
-                    icon: const Icon(LucideIcons.x300, size: 16),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    onPressed: onClearDueDate,
+              : ExcludeSemantics(
+                  child: PriorityDot(
+                    key: ValueKey('task-priority-dot-${task.id}'),
+                    priority: task.priority,
+                    isMuted: isTaskClosed(task),
                   ),
                 ),
+          onTap: onSelectPriority,
         ),
-        PopupMenuButton<int>(
-          key: ValueKey('task-priority-chip-${task.id}'),
-          tooltip: l10n.changePriorityTooltip,
-          onSelected: onPrioritySelected,
-          itemBuilder: (context) => [
-            PopupMenuItem(value: 0, child: Text(l10n.priorityNone)),
-            PopupMenuItem(value: 1, child: Text(l10n.priorityLow)),
-            PopupMenuItem(value: 2, child: Text(l10n.priorityMedium)),
-            PopupMenuItem(value: 3, child: Text(l10n.priorityHigh)),
-          ],
-          child: _DetailPill(
-            icon: LucideIcons.flag300,
-            label: taskPriorityLabel(l10n, task.priority),
-            semanticLabel: l10n.taskPriority(
-              taskPriorityLabel(l10n, task.priority),
-            ),
-          ),
-        ),
-        _DetailPill(
+        _DetailPropertyRow(
           key: ValueKey('task-reminder-chip-${task.id}'),
           icon: LucideIcons.bell300,
+          property: l10n.reminderChipEmpty,
           label: reminderLabel,
           tooltip: reminder == null
               ? l10n.reminderChipTooltipSet
               : l10n.reminderChipTooltipChange,
           onTap: onSelectReminder,
-          trailing: onClearReminder == null
-              ? null
-              : SizedBox.square(
-                  dimension: 32,
-                  child: IconButton(
-                    key: ValueKey('task-clear-reminder-${task.id}'),
-                    tooltip: l10n.clearReminderButton,
-                    icon: const Icon(LucideIcons.x300, size: 16),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    onPressed: onClearReminder,
-                  ),
-                ),
+          clearKey: ValueKey('task-clear-reminder-${task.id}'),
+          clearTooltip: l10n.clearReminderButton,
+          onClear: onClearReminder,
         ),
         if (stats.hasDescendants)
-          _DetailPill(
+          _DetailPropertyRow(
             icon: LucideIcons.gitBranch300,
+            property: l10n.subtasksTitle,
             label: l10n.subtaskProgress(stats.doneCount, stats.totalCount),
           ),
       ],
@@ -1348,25 +1451,33 @@ class _EditableTaskMetadata extends StatelessWidget {
   }
 }
 
-class _DetailPill extends StatelessWidget {
-  const _DetailPill({
+class _DetailPropertyRow extends StatelessWidget {
+  const _DetailPropertyRow({
     super.key,
     required this.icon,
+    required this.property,
     required this.label,
     this.tooltip,
     this.semanticLabel,
     this.emphasisColor,
     this.onTap,
-    this.trailing,
+    this.clearKey,
+    this.clearTooltip,
+    this.onClear,
+    this.marker,
   });
 
   final IconData icon;
+  final String property;
   final String label;
   final String? tooltip;
   final String? semanticLabel;
   final Color? emphasisColor;
   final VoidCallback? onTap;
-  final Widget? trailing;
+  final Key? clearKey;
+  final String? clearTooltip;
+  final VoidCallback? onClear;
+  final Widget? marker;
 
   @override
   Widget build(BuildContext context) {
@@ -1375,35 +1486,59 @@ class _DetailPill extends StatelessWidget {
     final tint =
         emphasisColor ??
         (onTap == null ? colorScheme.onSurfaceVariant : colorScheme.primary);
-    final content = ConstrainedBox(
-      constraints: BoxConstraints(
-        minHeight: 40,
-        maxWidth: MediaQuery.sizeOf(context).width - 64,
+    final content = DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: colorScheme.outlineVariant, width: 0.7),
+        ),
       ),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(),
-        child: Padding(
-          padding: EdgeInsetsDirectional.only(
-            start: AppSpacing.sm,
-            top: AppSpacing.xs,
-            end: trailing == null ? AppSpacing.sm : 0,
-            bottom: AppSpacing.xs,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: tint),
-              const SizedBox(width: AppSpacing.xs),
-              Flexible(
-                child: Text(
-                  label,
-                  softWrap: true,
-                  style: theme.textTheme.labelMedium?.copyWith(color: tint),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 36,
+              child: Icon(icon, size: 17, color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(
+              flex: 4,
+              child: Text(
+                property,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
-              ?trailing,
+            ),
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: AppSpacing.sm),
+              if (marker != null) ...[
+                marker!,
+                const SizedBox(width: AppSpacing.xs),
+              ],
+              Flexible(
+                flex: 5,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.end,
+                  softWrap: true,
+                  style: theme.textTheme.bodyMedium?.copyWith(color: tint),
+                ),
+              ),
             ],
-          ),
+            if (onClear != null)
+              IconButton(
+                key: clearKey,
+                tooltip: clearTooltip,
+                icon: const Icon(LucideIcons.x300, size: 16),
+                onPressed: onClear,
+              )
+            else if (onTap != null)
+              const SizedBox(
+                width: 40,
+                child: Icon(LucideIcons.chevronRight300, size: 16),
+              ),
+          ],
         ),
       ),
     );
@@ -1411,11 +1546,7 @@ class _DetailPill extends StatelessWidget {
         ? content
         : Material(
             type: MaterialType.transparency,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onTap,
-              child: content,
-            ),
+            child: InkWell(onTap: onTap, child: content),
           );
     final effectiveSemanticLabel =
         semanticLabel ?? (onTap == null ? null : label);

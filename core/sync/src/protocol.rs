@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-pub const SYNC_PROTOCOL_VERSION: u16 = 4;
+pub const SYNC_PROTOCOL_VERSION: u16 = 5;
 pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-todori-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +54,7 @@ pub struct ContinuityAckResponse {
 pub enum SyncCollection {
     Lists,
     Tasks,
+    TimerSessions,
 }
 
 impl SyncCollection {
@@ -61,6 +62,7 @@ impl SyncCollection {
         match self {
             Self::Lists => "lists",
             Self::Tasks => "tasks",
+            Self::TimerSessions => "timer_sessions",
         }
     }
 }
@@ -78,6 +80,7 @@ impl FromStr for SyncCollection {
         match value {
             "lists" => Ok(Self::Lists),
             "tasks" => Ok(Self::Tasks),
+            "timer_sessions" => Ok(Self::TimerSessions),
             _ => Err(ProtocolTypeError::UnknownCollection(value.to_string())),
         }
     }
@@ -224,6 +227,7 @@ mod tests {
     #[test]
     fn collection_rejects_unknown_values() {
         assert_eq!("tasks".parse(), Ok(SyncCollection::Tasks));
+        assert_eq!("timer_sessions".parse(), Ok(SyncCollection::TimerSessions));
         assert!("reminders".parse::<SyncCollection>().is_err());
         assert!(serde_json::from_value::<SyncCollection>(json!("Tasks")).is_err());
     }

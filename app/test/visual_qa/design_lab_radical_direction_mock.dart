@@ -11,8 +11,6 @@ const _rCoral = Color(0xFFC96357);
 const _rAmber = Color(0xFFC08B3E);
 const _rLowPriority = Color(0xFF82A994);
 const _rCheckFill = Color(0xFF356A57);
-const _rNight = Color(0xFF183E31);
-const _rNightMuted = Color(0xFFAFC8BA);
 const _rNightText = Color(0xFFF5F0E4);
 
 class _RadicalHomeMock extends StatelessWidget {
@@ -2137,6 +2135,8 @@ class _RadicalFocusSetupMock extends StatelessWidget {
     this.onDecrease,
     this.onIncrease,
     this.onPresetSelected,
+    this.isStopwatch = false,
+    this.onModeChanged,
   });
 
   final VoidCallback? onClose;
@@ -2145,6 +2145,8 @@ class _RadicalFocusSetupMock extends StatelessWidget {
   final VoidCallback? onDecrease;
   final VoidCallback? onIncrease;
   final ValueChanged<int>? onPresetSelected;
+  final bool isStopwatch;
+  final ValueChanged<bool>? onModeChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2155,8 +2157,8 @@ class _RadicalFocusSetupMock extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 23),
           child: Column(
             children: [
-              _RadicalFocusBar(label: 'SET FOCUS', onClose: onClose),
-              const SizedBox(height: 36),
+              _RadicalFocusBar(label: 'FOCUS', onClose: onClose),
+              const SizedBox(height: 25),
               const Text(
                 'Prepare launch notes',
                 style: TextStyle(
@@ -2166,20 +2168,61 @@ class _RadicalFocusSetupMock extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 74),
-              _RadicalDurationControl(
-                durationMinutes: durationMinutes,
-                onDecrease: onDecrease,
-                onIncrease: onIncrease,
+              const SizedBox(height: 23),
+              _RadicalFocusModeSelector(
+                isStopwatch: isStopwatch,
+                onChanged: onModeChanged,
               ),
-              const SizedBox(height: 44),
-              _RadicalPresetLine(
-                durationMinutes: durationMinutes,
-                onSelected: onPresetSelected,
-              ),
-              const SizedBox(height: 42),
-              const _RadicalModeLine(),
               const Spacer(),
+              _RadicalOpenDial(
+                progress: 1,
+                staticArc: isStopwatch,
+                semanticsLabel: isStopwatch
+                    ? 'Stopwatch, ready'
+                    : '$durationMinutes minute focus, ready',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isStopwatch ? '0:00' : '$durationMinutes',
+                      style: const TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rInk,
+                        fontSize: 66,
+                        fontWeight: FontWeight.w300,
+                        height: 0.92,
+                        letterSpacing: -3.4,
+                      ),
+                    ),
+                    const SizedBox(height: 11),
+                    Text(
+                      isStopwatch ? 'READY' : 'MINUTES',
+                      style: const TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rMuted,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.55,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (!isStopwatch) ...[
+                _RadicalDurationControl(
+                  durationMinutes: durationMinutes,
+                  onDecrease: onDecrease,
+                  onIncrease: onIncrease,
+                ),
+                const SizedBox(height: 14),
+                _RadicalPresetLine(
+                  durationMinutes: durationMinutes,
+                  onSelected: onPresetSelected,
+                ),
+                const SizedBox(height: 22),
+              ] else
+                const SizedBox(height: 44),
               _RadicalBeginButton(onPressed: onBegin),
             ],
           ),
@@ -2215,34 +2258,19 @@ class _RadicalDurationControl extends StatelessWidget {
             shape: const CircleBorder(),
           ),
         ),
-        const SizedBox(width: 29),
-        Column(
-          children: [
-            Text(
-              '$durationMinutes',
-              style: const TextStyle(
-                fontFamily: _directionSans,
-                color: _rInk,
-                fontSize: 70,
-                fontWeight: FontWeight.w300,
-                height: 0.92,
-                letterSpacing: -3,
-              ),
+        SizedBox(
+          width: 96,
+          child: Text(
+            '$durationMinutes min',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _directionSans,
+              color: _rInk,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'MINUTES',
-              style: TextStyle(
-                fontFamily: _directionSans,
-                color: _rMuted,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ],
+          ),
         ),
-        const SizedBox(width: 29),
         IconButton(
           onPressed: onIncrease ?? () {},
           icon: const Icon(LucideIcons.plus300, size: 20),
@@ -2254,6 +2282,78 @@ class _RadicalDurationControl extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RadicalFocusModeSelector extends StatelessWidget {
+  const _RadicalFocusModeSelector({required this.isStopwatch, this.onChanged});
+
+  final bool isStopwatch;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _RadicalFocusModeOption(
+          label: 'Pomodoro',
+          selected: !isStopwatch,
+          onTap: () => onChanged?.call(false),
+        ),
+        const SizedBox(width: 29),
+        _RadicalFocusModeOption(
+          label: 'Stopwatch',
+          selected: isStopwatch,
+          onTap: () => onChanged?.call(true),
+        ),
+      ],
+    );
+  }
+}
+
+class _RadicalFocusModeOption extends StatelessWidget {
+  const _RadicalFocusModeOption({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 44,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: _directionSans,
+                color: selected ? _rGreen : _rMuted,
+                fontSize: 12.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 7),
+            SizedBox(
+              width: 18,
+              child: Divider(
+                height: 1,
+                thickness: 1.5,
+                color: selected ? _rGreen : Colors.transparent,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2322,49 +2422,6 @@ class _RadicalPreset extends StatelessWidget {
   }
 }
 
-class _RadicalModeLine extends StatelessWidget {
-  const _RadicalModeLine();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: _rRule, width: 0.65),
-          bottom: BorderSide(color: _rRule, width: 0.65),
-        ),
-      ),
-      child: SizedBox(
-        height: 54,
-        child: Row(
-          children: [
-            Text(
-              'Mode',
-              style: TextStyle(
-                fontFamily: _directionSans,
-                color: _rMuted,
-                fontSize: 12.5,
-              ),
-            ),
-            Spacer(),
-            Text(
-              'Timer',
-              style: TextStyle(
-                fontFamily: _directionSans,
-                color: _rInk,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(width: 8),
-            Text('→', style: TextStyle(color: _rMuted, fontSize: 15)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _RadicalBeginButton extends StatelessWidget {
   const _RadicalBeginButton({this.onPressed});
 
@@ -2373,14 +2430,14 @@ class _RadicalBeginButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: double.infinity,
+      width: 280,
       height: 50,
       child: FilledButton(
         onPressed: onPressed ?? () {},
         style: FilledButton.styleFrom(
           backgroundColor: _rGreen,
           foregroundColor: _rNightText,
-          shape: const RoundedRectangleBorder(),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(
             fontFamily: _directionSans,
             fontSize: 13.5,
@@ -2388,7 +2445,7 @@ class _RadicalBeginButton extends StatelessWidget {
             letterSpacing: 0.2,
           ),
         ),
-        child: const Text('Begin focus  →'),
+        child: const Text('Start focus'),
       ),
     );
   }
@@ -2398,72 +2455,107 @@ class _RadicalFocusMock extends StatelessWidget {
   const _RadicalFocusMock({
     this.onClose,
     this.onPause,
-    this.onFinish,
+    this.onSessionOptions,
     this.remainingSeconds = 1500,
     this.progress = 0.67,
     this.isPaused = false,
+    this.isStopwatch = false,
   });
 
   final VoidCallback? onClose;
   final VoidCallback? onPause;
-  final VoidCallback? onFinish;
+  final VoidCallback? onSessionOptions;
   final int remainingSeconds;
   final double progress;
   final bool isPaused;
+  final bool isStopwatch;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _rNight,
+      backgroundColor: _rCanvas,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: Column(
             children: [
               _RadicalFocusBar(
-                label: 'FOCUS  ·  1 OF 4',
-                inverse: true,
+                label: isStopwatch ? 'STOPWATCH' : 'FOCUS  ·  1 OF 4',
                 onClose: onClose,
               ),
-              const SizedBox(height: 39),
+              const SizedBox(height: 34),
               const Text(
                 'Prepare launch notes',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: _directionSans,
-                  color: _rNightText,
+                  color: _rInk,
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const Spacer(flex: 2),
-              Text(
-                _formatFocusTime(remainingSeconds),
-                style: const TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rNightText,
-                  fontSize: 78,
-                  fontWeight: FontWeight.w300,
-                  height: 0.95,
-                  letterSpacing: -4,
+              const Spacer(),
+              _RadicalOpenDial(
+                progress: progress,
+                paused: isPaused,
+                staticArc: isStopwatch,
+                semanticsLabel: isStopwatch
+                    ? '${_formatFocusTime(remainingSeconds)} elapsed'
+                    : '${_formatFocusTime(remainingSeconds)} remaining',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatFocusTime(remainingSeconds),
+                      style: const TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rInk,
+                        fontSize: 68,
+                        fontWeight: FontWeight.w300,
+                        height: 0.94,
+                        letterSpacing: -3.8,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: Text(
+                        isPaused
+                            ? 'PAUSED'
+                            : isStopwatch
+                            ? 'ELAPSED'
+                            : 'REMAINING',
+                        key: ValueKey((isPaused, isStopwatch)),
+                        style: TextStyle(
+                          fontFamily: _directionSans,
+                          color: isPaused ? _rGreen : _rMuted,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              const Text(
-                'until 10:05',
-                style: TextStyle(
-                  fontFamily: _directionSans,
-                  color: _rNightMuted,
-                  fontSize: 12.5,
-                ),
-              ),
-              const SizedBox(height: 48),
-              _RadicalHorizon(progress: progress),
-              const Spacer(flex: 3),
-              _RadicalFocusActions(
-                onPause: onPause,
-                onFinish: onFinish,
+              const Spacer(),
+              _RadicalPrimaryFocusAction(
+                onPressed: onPause,
                 isPaused: isPaused,
+              ),
+              const SizedBox(height: 18),
+              TextButton(
+                onPressed: onSessionOptions ?? () {},
+                style: TextButton.styleFrom(
+                  foregroundColor: _rMuted,
+                  minimumSize: const Size(180, 44),
+                  textStyle: const TextStyle(
+                    fontFamily: _directionSans,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Text('Session options'),
               ),
             ],
           ),
@@ -2479,128 +2571,351 @@ String _formatFocusTime(int seconds) {
   return '$minutes:${remainder.toString().padLeft(2, '0')}';
 }
 
-class _RadicalHorizon extends StatelessWidget {
-  const _RadicalHorizon({this.progress = 0.67});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final activeWidth = width * progress.clamp(0.0, 1.0);
-        final birdLeft = (activeWidth - 25).clamp(0.0, width - 44);
-        return SizedBox(
-          height: 40,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Positioned(
-                left: 0,
-                right: 0,
-                top: 22,
-                child: Divider(color: Color(0xFF4F7162), height: 1),
-              ),
-              Positioned(
-                left: 0,
-                top: 21,
-                child: Container(width: activeWidth, height: 2, color: _rSage),
-              ),
-              Positioned(
-                left: birdLeft,
-                top: -13,
-                child: const Column(
-                  children: [
-                    _RadicalFlyingTsugumidori(),
-                    SizedBox(height: 2),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: _rSage,
-                        shape: BoxShape.circle,
-                      ),
-                      child: SizedBox.square(dimension: 5),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _RadicalFlyingTsugumidori extends StatelessWidget {
-  const _RadicalFlyingTsugumidori();
-
-  static const _asset =
-      'assets/brand/generated/todori-mascot-ui-sprites-v1.png';
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      _asset,
-      width: 44,
-      height: 42,
-      fit: BoxFit.cover,
-      alignment: Alignment.centerLeft,
-    );
-  }
-}
-
-class _RadicalFocusActions extends StatelessWidget {
-  const _RadicalFocusActions({
-    this.onPause,
-    this.onFinish,
-    this.isPaused = false,
+class _RadicalOpenDial extends StatelessWidget {
+  const _RadicalOpenDial({
+    required this.progress,
+    required this.semanticsLabel,
+    required this.child,
+    this.paused = false,
+    this.staticArc = false,
   });
 
-  final VoidCallback? onPause;
-  final VoidCallback? onFinish;
+  final double progress;
+  final String semanticsLabel;
+  final Widget child;
+  final bool paused;
+  final bool staticArc;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return Semantics(
+      key: const ValueKey('design-lab-focus-dial'),
+      label: semanticsLabel,
+      readOnly: true,
+      child: ExcludeSemantics(
+        child: SizedBox.square(
+          dimension: 260,
+          child: TweenAnimationBuilder<double>(
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            tween: Tween<double>(
+              end: staticArc ? 0.74 : progress.clamp(0, 1).toDouble(),
+            ),
+            builder: (context, animatedProgress, child) {
+              return CustomPaint(
+                painter: _RadicalOpenDialPainter(
+                  progress: animatedProgress,
+                  paused: paused,
+                  staticArc: staticArc,
+                ),
+                child: child,
+              );
+            },
+            child: Center(child: child),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RadicalOpenDialPainter extends CustomPainter {
+  const _RadicalOpenDialPainter({
+    required this.progress,
+    required this.paused,
+    required this.staticArc,
+  });
+
+  static const _startAngle = math.pi * 0.75;
+  static const _sweepAngle = math.pi * 1.5;
+
+  final double progress;
+  final bool paused;
+  final bool staticArc;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = (size.shortestSide - 8) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final track = Paint()
+      ..color = _rRule
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.2;
+    final active = Paint()
+      ..color = paused || staticArc ? _rSage : _rGreen
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = paused ? 2 : 2.4;
+    canvas.drawArc(rect, _startAngle, _sweepAngle, false, track);
+    canvas.drawArc(
+      rect,
+      _startAngle,
+      _sweepAngle * progress.clamp(0, 1),
+      false,
+      active,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadicalOpenDialPainter oldDelegate) {
+    return progress != oldDelegate.progress ||
+        paused != oldDelegate.paused ||
+        staticArc != oldDelegate.staticArc;
+  }
+}
+
+class _RadicalPrimaryFocusAction extends StatelessWidget {
+  const _RadicalPrimaryFocusAction({this.onPressed, this.isPaused = false});
+
+  final VoidCallback? onPressed;
   final bool isPaused;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: SizedBox(
-            height: 50,
-            child: OutlinedButton(
-              onPressed: onPause ?? () {},
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _rNightText,
-                side: const BorderSide(color: _rSage, width: 0.8),
-                shape: const RoundedRectangleBorder(),
-                textStyle: const TextStyle(
-                  fontFamily: _directionSans,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+    return Semantics(
+      button: true,
+      label: isPaused ? 'Resume focus' : 'Pause focus',
+      child: IconButton.filled(
+        onPressed: onPressed ?? () {},
+        icon: Icon(
+          isPaused ? LucideIcons.play300 : LucideIcons.pause300,
+          size: 24,
+        ),
+        color: _rNightText,
+        style: IconButton.styleFrom(
+          backgroundColor: _rGreen,
+          minimumSize: const Size.square(64),
+          maximumSize: const Size.square(64),
+          shape: const CircleBorder(),
+        ),
+      ),
+    );
+  }
+}
+
+class _RadicalFocusOptionsSheet extends StatelessWidget {
+  const _RadicalFocusOptionsSheet({
+    required this.isStopwatch,
+    required this.onFinish,
+    this.onAddTime,
+    this.onCompleteTask,
+    this.onSaveAndExit,
+    this.onDiscard,
+  });
+
+  final bool isStopwatch;
+  final VoidCallback onFinish;
+  final VoidCallback? onAddTime;
+  final VoidCallback? onCompleteTask;
+  final VoidCallback? onSaveAndExit;
+  final VoidCallback? onDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: _rSheet,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(
+                child: SizedBox(
+                  width: 32,
+                  child: Divider(color: _rRule, thickness: 2, height: 8),
                 ),
               ),
-              child: Text(isPaused ? 'Resume' : 'Pause'),
-            ),
+              const SizedBox(height: 15),
+              const Text(
+                'SESSION OPTIONS',
+                style: TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.35,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (!isStopwatch)
+                _RadicalFocusOptionRow(
+                  label: 'Add 5 minutes',
+                  onTap: onAddTime,
+                ),
+              _RadicalFocusOptionRow(label: 'Finish session', onTap: onFinish),
+              _RadicalFocusOptionRow(
+                label: 'Complete task',
+                onTap: onCompleteTask,
+              ),
+              _RadicalFocusOptionRow(
+                label: 'Save and exit',
+                onTap: onSaveAndExit,
+              ),
+              _RadicalFocusOptionRow(
+                label: 'Discard session',
+                color: _rCoral,
+                showBorder: false,
+                onTap: onDiscard,
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: TextButton(
-            onPressed: onFinish ?? () {},
-            style: TextButton.styleFrom(
-              foregroundColor: _rNightMuted,
-              minimumSize: const Size.fromHeight(50),
-              textStyle: const TextStyle(
+      ),
+    );
+  }
+}
+
+class _RadicalFocusOptionRow extends StatelessWidget {
+  const _RadicalFocusOptionRow({
+    required this.label,
+    this.onTap,
+    this.color = _rInk,
+    this.showBorder = true,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+  final Color color;
+  final bool showBorder;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showBorder
+            ? const Border(bottom: BorderSide(color: _rRule, width: 0.65))
+            : null,
+      ),
+      child: InkWell(
+        onTap: onTap ?? () {},
+        child: SizedBox(
+          height: 48,
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              label,
+              style: TextStyle(
                 fontFamily: _directionSans,
+                color: color,
                 fontSize: 13.5,
                 fontWeight: FontWeight.w500,
               ),
             ),
-            child: const Text('Finish'),
           ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _RadicalFocusFinishedMock extends StatelessWidget {
+  const _RadicalFocusFinishedMock({
+    required this.recordedSeconds,
+    required this.onDone,
+    this.onStartBreak,
+  });
+
+  final int recordedSeconds;
+  final VoidCallback onDone;
+  final VoidCallback? onStartBreak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _rCanvas,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Column(
+            children: [
+              const _RadicalFocusBar(label: 'FOCUS RECORDED', showClose: false),
+              const SizedBox(height: 34),
+              const Text(
+                'Prepare launch notes',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: _directionSans,
+                  color: _rInk,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              _RadicalOpenDial(
+                progress: 1,
+                staticArc: true,
+                semanticsLabel:
+                    '${_formatFocusTime(recordedSeconds)} focus recorded',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(LucideIcons.check300, size: 24, color: _rGreen),
+                    const SizedBox(height: 14),
+                    Text(
+                      _formatFocusTime(recordedSeconds),
+                      style: const TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rInk,
+                        fontSize: 52,
+                        fontWeight: FontWeight.w300,
+                        height: 0.95,
+                        letterSpacing: -2.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'RECORDED',
+                      style: TextStyle(
+                        fontFamily: _directionSans,
+                        color: _rMuted,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: 280,
+                height: 50,
+                child: FilledButton(
+                  onPressed: onStartBreak ?? () {},
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _rGreen,
+                    foregroundColor: _rNightText,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Start break'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: onDone,
+                style: TextButton.styleFrom(
+                  foregroundColor: _rMuted,
+                  minimumSize: const Size(180, 44),
+                ),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2608,33 +2923,34 @@ class _RadicalFocusActions extends StatelessWidget {
 class _RadicalFocusBar extends StatelessWidget {
   const _RadicalFocusBar({
     required this.label,
-    this.inverse = false,
     this.onClose,
+    this.showClose = true,
   });
 
   final String label;
-  final bool inverse;
   final VoidCallback? onClose;
+  final bool showClose;
 
   @override
   Widget build(BuildContext context) {
-    final color = inverse ? _rNightText : _rInk;
-    final muted = inverse ? _rNightMuted : _rMuted;
     return Row(
       children: [
-        _RadicalEdgeIconButton(
-          onPressed: onClose ?? () {},
-          icon: LucideIcons.x300,
-          color: color,
-          edge: _RadicalButtonEdge.leading,
-        ),
+        if (showClose)
+          _RadicalEdgeIconButton(
+            onPressed: onClose ?? () {},
+            icon: LucideIcons.x300,
+            color: _rInk,
+            edge: _RadicalButtonEdge.leading,
+          )
+        else
+          const SizedBox(width: 44),
         Expanded(
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: _directionSans,
-              color: muted,
+              color: _rMuted,
               fontSize: 10,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.45,

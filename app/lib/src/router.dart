@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/screens/account_screen.dart';
+import 'package:todori/src/screens/calendar_screen.dart';
+import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
+import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
 import 'package:todori/src/ui/app_navigation_shell.dart';
@@ -29,6 +32,25 @@ GoRouter buildAppRouter() {
             name: 'home',
             pageBuilder: (context, state) =>
                 _topLevelPage(state: state, child: const HomeScreen()),
+          ),
+          GoRoute(
+            path: '/calendar',
+            name: 'calendar',
+            pageBuilder: (context, state) =>
+                _topLevelPage(state: state, child: const CalendarScreen()),
+            routes: [
+              GoRoute(
+                path: 'tasks/:listId/:taskId',
+                name: 'calendarTaskDetail',
+                pageBuilder: (context, state) => _detailPage(
+                  state: state,
+                  child: TaskDetailScreen(
+                    listId: state.pathParameters['listId']!,
+                    taskId: state.pathParameters['taskId']!,
+                  ),
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/account',
@@ -67,7 +89,69 @@ GoRouter buildAppRouter() {
           ),
         ],
       ),
+      GoRoute(
+        path: '/search',
+        name: 'search',
+        pageBuilder: (context, state) =>
+            _detailPage(state: state, child: const SearchScreen()),
+        routes: [
+          GoRoute(
+            path: 'tasks/:listId/:taskId',
+            name: 'searchTaskDetail',
+            pageBuilder: (context, state) => _detailPage(
+              state: state,
+              child: TaskDetailScreen(
+                listId: state.pathParameters['listId']!,
+                taskId: state.pathParameters['taskId']!,
+              ),
+            ),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/focus/:listId/:taskId',
+        name: 'focus',
+        pageBuilder: (context, state) => _focusPage(
+          state: state,
+          child: FocusScreen(
+            listId: state.pathParameters['listId']!,
+            taskId: state.pathParameters['taskId']!,
+          ),
+        ),
+      ),
     ],
+  );
+}
+
+CustomTransitionPage<void> _focusPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 260),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        return child;
+      }
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.025),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
   );
 }
 

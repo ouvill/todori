@@ -11,8 +11,10 @@ import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/dialogs.dart';
+import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
+import 'package:todori/src/ui/task_completion_motion.dart';
 import 'package:todori/src/ui/theme.dart';
 
 /// The task list screen for a single list (route
@@ -73,16 +75,6 @@ class TasksScreen extends ConsumerWidget {
     final archivedLists = archivedListsAsync.value;
     final currentList =
         _findList(listId, activeLists) ?? _findList(listId, archivedLists);
-    final defaultList = activeLists == null
-        ? null
-        : _findDefaultList(activeLists);
-    final createListOptions = _mergeListOptions(activeLists, archivedLists);
-    final createInitialListId = isTodaySmartView
-        ? defaultList?.id
-        : currentList?.id;
-    final createInitialDue = isTodaySmartView
-        ? dateOnlyDue(DateTime.now())
-        : null;
     final isDefaultInbox =
         currentList?.archivedAt == null && currentList?.isDefault == true;
 
@@ -116,6 +108,7 @@ class TasksScreen extends ConsumerWidget {
           : AppBar(
               title: Text(l10n.tasksTitle),
               actions: [
+                const AppHeaderSearchAction(),
                 ?listActionsMenu,
                 sortMenu,
                 const SizedBox(width: AppSpacing.sm),
@@ -137,9 +130,15 @@ class TasksScreen extends ConsumerWidget {
             listActionsMenu: listActionsMenu,
             homeListNameByTaskId: homeListNameByTaskId,
             homeTaskEntries: homeTaskEntries,
-            onCompleteTask: (task) => _completeTask(context, ref, task, tasks),
+            onCompleteTask: (task, {descendantsConfirmed = false}) =>
+                _completeTask(
+                  context,
+                  ref,
+                  task,
+                  tasks,
+                  descendantsConfirmed: descendantsConfirmed,
+                ),
             onReopenTask: (task) => _reopenTask(ref, task),
-            onChangeDue: (task, due) => _changeDue(ref, task, due),
             onMoveTask: ({required task, previousTaskId, nextTaskId}) {
               return ref
                   .read(tasksProvider(listId).notifier)
@@ -152,56 +151,24 @@ class TasksScreen extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: QuickAddBar(
-        listOptions: createListOptions,
-        initialListId: createInitialListId,
-        initialDue: createInitialDue,
-        errorMessage: l10n.quickAddCreateError,
-        onCreate:
-            ({required listId, required title, required note, required due}) =>
-                _createTask(
-                  ref,
-                  listId: listId,
-                  title: title,
-                  note: note,
-                  due: due,
-                ),
-      ),
     );
-  }
-
-  Future<void> _createTask(
-    WidgetRef ref, {
-    required String listId,
-    required String title,
-    required String note,
-    required TaskDueDto? due,
-  }) async {
-    if (isTodaySmartView) {
-      await ref
-          .read(homeTasksProvider.notifier)
-          .createTask(listId: listId, title: title, note: note, due: due);
-      return;
-    }
-    await ref
-        .read(tasksProvider(listId).notifier)
-        .createTask(title, note: note, due: due);
   }
 
   Future<bool> _completeTask(
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
-    List<TaskDto> tasks,
-  ) async {
+    List<TaskDto> tasks, {
+    bool descendantsConfirmed = false,
+  }) async {
     final descendantScope = isTodaySmartView
         ? await ref.read(tasksProvider(task.listId).future)
         : tasks;
     if (!context.mounted) {
       return false;
     }
-    if (hasIncompleteDescendants(task.id, descendantScope)) {
+    if (!descendantsConfirmed &&
+        hasIncompleteDescendants(task.id, descendantScope)) {
       final l10n = AppLocalizations.of(context)!;
       final confirmed = await showAppConfirmDialog(
         context: context,
@@ -232,13 +199,6 @@ class TasksScreen extends ConsumerWidget {
       return ref.read(homeTasksProvider.notifier).setStatus(task.id, 'todo');
     }
     return ref.read(tasksProvider(listId).notifier).setStatus(task.id, 'todo');
-  }
-
-  Future<void> _changeDue(WidgetRef ref, TaskDto task, TaskDueDto? due) {
-    if (isTodaySmartView) {
-      return ref.read(homeTasksProvider.notifier).updateDue(task, due);
-    }
-    return ref.read(tasksProvider(task.listId).notifier).updateDue(task, due);
   }
 
   Future<void> _renameList(
@@ -317,7 +277,6 @@ class _TasksBody extends StatefulWidget {
     required this.homeTaskEntries,
     required this.onCompleteTask,
     required this.onReopenTask,
-    required this.onChangeDue,
     required this.onMoveTask,
   });
 
@@ -331,9 +290,9 @@ class _TasksBody extends StatefulWidget {
   final Widget? listActionsMenu;
   final Map<String, String> homeListNameByTaskId;
   final List<HomeTaskDto> homeTaskEntries;
-  final Future<bool> Function(TaskDto task) onCompleteTask;
+  final Future<bool> Function(TaskDto task, {bool descendantsConfirmed})
+  onCompleteTask;
   final Future<void> Function(TaskDto task) onReopenTask;
-  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Future<void> Function({
     required TaskDto task,
     required String? previousTaskId,
@@ -347,12 +306,22 @@ class _TasksBody extends StatefulWidget {
 
 class _TasksBodyState extends State<_TasksBody> {
   bool _showCompleted = false;
-  final Set<_HomeSectionKind> _collapsedHomeSections = {};
+  bool _isTodayCollapsed = false;
   final Map<String, _PendingHomeCompletion> _pendingHomeCompletions = {};
-  final Map<String, Timer> _pendingHomeCompletionTimers = {};
+  final Map<String, _PendingListCompletion> _pendingListCompletions = {};
   final Map<String, Future<bool>> _homeCompletionOperations = {};
+  final Map<String, Future<bool>> _listCompletionOperations = {};
   final Set<String> _optimisticHomeCompletionIds = {};
+  late final TaskCompletionRetentionController<String>
+  _completionRetentionController;
   _TaskDropIndicator? _dropIndicator;
+
+  @override
+  void initState() {
+    super.initState();
+    _completionRetentionController = TaskCompletionRetentionController<String>()
+      ..addListener(_handleCompletionRetentionChanged);
+  }
 
   @override
   void didUpdateWidget(covariant _TasksBody oldWidget) {
@@ -361,15 +330,31 @@ class _TasksBodyState extends State<_TasksBody> {
       _showCompleted = false;
     }
     _syncPendingHomeCompletionsWithWidget();
+    _syncPendingListCompletionsWithWidget();
     _syncOptimisticHomeCompletionsWithWidget();
   }
 
   @override
   void dispose() {
-    for (final timer in _pendingHomeCompletionTimers.values) {
-      timer.cancel();
-    }
+    _completionRetentionController
+      ..removeListener(_handleCompletionRetentionChanged)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleCompletionRetentionChanged() {
+    if (!mounted) {
+      return;
+    }
+    final retainedKeys = _completionRetentionController.keys.toSet();
+    setState(() {
+      _pendingHomeCompletions.removeWhere(
+        (taskId, _) => !retainedKeys.contains(taskId),
+      );
+      _pendingListCompletions.removeWhere(
+        (taskId, _) => !retainedKeys.contains(taskId),
+      );
+    });
   }
 
   @override
@@ -415,13 +400,11 @@ class _TasksBodyState extends State<_TasksBody> {
                       else
                         _HomeSectionsPanelSliver(
                           sections: visibleHomeSections,
-                          collapsedSections: _collapsedHomeSections,
+                          isTodayCollapsed: _isTodayCollapsed,
                           onToggleSection: (section) {
-                            setState(() {
-                              if (!_collapsedHomeSections.add(section)) {
-                                _collapsedHomeSections.remove(section);
-                              }
-                            });
+                            setState(
+                              () => _isTodayCollapsed = !_isTodayCollapsed,
+                            );
                           },
                           rowBuilder: (context, row, section) =>
                               _buildHomeTaskRow(
@@ -431,8 +414,12 @@ class _TasksBodyState extends State<_TasksBody> {
                                 rootListId: row.rootListId,
                                 parentTaskName: row.parentTaskName,
                                 countsInSection: row.countsInSection,
-                                pendingExitPhase: row.pendingExitPhase,
-                                disableInteractions: row.disableInteractions,
+                                pendingCompletionKey: row.pendingCompletionKey,
+                                disableInteractions:
+                                    row.disableInteractions ||
+                                    _isCompletionExiting(
+                                      row.pendingCompletionKey,
+                                    ),
                                 isPendingRoot: row.isPendingRoot,
                               ),
                         ),
@@ -444,6 +431,9 @@ class _TasksBodyState extends State<_TasksBody> {
                           child: _CompletedSectionHeader(
                             count: closedRows.length,
                             isExpanded: _showCompleted,
+                            title: l10n.calendarCompletedTitle,
+                            showTooltip: l10n.calendarShowCompletedTooltip,
+                            hideTooltip: l10n.calendarHideCompletedTooltip,
                             onTap: () => setState(
                               () => _showCompleted = !_showCompleted,
                             ),
@@ -460,12 +450,7 @@ class _TasksBodyState extends State<_TasksBody> {
                               return _buildHomeTaskRow(
                                 context,
                                 row.node,
-                                row.node.task.due == null
-                                    ? _HomeSectionKind.today
-                                    : _homeSectionForDue(
-                                        row.node.task.due!,
-                                        homeLocalRangesMs(),
-                                      ),
+                                _HomeSectionKind.today,
                                 rootListId: row.rootListId,
                                 parentTaskName: row.parentTaskName,
                               );
@@ -483,17 +468,30 @@ class _TasksBodyState extends State<_TasksBody> {
     }
 
     final roots = buildTaskTree(widget.tasks, sortMode: widget.sortMode);
-    final activeRoots = roots
-        .where((node) => !isTaskClosed(node.task))
-        .toList(growable: false);
+    final activeRoots = <TaskTreeNode>[];
+    for (final root in roots) {
+      final pending = _pendingListCompletions[root.task.id];
+      if (pending != null) {
+        activeRoots.add(pending.root);
+      } else if (!isTaskClosed(root.task)) {
+        activeRoots.add(root);
+      }
+    }
     final completedRoots = roots
-        .where((node) => isTaskClosed(node.task))
+        .where(
+          (node) =>
+              isTaskClosed(node.task) &&
+              !_pendingListCompletions.containsKey(node.task.id),
+        )
         .toList(growable: false);
     final activeNodes = flattenTaskTree(activeRoots);
     final completedNodes = flattenTaskTree(completedRoots);
     final activeReorderTasks = activeNodes
         .map((node) => node.task)
         .where((task) => !isTaskClosed(task))
+        .toList(growable: false);
+    final activeRowTasks = activeNodes
+        .map((node) => node.task)
         .toList(growable: false);
     if (activeNodes.isEmpty && completedNodes.isEmpty) {
       return AppEmptyState(
@@ -525,6 +523,10 @@ class _TasksBodyState extends State<_TasksBody> {
                       node,
                       activeReorderTasks,
                       isCompletedSection: false,
+                      reorderShellScope: activeRowTasks,
+                      pendingCompletionKey: _pendingListCompletionKeyForTask(
+                        node.task.id,
+                      ),
                     ),
                   ),
                 if (completedNodes.isNotEmpty) ...[
@@ -670,9 +672,8 @@ class _TasksBodyState extends State<_TasksBody> {
                     ? taskById[node.task.parentTaskId]?.title
                     : null),
             countsInSection: node.depth == 0,
-            pendingExitPhase:
-                pendingRowsByTaskId[node.task.id]?.pendingExitPhase ??
-                _PendingHomeExitPhase.none,
+            pendingCompletionKey:
+                pendingRowsByTaskId[node.task.id]?.pendingCompletionKey,
             disableInteractions:
                 pendingRowsByTaskId[node.task.id]?.disableInteractions ?? false,
             isPendingRoot: pendingRootIds.contains(node.task.id),
@@ -720,7 +721,7 @@ class _TasksBodyState extends State<_TasksBody> {
     required String rootListId,
     required String? parentTaskName,
     bool countsInSection = false,
-    _PendingHomeExitPhase pendingExitPhase = _PendingHomeExitPhase.none,
+    String? pendingCompletionKey,
     bool disableInteractions = false,
     bool isPendingRoot = false,
   }) {
@@ -735,9 +736,6 @@ class _TasksBodyState extends State<_TasksBody> {
     final dueLabel = task.due == null
         ? null
         : formatRelativeDueDate(l10n, locale, task.due);
-    final taskDueSection = task.due == null
-        ? section
-        : _homeSectionForDue(task.due!, homeLocalRangesMs());
     final row = _TaskEntryMotion(
       slide: false,
       child: AppHomeTaskRow(
@@ -760,13 +758,18 @@ class _TasksBodyState extends State<_TasksBody> {
             ? ''
             : widget.homeListNameByTaskId[task.id] ?? '',
         dueLabel: dueLabel,
-        dueTone: switch (taskDueSection) {
-          _HomeSectionKind.overdue => HomeDueDateTone.overdue,
-          _HomeSectionKind.today => HomeDueDateTone.today,
-          _ => HomeDueDateTone.future,
-        },
+        dueTone: task.due == null
+            ? HomeDueDateTone.today
+            : switch (_homeDueTiming(task.due!, homeLocalRangesMs())) {
+                _HomeDueTiming.overdue => HomeDueDateTone.overdue,
+                _HomeDueTiming.today => HomeDueDateTone.today,
+                _HomeDueTiming.future => HomeDueDateTone.future,
+              },
         dueSemanticLabel:
-            taskDueSection == _HomeSectionKind.overdue && dueLabel != null
+            task.due != null &&
+                _homeDueTiming(task.due!, homeLocalRangesMs()) ==
+                    _HomeDueTiming.overdue &&
+                dueLabel != null
             ? l10n.taskDueOverdue(dueLabel)
             : null,
         priority: task.priority,
@@ -804,11 +807,14 @@ class _TasksBodyState extends State<_TasksBody> {
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
     );
-    final effectiveRow = pendingExitPhase != _PendingHomeExitPhase.exiting
+    final isExiting = _isCompletionExiting(pendingCompletionKey);
+    final effectiveRow = !isExiting
         ? row
-        : _PendingHomeCompletionExit(
-            taskId: task.id,
-            useGenericKey: isPendingRoot,
+        : AppTaskCompletionExit(
+            key: isPendingRoot
+                ? const ValueKey('home-pending-completion-exit')
+                : ValueKey('home-pending-completion-exit-${task.id}'),
+            isExiting: true,
             child: row,
           );
     final swipeRow = _TaskSwipeActions(
@@ -827,7 +833,6 @@ class _TasksBodyState extends State<_TasksBody> {
               parentTaskName: parentTaskName,
               countsInSection: countsInSection,
             ),
-      onChangeDue: widget.onChangeDue,
       child: effectiveRow,
     );
     return IgnorePointer(
@@ -970,7 +975,7 @@ class _TasksBodyState extends State<_TasksBody> {
             rootListId: rootListId,
             parentTaskName: entry.key == 0 ? parentTaskName : null,
             countsInSection: entry.key == 0 && countsInSection,
-            pendingExitPhase: _PendingHomeExitPhase.holding,
+            pendingCompletionKey: task.id,
             disableInteractions: entry.key != 0,
             isPendingRoot: entry.key == 0,
           ),
@@ -982,47 +987,19 @@ class _TasksBodyState extends State<_TasksBody> {
         section: section,
       );
     });
-    _pendingHomeCompletionTimers[task.id]?.cancel();
-    _pendingHomeCompletionTimers[task.id] = Timer(
-      const Duration(milliseconds: 800),
-      () {
-        if (!mounted || !_pendingHomeCompletions.containsKey(task.id)) {
-          return;
-        }
-        setState(() {
-          final current = _pendingHomeCompletions[task.id]!;
-          _pendingHomeCompletions[task.id] = current.copyWith(
-            rows: [
-              for (final row in current.rows)
-                row.copyWith(
-                  pendingExitPhase: _PendingHomeExitPhase.exiting,
-                  disableInteractions: true,
-                ),
-            ],
-          );
-        });
-        _pendingHomeCompletionTimers[task.id]?.cancel();
-        _pendingHomeCompletionTimers[task.id] = Timer(
-          const Duration(milliseconds: 200),
-          () => _cancelPendingHomeCompletion(task.id),
-        );
-      },
-    );
+    _completionRetentionController.retain(task.id);
   }
 
   void _cancelPendingHomeCompletion(String taskId) {
-    _pendingHomeCompletionTimers.remove(taskId)?.cancel();
     _homeCompletionOperations.remove(taskId);
-    if (!_pendingHomeCompletions.containsKey(taskId)) {
-      return;
-    }
+    _completionRetentionController.cancel(taskId);
     if (!mounted) {
       _pendingHomeCompletions.remove(taskId);
       return;
     }
-    setState(() {
-      _pendingHomeCompletions.remove(taskId);
-    });
+    if (_pendingHomeCompletions.containsKey(taskId)) {
+      setState(() => _pendingHomeCompletions.remove(taskId));
+    }
   }
 
   void _syncPendingHomeCompletionsWithWidget() {
@@ -1067,6 +1044,12 @@ class _TasksBodyState extends State<_TasksBody> {
     };
   }
 
+  bool _isCompletionExiting(String? key) {
+    return key != null &&
+        _completionRetentionController.phaseOf(key) ==
+            TaskCompletionRetentionPhase.exiting;
+  }
+
   Map<String, _HomeSectionRowData> _pendingHomeCompletionRowsByTaskId() {
     return {
       for (final pending in _pendingHomeCompletions.values)
@@ -1074,21 +1057,133 @@ class _TasksBodyState extends State<_TasksBody> {
     };
   }
 
+  Future<void> _handleListCompleteTask(
+    BuildContext context,
+    FlattenedTaskTreeNode node,
+  ) async {
+    final task = node.task;
+    if (node.depth > 0 || MediaQuery.disableAnimationsOf(context)) {
+      await widget.onCompleteTask(task);
+      return;
+    }
+    if (_pendingListCompletions.containsKey(task.id)) {
+      return;
+    }
+    final needsConfirmation = hasIncompleteDescendants(task.id, widget.tasks);
+    if (needsConfirmation) {
+      final l10n = AppLocalizations.of(context)!;
+      final confirmed = await showAppConfirmDialog(
+        context: context,
+        title: l10n.completeTaskDialogTitle,
+        message: l10n.completeTaskDialogMessage,
+        cancelLabel: l10n.cancelButton,
+        confirmLabel: l10n.continueButton,
+      );
+      if (!confirmed || !mounted) {
+        return;
+      }
+    }
+
+    _startPendingListCompletion(node);
+    final operation = widget.onCompleteTask(
+      task,
+      descendantsConfirmed: needsConfirmation,
+    );
+    _listCompletionOperations[task.id] = operation;
+    try {
+      final completed = await operation;
+      _listCompletionOperations.remove(task.id);
+      if (!completed) {
+        _cancelPendingListCompletion(task.id);
+      }
+    } catch (_) {
+      _cancelPendingListCompletion(task.id);
+    }
+  }
+
+  void _startPendingListCompletion(FlattenedTaskTreeNode node) {
+    final task = node.task;
+    final completedRoot = TaskTreeNode(
+      task: _taskSnapshotWithStatus(task, 'done'),
+      depth: node.node.depth,
+      children: node.node.children,
+    );
+    setState(() {
+      _pendingListCompletions[task.id] = _PendingListCompletion(
+        root: completedRoot,
+      );
+    });
+    _completionRetentionController.retain(task.id);
+  }
+
+  void _cancelPendingListCompletion(String taskId) {
+    _listCompletionOperations.remove(taskId);
+    _completionRetentionController.cancel(taskId);
+    if (!mounted) {
+      _pendingListCompletions.remove(taskId);
+      return;
+    }
+    if (_pendingListCompletions.containsKey(taskId)) {
+      setState(() => _pendingListCompletions.remove(taskId));
+    }
+  }
+
+  void _syncPendingListCompletionsWithWidget() {
+    if (_pendingListCompletions.isEmpty) {
+      return;
+    }
+    final taskById = {for (final task in widget.tasks) task.id: task};
+    final restoredTaskIds = <String>[];
+    for (final entry in _pendingListCompletions.entries) {
+      final task = taskById[entry.key];
+      if (task != null &&
+          !isTaskClosed(task) &&
+          !_listCompletionOperations.containsKey(task.id) &&
+          task.updatedAt > entry.value.root.task.updatedAt) {
+        restoredTaskIds.add(task.id);
+      }
+    }
+    for (final taskId in restoredTaskIds) {
+      _cancelPendingListCompletion(taskId);
+    }
+  }
+
+  String? _pendingListCompletionKeyForTask(String taskId) {
+    for (final entry in _pendingListCompletions.entries) {
+      if (entry.key == taskId || _taskTreeContains(entry.value.root, taskId)) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
   Widget _buildTaskRow(
     BuildContext context,
     FlattenedTaskTreeNode node,
     List<TaskDto> reorderScope, {
     required bool isCompletedSection,
-    bool framed = true,
+    bool framed = false,
+    List<TaskDto>? reorderShellScope,
+    String? pendingCompletionKey,
   }) {
     final l10n = AppLocalizations.of(context)!;
     final task = node.task;
     final stats = descendantStatsOf(task.id, widget.tasks);
-    final canDragReorder =
+    final usesReorderShell =
         !widget.isHome &&
         !isCompletedSection &&
-        !isTaskClosed(task) &&
+        (!isTaskClosed(task) ||
+            task.status == 'done' ||
+            pendingCompletionKey != null) &&
         widget.sortMode == TaskSortMode.manual;
+    final shellSiblings = usesReorderShell
+        ? _siblingsOf(task, reorderShellScope ?? reorderScope)
+        : const <TaskDto>[];
+    final shellSiblingIndex = shellSiblings.indexWhere(
+      (sibling) => sibling.id == task.id,
+    );
+    final canDragReorder =
+        usesReorderShell && !isTaskClosed(task) && pendingCompletionKey == null;
     final siblings = canDragReorder
         ? _siblingsOf(task, reorderScope)
         : const <TaskDto>[];
@@ -1144,11 +1239,13 @@ class _TasksBodyState extends State<_TasksBody> {
           listName: widget.isTodaySmartView
               ? widget.homeListNameByTaskId[task.id]
               : null,
-        ),
+        ).take(2).toList(growable: false),
         framed: framed,
-        onToggleDone: isTaskClosed(task)
+        onToggleDone: pendingCompletionKey != null
+            ? null
+            : isTaskClosed(task)
             ? () => widget.onReopenTask(task)
-            : () => widget.onCompleteTask(task),
+            : () => _handleListCompleteTask(context, node),
         onTap: () => context.push('/lists/${task.listId}/tasks/${task.id}'),
       ),
     );
@@ -1156,22 +1253,36 @@ class _TasksBodyState extends State<_TasksBody> {
       key: ValueKey('task-swipe-actions-${task.id}'),
       task: task,
       isClosed: isTaskClosed(task),
-      onLeadingAction: isTaskClosed(task)
+      onLeadingAction: pendingCompletionKey != null
+          ? () async {}
+          : isTaskClosed(task)
           ? () => widget.onReopenTask(task)
-          : () => widget.onCompleteTask(task),
-      onChangeDue: widget.onChangeDue,
+          : () => _handleListCompleteTask(context, node),
       child: row,
     );
 
-    if (!canDragReorder || siblingIndex < 0) {
-      return swipeRow;
+    final retainedRow = IgnorePointer(
+      key: ValueKey('task-list-row-shell-${task.id}'),
+      ignoring: pendingCompletionKey != null,
+      child: AppTaskCompletionExit(
+        key: ValueKey('task-list-completion-exit-${task.id}'),
+        isExiting:
+            pendingCompletionKey != null &&
+            _isCompletionExiting(pendingCompletionKey),
+        child: swipeRow,
+      ),
+    );
+
+    if (!usesReorderShell || shellSiblingIndex < 0) {
+      return retainedRow;
     }
 
     return _TaskDragReorderTarget(
       key: ValueKey('task-drop-target-${task.id}'),
+      enabled: canDragReorder && siblingIndex >= 0,
       task: task,
       siblings: siblings,
-      siblingIndex: siblingIndex,
+      siblingIndex: siblingIndex < 0 ? 0 : siblingIndex,
       dropIndicator: _dropIndicator,
       onHover: (indicator) => setState(() => _dropIndicator = indicator),
       onLeave: () => setState(() => _dropIndicator = null),
@@ -1229,7 +1340,7 @@ class _TasksBodyState extends State<_TasksBody> {
               );
             }
           : null,
-      child: swipeRow,
+      child: retainedRow,
     );
   }
 }
@@ -1240,14 +1351,12 @@ class _TaskSwipeActions extends StatelessWidget {
     required this.task,
     required this.isClosed,
     required this.onLeadingAction,
-    required this.onChangeDue,
     required this.child,
   });
 
   final TaskDto task;
   final bool isClosed;
   final Future<void> Function() onLeadingAction;
-  final Future<void> Function(TaskDto task, TaskDueDto? due) onChangeDue;
   final Widget child;
 
   @override
@@ -1272,163 +1381,24 @@ class _TaskSwipeActions extends StatelessWidget {
           ),
         ],
       ),
-      endActionPane: ActionPane(
-        motion: const DrawerMotion(),
-        extentRatio: 0.34,
-        children: [
-          SlidableAction(
-            key: ValueKey('task-swipe-due-${task.id}'),
-            onPressed: (_) => unawaited(_showDueDateSheet(context)),
-            backgroundColor: colorScheme.secondaryContainer,
-            foregroundColor: colorScheme.onSecondaryContainer,
-            icon: LucideIcons.calendarDays300,
-            label: l10n.changeDueDateTooltip,
-          ),
-        ],
-      ),
-      child: child,
-    );
-  }
-
-  Future<void> _showDueDateSheet(BuildContext context) async {
-    final selection = await showModalBottomSheet<_DueDateSelection>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _DueDateSheet(task: task),
-    );
-    if (!context.mounted || selection == null) {
-      return;
-    }
-
-    TaskDueDto due;
-    switch (selection.kind) {
-      case _DueDateSelectionKind.today:
-        due = dateOnlyDue(DateTime.now());
-        break;
-      case _DueDateSelectionKind.tomorrow:
-        due = dateOnlyDue(DateTime.now().add(const Duration(days: 1)));
-        break;
-      case _DueDateSelectionKind.pickDate:
-        final initialDate = task.due == null
-            ? DateTime.now()
-            : taskDueDisplayDate(task.due!);
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: initialDate,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (!context.mounted || picked == null) {
-          return;
-        }
-        due = dateOnlyDue(picked);
-        break;
-      case _DueDateSelectionKind.pickDateTime:
-        final initial = task.due == null
-            ? DateTime.now()
-            : taskDueDisplayDate(task.due!);
-        final pickedDate = await showDatePicker(
-          context: context,
-          initialDate: initial,
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (!context.mounted || pickedDate == null) {
-          return;
-        }
-        final pickedTime = await showTimePicker(
-          context: context,
-          initialTime: TimeOfDay.fromDateTime(initial),
-        );
-        if (!context.mounted || pickedTime == null) {
-          return;
-        }
-        final localDateTime = DateTime(
-          pickedDate.year,
-          pickedDate.month,
-          pickedDate.day,
-          pickedTime.hour,
-          pickedTime.minute,
-        );
-        final savedTimeZone = taskDueSavedTimeZone(task.due);
-        final timeZone =
-            savedTimeZone ??
-            await ProviderScope.containerOf(
-              context,
-              listen: false,
-            ).read(bridgeServiceProvider).getLocalTimeZone();
-        try {
-          due = dateTimeDue(localDateTime: localDateTime, timeZone: timeZone);
-        } on FormatException {
-          return;
-        }
-        break;
-    }
-    await onChangeDue(task, due);
-    if (!context.mounted) {
-      return;
-    }
-    await _showLatestUndoSnackBar(context);
-  }
-}
-
-class _DueDateSheet extends StatelessWidget {
-  const _DueDateSheet({required this.task});
-
-  final TaskDto task;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-        children: [
-          ListTile(
-            title: Text(l10n.dueDateLabel),
-            subtitle: Text(
-              task.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+      endActionPane: isClosed
+          ? null
+          : ActionPane(
+              motion: const DrawerMotion(),
+              extentRatio: 0.34,
+              children: [
+                SlidableAction(
+                  key: ValueKey('task-swipe-focus-${task.id}'),
+                  onPressed: (_) =>
+                      context.push('/focus/${task.listId}/${task.id}'),
+                  backgroundColor: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                  icon: LucideIcons.timer300,
+                  label: l10n.focusTitle,
+                ),
+              ],
             ),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-today'),
-            leading: const Icon(LucideIcons.calendarCheck300),
-            title: Text(l10n.dueToday),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.today)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-tomorrow'),
-            leading: const Icon(LucideIcons.calendarPlus300),
-            title: Text(l10n.dueTomorrow),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.tomorrow)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-pick-date'),
-            leading: const Icon(LucideIcons.calendarDays300),
-            title: Text(l10n.setDueDateButton),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDate)),
-          ),
-          ListTile(
-            key: const ValueKey('due-sheet-pick-date-time'),
-            leading: const Icon(LucideIcons.calendarClock300),
-            title: Text(l10n.setDueDateTimeButton),
-            onTap: () => Navigator.of(
-              context,
-            ).pop(const _DueDateSelection(_DueDateSelectionKind.pickDateTime)),
-          ),
-        ],
-      ),
+      child: child,
     );
   }
 }
@@ -1504,20 +1474,12 @@ class _TaskRowsSliver extends StatelessWidget {
       itemCount: nodes.length * 2 - 1,
       itemBuilder: (context, index) {
         if (index.isOdd) {
-          return SizedBox(height: separatorHeight);
+          return SizedBox(height: separatorHeight / 2);
         }
         return rowBuilder(context, nodes[index ~/ 2]);
       },
     );
   }
-}
-
-enum _DueDateSelectionKind { today, tomorrow, pickDate, pickDateTime }
-
-class _DueDateSelection {
-  const _DueDateSelection(this.kind);
-
-  final _DueDateSelectionKind kind;
 }
 
 class _HomeTasksHeader extends StatelessWidget {
@@ -1558,11 +1520,11 @@ class _HomeTasksHeader extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     l10n.homeTitle,
-                    style: theme.textTheme.displayMedium?.copyWith(
+                    style: theme.textTheme.headlineMedium?.copyWith(
                       color: colorScheme.onSurface,
-                      fontSize: 34,
-                      fontWeight: FontWeight.w600,
-                      height: 1,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.6,
+                      height: 1.05,
                     ),
                   ),
                 ],
@@ -1572,6 +1534,7 @@ class _HomeTasksHeader extends StatelessWidget {
               listActionsMenu!,
               const SizedBox(width: AppSpacing.xs),
             ],
+            const AppHeaderSearchAction(),
             Padding(padding: const EdgeInsets.only(bottom: 1), child: sortMenu),
           ],
         ),
@@ -1589,56 +1552,48 @@ class _HomeClearState extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 30),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Icon(
-                  LucideIcons.sprout300,
-                  size: 24,
-                  color: colorScheme.primary,
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 28, 4, 30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                LucideIcons.sprout300,
+                size: 24,
+                color: colorScheme.primary,
               ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              l10n.homeClearTitle,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontFamily: 'Newsreader',
-                fontFamilyFallback:
-                    theme.textTheme.displayMedium?.fontFamilyFallback,
-                fontWeight: FontWeight.w600,
-              ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            l10n.homeClearTitle,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              l10n.homeClearBody,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            l10n.homeClearBody,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-enum _HomeSectionKind { overdue, today, tomorrow, upcoming }
+enum _HomeSectionKind { today }
+
+enum _HomeDueTiming { overdue, today, future }
 
 class _HomeSectionData {
   const _HomeSectionData({
@@ -1658,7 +1613,7 @@ class _HomeSectionRowData {
     required this.rootListId,
     required this.parentTaskName,
     this.countsInSection = false,
-    this.pendingExitPhase = _PendingHomeExitPhase.none,
+    this.pendingCompletionKey,
     this.disableInteractions = false,
     this.isPendingRoot = false,
   });
@@ -1667,94 +1622,34 @@ class _HomeSectionRowData {
   final String rootListId;
   final String? parentTaskName;
   final bool countsInSection;
-  final _PendingHomeExitPhase pendingExitPhase;
+  final String? pendingCompletionKey;
   final bool disableInteractions;
   final bool isPendingRoot;
-
-  _HomeSectionRowData copyWith({
-    FlattenedTaskTreeNode? node,
-    String? rootListId,
-    String? parentTaskName,
-    bool? countsInSection,
-    _PendingHomeExitPhase? pendingExitPhase,
-    bool? disableInteractions,
-    bool? isPendingRoot,
-  }) {
-    return _HomeSectionRowData(
-      node: node ?? this.node,
-      rootListId: rootListId ?? this.rootListId,
-      parentTaskName: parentTaskName ?? this.parentTaskName,
-      countsInSection: countsInSection ?? this.countsInSection,
-      pendingExitPhase: pendingExitPhase ?? this.pendingExitPhase,
-      disableInteractions: disableInteractions ?? this.disableInteractions,
-      isPendingRoot: isPendingRoot ?? this.isPendingRoot,
-    );
-  }
 }
-
-enum _PendingHomeExitPhase { none, holding, exiting }
 
 class _PendingHomeCompletion {
   const _PendingHomeCompletion({required this.rows, required this.section});
 
   final List<_HomeSectionRowData> rows;
   final _HomeSectionKind section;
-
-  _PendingHomeCompletion copyWith({
-    List<_HomeSectionRowData>? rows,
-    _HomeSectionKind? section,
-  }) {
-    return _PendingHomeCompletion(
-      rows: rows ?? this.rows,
-      section: section ?? this.section,
-    );
-  }
 }
 
-class _PendingHomeCompletionExit extends StatelessWidget {
-  const _PendingHomeCompletionExit({
-    required this.taskId,
-    required this.useGenericKey,
-    required this.child,
-  });
+class _PendingListCompletion {
+  const _PendingListCompletion({required this.root});
 
-  final String taskId;
-  final bool useGenericKey;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      key: useGenericKey
-          ? const ValueKey('home-pending-completion-exit')
-          : ValueKey('home-pending-completion-exit-$taskId'),
-      tween: Tween<double>(begin: 1, end: 0),
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 4 * (1 - value)),
-            child: child,
-          ),
-        );
-      },
-      child: child,
-    );
-  }
+  final TaskTreeNode root;
 }
 
 class _HomeSectionsPanelSliver extends StatelessWidget {
   const _HomeSectionsPanelSliver({
     required this.sections,
-    required this.collapsedSections,
+    required this.isTodayCollapsed,
     required this.onToggleSection,
     required this.rowBuilder,
   });
 
   final List<_HomeSectionData> sections;
-  final Set<_HomeSectionKind> collapsedSections;
+  final bool isTodayCollapsed;
   final ValueChanged<_HomeSectionKind> onToggleSection;
   final Widget Function(
     BuildContext context,
@@ -1770,12 +1665,12 @@ class _HomeSectionsPanelSliver extends StatelessWidget {
         for (var index = 0; index < sections.length; index += 1) ...[
           _HomeSectionSliver(
             data: sections[index],
-            isExpanded: !collapsedSections.contains(sections[index].kind),
+            isExpanded: !isTodayCollapsed,
             onToggle: () => onToggleSection(sections[index].kind),
             rowBuilder: rowBuilder,
           ),
           if (index < sections.length - 1)
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
         ],
       ],
     );
@@ -1813,12 +1708,12 @@ class _HomeSectionSliver extends StatelessWidget {
         ),
         if (isExpanded && data.rows.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
             sliver: SliverList.builder(
               itemCount: data.rows.length * 2 - 1,
               itemBuilder: (context, index) {
                 if (index.isOdd) {
-                  return const SizedBox(height: AppSpacing.xs);
+                  return const SizedBox(height: 2);
                 }
                 return rowBuilder(context, data.rows[index ~/ 2], data.kind);
               },
@@ -1865,9 +1760,7 @@ class _HomeSectionHeader extends StatelessWidget {
                   width: 3,
                   height: 18,
                   decoration: BoxDecoration(
-                    color: data.kind == _HomeSectionKind.overdue
-                        ? const Color(0xFFE8755A)
-                        : colorScheme.primary,
+                    color: colorScheme.primary,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -1875,15 +1768,14 @@ class _HomeSectionHeader extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: data.kind == _HomeSectionKind.overdue
-                          ? const Color(0xFFE8755A)
-                          : colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ),
-                _HomeCountBadge(
+                _HomeCountLabel(
                   key: ValueKey('home-section-count-${data.kind.name}'),
                   count: data.count,
                 ),
@@ -1910,8 +1802,8 @@ class _HomeSectionHeader extends StatelessWidget {
   }
 }
 
-class _HomeCountBadge extends StatelessWidget {
-  const _HomeCountBadge({super.key, required this.count});
+class _HomeCountLabel extends StatelessWidget {
+  const _HomeCountLabel({super.key, required this.count});
 
   final int count;
 
@@ -1919,21 +1811,13 @@ class _HomeCountBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainer.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Text(
-          '$count',
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      child: Text(
+        '$count',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -1942,19 +1826,16 @@ class _HomeCountBadge extends StatelessWidget {
 
 String _homeSectionTitle(AppLocalizations l10n, _HomeSectionKind section) {
   return switch (section) {
-    _HomeSectionKind.overdue => l10n.homeOverdueSectionTitle,
     _HomeSectionKind.today => l10n.todayTitle,
-    _HomeSectionKind.tomorrow => l10n.homeTomorrowSectionTitle,
-    _HomeSectionKind.upcoming => l10n.homeUpcomingSectionTitle,
   };
 }
 
-_HomeSectionKind _homeSectionForDue(
+_HomeDueTiming _homeDueTiming(
   TaskDueDto due,
   ({int todayStartMs, int tomorrowStartMs, int dayAfterTomorrowStartMs}) ranges,
 ) {
   if (taskDueIsOverdue(due)) {
-    return _HomeSectionKind.overdue;
+    return _HomeDueTiming.overdue;
   }
   final localDate = taskDueLocalDate(due);
   final localMs = DateTime(
@@ -1963,12 +1844,9 @@ _HomeSectionKind _homeSectionForDue(
     localDate.day,
   ).millisecondsSinceEpoch;
   if (localMs < ranges.tomorrowStartMs) {
-    return _HomeSectionKind.today;
+    return _HomeDueTiming.today;
   }
-  if (localMs < ranges.dayAfterTomorrowStartMs) {
-    return _HomeSectionKind.tomorrow;
-  }
-  return _HomeSectionKind.upcoming;
+  return _HomeDueTiming.future;
 }
 
 _HomeSectionKind? _homeSectionForTask(
@@ -1977,7 +1855,7 @@ _HomeSectionKind? _homeSectionForTask(
 ) {
   final due = task.due;
   if (due != null && taskDueIsOverdue(due)) {
-    return _HomeSectionKind.overdue;
+    return _HomeSectionKind.today;
   }
   final scheduledAt = task.scheduledAt;
   if (scheduledAt != null &&
@@ -1985,7 +1863,12 @@ _HomeSectionKind? _homeSectionForTask(
       scheduledAt < ranges.tomorrowStartMs) {
     return _HomeSectionKind.today;
   }
-  return due == null ? null : _homeSectionForDue(due, ranges);
+  if (due == null) {
+    return null;
+  }
+  return _homeDueTiming(due, ranges) == _HomeDueTiming.today
+      ? _HomeSectionKind.today
+      : null;
 }
 
 int _compareHomeEntries(HomeTaskDto a, HomeTaskDto b, TaskSortMode sortMode) {
@@ -2021,16 +1904,29 @@ TaskDto _taskSnapshotWithStatus(TaskDto task, String status) {
   );
 }
 
+bool _taskTreeContains(TaskTreeNode root, String taskId) {
+  if (root.task.id == taskId) {
+    return true;
+  }
+  return root.children.any((child) => _taskTreeContains(child, taskId));
+}
+
 class _CompletedSectionHeader extends StatelessWidget {
   const _CompletedSectionHeader({
     required this.count,
     required this.isExpanded,
     required this.onTap,
+    this.title,
+    this.showTooltip,
+    this.hideTooltip,
   });
 
   final int count;
   final bool isExpanded;
   final VoidCallback onTap;
+  final String? title;
+  final String? showTooltip;
+  final String? hideTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -2038,8 +1934,8 @@ class _CompletedSectionHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final tooltip = isExpanded
-        ? l10n.hideCompletedTasksTooltip
-        : l10n.showCompletedTasksTooltip;
+        ? hideTooltip ?? l10n.hideCompletedTasksTooltip
+        : showTooltip ?? l10n.showCompletedTasksTooltip;
     return Tooltip(
       message: tooltip,
       child: Semantics(
@@ -2060,14 +1956,15 @@ class _CompletedSectionHeader extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      l10n.completedTasksTitle,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.primary,
-                        fontWeight: FontWeight.w700,
+                      title ?? l10n.completedTasksTitle,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.35,
                       ),
                     ),
                   ),
-                  _HomeCountBadge(
+                  _HomeCountLabel(
                     key: const ValueKey('completed-section-count'),
                     count: count,
                   ),
@@ -2172,29 +2069,6 @@ ListDto? _findList(String listId, List<ListDto>? lists) {
     }
   }
   return null;
-}
-
-ListDto? _findDefaultList(List<ListDto> lists) {
-  for (final list in lists) {
-    if (list.isDefault) {
-      return list;
-    }
-  }
-  return null;
-}
-
-List<ListDto> _mergeListOptions(
-  List<ListDto>? activeLists,
-  List<ListDto>? archivedLists,
-) {
-  final byId = <String, ListDto>{};
-  for (final list in activeLists ?? const <ListDto>[]) {
-    byId[list.id] = list;
-  }
-  for (final list in archivedLists ?? const <ListDto>[]) {
-    byId[list.id] = list;
-  }
-  return List.unmodifiable(byId.values);
 }
 
 bool _hasClosedRoot(List<TaskDto> tasks) {
@@ -2351,6 +2225,7 @@ String _taskRowSemanticLabel({
 class _TaskDragReorderTarget extends StatelessWidget {
   const _TaskDragReorderTarget({
     super.key,
+    required this.enabled,
     required this.task,
     required this.siblings,
     required this.siblingIndex,
@@ -2363,6 +2238,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
     required this.child,
   });
 
+  final bool enabled;
   final TaskDto task;
   final List<TaskDto> siblings;
   final int siblingIndex;
@@ -2384,20 +2260,21 @@ class _TaskDragReorderTarget extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final semanticsActions = <CustomSemanticsAction, VoidCallback>{};
     final moveUp = onMoveUp;
-    if (moveUp != null) {
+    if (enabled && moveUp != null) {
       semanticsActions[CustomSemanticsAction(label: l10n.moveTaskUpTooltip)] =
           moveUp;
     }
     final moveDown = onMoveDown;
-    if (moveDown != null) {
+    if (enabled && moveDown != null) {
       semanticsActions[CustomSemanticsAction(label: l10n.moveTaskDownTooltip)] =
           moveDown;
     }
 
     return DragTarget<_TaskDragData>(
-      onWillAcceptWithDetails: (details) => _canAcceptDrop(details.data.task),
+      onWillAcceptWithDetails: (details) =>
+          enabled && _canAcceptDrop(details.data.task),
       onMove: (details) {
-        if (!_canAcceptDrop(details.data.task)) {
+        if (!enabled || !_canAcceptDrop(details.data.task)) {
           return;
         }
         onHover(
@@ -2409,7 +2286,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
       },
       onLeave: (_) => onLeave(),
       onAcceptWithDetails: (details) async {
-        if (!_canAcceptDrop(details.data.task)) {
+        if (!enabled || !_canAcceptDrop(details.data.task)) {
           onLeave();
           return;
         }
@@ -2439,7 +2316,7 @@ class _TaskDragReorderTarget extends StatelessWidget {
         );
         return LongPressDraggable<_TaskDragData>(
           data: _TaskDragData(task),
-          maxSimultaneousDrags: siblings.length > 1 ? 1 : 0,
+          maxSimultaneousDrags: enabled && siblings.length > 1 ? 1 : 0,
           axis: Axis.vertical,
           feedback: _TaskDragFeedback(child: child),
           childWhenDragging: Opacity(opacity: 0.45, child: child),

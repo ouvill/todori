@@ -13,10 +13,12 @@ pub const SYNC_LOCAL_HLC_SETTING_KEY: &str = "sync_local_hlc";
 pub const SYNC_UPGRADE_REQUIRED_SETTING_KEY: &str = "sync_upgrade_required_v2";
 pub const TASKS_COLLECTION: &str = "tasks";
 pub const LISTS_COLLECTION: &str = "lists";
+pub const TIMER_SESSIONS_COLLECTION: &str = "timer_sessions";
 
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct LocalSyncKeys {
     pub list_deks: Vec<(Uuid, [u8; KEY_LEN])>,
+    pub tenant_root_dek: Option<Zeroizing<[u8; KEY_LEN]>>,
 }
 
 impl fmt::Debug for LocalSyncKeys {
@@ -32,6 +34,7 @@ impl fmt::Debug for LocalSyncKeys {
                     .map(|(list_id, _)| list_id)
                     .collect::<Vec<_>>(),
             )
+            .field("has_tenant_root_dek", &self.tenant_root_dek.is_some())
             .finish()
     }
 }
@@ -50,6 +53,7 @@ impl LocalSyncKeys {
                         .map(|id| (id, *entry.dek))
                 })
                 .collect(),
+            tenant_root_dek: Some(keys.tenant_root_dek.clone()),
         }
     }
 
@@ -63,6 +67,10 @@ pub fn dek_for_list(keys: &LocalSyncKeys, list_id: Uuid) -> Option<[u8; KEY_LEN]
         .iter()
         .find(|(id, _)| *id == list_id)
         .map(|(_, dek)| *dek)
+}
+
+pub fn tenant_root_dek(keys: &LocalSyncKeys) -> Option<&[u8; KEY_LEN]> {
+    keys.tenant_root_dek.as_deref()
 }
 
 pub async fn ensure_list_dek_for_list(
@@ -105,13 +113,14 @@ mod tests {
         let list_id = Uuid::now_v7();
         let keys = LocalSyncKeys {
             list_deks: vec![(list_id, [0x5a; KEY_LEN])],
+            tenant_root_dek: Some(Zeroizing::new([0xa5; KEY_LEN])),
         };
 
         let debug = format!("{keys:?}");
 
         assert_eq!(
             debug,
-            format!("LocalSyncKeys {{ list_count: 1, list_ids: [{list_id}] }}")
+            format!("LocalSyncKeys {{ list_count: 1, list_ids: [{list_id}], has_tenant_root_dek: true }}")
         );
     }
 }
