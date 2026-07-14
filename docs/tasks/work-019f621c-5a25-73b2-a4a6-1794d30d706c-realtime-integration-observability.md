@@ -1,7 +1,7 @@
 ---
 id: 019f621c-5a25-73b2-a4a6-1794d30d706c
 title: Foreground realtime integration and observability
-status: backlog
+status: active
 lane: critical
 milestone: maintenance
 ---

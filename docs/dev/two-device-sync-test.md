@@ -139,6 +139,18 @@ sync-dev@example.com
 - 削除したタスクが他方で復活しない。
 - 同期失敗時に秘密情報、パスワード、Device Key、Master Key、Recovery Keyがログへ出ない。
 
+この手順のlocal serverはrealtime環境変数なしでは通知disabledで起動するため、上記だけでWebSocket即時性を確認済みとは扱わない。production credentialを使わない自動統合確認はrepo rootから次を実行する。
+
+```sh
+cargo test -p todori-server realtime --lib
+cd realtime-worker && npm test
+cd app && flutter test test/realtime_integration_test.dart
+```
+
+Worker testはlocal Durable Object上の2接続、送信元除外、duplicate、expiry、hibernation evictionを確認する。Flutter testはfake clock / socketでmutation commitからremote sync開始まで500ms、socket停止中のlocal sync、30秒fallback、resume syncを確認する。
+
+deployed Workerとの確認は、staging相当環境で両端末をforegroundにして片方のmutationが30秒poll周期より前に他方のsyncを起動することを観測する。続いて通知providerを安全に停止できる検証環境で、local mutationとHTTPS syncが成功し、30秒fallbackまたはforeground復帰で収束することを確認する。実Cloudflare latency、EU jurisdiction、hibernation、費用はこの人間確認で記録し、public logやスクリーンショットへcredential、ticket、opaque identifierを残さない。
+
 ## 7. よく使う確認コマンド
 
 Postgresコンテナの状態:

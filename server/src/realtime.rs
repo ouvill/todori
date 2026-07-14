@@ -107,6 +107,75 @@ enum PublishOutcome {
     Provider(StatusCode),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RealtimeEvent {
+    TicketIssued,
+    TicketUnavailable,
+    PublishSucceeded,
+    PublishTimeout,
+    PublishTransportError,
+    PublishProviderError(u16),
+}
+
+#[derive(Serialize)]
+struct RealtimeObservation {
+    event: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status_class: Option<u16>,
+}
+
+impl RealtimeEvent {
+    fn observation(self) -> RealtimeObservation {
+        match self {
+            Self::TicketIssued => RealtimeObservation {
+                event: "realtime_ticket_issued",
+                status_class: None,
+            },
+            Self::TicketUnavailable => RealtimeObservation {
+                event: "realtime_ticket_unavailable",
+                status_class: None,
+            },
+            Self::PublishSucceeded => RealtimeObservation {
+                event: "realtime_publish_succeeded",
+                status_class: None,
+            },
+            Self::PublishTimeout => RealtimeObservation {
+                event: "realtime_publish_timeout",
+                status_class: None,
+            },
+            Self::PublishTransportError => RealtimeObservation {
+                event: "realtime_publish_transport_error",
+                status_class: None,
+            },
+            Self::PublishProviderError(status_class) => RealtimeObservation {
+                event: "realtime_publish_provider_error",
+                status_class: Some(status_class),
+            },
+        }
+    }
+
+    fn is_failure(self) -> bool {
+        !matches!(self, Self::TicketIssued | Self::PublishSucceeded)
+    }
+}
+
+pub(crate) fn observe_realtime(event: RealtimeEvent) {
+    let observation = event.observation();
+    if event.is_failure() {
+        tracing::warn!(
+            event = observation.event,
+            status_class = observation.status_class,
+            "realtime operation failed"
+        );
+    } else {
+        tracing::info!(
+            event = observation.event,
+            status_class = observation.status_class,
+            "realtime operation completed"
+        );
+    }
+}
+
 impl RealtimeGateway {
     pub fn from_env() -> Result<Self, RealtimeConfigError> {
         Self::from_values(env::var_os)
@@ -179,30 +248,13 @@ impl RealtimeGateway {
     pub async fn publish_change(&self, tenant_id: Uuid, device_id: Uuid) {
         match self.publish_outcome(tenant_id, device_id, Utc::now()).await {
             PublishOutcome::Disabled => {}
-            PublishOutcome::Success => {
-                tracing::info!(
-                    event = "realtime_publish_succeeded",
-                    "realtime publish completed"
-                );
-            }
-            PublishOutcome::Timeout => {
-                tracing::warn!(
-                    event = "realtime_publish_timeout",
-                    "realtime publish failed"
-                );
-            }
+            PublishOutcome::Success => observe_realtime(RealtimeEvent::PublishSucceeded),
+            PublishOutcome::Timeout => observe_realtime(RealtimeEvent::PublishTimeout),
             PublishOutcome::Transport => {
-                tracing::warn!(
-                    event = "realtime_publish_transport_error",
-                    "realtime publish failed"
-                );
+                observe_realtime(RealtimeEvent::PublishTransportError);
             }
             PublishOutcome::Provider(status) => {
-                tracing::warn!(
-                    event = "realtime_publish_provider_error",
-                    status_class = status.as_u16() / 100,
-                    "realtime publish failed"
-                );
+                observe_realtime(RealtimeEvent::PublishProviderError(status.as_u16() / 100))
             }
         }
     }
@@ -466,6 +518,13 @@ mod tests {
 
     #[derive(Deserialize)]
     struct Fixture {
+        rust_generated: SignatureVectorFixture,
+        typescript_generated: SignatureVectorFixture,
+        opaque_identifiers: OpaqueIdentifierFixture,
+    }
+
+    #[derive(Deserialize)]
+    struct SignatureVectorFixture {
         ticket: TicketFixture,
         publish: PublishFixture,
     }
@@ -474,53 +533,102 @@ mod tests {
     struct TicketFixture {
         key_base64url: String,
         payload: String,
+        payload_segment: String,
+        signature: String,
         token: String,
     }
 
     #[derive(Deserialize)]
     struct PublishFixture {
         key_base64url: String,
+        key_id: String,
         timestamp: i64,
         body: String,
         signature: String,
     }
 
-    #[test]
-    fn ticket_and_publish_signatures_match_the_worker_fixture() {
-        let fixture: Fixture = serde_json::from_str(include_str!(
+    #[derive(Deserialize)]
+    struct OpaqueIdentifierFixture {
+        channel_key_base64url: String,
+        tenant_id: Uuid,
+        device_id: Uuid,
+        channel: String,
+        device: String,
+    }
+
+    fn fixture() -> Fixture {
+        serde_json::from_str(include_str!(
             "../../realtime-worker/test/fixtures/realtime-hmac-v1.json"
         ))
-        .unwrap();
-        let ticket_key = parse_key(&fixture.ticket.key_base64url, TICKET_KEY_CURRENT).unwrap();
-        let payload_segment = URL_SAFE_NO_PAD.encode(fixture.ticket.payload.as_bytes());
-        let ticket_input = format!("todori-realtime-ticket-v1\n{payload_segment}");
-        let token = format!(
-            "{payload_segment}.{}",
-            URL_SAFE_NO_PAD.encode(sign(&ticket_key, ticket_input.as_bytes()))
-        );
-        assert_eq!(token, fixture.ticket.token);
+        .unwrap()
+    }
 
-        let publish_key = parse_key(&fixture.publish.key_base64url, PUBLISH_KEY_CURRENT).unwrap();
+    #[test]
+    fn rust_generated_signatures_match_the_shared_fixture() {
+        assert_signature_vector(&fixture().rust_generated);
+    }
+
+    #[test]
+    fn typescript_generated_signatures_verify_in_rust() {
+        assert_signature_vector(&fixture().typescript_generated);
+    }
+
+    fn assert_signature_vector(vector: &SignatureVectorFixture) {
+        let ticket_key = parse_key(&vector.ticket.key_base64url, TICKET_KEY_CURRENT).unwrap();
+        let payload_segment = URL_SAFE_NO_PAD.encode(vector.ticket.payload.as_bytes());
+        assert_eq!(payload_segment, vector.ticket.payload_segment);
+        let ticket_input = format!("todori-realtime-ticket-v1\n{payload_segment}");
+        let signature = URL_SAFE_NO_PAD.encode(sign(&ticket_key, ticket_input.as_bytes()));
+        assert_eq!(signature, vector.ticket.signature);
+        assert_eq!(
+            format!("{payload_segment}.{signature}"),
+            vector.ticket.token
+        );
+
+        assert!(vector.publish.key_id.ends_with("-publish"));
+        let publish_key = parse_key(&vector.publish.key_base64url, PUBLISH_KEY_CURRENT).unwrap();
         let input = format!(
             "todori-realtime-publish-v1\n{}\n{}",
-            fixture.publish.timestamp, fixture.publish.body
+            vector.publish.timestamp, vector.publish.body
         );
         assert_eq!(
             URL_SAFE_NO_PAD.encode(sign(&publish_key, input.as_bytes())),
-            fixture.publish.signature
+            vector.publish.signature
         );
     }
 
     #[test]
-    fn opaque_identifiers_match_independently_generated_hmac_vectors() {
+    fn opaque_identifiers_match_the_shared_domain_separator_fixture() {
+        let fixture = fixture().opaque_identifiers;
+        let key = parse_key(&fixture.channel_key_base64url, CHANNEL_KEY).unwrap();
+        assert_eq!(opaque_channel(&key, fixture.tenant_id), fixture.channel);
         assert_eq!(
-            opaque_channel(&[1; 32], Uuid::nil()),
-            "ubdH4AB-mesoYjVkmFYWDPiaWoctB5jviGNsBQumdc8"
+            opaque_device(&key, fixture.tenant_id, fixture.device_id),
+            fixture.device
         );
-        assert_eq!(
-            opaque_device(&[1; 32], Uuid::nil(), Uuid::max()),
-            "fV0ErholZPU8TWEE4H44TDd1v-udf5QaL9b1PAoWZtE"
-        );
+    }
+
+    #[test]
+    fn structured_observations_have_a_secret_safe_field_allowlist() {
+        for event in [
+            RealtimeEvent::TicketIssued,
+            RealtimeEvent::TicketUnavailable,
+            RealtimeEvent::PublishSucceeded,
+            RealtimeEvent::PublishTimeout,
+            RealtimeEvent::PublishTransportError,
+            RealtimeEvent::PublishProviderError(5),
+        ] {
+            let value = serde_json::to_value(event.observation()).unwrap();
+            let fields = value.as_object().unwrap();
+            assert!(fields
+                .keys()
+                .all(|key| key == "event" || key == "status_class"));
+            assert!(fields.len() <= 2);
+            let serialized = value.to_string();
+            for forbidden in ["ticket", "tenant", "device", "channel", "record", "secret"] {
+                assert!(!serialized.contains(&format!("{forbidden}_id")));
+            }
+        }
     }
 
     #[tokio::test]

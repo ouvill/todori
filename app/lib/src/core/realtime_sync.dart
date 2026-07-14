@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:math';
 
 import 'package:web_socket_channel/io.dart';
@@ -20,6 +21,78 @@ const realtimeReconnectDelays = <Duration>[
   Duration(seconds: 16),
   Duration(seconds: 30),
 ];
+
+enum RealtimeEvent {
+  connectionAttempted,
+  connectionSucceeded,
+  connectionFailed,
+  connectionDisconnected,
+  syncTriggered,
+  syncStarted,
+  syncSucceeded,
+  syncFailed,
+}
+
+enum RealtimeTriggerKind { localMutation, remoteHint }
+
+extension on RealtimeTriggerKind {
+  String get wireName => switch (this) {
+    RealtimeTriggerKind.localMutation => 'local_mutation',
+    RealtimeTriggerKind.remoteHint => 'remote_hint',
+  };
+}
+
+extension on RealtimeEvent {
+  String get wireName => switch (this) {
+    RealtimeEvent.connectionAttempted => 'realtime_connection_attempted',
+    RealtimeEvent.connectionSucceeded => 'realtime_connection_succeeded',
+    RealtimeEvent.connectionFailed => 'realtime_connection_failed',
+    RealtimeEvent.connectionDisconnected => 'realtime_connection_disconnected',
+    RealtimeEvent.syncTriggered => 'realtime_sync_triggered',
+    RealtimeEvent.syncStarted => 'realtime_sync_started',
+    RealtimeEvent.syncSucceeded => 'realtime_sync_succeeded',
+    RealtimeEvent.syncFailed => 'realtime_sync_failed',
+  };
+}
+
+class RealtimeObservation {
+  const RealtimeObservation(
+    this.event, {
+    this.connectionState,
+    this.latencyMs,
+    this.triggerKind,
+  });
+
+  final RealtimeEvent event;
+  final String? connectionState;
+  final int? latencyMs;
+  final RealtimeTriggerKind? triggerKind;
+
+  Map<String, Object> toJson() {
+    final result = <String, Object>{'event': event.wireName};
+    final state = connectionState;
+    if (state != null) {
+      result['connection_state'] = state;
+    }
+    final latency = latencyMs;
+    if (latency != null) {
+      result['latency_ms'] = latency;
+    }
+    final kind = triggerKind;
+    if (kind != null) {
+      result['trigger_kind'] = kind.wireName;
+    }
+    return result;
+  }
+}
+
+typedef RealtimeEventSink = void Function(RealtimeObservation observation);
+
+void discardRealtimeObservation(RealtimeObservation _) {}
+
+void systemRealtimeEventSink(RealtimeObservation observation) {
+  developer.log(jsonEncode(observation.toJson()), name: 'todori.realtime');
+}
 
 abstract interface class RealtimeTimer {
   void cancel();
@@ -52,14 +125,20 @@ class RealtimeSyncScheduler {
   RealtimeSyncScheduler({
     required Future<void> Function() runSync,
     RealtimeTimerFactory timerFactory = systemRealtimeTimerFactory,
+    RealtimeEventSink observer = discardRealtimeObservation,
+    DateTime Function()? now,
     this.debounce = realtimeMutationDebounce,
     this.connectedPoll = realtimeConnectedSafetyPull,
     this.disconnectedPoll = realtimeDisconnectedPolling,
   }) : _runSync = runSync,
-       _timerFactory = timerFactory;
+       _timerFactory = timerFactory,
+       _observer = observer,
+       _now = now ?? DateTime.now;
 
   final Future<void> Function() _runSync;
   final RealtimeTimerFactory _timerFactory;
+  final RealtimeEventSink _observer;
+  final DateTime Function() _now;
   final Duration debounce;
   final Duration connectedPoll;
   final Duration disconnectedPoll;
@@ -72,6 +151,8 @@ class RealtimeSyncScheduler {
   bool _foreground = true;
   bool _connected = false;
   bool _disposed = false;
+  DateTime? _firstTriggerAt;
+  RealtimeTriggerKind? _firstTriggerKind;
 
   bool get isConnected => _connected;
 
@@ -85,6 +166,8 @@ class RealtimeSyncScheduler {
     if (!_active) {
       _cancelIdleTimers();
       _dirty = false;
+      _firstTriggerAt = null;
+      _firstTriggerKind = null;
       return;
     }
     _schedulePoll();
@@ -99,6 +182,8 @@ class RealtimeSyncScheduler {
     if (!_active) {
       _cancelIdleTimers();
       _dirty = false;
+      _firstTriggerAt = null;
+      _firstTriggerKind = null;
       return;
     }
     _schedulePoll();
@@ -117,10 +202,21 @@ class RealtimeSyncScheduler {
   /// Schedules a local mutation or remote change hint after the common 250ms
   /// debounce. A trigger received during a run marks the scheduler dirty and
   /// guarantees a follow-up run.
-  void trigger() {
+  void trigger([RealtimeTriggerKind kind = RealtimeTriggerKind.localMutation]) {
     if (!_active) {
       return;
     }
+    if (_firstTriggerAt == null) {
+      _firstTriggerAt = _now().toUtc();
+      _firstTriggerKind = kind;
+    }
+    _observer(
+      RealtimeObservation(
+        RealtimeEvent.syncTriggered,
+        connectionState: _connectionState,
+        triggerKind: kind,
+      ),
+    );
     if (_inFlight != null) {
       _dirty = true;
       return;
@@ -156,9 +252,36 @@ class RealtimeSyncScheduler {
   Future<void> _drain() async {
     do {
       _dirty = false;
+      final triggeredAt = _firstTriggerAt;
+      _firstTriggerAt = null;
+      final triggerKind = _firstTriggerKind;
+      _firstTriggerKind = null;
+      final latencyMs = triggeredAt == null
+          ? null
+          : max(0, _now().toUtc().difference(triggeredAt).inMilliseconds);
+      _observer(
+        RealtimeObservation(
+          RealtimeEvent.syncStarted,
+          connectionState: _connectionState,
+          latencyMs: latencyMs,
+          triggerKind: triggerKind,
+        ),
+      );
       try {
         await _runSync();
+        _observer(
+          RealtimeObservation(
+            RealtimeEvent.syncSucceeded,
+            connectionState: _connectionState,
+          ),
+        );
       } catch (_) {
+        _observer(
+          RealtimeObservation(
+            RealtimeEvent.syncFailed,
+            connectionState: _connectionState,
+          ),
+        );
         // Automatic realtime orchestration is best effort. The underlying
         // SyncStatus remains the diagnostic source and the next poll retries.
       }
@@ -192,7 +315,11 @@ class RealtimeSyncScheduler {
     _disposed = true;
     _cancelIdleTimers();
     _dirty = false;
+    _firstTriggerAt = null;
+    _firstTriggerKind = null;
   }
+
+  String get _connectionState => _connected ? 'connected' : 'disconnected';
 }
 
 class RealtimeTicketView {
@@ -282,6 +409,7 @@ class RealtimeConnectionController {
     required void Function() onChanged,
     required void Function(bool connected) onConnectionChanged,
     RealtimeTimerFactory timerFactory = systemRealtimeTimerFactory,
+    RealtimeEventSink observer = discardRealtimeObservation,
     DateTime Function()? now,
     double Function()? jitter,
   }) : _fetchTicket = fetchTicket,
@@ -289,6 +417,7 @@ class RealtimeConnectionController {
        _onChanged = onChanged,
        _onConnectionChanged = onConnectionChanged,
        _timerFactory = timerFactory,
+       _observer = observer,
        _now = now ?? DateTime.now,
        _jitter = jitter ?? Random.secure().nextDouble;
 
@@ -297,6 +426,7 @@ class RealtimeConnectionController {
   final void Function() _onChanged;
   final void Function(bool connected) _onConnectionChanged;
   final RealtimeTimerFactory _timerFactory;
+  final RealtimeEventSink _observer;
   final DateTime Function() _now;
   final double Function() _jitter;
 
@@ -358,6 +488,7 @@ class RealtimeConnectionController {
       return;
     }
     _setState(RealtimeConnectionState.connecting);
+    _observer(const RealtimeObservation(RealtimeEvent.connectionAttempted));
     try {
       final ticket = await _fetchTicket();
       if (!_isCurrent(generation)) {
@@ -391,6 +522,7 @@ class RealtimeConnectionController {
         cancelOnError: true,
       );
       _setState(RealtimeConnectionState.connected);
+      _observer(const RealtimeObservation(RealtimeEvent.connectionSucceeded));
       _scheduleRefresh(ticket.expiresAt.toUtc(), generation);
     } catch (_) {
       if (_isCurrent(generation)) {
@@ -405,6 +537,7 @@ class RealtimeConnectionController {
           // Failed setup is retried without exposing socket details.
         }
         _setState(RealtimeConnectionState.disconnected);
+        _observer(const RealtimeObservation(RealtimeEvent.connectionFailed));
         _scheduleRetry(generation);
       }
     }
@@ -483,6 +616,11 @@ class RealtimeConnectionController {
     final isConnected = next == RealtimeConnectionState.connected;
     if (wasConnected != isConnected) {
       _onConnectionChanged(isConnected);
+      if (wasConnected) {
+        _observer(
+          const RealtimeObservation(RealtimeEvent.connectionDisconnected),
+        );
+      }
     }
   }
 }
