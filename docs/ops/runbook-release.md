@@ -1,14 +1,16 @@
 # クライアントリリースrunbook
 
-Todoriクライアントのリリース手順の骨子を定義する。2026-07-08時点ではpre-releaseであり、ストア提出、署名、Developer Program、公開告知、公開不可の判断事項は人間作業である。詳細な事業運用、価格、実証明書情報はpublic repoに書かない。
+Todoriクライアントのリリース手順の骨子を定義する。2026-07-15時点ではpre-releaseであり、最初の一般リリースは課金基盤完成後まで延期している。ストア提出、署名、Developer Program、公開告知、公開不可の判断事項は人間作業である。詳細な事業運用、価格、実証明書情報はpublic repoに書かない。
 
 ## 1. 対象
 
 - iOS / macOSを先行対象とする。
 - Android / Windows / Linuxはマルチプラットフォーム検証の結果に応じて後続で扱う。
-- Phase 1 M5（リリース準備）と連動する。
+- Phase 1 M5（リリース準備）とBilling foundation release gateに連動する。
 
 ## 2. リリース前ゲート
+
+最初にBilling foundation release gate work itemが`done`で、独立検証とiOS sandbox E2Eが合格していることを確認する。少なくとも購入、購入復元、server-side receipt / event検証、冪等なentitlement集約、同期APIのrequest-time認可、失効・返金・再有効化が成立していなければリリース候補を作らない。
 
 共通ゲート:
 
@@ -39,8 +41,8 @@ app/tool/visual_qa.sh
 
 ## 3. リリース候補作成
 
-1. `docs/tasks/BACKLOG.md` の「帰還後の人間確認リスト」と「要人間判断」を確認する。
-2. `docs/tasks/task-*.md` の未解決事項にリリースブロッカーがないか確認する。
+1. `docs/tasks/STATUS.md`、`docs/tasks/work-*.md`、`docs/tasks/BACKLOG.md` の人間作業を確認する。
+2. `docs/tasks/work-*.md` と `docs/tasks/task-*.md` の未解決事項にリリースブロッカーがないか確認する。
 3. `SECURITY.md` の対象範囲に関わる未対応脆弱性がないか確認する。
 4. バージョン番号とタグ名を人間が決める。
 
@@ -70,7 +72,7 @@ cd app
 flutter build macos --release
 ```
 
-task-74時点では、macOS/iOSはXcode first launch未完了、SwiftPM/CoreSimulatorのサンドボックス制約などでビルド前に停止した。人間環境でXcode初期設定と必要キャッシュ権限を整えてから再実行する。
+task-74後にmacOS署名付きbuildとKeychainゼロプロンプト、iOS Simulator build / install / launch、production UI起動を確認済みである。リリース候補では履歴上の成功を流用せず、現在のtoolchainと署名設定でiOS release buildを再実行し、iOS実機でKeychain、通知、購入・復元、同期を通し確認する。
 
 ## 5. ストア提出
 
@@ -88,6 +90,8 @@ task-74時点では、macOS/iOSはXcode first launch未完了、SwiftPM/CoreSimu
 - Recovery Key、Device Key、Master Key、DEKをログへ出していない。
 - クラッシュレポートを送る場合はF-53のオプトイン、PII除去対象、人間判断が完了している。
 - ローカル通知権限、Keychain、SQLCipher DB open、同期の主要導線を実機で確認している。
+- App Store sandboxの購入・復元と、server-side entitlement、失効・再有効化を確認している。
+- 課金provider、product、価格、trial / grace、launch offer、税務・法務、secret運用の人間確認が完了している。
 
 ## 6. リリース後確認
 
@@ -96,6 +100,7 @@ task-74時点では、macOS/iOSはXcode first launch未完了、SwiftPM/CoreSimu
 - 旧バージョンからの `PRAGMA user_version` migrationが成功する。
 - 新DBを旧アプリで開かない方針が維持される。
 - ローカル通知、登録/ログイン、2台同期が確認できる。
+- 購入・復元後のentitlementと同期認可が一致し、失効時もlocal-only機能が継続する。
 - 障害時にローカル編集が継続できる。
 
 ## 7. 差し戻し

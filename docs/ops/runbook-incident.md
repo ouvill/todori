@@ -108,13 +108,13 @@ curl -i <PUBLIC_API_BASE_URL>/health
 
 - `docs/dev/two-device-sync-test.md` のローカル手順で再現する。
 - batch上限、blobサイズ上限、未来HLC拒否、tenant認可、cursor進行を確認する。
-- ADR-010 Draftの削除tombstone空blob方針が維持されているか確認する。
+- ADR-016のterminal tombstone、server-trusted continuity、expired-device rebase、late descendant cascadeが維持されているか確認する。
 
 ユーザー影響:
 
 - ローカル編集は継続する。
 - outboxに未送信変更が残る可能性がある。
-- 復旧後も収束しない場合は、クライアント側の再同期または将来の410 Goneフル再同期設計が必要になる。
+- serverがcontinuity切れまたは`gc_horizon_seq`超過を返した場合は、実装済みのstable-key full resyncを開始し、`base_seq`後delta、高水位closure、seed-before-sweepが完了するまで通常pushを再開しない。
 
 ## 8. 依存脆弱性発覚
 

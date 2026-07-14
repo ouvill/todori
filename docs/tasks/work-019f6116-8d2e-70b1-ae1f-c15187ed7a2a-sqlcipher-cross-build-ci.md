@@ -10,14 +10,14 @@ milestone: M5
 
 ## 1. 背景とコンテキスト
 
-Phase 1ではhostとiOS向けSQLCipher PoCが成立している一方、Phase 1計画書§6にAndroid / iOSクロスビルドの継続検証が未解決事項として残っている。task-91もこのCI整備を後続候補へ移している。vendored SQLCipher / OpenSSLのtarget差分を通常CIで検出できるようにする。
+host、iOS Simulator core test、iOS実機target link、Android Rust FFI buildは成立している一方、iOS / Androidクロスビルドの継続検証は通常CIへ入っていない。task-74の単発検証とPhase 1計画書§6の残件を継続的なguardへ変え、vendored SQLCipher / OpenSSLのtarget差分を検出できるようにする。
 
 ## 2. 事前に読むべきファイル
 
 - `AGENTS.md`
 - `docs/tasks/PLAYBOOK.md`
 - `docs/07_Phase1計画書.md` の§3と§6
-- `docs/tasks/task-91-phase1-documentation-refresh.md`
+- `docs/tasks/task-74-multiplatform-verification.md`
 - `.github/workflows/ci.yml`
 - `.cargo/config.toml`
 - `core/crypto/Cargo.toml` / `core/storage/Cargo.toml`

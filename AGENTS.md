@@ -26,7 +26,8 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `docs/billing_overview.md` ── 公開版の課金方針（詳細な課金設計はprivate repo側）
 - `docs/05_設計判断記録.md` ── ADR（設計判断記録）
 - `docs/legal_overview.md` ── 公開版の法務・OSS方針（詳細な事業・法務メモはprivate repo側）
-- `docs/07_Phase1計画書.md` ── **現在の実行計画**。マイルストーン（M1〜M5）と完了条件を定義する
+- `docs/07_Phase1計画書.md` ── Phase 1のマイルストーン（M1〜M5）と完了条件。M1〜M4は完了し、M5は課金基盤完成後のリリース工程へ延期している
+- `docs/08_Phase2計画書.md` ── Phase 2の実行計画と現在地。P2-M1〜M4・M6・M7は完了し、P2-M5のAndroid検証、P2-M8、課金release gateが残る
 - `docs/tasks/` ── UUIDv7 work item、標準/重要変更の指示書と完了証拠。長期方向はPhase計画書、work itemの状態はfront matterを正本とする。軽量作業はtask文書を省略できる
 
 **`docs/01`・`docs/02` の変更には人間承認が必要**である。`docs/03_技術仕様書.md` は2026-07-08にプロダクトオーナーが全面編集を許可した（コミットをチェックポイントとして復元可能なため）。ただし変更時は外科的差分とし、日付・ADR参照注記を維持すること。実装中に仕様と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、該当タスクの完了報告の「未解決事項」に記録すること。
@@ -41,9 +42,9 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `app/` ── Flutterアプリ本体
 - `app/rust` ── flutter_rust_bridge用のブリッジcrate（crate名 `todori_app_bridge`）
 - `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
-- `cli` ── CLI雛形（Phase 1では未接続）
-- `mcp-server` ── MCPサーバー雛形（Phase 1では未接続）
-- `server` ── サーバー雛形（Phase 1では未使用。Phase 2以降のサーバー経由同期用）
+- `cli` ── CLI雛形。共通client/profile層への実接続はバックログ
+- `mcp-server` ── MCPサーバー雛形。共通client/profile層への実接続はバックログ
+- `server` ── OPAQUE認証、E2EE同期、device continuityを提供するRust APIサーバー。課金routeは未実装
 
 ## 品質ゲート（コミット前に全て通すこと）
 
