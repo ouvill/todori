@@ -16,6 +16,7 @@ void main() {
         <int>[1, 2],
         'not json',
         '{}',
+        '{"v":1.0,"type":"changed"}',
         '{"v":2,"type":"changed"}',
         '{"v":1,"type":"unknown"}',
         '{"v":1,"type":"changed","high_water":4}',
@@ -80,32 +81,35 @@ void main() {
       expect(runs, 2);
     });
 
-    test('switches between 30 second fallback and 5 minute safety pull', () async {
-      final timers = FakeRealtimeTimers();
-      var runs = 0;
-      final scheduler = RealtimeSyncScheduler(
-        runSync: () async {
-          runs += 1;
-        },
-        timerFactory: timers.create,
-      );
-      addTearDown(scheduler.dispose);
+    test(
+      'switches between 30 second fallback and 5 minute safety pull',
+      () async {
+        final timers = FakeRealtimeTimers();
+        var runs = 0;
+        final scheduler = RealtimeSyncScheduler(
+          runSync: () async {
+            runs += 1;
+          },
+          timerFactory: timers.create,
+        );
+        addTearDown(scheduler.dispose);
 
-      scheduler.setEnabled(true);
-      await _pumpAsync();
-      runs = 0;
-      timers.activeWithDelay(realtimeDisconnectedPolling).fire();
-      await _pumpAsync();
-      expect(runs, 1);
+        scheduler.setEnabled(true);
+        await _pumpAsync();
+        runs = 0;
+        timers.activeWithDelay(realtimeDisconnectedPolling).fire();
+        await _pumpAsync();
+        expect(runs, 1);
 
-      scheduler.setConnected(true);
-      timers.activeWithDelay(realtimeConnectedSafetyPull).fire();
-      await _pumpAsync();
-      expect(runs, 2);
+        scheduler.setConnected(true);
+        timers.activeWithDelay(realtimeConnectedSafetyPull).fire();
+        await _pumpAsync();
+        expect(runs, 2);
 
-      scheduler.setForeground(false);
-      expect(timers.active, isEmpty);
-    });
+        scheduler.setForeground(false);
+        expect(timers.active, isEmpty);
+      },
+    );
   });
 
   group('realtime connection lifecycle', () {
@@ -137,10 +141,10 @@ void main() {
         addTearDown(controller.dispose);
 
         await controller.start();
-      expect(controller.state, RealtimeConnectionState.connected);
-      expect(connectionStates, [true]);
-      expect(connector.calls.single.websocketUrl.query, isEmpty);
-      expect(connector.calls.single.ticket, 'opaque-1');
+        expect(controller.state, RealtimeConnectionState.connected);
+        expect(connectionStates, [true]);
+        expect(connector.calls.single.websocketUrl.query, isEmpty);
+        expect(connector.calls.single.ticket, 'opaque-1');
 
         final firstSocket = connector.sockets.single;
         firstSocket.add('{"v":1,"type":"changed","record_id":"x"}');

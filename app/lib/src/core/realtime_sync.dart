@@ -263,7 +263,8 @@ bool isRealtimeChangedFrame(Object? frame) {
     if (value is! Map<String, dynamic> || value.length != 2) {
       return false;
     }
-    return value['v'] == 1 &&
+    return value['v'] is int &&
+        value['v'] == 1 &&
         value['type'] == 'changed' &&
         value.containsKey('v') &&
         value.containsKey('type');
