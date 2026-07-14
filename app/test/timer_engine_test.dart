@@ -100,6 +100,65 @@ void main() {
     expect(completed.finishKind, TimerFinishKindDto.completed);
   });
 
+  test(
+    'foreground display tick settles Pomodoro at the target instant',
+    () async {
+      final harness = await _Harness.create();
+      addTearDown(harness.dispose);
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .startPomodoro(taskId: harness.task.id);
+      final startedAt = harness.clock.now();
+
+      harness.clock.advance(const Duration(minutes: 25));
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .refreshDisplay();
+
+      final state = harness.container.read(timerEngineProvider).requireValue;
+      expect(state.active, isNull);
+      expect(state.lastCompletion, isNotNull);
+      expect(state.isBreakPending, isTrue);
+      final completed = (await harness.bridge.getCompletedTimerSessions(
+        taskId: harness.task.id,
+      )).single;
+      expect(completed.endedAt, startedAt.add(const Duration(minutes: 25)));
+      expect(
+        completed.activeDurationMs,
+        const Duration(minutes: 25).inMilliseconds,
+      );
+      expect(completed.finishKind, TimerFinishKindDto.completed);
+    },
+  );
+
+  test(
+    'foreground display tick finishes a break without saving work',
+    () async {
+      final harness = await _Harness.create();
+      addTearDown(harness.dispose);
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .startPomodoro(taskId: harness.task.id);
+      harness.clock.advance(const Duration(minutes: 1));
+      await harness.container.read(timerEngineProvider.notifier).finish();
+      await harness.container.read(timerEngineProvider.notifier).startBreak();
+
+      harness.clock.advance(const Duration(minutes: 5));
+      await harness.container
+          .read(timerEngineProvider.notifier)
+          .refreshDisplay();
+
+      final state = harness.container.read(timerEngineProvider).requireValue;
+      expect(state.active, isNull);
+      expect(state.breakJustCompleted, isTrue);
+      expect(state.isBreakPending, isFalse);
+      expect(
+        await harness.bridge.getCompletedTimerSessions(taskId: harness.task.id),
+        hasLength(1),
+      );
+    },
+  );
+
   test('foreground finish and pause settle at elapsed boundaries', () async {
     final finishHarness = await _Harness.create();
     addTearDown(finishHarness.dispose);

@@ -243,6 +243,14 @@ void main() {
     await _screenshot(tester, 'focus_break_running');
   });
 
+  testWidgets('focus_break_finished: countdown settles into a quiet result', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.breakFinished);
+    await _screenshot(tester, 'focus_break_finished');
+  });
+
   testWidgets('focus_320_ja_text_scale_2: narrow accessible setup', (
     tester,
   ) async {
@@ -1637,6 +1645,7 @@ enum _FocusVisualState {
   paused,
   finished,
   breakRunning,
+  breakFinished,
 }
 
 Future<void> _pumpFocusVisual(
@@ -1742,7 +1751,8 @@ Future<void> _pumpFocusVisual(
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
-  } else if (state == _FocusVisualState.breakRunning) {
+  } else if (state == _FocusVisualState.breakRunning ||
+      state == _FocusVisualState.breakFinished) {
     clock.advance(const Duration(minutes: 12));
     await tester.tap(find.byKey(const ValueKey('focus-session-options')));
     await tester.pumpAndSettle();
@@ -1753,6 +1763,12 @@ Future<void> _pumpFocusVisual(
     expect(find.byKey(const ValueKey('focus-break-running')), findsOneWidget);
     expect(find.byKey(const ValueKey('focus-complete-task')), findsNothing);
     await tester.pump(const Duration(milliseconds: 300));
+    if (state == _FocusVisualState.breakFinished) {
+      clock.advance(const Duration(minutes: 5));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Break complete'), findsOneWidget);
+    }
   } else {
     // The wall-clock ticker does not keep scheduling frames continuously, so
     // pump the route transition explicitly before capturing the stable state.

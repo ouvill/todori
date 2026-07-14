@@ -211,6 +211,55 @@ void main() {
     expect(find.byKey(const ValueKey('focus-start-break')), findsNothing);
   });
 
+  testWidgets('Pomodoro and break transition automatically at zero', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Move on when the countdown ends',
+    );
+    final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 11));
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          timerClockProvider.overrideWithValue(clock),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    clock.advance(const Duration(minutes: 25));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('focus-finished')), findsOneWidget);
+    expect(find.text('25m'), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-start-break')), findsOneWidget);
+    expect((await fake.getTasks(listId: listId)).single.status, 'todo');
+
+    await tester.tap(find.byKey(const ValueKey('focus-start-break')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('focus-break-running')), findsOneWidget);
+
+    clock.advance(const Duration(minutes: 5));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Break complete'), findsOneWidget);
+    expect(await fake.getActiveTimerSession(), isNull);
+    expect(await fake.getCompletedTimerSessions(taskId: task.id), hasLength(1));
+  });
+
   testWidgets('Complete task requires a saved non-zero work session', (
     tester,
   ) async {

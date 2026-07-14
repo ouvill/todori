@@ -43,6 +43,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
     final hasFinishedState =
         engine?.lastCompletion?.taskId == widget.taskId ||
         engine?.isBreakPending == true ||
+        engine?.breakJustCompleted == true ||
         _breakFinished ||
         _taskCompleted ||
         _sessionFinished;
@@ -129,11 +130,13 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
                           onOptions: () => _showSessionOptions(task),
                         );
                       }
-                      if (_breakFinished) {
+                      if (_breakFinished || engine.breakJustCompleted) {
                         return _FocusFinishedView(
                           title: _l10n.focusBreakFinishedTitle,
                           body: _l10n.focusBreakFinishedBody,
-                          onDone: _leaveFocus,
+                          onDone: () => unawaited(
+                            _finishPromptAndExit(acknowledgeBreak: false),
+                          ),
                         );
                       }
                       final completion =
@@ -220,7 +223,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
         return;
       }
     }
-    ref.read(timerEngineProvider.notifier).clearLastCompletion();
+    ref.read(timerEngineProvider.notifier).clearLastOutcome();
     _leaveFocus();
   }
 
@@ -270,7 +273,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       setState(() => _sessionFinished = true);
     }
     if (exit) {
-      ref.read(timerEngineProvider.notifier).clearLastCompletion();
+      ref.read(timerEngineProvider.notifier).clearLastOutcome();
       _leaveFocus();
     }
   }

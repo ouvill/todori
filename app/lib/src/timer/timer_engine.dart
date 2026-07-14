@@ -50,6 +50,7 @@ class TimerEngineState {
     this.completedWorkCycles = 0,
     this.isBreakPending = false,
     this.lastCompletion,
+    this.breakJustCompleted = false,
   });
 
   final ActiveTimerSessionDto? active;
@@ -60,6 +61,7 @@ class TimerEngineState {
   final int completedWorkCycles;
   final bool isBreakPending;
   final CompletedTimerSessionDto? lastCompletion;
+  final bool breakJustCompleted;
 
   bool get isIdle => active == null;
   bool get isRunning => active?.state == TimerRunStateDto.running;
@@ -79,6 +81,8 @@ class TimerEngineState {
     bool? isBreakPending,
     CompletedTimerSessionDto? lastCompletion,
     bool clearLastCompletion = false,
+    bool? breakJustCompleted,
+    bool clearBreakJustCompleted = false,
   }) {
     return TimerEngineState(
       active: clearActive ? null : active ?? this.active,
@@ -93,6 +97,9 @@ class TimerEngineState {
       lastCompletion: clearLastCompletion
           ? null
           : lastCompletion ?? this.lastCompletion,
+      breakJustCompleted: clearBreakJustCompleted
+          ? false
+          : breakJustCompleted ?? this.breakJustCompleted,
     );
   }
 }
@@ -144,11 +151,11 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
       runtime = settled.runtime;
       active = settled.active;
       final settings = await _loadSettings(bridge);
-      final result = (await _snapshot(
-        active,
-        runtime,
-        settings: settings,
-      )).copyWith(lastCompletion: settled.completion);
+      final result = (await _snapshot(active, runtime, settings: settings))
+          .copyWith(
+            lastCompletion: settled.completion,
+            breakJustCompleted: settled.breakCompleted,
+          );
       _configureDisplayTicker(result);
       await _scheduleNotification(result, settings);
       return result;
@@ -308,6 +315,9 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
         await _discardExpected(active);
         final runtime = await _loadRuntime(_bridge);
         await _publish(null, runtime: runtime);
+        state = AsyncData(
+          state.requireValue.copyWith(breakJustCompleted: true),
+        );
         return;
       }
       final finished = await _finishWork(active, kind: kind);
@@ -324,12 +334,18 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     return result;
   }
 
-  void clearLastCompletion() {
+  void clearLastOutcome() {
     final current = state.value;
-    if (current == null || current.lastCompletion == null) {
+    if (current == null ||
+        (current.lastCompletion == null && !current.breakJustCompleted)) {
       return;
     }
-    state = AsyncData(current.copyWith(clearLastCompletion: true));
+    state = AsyncData(
+      current.copyWith(
+        clearLastCompletion: true,
+        clearBreakJustCompleted: true,
+      ),
+    );
   }
 
   Future<void> discard() => _runCommand(() async {
@@ -359,13 +375,16 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
       if (settled.completion != null) {
         final current = state.requireValue;
         state = AsyncData(current.copyWith(lastCompletion: settled.completion));
+      } else if (settled.breakCompleted) {
+        final current = state.requireValue;
+        state = AsyncData(current.copyWith(breakJustCompleted: true));
       }
       return;
     }
     await _publish(restored, runtime: runtime);
   });
 
-  void refreshDisplay() {
+  Future<void> refreshDisplay() async {
     final current = state.value;
     final active = current?.active;
     if (current == null || active == null) {
@@ -376,6 +395,17 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
         ? null
         : Duration(milliseconds: active.targetDurationMs!) - elapsed;
     state = AsyncData(current.copyWith(elapsed: elapsed, remaining: remaining));
+    if (active.mode == TimerModeDto.pomodoro &&
+        active.state == TimerRunStateDto.running &&
+        remaining != null &&
+        remaining <= Duration.zero) {
+      try {
+        await settleOnResume();
+      } catch (_) {
+        // The durable active session remains the source of truth. A later
+        // display tick, foreground resume, or restart retries settlement.
+      }
+    }
   }
 
   Future<void> _start({
@@ -519,7 +549,11 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     await _notifications.cancel(active.sessionId);
     if (active.phase != TimerPhaseDto.work) {
       await _discardExpected(active);
-      return _SettledTimer(active: null, runtime: runtime);
+      return _SettledTimer(
+        active: null,
+        runtime: runtime,
+        breakCompleted: true,
+      );
     }
     final reachedPomodoroTarget =
         pomodoroReachedAt != null &&
@@ -621,9 +655,12 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
   Future<void> _publishSettlement(_SettledTimer settled) async {
     await _publish(settled.active, runtime: settled.runtime);
     final completion = settled.completion;
-    if (completion != null) {
+    if (completion != null || settled.breakCompleted) {
       state = AsyncData(
-        state.requireValue.copyWith(lastCompletion: completion),
+        state.requireValue.copyWith(
+          lastCompletion: completion,
+          breakJustCompleted: settled.breakCompleted,
+        ),
       );
     }
   }
@@ -688,7 +725,7 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     }
     _displayTicker = Timer.periodic(
       const Duration(seconds: 1),
-      (_) => refreshDisplay(),
+      (_) => unawaited(refreshDisplay()),
     );
   }
 
@@ -894,11 +931,13 @@ class _SettledTimer {
     required this.active,
     required this.runtime,
     this.completion,
+    this.breakCompleted = false,
   });
 
   final ActiveTimerSessionDto? active;
   final _TimerRuntime runtime;
   final CompletedTimerSessionDto? completion;
+  final bool breakCompleted;
 }
 
 class _FinishResult {
