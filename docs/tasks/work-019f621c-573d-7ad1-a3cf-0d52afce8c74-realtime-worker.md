@@ -1,7 +1,7 @@
 ---
 id: 019f621c-573d-7ad1-a3cf-0d52afce8c74
 title: Foreground realtime Cloudflare Worker
-status: backlog
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -72,3 +72,22 @@ EU jurisdictionのDurable Objectへ認証済みWebSocketを接続し、serverの
 - pinしたNode / npm依存とCI command
 - invalid、expiry、source除外、hibernation test結果
 - 本番deploy前に残る人間作業
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-15
+- 結果: `realtime-worker/`へmodule Workerとtenant単位Durable Objectを追加した。`GET /v1/connect`はAuthorization headerの300秒ticketを検証し、production経路でEU jurisdiction namespaceを選択する。`POST /v1/publish`はcurrent / previous publish key、raw body HMAC、±30秒timestamp、512-byte上限を検証する。Hibernation attachmentへopaque device tagとexpiryを保存し、期限切れclose、送信元除外、同deviceの旧接続置換、tenant 128接続上限、client message拒否、固定change frameだけのfan-outを実装した。
+- 固定version: Node 24.18.0、Wrangler 4.110.0、Vitest 4.1.9、`@cloudflare/vitest-pool-workers` 0.18.2、TypeScript 6.0.3をexact pinし、`package-lock.json`を追加した。pinned `workerd`が受理する最新日付に合わせ、Wrangler compatibility dateは`2026-07-13`とした。
+- CI: Node version一致確認、`npm ci`、typecheck、Vitest、Wrangler `deploy --dry-run`だけを行うWorker jobを追加した。deploy処理は追加していない。
+- 証拠: Node 24.18.0で`npm ci`、`npm run typecheck`、`npm test`（1 file、10 tests）、`npm run build`（Wrangler 4.110.0 dry-run）、`git diff --check`が成功した。fixture、invalid / unknown / tampered / expired ticket、current / previous key、publish時刻差 / body上限、source除外、duplicate hint、same-device置換、129件目拒否、eviction後attachment復元とexpiry closeを確認した。
+- 共通品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker-backed integrationを含む`cargo test --workspace`、`app/rust` release build、`flutter analyze`、`flutter test`（232件成功、Visual QA harness 1件skip）、hardcoded string / client boundary scriptが成功した。`flutter analyze`は初回にvendored Cargokitのignored `.dart_tool`未生成で失敗したため、同build toolで`dart pub get`後に再実行して成功した。
+- Commit: `b4853b3` (`feat(realtime): add Cloudflare wake-up Worker`)
+- 未解決: Cloudflare account / EU namespace作成、production secret投入、jurisdiction / hibernation / latency / 費用の実環境確認はcredentialを持つ人間のdeploy後作業として残す。
+
+### 独立検証
+
+- 判定: 合格
+- 根拠: 実装を担当していない検証担当が統合HEAD `b4853b398c808638455affa617bcfc4f2df04dd6`を確認した。Node 24.18.0でtypecheck、10件のVitest、Wrangler 4.110.0 dry-run build、`git diff main...HEAD --check`を再実行し、Node標準HMACによるticket / publish fixtureの独立再計算も一致した。HMAC byte contract、key rotation、EU production経路、Hibernation / expiry、source除外、接続上限、固定frame、secret-safe response / log、CI exact pinにブロッキング指摘がないことを確認した。
+- 検証者: 実装を担当していない独立検証サブエージェント

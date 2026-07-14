@@ -1,0 +1,101 @@
+import { env } from "cloudflare:workers";
+import { SELF } from "cloudflare:test";
+import type { PublishPayload, TicketPayload } from "../src/contracts";
+
+const encoder = new TextEncoder();
+
+export const CHANNEL = opaqueTag(0);
+export const DEVICE_A = opaqueTag(1);
+export const DEVICE_B = opaqueTag(2);
+
+export async function connect(
+  device: string,
+  options: { channel?: string; expiresAt?: number; kid?: string; key?: string } = {},
+): Promise<Response> {
+  const now = Math.floor(Date.now() / 1000);
+  const token = await issueTicket({
+    kid: options.kid ?? env.TICKET_KEY_CURRENT_ID,
+    aud: "todori-realtime",
+    channel: options.channel ?? CHANNEL,
+    device,
+    iat: (options.expiresAt ?? now + 300) - 300,
+    exp: options.expiresAt ?? now + 300,
+  }, options.key ?? env.TICKET_KEY_CURRENT);
+  return SELF.fetch("https://example.com/v1/connect", {
+    headers: { Authorization: `Bearer ${token}`, Upgrade: "websocket" },
+  });
+}
+
+export async function issueTicket(
+  payload: TicketPayload,
+  encodedKey: string,
+): Promise<string> {
+  const payloadSegment = encodeBase64Url(encoder.encode(JSON.stringify(payload)));
+  const input = encoder.encode(`todori-realtime-ticket-v1\n${payloadSegment}`);
+  const signature = await sign(encodedKey, input);
+  return `${payloadSegment}.${encodeBase64Url(signature)}`;
+}
+
+export async function publish(
+  payload: PublishPayload,
+  options: { kid?: string; key?: string; timestamp?: number; body?: Uint8Array } = {},
+): Promise<Response> {
+  const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
+  const body = options.body ?? encoder.encode(JSON.stringify(payload));
+  const prefix = encoder.encode(`todori-realtime-publish-v1\n${timestamp}\n`);
+  const input = new Uint8Array(prefix.byteLength + body.byteLength);
+  input.set(prefix);
+  input.set(body, prefix.byteLength);
+  const signature = await sign(options.key ?? env.PUBLISH_KEY_CURRENT, input);
+  return SELF.fetch("https://example.com/v1/publish", {
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Todori-Realtime-Key-Id": options.kid ?? env.PUBLISH_KEY_CURRENT_ID,
+      "X-Todori-Realtime-Signature": encodeBase64Url(signature),
+      "X-Todori-Realtime-Timestamp": String(timestamp),
+    },
+    method: "POST",
+  });
+}
+
+export function message(socket: WebSocket): Promise<string> {
+  return new Promise((resolve) => {
+    socket.addEventListener("message", (event) => resolve(event.data as string), {
+      once: true,
+    });
+  });
+}
+
+export function closeEvent(socket: WebSocket): Promise<CloseEvent> {
+  return new Promise((resolve) => {
+    socket.addEventListener("close", resolve, { once: true });
+  });
+}
+
+export function opaqueTag(byte: number): string {
+  return encodeBase64Url(new Uint8Array(32).fill(byte));
+}
+
+async function sign(encodedKey: string, input: Uint8Array): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    decodeBase64Url(encodedKey),
+    { hash: "SHA-256", name: "HMAC" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, input));
+}
+
+function encodeBase64Url(value: Uint8Array): string {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/") + padding);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
