@@ -3,7 +3,7 @@
 //! SQLCipherで暗号化されたSQLite上に `ListRepository` / `TaskRepository` を実装する
 //! （`docs/03_技術仕様書.md` §5）。
 
-use std::{path::Path, str::FromStr, time::Duration};
+use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
@@ -16,7 +16,7 @@ use todori_domain::{
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 18;
+pub const LATEST_SCHEMA_VERSION: i32 = 19;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -104,6 +104,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 18,
         name: "add_timer_sync_foundation",
         apply: add_timer_sync_foundation,
+    },
+    Migration {
+        target_version: 19,
+        name: "add_list_aliases",
+        apply: add_list_aliases,
     },
 ];
 
@@ -363,6 +368,15 @@ pub struct SyncRecordState {
     pub collection: String,
     pub current_revision_hlc: Option<String>,
     pub state: SyncRecordSemanticState,
+    pub updated_at: i64,
+}
+
+/// Device-local mapping from a non-canonical Inbox record to the current
+/// canonical Inbox. Both list sync records remain independently durable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListAlias {
+    pub alias_list_id: Uuid,
+    pub canonical_list_id: Uuid,
     pub updated_at: i64,
 }
 
@@ -633,11 +647,15 @@ impl<'connection> SqliteWriteTx<'connection> {
     }
 
     pub fn get_list(&self, id: Uuid) -> Result<List, StorageError> {
-        get_list_on(&self.transaction, id)
+        get_list_on(&self.transaction, self.resolve_list_alias(id)?)
+    }
+
+    pub fn resolve_list_alias(&self, list_id: Uuid) -> Result<Uuid, StorageError> {
+        resolve_list_alias_on(&self.transaction, list_id)
     }
 
     pub fn list_active_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
-        list_active_tasks_by_list_on(&self.transaction, list_id)
+        list_active_tasks_by_list_on(&self.transaction, self.resolve_list_alias(list_id)?)
     }
 
     /// Snapshots every task rooted at `task_id` inside this write transaction.
@@ -653,7 +671,7 @@ impl<'connection> SqliteWriteTx<'connection> {
     /// This intentionally includes records regardless of `deleted_at`: a
     /// physical list deletion must account for every persisted task record.
     pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
-        list_active_tasks_by_list_on(&self.transaction, list_id)
+        list_active_tasks_by_list_on(&self.transaction, self.resolve_list_alias(list_id)?)
     }
 
     pub fn get_timer_session(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
@@ -757,6 +775,9 @@ impl<'connection> SqliteWriteTx<'connection> {
             "SELECT id, name, color, icon, org_id, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM list_aliases alias WHERE alias.alias_list_id = lists.id
+             )
              ORDER BY sort_order ASC, id ASC",
         )?;
         let lists = statement
@@ -765,7 +786,8 @@ impl<'connection> SqliteWriteTx<'connection> {
         Ok(lists)
     }
 
-    pub fn insert_task(&mut self, task: Task) -> Result<(), StorageError> {
+    pub fn insert_task(&mut self, mut task: Task) -> Result<(), StorageError> {
+        task.list_id = self.resolve_list_alias(task.list_id)?;
         insert_task_on(&self.transaction, &task)
     }
 
@@ -787,7 +809,8 @@ impl<'connection> SqliteWriteTx<'connection> {
         put_pending_list_key_bundle_on(&self.transaction, &bundle)
     }
 
-    pub fn update_task(&mut self, task: Task) -> Result<(), StorageError> {
+    pub fn update_task(&mut self, mut task: Task) -> Result<(), StorageError> {
+        task.list_id = self.resolve_list_alias(task.list_id)?;
         update_task_on(&self.transaction, &task)
     }
 
@@ -810,7 +833,8 @@ impl<'connection> SqliteWriteTx<'connection> {
     /// Related reminders and undo entries are removed by the same operation.
     /// Dropping the transaction without committing rolls every deletion back.
     pub fn delete_list_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
-        let list = self.get_list(list_id)?;
+        let list_id = self.resolve_list_alias(list_id)?;
+        let list = get_list_on(&self.transaction, list_id)?;
         if list.is_default {
             return Err(StorageError::DefaultListProtected {
                 operation: "deleted",
@@ -822,11 +846,13 @@ impl<'connection> SqliteWriteTx<'connection> {
 
     pub fn update_task_with_undo(
         &mut self,
-        before: Task,
-        after: Task,
+        mut before: Task,
+        mut after: Task,
         operation_type: TaskUndoOperation,
         created_at: i64,
     ) -> Result<TaskUndoEntry, StorageError> {
+        before.list_id = self.resolve_list_alias(before.list_id)?;
+        after.list_id = self.resolve_list_alias(after.list_id)?;
         update_task_with_undo_on(&self.transaction, before, after, operation_type, created_at)
     }
 
@@ -1026,6 +1052,50 @@ impl OwnedSqliteWriteTx {
         delete_quarantine_on(self.connection(), record_id)
     }
 
+    /// Lists raw durable semantic states. Callers must perform typed plaintext
+    /// validation before treating live rows as canonical Inbox candidates.
+    pub fn list_record_states(
+        &self,
+        collection: &str,
+    ) -> Result<Vec<SyncRecordState>, StorageError> {
+        list_record_states_on(self.connection(), collection)
+    }
+
+    /// Returns true for any unresolved live head in the requested collection,
+    /// including non-replayable corruption and unsupported plaintext failures.
+    pub fn has_live_quarantine(&self, collection: &str) -> Result<bool, StorageError> {
+        has_live_quarantine_on(self.connection(), collection)
+    }
+
+    pub fn list_list_aliases(&self) -> Result<Vec<ListAlias>, StorageError> {
+        list_list_aliases_on(self.connection())
+    }
+
+    pub fn resolve_list_alias(&self, list_id: Uuid) -> Result<Uuid, StorageError> {
+        resolve_list_alias_on(self.connection(), list_id)
+    }
+
+    pub fn materialize_canonical_list(
+        &mut self,
+        canonical_list_id: Uuid,
+    ) -> Result<(), StorageError> {
+        materialize_canonical_list_on(self.connection(), canonical_list_id)
+    }
+
+    pub fn replace_list_aliases(
+        &mut self,
+        canonical_list_id: Uuid,
+        alias_list_ids: &[Uuid],
+        updated_at: i64,
+    ) -> Result<(), StorageError> {
+        replace_list_aliases_on(
+            self.connection(),
+            canonical_list_id,
+            alias_list_ids,
+            updated_at,
+        )
+    }
+
     pub fn load_full_resync(&self) -> Result<Option<FullResyncProgress>, StorageError> {
         load_full_resync_on(self.connection())
     }
@@ -1130,8 +1200,20 @@ impl OwnedSqliteWriteTx {
         optional_not_found(get_task_on(self.connection(), id))
     }
 
-    pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
+    pub fn list_all_tasks_by_list_for_sync(
+        &self,
+        list_id: Uuid,
+    ) -> Result<Vec<Task>, StorageError> {
         list_active_tasks_by_list_on(self.connection(), list_id)
+    }
+
+    pub fn list_all_tasks_for_sync(&self) -> Result<Vec<Task>, StorageError> {
+        list_all_tasks_for_sync_on(self.connection())
+    }
+
+    /// Raw per-list enumeration used by existing sync and deletion adapters.
+    pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
+        self.list_all_tasks_by_list_for_sync(list_id)
     }
 
     pub fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), StorageError> {
@@ -1682,6 +1764,24 @@ fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<
     )
 }
 
+/// Durable device-local aliases used by canonical Inbox convergence.
+///
+/// Alias rows never replace the authenticated list sync record. They only hide
+/// loser domain rows and resolve stale local references to the current
+/// canonical list. The convergence transaction replaces the complete set.
+fn add_list_aliases(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE list_aliases (
+             alias_list_id TEXT PRIMARY KEY NOT NULL,
+             canonical_list_id TEXT NOT NULL,
+             updated_at INTEGER NOT NULL,
+             CHECK (alias_list_id <> canonical_list_id)
+         );
+         CREATE INDEX idx_list_aliases_canonical
+             ON list_aliases(canonical_list_id, alias_list_id);",
+    )
+}
+
 fn table_columns_raw(connection: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = statement
@@ -2115,12 +2215,14 @@ impl SqliteTaskRepository {
     /// Updates a task and records the undo snapshot in the same SQLite transaction.
     pub fn update_with_undo(
         &mut self,
-        before: Task,
-        after: Task,
+        mut before: Task,
+        mut after: Task,
         operation_type: TaskUndoOperation,
         created_at: i64,
     ) -> Result<TaskUndoEntry, StorageError> {
         let transaction = self.connection.transaction()?;
+        before.list_id = resolve_list_alias_on(&transaction, before.list_id)?;
+        after.list_id = resolve_list_alias_on(&transaction, after.list_id)?;
         let entry =
             update_task_with_undo_on(&transaction, before, after, operation_type, created_at)?;
         transaction.commit()?;
@@ -2164,32 +2266,25 @@ impl TaskRepository for SqliteTaskRepository {
         get_task_on(&self.connection, id)
     }
 
-    fn insert(&mut self, task: Task) -> Result<(), StorageError> {
+    fn insert(&mut self, mut task: Task) -> Result<(), StorageError> {
+        task.list_id = resolve_list_alias_on(&self.connection, task.list_id)?;
         insert_task_on(&self.connection, &task)
     }
 
-    fn update(&mut self, task: Task) -> Result<(), StorageError> {
+    fn update(&mut self, mut task: Task) -> Result<(), StorageError> {
+        task.list_id = resolve_list_alias_on(&self.connection, task.list_id)?;
         update_task_on(&self.connection, &task)
     }
 
     fn list_all_for_sync(&self) -> Result<Vec<Task>, StorageError> {
-        let mut statement = self.connection.prepare(
-            "SELECT id, list_id, parent_task_id, title, note, status, priority,
-                    due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
-                    completed_at, closed_reason, deleted_at, assignee,
-                    created_at, updated_at
-             FROM tasks
-             ORDER BY created_at ASC, id ASC",
-        )?;
-        let tasks = statement
-            .query_map([], row_to_task)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        Ok(tasks)
+        list_all_tasks_for_sync_on(&self.connection)
     }
 
     fn list_active_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
-        list_active_tasks_by_list_on(&self.connection, list_id)
+        list_active_tasks_by_list_on(
+            &self.connection,
+            resolve_list_alias_on(&self.connection, list_id)?,
+        )
     }
 
     fn list_home(
@@ -2447,6 +2542,22 @@ fn upsert_task_for_sync_on(connection: &Connection, task: Task) -> Result<(), St
     } else {
         insert_task_on(connection, &task)
     }
+}
+
+fn list_all_tasks_for_sync_on(connection: &Connection) -> Result<Vec<Task>, StorageError> {
+    let mut statement = connection.prepare(
+        "SELECT id, list_id, parent_task_id, title, note, status, priority,
+                due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
+                completed_at, closed_reason, deleted_at, assignee,
+                created_at, updated_at
+         FROM tasks
+         ORDER BY created_at ASC, id ASC",
+    )?;
+    let tasks = statement
+        .query_map([], row_to_task)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StorageError::from)?;
+    Ok(tasks)
 }
 
 fn list_active_tasks_by_list_on(
@@ -2845,6 +2956,11 @@ fn delete_list_with_tasks_for_sync_on(
         "DELETE FROM tasks WHERE list_id = ?1",
         [list_id.to_string()],
     )?;
+    connection.execute(
+        "DELETE FROM list_aliases
+         WHERE alias_list_id = ?1 OR canonical_list_id = ?1",
+        [list_id.to_string()],
+    )?;
     connection.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
     usize::try_from(task_count)
         .map_err(|_| StorageError::IncompatibleSchema("list task count exceeded usize".to_string()))
@@ -2900,6 +3016,26 @@ impl SqliteListRepository {
 
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    /// Raw sync-facing lookup that intentionally does not resolve a durable
+    /// alias. The authenticated list record keeps its own identity.
+    pub fn get_raw_for_sync(&self, id: Uuid) -> Result<List, StorageError> {
+        get_list_on(&self.connection, id)
+    }
+
+    /// Raw sync-facing enumeration including archived and aliased list rows.
+    pub fn list_all_for_sync(&self) -> Result<Vec<List>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+                    is_default, created_at, updated_at
+             FROM lists ORDER BY sort_order ASC, id ASC",
+        )?;
+        let lists = statement
+            .query_map([], row_to_list)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(StorageError::from)?;
+        Ok(lists)
     }
 
     pub fn upsert_for_sync(&mut self, list: List) -> Result<(), StorageError> {
@@ -3307,7 +3443,10 @@ fn parse_timer_finish_kind(value: &str) -> Result<TimerFinishKind, StorageError>
 
 impl ListRepository for SqliteListRepository {
     fn get(&self, id: Uuid) -> Result<List, StorageError> {
-        get_list_on(&self.connection, id)
+        get_list_on(
+            &self.connection,
+            resolve_list_alias_on(&self.connection, id)?,
+        )
     }
 
     fn insert(&mut self, list: List) -> Result<(), StorageError> {
@@ -3324,6 +3463,9 @@ impl ListRepository for SqliteListRepository {
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM list_aliases alias WHERE alias.alias_list_id = lists.id
+               )
              ORDER BY sort_order ASC, id ASC",
         )?;
         let lists = statement
@@ -3339,6 +3481,9 @@ impl ListRepository for SqliteListRepository {
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM list_aliases alias WHERE alias.alias_list_id = lists.id
+               )
              ORDER BY sort_order ASC, id ASC",
         )?;
         let lists = statement
@@ -3369,6 +3514,7 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError> {
+        let list_id = resolve_list_alias_on(&self.connection, list_id)?;
         let count: i64 = self.connection.query_row(
             "SELECT count(*) FROM tasks WHERE list_id = ?1",
             [list_id.to_string()],
@@ -3380,7 +3526,8 @@ impl ListRepository for SqliteListRepository {
     }
 
     fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
-        let list = self.get(list_id)?;
+        let list_id = resolve_list_alias_on(&self.connection, list_id)?;
+        let list = get_list_on(&self.connection, list_id)?;
         if list.is_default {
             return Err(StorageError::DefaultListProtected {
                 operation: "deleted",
@@ -3874,6 +4021,13 @@ impl SqliteSyncStateRepository {
         get_record_state_on(&self.connection, collection, record_id)
     }
 
+    pub fn list_record_states(
+        &self,
+        collection: &str,
+    ) -> Result<Vec<SyncRecordState>, StorageError> {
+        list_record_states_on(&self.connection, collection)
+    }
+
     pub fn put_record_state(&mut self, state: SyncRecordState) -> Result<(), StorageError> {
         put_record_state_on(&self.connection, state)
     }
@@ -3896,6 +4050,18 @@ impl SqliteSyncStateRepository {
 
     pub fn delete_quarantine(&mut self, record_id: Uuid) -> Result<bool, StorageError> {
         delete_quarantine_on(&self.connection, record_id)
+    }
+
+    pub fn has_live_quarantine(&self, collection: &str) -> Result<bool, StorageError> {
+        has_live_quarantine_on(&self.connection, collection)
+    }
+
+    pub fn list_list_aliases(&self) -> Result<Vec<ListAlias>, StorageError> {
+        list_list_aliases_on(&self.connection)
+    }
+
+    pub fn resolve_list_alias(&self, list_id: Uuid) -> Result<Uuid, StorageError> {
+        resolve_list_alias_on(&self.connection, list_id)
     }
 
     pub fn list_pending_list_key_bundles(
@@ -4703,6 +4869,168 @@ fn set_cursor_on(
 
 fn delete_cursor_on(connection: &Connection, name: &str) -> Result<(), StorageError> {
     connection.execute("DELETE FROM sync_cursors WHERE name = ?1", [name])?;
+    Ok(())
+}
+
+fn list_record_states_on(
+    connection: &Connection,
+    collection: &str,
+) -> Result<Vec<SyncRecordState>, StorageError> {
+    validate_sync_collection(collection)?;
+    let mut statement = connection.prepare(
+        "SELECT record_id, collection, current_revision_hlc, state_kind,
+                semantic_hlc, plaintext_json, updated_at
+         FROM sync_record_states
+         WHERE collection = ?1
+         ORDER BY record_id ASC",
+    )?;
+    let nested_states = statement
+        .query_map([collection], row_to_sync_record_state)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let states = nested_states
+        .into_iter()
+        .collect::<Result<Vec<_>, StorageError>>()?;
+    Ok(states)
+}
+
+fn has_live_quarantine_on(connection: &Connection, collection: &str) -> Result<bool, StorageError> {
+    validate_sync_collection(collection)?;
+    connection
+        .query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM sync_quarantine
+                 WHERE collection = ?1 AND state_kind = 'live'
+             )",
+            [collection],
+            |row| row.get(0),
+        )
+        .map_err(StorageError::from)
+}
+
+fn list_list_aliases_on(connection: &Connection) -> Result<Vec<ListAlias>, StorageError> {
+    let mut statement = connection.prepare(
+        "SELECT alias_list_id, canonical_list_id, updated_at
+         FROM list_aliases ORDER BY alias_list_id ASC",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(|(alias_list_id, canonical_list_id, updated_at)| {
+            Ok(ListAlias {
+                alias_list_id: Uuid::parse_str(&alias_list_id)?,
+                canonical_list_id: Uuid::parse_str(&canonical_list_id)?,
+                updated_at,
+            })
+        })
+        .collect()
+}
+
+fn resolve_list_alias_on(connection: &Connection, list_id: Uuid) -> Result<Uuid, StorageError> {
+    // Raw legacy fixtures may use repositories before `open_encrypted` runs
+    // migrations. Alias resolution is a no-op until schema v19 exists; a v19
+    // database missing the table still fails below as incompatible storage.
+    if read_user_version(connection)? < 19 {
+        return Ok(list_id);
+    }
+    let canonical = connection
+        .query_row(
+            "SELECT canonical_list_id FROM list_aliases WHERE alias_list_id = ?1",
+            [list_id.to_string()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(canonical) = canonical else {
+        return Ok(list_id);
+    };
+    let canonical = Uuid::parse_str(&canonical)?;
+    let canonical_is_alias: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM list_aliases WHERE alias_list_id = ?1)",
+        [canonical.to_string()],
+        |row| row.get(0),
+    )?;
+    if canonical_is_alias {
+        return Err(StorageError::IncompatibleSchema(
+            "list alias chain is not allowed".to_string(),
+        ));
+    }
+    let canonical_exists: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM lists WHERE id = ?1)",
+        [canonical.to_string()],
+        |row| row.get(0),
+    )?;
+    if !canonical_exists {
+        return Err(StorageError::IncompatibleSchema(
+            "list alias points to a missing canonical list".to_string(),
+        ));
+    }
+    Ok(canonical)
+}
+
+fn replace_list_aliases_on(
+    connection: &Connection,
+    canonical_list_id: Uuid,
+    alias_list_ids: &[Uuid],
+    updated_at: i64,
+) -> Result<(), StorageError> {
+    let canonical = get_list_on(connection, canonical_list_id)?;
+    if !canonical.is_default {
+        return Err(StorageError::IncompatibleSchema(
+            "canonical list must be materialized before aliases are replaced".to_string(),
+        ));
+    }
+    let mut unique = HashSet::with_capacity(alias_list_ids.len());
+    for alias_list_id in alias_list_ids {
+        if *alias_list_id == canonical_list_id || !unique.insert(*alias_list_id) {
+            return Err(StorageError::IncompatibleSchema(
+                "invalid canonical Inbox alias set".to_string(),
+            ));
+        }
+        get_list_on(connection, *alias_list_id)?;
+    }
+
+    connection.execute("DELETE FROM list_aliases", [])?;
+    for alias_list_id in alias_list_ids {
+        connection.execute(
+            "INSERT INTO list_aliases (alias_list_id, canonical_list_id, updated_at)
+             VALUES (?1, ?2, ?3)",
+            params![
+                alias_list_id.to_string(),
+                canonical_list_id.to_string(),
+                updated_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn materialize_canonical_list_on(
+    connection: &Connection,
+    canonical_list_id: Uuid,
+) -> Result<(), StorageError> {
+    let canonical = get_list_on(connection, canonical_list_id)?;
+    if canonical.archived_at.is_some() {
+        return Err(StorageError::DefaultListProtected {
+            operation: "archived",
+            list_id: canonical_list_id,
+        });
+    }
+    // Demote first so the existing partial unique index never observes two
+    // default rows during a canonical switch.
+    connection.execute("UPDATE lists SET is_default = 0 WHERE is_default = 1", [])?;
+    let changed = connection.execute(
+        "UPDATE lists SET is_default = 1 WHERE id = ?1",
+        [canonical_list_id.to_string()],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::NotFound(canonical_list_id));
+    }
     Ok(())
 }
 
@@ -6838,7 +7166,7 @@ mod tests {
                 connection
                     .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                     .unwrap(),
-                18
+                LATEST_SCHEMA_VERSION
             );
             let mut repository = SqliteTimerSessionRepository::new(connection);
             repository.start_active(active.clone(), 1_200).unwrap();
@@ -10291,7 +10619,10 @@ mod tests {
         drop(connection);
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
-        assert_eq!(read_user_version(&connection).unwrap(), 18);
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
         assert!(table_columns_raw(&connection, "tasks")
             .unwrap()
             .iter()
@@ -10356,6 +10687,7 @@ mod tests {
                      DROP TABLE timer_sessions;
                      DROP TABLE active_timer_session;
                      DROP TABLE local_tenant_root_key_cache;
+                     DROP TABLE list_aliases;
                      PRAGMA user_version = 17;",
                     task_id = task.id,
                     op_id = Uuid::now_v7(),
@@ -10366,7 +10698,10 @@ mod tests {
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
-        assert_eq!(read_user_version(&connection).unwrap(), 18);
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
         assert_eq!(
             connection
                 .query_row(
@@ -10450,8 +10785,264 @@ mod tests {
         drop(connection);
         assert_eq!(
             read_user_version(&open_encrypted(file.path(), &KEY).unwrap()).unwrap(),
-            18
+            LATEST_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn v18_to_v19_adds_durable_list_aliases_and_reopens() {
+        let file = NamedTempFile::new().unwrap();
+        let mut old_default = sample_list("a0");
+        old_default.is_default = true;
+        let canonical = sample_list("a1");
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(old_default.clone()).unwrap();
+            lists.insert(canonical.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            connection
+                .execute_batch(
+                    "DROP TABLE list_aliases;
+                     PRAGMA user_version = 18;",
+                )
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        assert_eq!(
+            table_columns_raw(&connection, "list_aliases").unwrap(),
+            vec!["alias_list_id", "canonical_list_id", "updated_at"]
+        );
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .materialize_canonical_list(canonical.id)
+            .unwrap();
+        transaction
+            .replace_list_aliases(canonical.id, &[old_default.id], 123)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let repository = SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(
+            repository.resolve_list_alias(old_default.id).unwrap(),
+            canonical.id
+        );
+        assert_eq!(
+            repository.list_list_aliases().unwrap(),
+            vec![ListAlias {
+                alias_list_id: old_default.id,
+                canonical_list_id: canonical.id,
+                updated_at: 123,
+            }]
+        );
+        assert_eq!(
+            read_user_version(&open_encrypted(file.path(), &KEY).unwrap()).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn canonical_materialization_hides_alias_and_resolves_product_reads() {
+        let file = NamedTempFile::new().unwrap();
+        let mut old_default = sample_list("a0");
+        old_default.is_default = true;
+        let canonical = sample_list("a1");
+        let alias_task = new_task(
+            old_default.id,
+            None,
+            "Alias task".to_string(),
+            "a0".to_string(),
+            100,
+        )
+        .unwrap();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(old_default.clone()).unwrap();
+            lists.insert(canonical.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(alias_task.clone())
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .materialize_canonical_list(canonical.id)
+            .unwrap();
+        transaction
+            .replace_list_aliases(canonical.id, &[old_default.id], 200)
+            .unwrap();
+        let mut moved = transaction
+            .list_all_tasks_by_list_for_sync(old_default.id)
+            .unwrap()
+            .pop()
+            .unwrap();
+        moved.list_id = canonical.id;
+        transaction.upsert_task_for_sync(moved).unwrap();
+        transaction.commit().unwrap();
+
+        let repository_task = new_task(
+            old_default.id,
+            None,
+            "Repository alias task".to_string(),
+            "a1".to_string(),
+            201,
+        )
+        .unwrap();
+        let mut tasks = SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        tasks.insert(repository_task.clone()).unwrap();
+        assert_eq!(tasks.get(repository_task.id).unwrap().list_id, canonical.id);
+
+        let tx_task = new_task(
+            old_default.id,
+            None,
+            "Transaction alias task".to_string(),
+            "a2".to_string(),
+            202,
+        )
+        .unwrap();
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction.insert_task(tx_task.clone()).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(
+            get_task_on(&connection, tx_task.id).unwrap().list_id,
+            canonical.id
+        );
+
+        let lists = SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        let product_lists = lists.list_all().unwrap();
+        assert_eq!(product_lists.len(), 1);
+        assert_eq!(product_lists[0].id, canonical.id);
+        assert!(product_lists[0].is_default);
+        assert_eq!(lists.get(old_default.id).unwrap().id, canonical.id);
+        assert_eq!(
+            lists.get_raw_for_sync(old_default.id).unwrap().id,
+            old_default.id
+        );
+        assert_eq!(lists.list_all_for_sync().unwrap().len(), 2);
+        let tasks = SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        let resolved = tasks.list_active_by_list(old_default.id).unwrap();
+        assert_eq!(resolved.len(), 3);
+        assert!(resolved.iter().all(|task| task.list_id == canonical.id));
+    }
+
+    #[test]
+    fn canonical_cutover_drop_rolls_back_domain_alias_task_and_transport_writes() {
+        let file = NamedTempFile::new().unwrap();
+        let mut old_default = sample_list("a0");
+        old_default.is_default = true;
+        let canonical = sample_list("a1");
+        let alias_task = new_task(
+            old_default.id,
+            None,
+            "Rollback task".to_string(),
+            "a0".to_string(),
+            100,
+        )
+        .unwrap();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut lists = SqliteListRepository::new(connection);
+            lists.insert(old_default.clone()).unwrap();
+            lists.insert(canonical.clone()).unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(alias_task.clone())
+                .unwrap();
+        }
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            transaction
+                .materialize_canonical_list(canonical.id)
+                .unwrap();
+            transaction
+                .replace_list_aliases(canonical.id, &[old_default.id], 300)
+                .unwrap();
+            let mut moved = alias_task.clone();
+            moved.list_id = canonical.id;
+            transaction.upsert_task_for_sync(moved).unwrap();
+            transaction
+                .put_record_state(live_record_state(
+                    alias_task.id,
+                    "tasks",
+                    Some("r1"),
+                    "m1",
+                    "{}",
+                    300,
+                ))
+                .unwrap();
+            // Drop without commit: OwnedSqliteWriteTx must roll back every table.
+        }
+
+        let lists = SqliteListRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(lists.get_default().unwrap().unwrap().id, old_default.id);
+        assert_eq!(lists.list_all().unwrap().len(), 2);
+        let sync = SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert!(sync.list_list_aliases().unwrap().is_empty());
+        assert!(sync
+            .get_record_state("tasks", alias_task.id)
+            .unwrap()
+            .is_none());
+        let tasks = SqliteTaskRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(tasks.get(alias_task.id).unwrap().list_id, old_default.id);
+    }
+
+    #[test]
+    fn raw_list_states_and_all_live_quarantine_reasons_are_visible_to_election() {
+        let file = NamedTempFile::new().unwrap();
+        let list_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .put_record_state(live_record_state(
+                list_id,
+                "lists",
+                Some("r1"),
+                "m1",
+                "{\"authenticated\":true}",
+                400,
+            ))
+            .unwrap();
+        transaction
+            .put_quarantine(SyncQuarantineEntry {
+                record_id: list_id,
+                collection: "lists".to_string(),
+                seq: 1,
+                revision_hlc: "r2".to_string(),
+                state: SyncOutboxState::Live {
+                    mutation_hlc: "m2".to_string(),
+                    blob: vec![1],
+                },
+                reason: "corrupt_envelope".to_string(),
+                required_list_id: None,
+                first_failed_at: 401,
+                last_failed_at: 401,
+                attempt_count: 1,
+            })
+            .unwrap();
+        assert_eq!(transaction.list_record_states("lists").unwrap().len(), 1);
+        assert!(transaction.has_live_quarantine("lists").unwrap());
+        assert!(!transaction.has_live_quarantine("tasks").unwrap());
+        transaction.commit().unwrap();
+
+        let repository = SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
+        assert_eq!(repository.list_record_states("lists").unwrap().len(), 1);
+        assert!(repository.has_live_quarantine("lists").unwrap());
     }
 
     #[test]

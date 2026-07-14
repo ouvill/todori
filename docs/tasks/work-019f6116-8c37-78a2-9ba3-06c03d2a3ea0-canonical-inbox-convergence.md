@@ -1,7 +1,7 @@
 ---
 id: 019f6116-8c37-78a2-9ba3-06c03d2a3ea0
 title: Canonical Inbox convergence
-status: backlog
+status: active
 lane: critical
 milestone: maintenance
 ---

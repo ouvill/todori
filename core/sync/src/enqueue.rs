@@ -48,6 +48,12 @@ pub struct LocalSyncRecordState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalListAlias {
+    pub alias_list_id: Uuid,
+    pub canonical_list_id: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PullFailureReason {
     MissingDek,
     NoMatchingDek,
@@ -212,12 +218,26 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn delete_quarantine(&mut self, _record_id: Uuid) -> Result<bool, String> {
         Ok(false)
     }
+    fn list_record_states(
+        &mut self,
+        collection: SyncCollection,
+    ) -> Result<Vec<(Uuid, LocalSyncRecordState)>, String>;
+    fn has_live_quarantine(&mut self, collection: SyncCollection) -> Result<bool, String>;
+    fn list_list_aliases(&mut self) -> Result<Vec<LocalListAlias>, String>;
+    fn replace_list_aliases(
+        &mut self,
+        aliases: &[LocalListAlias],
+        updated_at: i64,
+    ) -> Result<(), String>;
+    fn resolve_list_alias(&mut self, list_id: Uuid) -> Result<Uuid, String>;
+    fn materialize_canonical_list(&mut self, canonical_list_id: Uuid) -> Result<(), String>;
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String>;
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String>;
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;
     fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
     fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String>;
     fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String>;
+    fn list_all_tasks_for_sync(&mut self) -> Result<Vec<Task>, String>;
     fn list_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<Vec<Task>, String> {
         Ok(self.get_task(task_id)?.into_iter().collect())
     }
@@ -864,8 +884,8 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            &[list.clone()],
-            &[task.clone()],
+            std::slice::from_ref(&list),
+            std::slice::from_ref(&task),
             &[],
             &mut now,
         )
@@ -894,7 +914,7 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            &[list.clone()],
+            std::slice::from_ref(&list),
             &[task],
             &[],
             &mut now,

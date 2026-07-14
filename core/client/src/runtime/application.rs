@@ -440,7 +440,7 @@ impl TodoriClient {
 
     pub fn count_tasks_in_list(&self, list_id: Uuid) -> Result<usize, ClientError> {
         self.with_list_repository(|repository| {
-            repository.get(list_id)?;
+            let list_id = repository.get(list_id)?.id;
             Ok(repository.count_tasks(list_id)?)
         })
     }
@@ -576,6 +576,7 @@ impl TodoriClient {
     }
 
     pub fn get_list_reminders(&self, list_id: Uuid) -> Result<Vec<ReminderView>, ClientError> {
+        let list_id = self.with_list_repository(|repository| Ok(repository.get(list_id)?.id))?;
         self.with_reminder_repository(|repository| {
             Ok(repository
                 .list_list_reminders(list_id)?
@@ -885,6 +886,7 @@ impl TodoriClient {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let list = transaction.get_list(list_id)?;
+        let list_id = list.id;
         if list.is_default {
             return Err(StorageError::DefaultListProtected {
                 operation: "deleted",
@@ -1044,7 +1046,8 @@ mod tests {
         TimerPhase, TimerRunState,
     };
     use todori_storage::{
-        ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
+        ListRepository, OwnedSqliteWriteTx, ReminderRepository, SettingsRepository,
+        SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository,
         SqliteSyncStateRepository, SqliteTaskRepository, SqliteTimerSessionRepository,
         SyncStateRepository, TaskRepository, TimerSessionRepository,
     };
@@ -1059,6 +1062,88 @@ mod tests {
 
     const DB_KEY: [u8; 32] = [0xd2; 32];
     const BASE_MS: i64 = 1_799_500_000_000;
+
+    #[test]
+    fn get_tasks_for_deleted_non_alias_list_remains_empty() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("deleted-list-read.sqlite3");
+        let list = new_list("Removed".into(), "a0".into(), BASE_MS).unwrap();
+        let list_id = list.id;
+        let mut lists = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        lists.insert(list).unwrap();
+        lists.delete_with_tasks(list_id).unwrap();
+        drop(lists);
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path,
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        assert!(client.get_tasks(list_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn alias_list_reads_and_delete_protection_resolve_to_canonical_inbox() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("alias-reads.sqlite3");
+        let canonical = new_list("Canonical".into(), "a0".into(), BASE_MS).unwrap();
+        let alias = new_list("Alias".into(), "a1".into(), BASE_MS).unwrap();
+        let task = new_task(canonical.id, None, "Visible".into(), "a0".into(), BASE_MS).unwrap();
+        let mut lists = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        lists.insert(canonical.clone()).unwrap();
+        lists.insert(alias.clone()).unwrap();
+        drop(lists);
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let reminder = SqliteReminderRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .set_task_reminder(task.id, BASE_MS + 10_000, BASE_MS)
+            .unwrap();
+        let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .materialize_canonical_list(canonical.id)
+            .unwrap();
+        transaction
+            .replace_list_aliases(canonical.id, &[alias.id], BASE_MS)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path: db_path.clone(),
+            db_key: Zeroizing::new(DB_KEY),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        };
+
+        assert_eq!(client.get_tasks(alias.id).unwrap(), vec![task]);
+        assert_eq!(client.count_tasks_in_list(alias.id).unwrap(), 1);
+        assert_eq!(
+            client.get_list_reminders(alias.id).unwrap()[0].id,
+            reminder.id
+        );
+        assert!(matches!(
+            client.delete_list_with_state(alias.id, LocalMutationState::Anonymous, BASE_MS + 1),
+            Err(ClientError::Storage(StorageError::DefaultListProtected {
+                list_id,
+                ..
+            })) if list_id == canonical.id
+        ));
+        assert_eq!(client.get_tasks(canonical.id).unwrap().len(), 1);
+    }
 
     #[test]
     fn timer_start_and_update_are_conditional_and_never_change_task_status() {
