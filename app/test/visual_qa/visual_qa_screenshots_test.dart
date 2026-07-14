@@ -146,6 +146,37 @@ void main() {
     await _screenshot(tester, 'focus_running');
   });
 
+  testWidgets('focus_stopwatch_running: static open arc with elapsed time', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(tester, state: _FocusVisualState.stopwatchRunning);
+    await _screenshotCurrentFrame(tester, 'focus_stopwatch_running');
+  });
+
+  testWidgets('focus_running_rtl: active controls in RTL', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpFocusVisual(
+      tester,
+      state: _FocusVisualState.running,
+      textDirection: TextDirection.rtl,
+    );
+    await _screenshot(tester, 'focus_running_rtl');
+  });
+
+  testWidgets('focus_running_reduce_motion: immediate warm active state', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(
+      tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+    );
+    await _pumpFocusVisual(tester, state: _FocusVisualState.running);
+    await _screenshotCurrentFrame(tester, 'focus_running_reduce_motion');
+  });
+
   testWidgets('focus_paused: warm open-dial paused controls', (tester) async {
     _setMobileViewport(tester);
     await _pumpFocusVisual(tester, state: _FocusVisualState.paused);
@@ -1599,12 +1630,20 @@ void main() {
   }
 }
 
-enum _FocusVisualState { setup, running, paused, finished, breakRunning }
+enum _FocusVisualState {
+  setup,
+  running,
+  stopwatchRunning,
+  paused,
+  finished,
+  breakRunning,
+}
 
 Future<void> _pumpFocusVisual(
   WidgetTester tester, {
   _FocusVisualState state = _FocusVisualState.setup,
   String taskTitle = 'Shape the next release with care',
+  TextDirection textDirection = TextDirection.ltr,
 }) async {
   final fake = FakeBridgeService();
   await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
@@ -1615,28 +1654,54 @@ Future<void> _pumpFocusVisual(
     estimatedMinutes: 25,
   );
   final clock = _VisualTimerClock(DateTime.utc(2026, 7, 13, 9));
-  final router = buildAppRouter();
-  await tester.pumpWidget(
-    TodoriApp(
-      router: router,
-      overrides: [
-        bridgeServiceProvider.overrideWithValue(fake),
-        timerClockProvider.overrideWithValue(clock),
-      ],
-    ),
-  );
-  await tester.pumpAndSettle();
-  router.go('/focus/$listId/${task.id}');
+  final overrides = [
+    bridgeServiceProvider.overrideWithValue(fake),
+    timerClockProvider.overrideWithValue(clock),
+  ];
+  if (textDirection == TextDirection.rtl) {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: overrides,
+        child: MaterialApp(
+          color: AppColors.canvas,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          theme: buildTodoriTheme(Brightness.light),
+          builder: (context, child) => ColoredBox(
+            color: AppColors.canvas,
+            child: Directionality(
+              textDirection: textDirection,
+              child: SizedBox.expand(child: child),
+            ),
+          ),
+          home: FocusScreen(listId: listId, taskId: task.id),
+        ),
+      ),
+    );
+  } else {
+    final router = buildAppRouter();
+    await tester.pumpWidget(TodoriApp(router: router, overrides: overrides));
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+  }
   await tester.pumpAndSettle();
   if (state == _FocusVisualState.setup) {
     return;
   }
   final start = find.byKey(const ValueKey('focus-start'));
   await tester.scrollUntilVisible(start, 160);
+  if (state == _FocusVisualState.stopwatchRunning) {
+    await tester.tap(find.text('Stopwatch'));
+    await tester.pump();
+  }
   await tester.tap(start);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 120));
-  if (state == _FocusVisualState.paused) {
+  if (state == _FocusVisualState.stopwatchRunning) {
+    clock.advance(const Duration(minutes: 7, seconds: 18));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('07:18'), findsOneWidget);
+  } else if (state == _FocusVisualState.paused) {
     clock.advance(const Duration(seconds: 1));
     await tester.tap(find.byKey(const ValueKey('focus-pause')));
     for (var attempt = 0; attempt < 4; attempt += 1) {
