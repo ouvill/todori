@@ -52,6 +52,19 @@ flowchart TB
 
 このためFuzzy-scanを追加しても、FRB公開APIやFlutter側Rust adapterを変更せずに実装できることを設計レビュー条件とする。
 
+## Foreground realtime通知の配置
+
+ADR-019のWebSocketは同期transportではなく、foreground app lifecycleへ従う欠落可能なwake-up hintである。境界は次に固定する。
+
+- `todori-client`は現在のaccount / session / tenant contextを使って短命realtime ticketを取得し、frontend-neutralな`RealtimeTicket`として返す。session token、tenant ID、device ID、HMAC keyをfrontendへ公開しない。
+- `todori_app_bridge`はticket DTO変換とasync委譲だけを持つ。WebSocket、reconnect timer、sync scheduler、HTTP client、secretを保持しない。
+- Flutterはforeground / background lifecycle、WebSocket接続、ticket refresh、reconnect backoff、notification frame decodeを所有する。frameからdomain / sync stateを解釈せず、固定`changed` hintを受けたら既存`sync_now`をrequestする。
+- sync対象local mutation後の250ms debounce、single-flight dirty follow-up、接続中5分safety pull、切断中30秒fallback pollingもFlutter runtime orchestrationとする。CAS、merge、cursor、outbox ACK、continuityは引き続き`todori-client` / `todori-sync`だけが所有する。
+- remote pull適用後は既存`SyncStatusNotifier`からlist / task / Home / Calendar / search / timer providerをinvalidateし、domain stateをWebSocket frameから組み立てず通常のrepository readでUIを更新する。
+- CLI / MCPへWebSocketを強制しない。必要になった場合も`RealtimeTicket`を共通入口とし、各frontend lifecycleに適したadapterを別途実装する。
+
+この配置はFlutterへ同期correctnessを移さない。WebSocketを完全に削除しても、明示sync、resume sync、fallback pollingと既存HTTPS state machineだけで最終収束することをレビュー条件とする。
+
 ## crate命名
 
 `core/`はCargo workspace内の配置ディレクトリで、crateではない。次を正規形とする。
