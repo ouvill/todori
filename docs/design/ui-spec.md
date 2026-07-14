@@ -237,7 +237,7 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 
 ## セクション5: 既知の逸脱（現状 spec 違反として認識済みのもの）
 
-- task-108着手時点では、productionとDesign LabのFocusに全面dark inverse、旧button hierarchy、旧Timer表現が残っており、上記warm open-dial規範からの既知逸脱である。task-108の実装・Visual QA・独立検証で解消し、完了時に本項を更新する。
+- task-108のproduction / Design Lab実装とVisual QAで、全面dark inverse、旧button hierarchy、旧Timer表現の既知逸脱は解消した。Simulatorまたは実機でのFocus motion最終確認だけをtask-108の人間確認として残す。
 
 ## 裁定済み事項
 

@@ -6,7 +6,7 @@
 
 ## 現在
 
-- 進行中: **task-108 Focus / Timer Visual Refinement** — Focus全状態をwarm canvasへ統一し、open dialとprimary + Session optionsの操作階層へ再構成する。
+- 進行中: **task-108 Focus / Timer Visual Refinement** — 実装・全品質ゲート・Visual QA是正済み。Simulatorまたは実機でのFocus motion確認と独立合格を待つ。
 - 保留: なし。
 - 最新の完了: **task-107 Integrated Product Finish** — 新UI、Capture、Search、Calendar、Focusのcontract・runtime・motion・Visual QAを統合し、独立検証まで完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は人間作業を含む。
