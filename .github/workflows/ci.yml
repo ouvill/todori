@@ -14,6 +14,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  worker-quality:
+    name: Realtime Worker quality gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: realtime-worker
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: realtime-worker/.node-version
+          cache: npm
+          cache-dependency-path: realtime-worker/package-lock.json
+
+      - name: Verify pinned Node.js
+        run: test "$(node --version)" = "v24.18.0"
+
+      - name: Install Worker dependencies
+        run: npm ci
+
+      - name: Worker typecheck
+        run: npm run typecheck
+
+      - name: Worker tests
+        run: npm test
+
+      - name: Wrangler dry-run build
+        run: npm run build
+
   rust-quality:
     name: Rust quality gates
     runs-on: ubuntu-24.04

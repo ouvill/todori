@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "warning": "Public deterministic test material only. Never use these keys in production.",
+  "ticket": {
+    "key_base64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "payload": "{\"kid\":\"ticket-current\",\"aud\":\"todori-realtime\",\"channel\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"device\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\",\"iat\":1784059200,\"exp\":1784059500}",
+    "payload_segment": "eyJraWQiOiJ0aWNrZXQtY3VycmVudCIsImF1ZCI6InRvZG9yaS1yZWFsdGltZSIsImNoYW5uZWwiOiJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBIiwiZGV2aWNlIjoiQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRSIsImlhdCI6MTc4NDA1OTIwMCwiZXhwIjoxNzg0MDU5NTAwfQ",
+    "signature": "iQdMFzmPWMeC1tajlsaMCc8e1hB9v2rJq8_idlM3ibE",
+    "token": "eyJraWQiOiJ0aWNrZXQtY3VycmVudCIsImF1ZCI6InRvZG9yaS1yZWFsdGltZSIsImNoYW5uZWwiOiJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBIiwiZGV2aWNlIjoiQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRSIsImlhdCI6MTc4NDA1OTIwMCwiZXhwIjoxNzg0MDU5NTAwfQ.iQdMFzmPWMeC1tajlsaMCc8e1hB9v2rJq8_idlM3ibE"
+  },
+  "publish": {
+    "body": "{\"v\":1,\"channel\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"source_device\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\"}",
+    "key_base64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "key_id": "publish-current",
+    "timestamp": 1784059200,
+    "signature": "wld1P7Ov44hincBvek2NJlUtlKGZ4y_J7aTk_3ILpBE"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "todori-realtime",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REALTIME_CHANNELS",
+        "class_name": "RealtimeChannel"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RealtimeChannel"]
+    }
+  ]
+}

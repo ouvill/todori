@@ -1,7 +1,7 @@
 ---
 id: 019f621c-573d-7ad1-a3cf-0d52afce8c74
 title: Foreground realtime Cloudflare Worker
-status: backlog
+status: active
 lane: critical
 milestone: maintenance
 ---
