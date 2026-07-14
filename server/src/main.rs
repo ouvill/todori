@@ -3,12 +3,14 @@
 //! Lambda-specific adapters stay outside this binary. The reusable router and
 //! services live in the library crate.
 
-use todori_server::{build_router, db, AppState};
+use todori_server::{build_router_with_realtime, db, realtime::RealtimeGateway, AppState};
 use tokio::signal;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    let realtime = RealtimeGateway::from_env().expect("invalid realtime configuration");
 
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL is required for todori-server");
@@ -25,7 +27,7 @@ async fn main() {
         .await
         .expect("failed to connect with todori_app role");
 
-    let app = build_router(AppState { pool });
+    let app = build_router_with_realtime(AppState { pool }, realtime);
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())

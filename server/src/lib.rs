@@ -1,9 +1,11 @@
 pub mod auth;
 pub mod db;
+pub mod realtime;
 pub mod routes;
 pub mod sync;
 
-use axum::{http::StatusCode, response::IntoResponse, Json, Router};
+use axum::{http::StatusCode, response::IntoResponse, Extension, Json, Router};
+use realtime::RealtimeGateway;
 use serde::Serialize;
 use sqlx_postgres::PgPool;
 use std::sync::Arc;
@@ -16,7 +18,13 @@ pub struct AppState {
 pub type SharedState = Arc<AppState>;
 
 pub fn build_router(state: AppState) -> Router {
-    routes::router().with_state(Arc::new(state))
+    build_router_with_realtime(state, RealtimeGateway::disabled())
+}
+
+pub fn build_router_with_realtime(state: AppState, realtime: RealtimeGateway) -> Router {
+    routes::router()
+        .layer(Extension(realtime))
+        .with_state(Arc::new(state))
 }
 
 #[derive(Debug)]
@@ -77,6 +85,13 @@ impl AppError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "internal server error",
+        }
+    }
+
+    pub fn service_unavailable(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message,
         }
     }
 }

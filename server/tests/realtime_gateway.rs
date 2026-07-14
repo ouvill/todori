@@ -1,0 +1,310 @@
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+    Router,
+};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
+use chrono::{Duration, Utc};
+use sha2::{Digest, Sha256};
+use sqlx_core::{query::query, raw_sql::raw_sql};
+use sqlx_postgres::PgPool;
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
+};
+use todori_server::{
+    build_router, build_router_with_realtime, db,
+    realtime::{RealtimeGateway, RealtimeSettings, RealtimeTicketResponse},
+    AppState,
+};
+use todori_sync::{
+    protocol::{
+        PushOp, PushRequest, PushResponse, PushStatus, SyncCollection, SyncRecordState,
+        SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER,
+    },
+    Hlc,
+};
+use tower::ServiceExt;
+use uuid::Uuid;
+
+struct Fixture {
+    application_pool: PgPool,
+    admin_pool: PgPool,
+    tenant_id: Uuid,
+    device_id: Uuid,
+    token: String,
+    _postgres: ContainerAsync<postgres::Postgres>,
+}
+
+impl Fixture {
+    async fn setup() -> Self {
+        let postgres = postgres::Postgres::default().start().await.unwrap();
+        let host = postgres.get_host().await.unwrap();
+        let port = postgres.get_host_port_ipv4(5432).await.unwrap();
+        let database_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+        let admin_pool = db::connect(&database_url).await.unwrap();
+        db::run_migrations(&admin_pool).await.unwrap();
+        raw_sql(
+            "CREATE ROLE todori_realtime_test LOGIN PASSWORD 'todori-realtime-test'
+             NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+        )
+        .execute(&admin_pool)
+        .await
+        .unwrap();
+        raw_sql("GRANT todori_app TO todori_realtime_test")
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+
+        let user_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
+        let device_id = Uuid::now_v7();
+        let token = "realtime-gateway-test-token".to_owned();
+        query("INSERT INTO users (id, email, opaque_record) VALUES ($1, $2, $3)")
+            .bind(user_id)
+            .bind(format!("{user_id}@example.test"))
+            .bind(vec![1_u8])
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+        query("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
+            .bind(tenant_id)
+            .bind(user_id)
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+        query("INSERT INTO tenant_members (tenant_id, user_id, role) VALUES ($1, $2, 'owner')")
+            .bind(tenant_id)
+            .bind(user_id)
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+        query("INSERT INTO tenant_seq (tenant_id, last_seq) VALUES ($1, 0)")
+            .bind(tenant_id)
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+        query("INSERT INTO devices (id, user_id, device_name) VALUES ($1, $2, 'test')")
+            .bind(device_id)
+            .bind(user_id)
+            .execute(&admin_pool)
+            .await
+            .unwrap();
+        query(
+            "INSERT INTO sessions (id, user_id, device_id, token_hash, expires_at)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(user_id)
+        .bind(device_id)
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .bind(Utc::now() + Duration::days(1))
+        .execute(&admin_pool)
+        .await
+        .unwrap();
+        query(
+            "INSERT INTO tenant_device_continuity
+                 (tenant_id, device_id, continuity_seq, continuity_generation, required_generation, initialized)
+             VALUES ($1, $2, 0, 0, 0, true)",
+        )
+        .bind(tenant_id)
+        .bind(device_id)
+        .execute(&admin_pool)
+        .await
+        .unwrap();
+
+        let application_url =
+            format!("postgres://todori_realtime_test:todori-realtime-test@{host}:{port}/postgres");
+        let application_pool = db::connect_application(&application_url).await.unwrap();
+        Self {
+            application_pool,
+            admin_pool,
+            tenant_id,
+            device_id,
+            token,
+            _postgres: postgres,
+        }
+    }
+
+    fn disabled_router(&self) -> Router {
+        build_router(AppState {
+            pool: self.application_pool.clone(),
+        })
+    }
+
+    fn enabled_router(&self) -> Router {
+        build_router_with_realtime(
+            AppState {
+                pool: self.application_pool.clone(),
+            },
+            RealtimeGateway::from_settings(settings()).unwrap(),
+        )
+    }
+
+    fn request(&self, path: &str, body: Body) -> Request<Body> {
+        Request::post(path)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .body(body)
+            .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn ticket_inherits_sync_auth_and_disabled_mode_returns_503() {
+    let fixture = Fixture::setup().await;
+    let path = format!("/v2/tenants/{}/realtime/ticket", fixture.tenant_id);
+
+    let unauthorized = fixture
+        .disabled_router()
+        .oneshot(Request::post(&path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let disabled = fixture
+        .disabled_router()
+        .oneshot(fixture.request(&path, Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(disabled.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let enabled = fixture
+        .enabled_router()
+        .oneshot(fixture.request(&path, Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(enabled.status(), StatusCode::OK);
+    let body = to_bytes(enabled.into_body(), 4096).await.unwrap();
+    let ticket: RealtimeTicketResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(ticket.websocket_url, "wss://realtime.example/v1/connect");
+    let segments: Vec<_> = ticket.ticket.split('.').collect();
+    assert_eq!(segments.len(), 2);
+    assert_eq!(URL_SAFE_NO_PAD.decode(segments[1]).unwrap().len(), 32);
+    let payload = String::from_utf8(URL_SAFE_NO_PAD.decode(segments[0]).unwrap()).unwrap();
+    let fields: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    let expected_payload = format!(
+        "{{\"kid\":\"ticket-current\",\"aud\":\"todori-realtime\",\"channel\":\"{}\",\"device\":\"{}\",\"iat\":{},\"exp\":{}}}",
+        fields["channel"].as_str().unwrap(),
+        fields["device"].as_str().unwrap(),
+        fields["iat"].as_i64().unwrap(),
+        fields["exp"].as_i64().unwrap()
+    );
+    assert_eq!(payload, expected_payload);
+    assert_eq!(fields["channel"].as_str().unwrap().len(), 43);
+    assert_eq!(fields["device"].as_str().unwrap().len(), 43);
+    assert_eq!(
+        fields["exp"].as_i64().unwrap() - fields["iat"].as_i64().unwrap(),
+        300
+    );
+    assert!(!ticket.websocket_url.contains(&ticket.ticket));
+    assert!((ticket.expires_at - Utc::now()).num_seconds() <= 300);
+    assert!((ticket.expires_at - Utc::now()).num_seconds() >= 298);
+
+    query("UPDATE devices SET revoked_at = now() WHERE id = $1")
+        .bind(fixture.device_id)
+        .execute(&fixture.admin_pool)
+        .await
+        .unwrap();
+    let revoked = fixture
+        .enabled_router()
+        .oneshot(fixture.request(&path, Body::empty()))
+        .await
+        .unwrap();
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn accepted_push_survives_provider_failure_and_no_op_keeps_wire_shape() {
+    let fixture = Fixture::setup().await;
+    let path = format!("/v2/tenants/{}/push", fixture.tenant_id);
+    let now = Utc::now().timestamp_millis();
+    let revision = Hlc {
+        wall_ms: now,
+        counter: 0,
+        device_id: "realtime-test".to_owned(),
+    }
+    .encode()
+    .unwrap();
+    let request = PushRequest {
+        ops: vec![PushOp {
+            op_id: Uuid::now_v7(),
+            record_id: Uuid::now_v7(),
+            collection: SyncCollection::Tasks,
+            base_revision_hlc: None,
+            revision_hlc: revision.clone(),
+            state: SyncRecordState::Live {
+                mutation_hlc: revision,
+                blob: STANDARD.encode([1_u8, 2, 3]),
+            },
+        }],
+    };
+
+    let accepted = fixture
+        .enabled_router()
+        .oneshot(
+            Request::post(&path)
+                .header("Authorization", format!("Bearer {}", fixture.token))
+                .header(SYNC_PROTOCOL_VERSION_HEADER, SYNC_PROTOCOL_VERSION)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let accepted_status = accepted.status();
+    let body = to_bytes(accepted.into_body(), 16 * 1024).await.unwrap();
+    assert_eq!(
+        accepted_status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    let response: PushResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(response.results[0].status, PushStatus::Accepted);
+
+    query(
+        "UPDATE tenant_device_continuity SET continuity_seq = 1
+         WHERE tenant_id = $1 AND device_id = $2",
+    )
+    .bind(fixture.tenant_id)
+    .bind(fixture.device_id)
+    .execute(&fixture.admin_pool)
+    .await
+    .unwrap();
+
+    let no_op = fixture
+        .enabled_router()
+        .oneshot(
+            Request::post(&path)
+                .header("Authorization", format!("Bearer {}", fixture.token))
+                .header(SYNC_PROTOCOL_VERSION_HEADER, SYNC_PROTOCOL_VERSION)
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(no_op.status(), StatusCode::OK);
+    let body = to_bytes(no_op.into_body(), 16 * 1024).await.unwrap();
+    let response: PushResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(response.results[0].status, PushStatus::NoOp);
+}
+
+fn settings() -> RealtimeSettings {
+    RealtimeSettings {
+        websocket_url: "wss://realtime.example/v1/connect".to_owned(),
+        publish_url: "https://provider-does-not-exist.invalid/v1/publish".to_owned(),
+        channel_key: URL_SAFE_NO_PAD.encode([1_u8; 32]),
+        ticket_key_current_id: "ticket-current".to_owned(),
+        ticket_key_current: URL_SAFE_NO_PAD.encode([2_u8; 32]),
+        ticket_key_previous_id: "ticket-previous".to_owned(),
+        ticket_key_previous: URL_SAFE_NO_PAD.encode([3_u8; 32]),
+        publish_key_current_id: "publish-current".to_owned(),
+        publish_key_current: URL_SAFE_NO_PAD.encode([4_u8; 32]),
+        publish_key_previous_id: "publish-previous".to_owned(),
+        publish_key_previous: URL_SAFE_NO_PAD.encode([5_u8; 32]),
+    }
+}
