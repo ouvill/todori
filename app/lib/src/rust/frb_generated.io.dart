@@ -150,6 +150,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw);
 
   @protected
+  RealtimeTicketDto dco_decode_realtime_ticket_dto(dynamic raw);
+
+  @protected
   ReminderDto dco_decode_reminder_dto(dynamic raw);
 
   @protected
@@ -337,6 +340,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskUndoDto? sse_decode_opt_box_autoadd_task_undo_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RealtimeTicketDto sse_decode_realtime_ticket_dto(
     SseDeserializer deserializer,
   );
 
@@ -573,6 +581,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_task_undo_dto(
     TaskUndoDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_realtime_ticket_dto(
+    RealtimeTicketDto self,
     SseSerializer serializer,
   );
 

@@ -547,6 +547,22 @@ void main() {
       isNull,
     );
   });
+
+  test('completed timer persistence invokes the common sync trigger', () async {
+    var triggers = 0;
+    final harness = await _Harness.create(
+      completedSessionSyncTrigger: () => triggers += 1,
+    );
+    addTearDown(harness.dispose);
+
+    await harness.container
+        .read(timerEngineProvider.notifier)
+        .startStopwatch(taskId: harness.task.id);
+    harness.clock.advance(const Duration(minutes: 1));
+    await harness.container.read(timerEngineProvider.notifier).finish();
+
+    expect(triggers, 1);
+  });
 }
 
 class _Harness {
@@ -569,6 +585,7 @@ class _Harness {
     _FakeClock? clock,
     _FakeTimerNotificationGateway? gateway,
     bool createTask = true,
+    void Function()? completedSessionSyncTrigger,
   }) async {
     final actualBridge = bridge ?? FakeBridgeService();
     final actualClock = clock ?? _FakeClock(DateTime.utc(2026, 7, 13, 8));
@@ -592,6 +609,10 @@ class _Harness {
         timerClockProvider.overrideWithValue(actualClock),
         timerNotificationGatewayProvider.overrideWithValue(actualGateway),
         timerNotificationServiceProvider.overrideWithValue(notifications),
+        if (completedSessionSyncTrigger != null)
+          completedTimerSyncTriggerProvider.overrideWithValue(
+            completedSessionSyncTrigger,
+          ),
       ],
     );
     await container.read(timerEngineProvider.future);

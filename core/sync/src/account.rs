@@ -81,6 +81,15 @@ pub struct AccountListDekMaterial {
     pub dek: Zeroizing<[u8; KEY_LEN]>,
 }
 
+/// Short-lived authorization material for the foreground notification
+/// channel. Callers must treat `ticket` as a secret and pass it only in the
+/// WebSocket Upgrade Authorization header.
+pub struct RealtimeTicketResponse {
+    pub websocket_url: String,
+    pub ticket: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountKeyBundleDto {
     pub wrapped_master_key_by_password: String,
@@ -297,6 +306,21 @@ impl AccountClient {
             return Err(AccountClientError::Server);
         }
         Ok(true)
+    }
+
+    pub async fn realtime_ticket(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+    ) -> Result<RealtimeTicketResponse, AccountClientError> {
+        let response: RealtimeTicketWireResponse = self
+            .post_json(
+                &format!("/v2/tenants/{tenant_id}/realtime/ticket"),
+                &serde_json::json!({}),
+                Some(session_token),
+            )
+            .await?;
+        Ok(response.into())
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(
@@ -541,6 +565,23 @@ struct LogoutResponse {}
 #[derive(Debug, Deserialize)]
 struct UpsertListKeyResponse {}
 
+#[derive(Deserialize)]
+struct RealtimeTicketWireResponse {
+    websocket_url: String,
+    ticket: String,
+    expires_at: DateTime<Utc>,
+}
+
+impl From<RealtimeTicketWireResponse> for RealtimeTicketResponse {
+    fn from(value: RealtimeTicketWireResponse) -> Self {
+        Self {
+            websocket_url: value.websocket_url,
+            ticket: value.ticket,
+            expires_at: value.expires_at,
+        }
+    }
+}
+
 impl SessionResponse {
     fn into_account_session(self, email: &str) -> AccountSession {
         AccountSession {
@@ -557,6 +598,22 @@ impl SessionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realtime_ticket_wire_uses_only_frontend_authorization_fields() {
+        let wire: RealtimeTicketWireResponse = serde_json::from_str(
+            r#"{"websocket_url":"wss://realtime.example/v1/connect","ticket":"opaque-ticket","expires_at":"2026-07-15T00:05:00Z"}"#,
+        )
+        .unwrap();
+        let response: RealtimeTicketResponse = wire.into();
+
+        assert_eq!(response.websocket_url, "wss://realtime.example/v1/connect");
+        assert_eq!(response.ticket, "opaque-ticket");
+        assert_eq!(
+            response.expires_at.to_rfc3339(),
+            "2026-07-15T00:05:00+00:00"
+        );
+    }
 
     #[test]
     fn registration_bundle_unwraps_with_export_key_and_rejects_wrong_key() {

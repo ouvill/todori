@@ -1,7 +1,7 @@
 ---
 id: 019f621c-5935-7570-b99a-59c7c1b04bbb
 title: Foreground realtime Flutter client
-status: backlog
+status: active
 lane: critical
 milestone: maintenance
 ---
@@ -75,4 +75,3 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 - scheduler、connection、polling state machineの観測証拠
 - mutation coverageとwidget / provider test結果
 - 実端末・本番Workerで残る確認事項
-

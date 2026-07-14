@@ -28,6 +28,15 @@ pub struct AccountAuthResult {
     pub recovery_key: Option<String>,
 }
 
+/// Frontend-neutral short-lived authorization for the realtime wake-up
+/// channel. The ticket is intentionally not `Debug` so routine diagnostics
+/// cannot accidentally print it.
+pub struct RealtimeTicket {
+    pub websocket_url: String,
+    pub ticket: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncStatus {
     pub logged_in: bool,

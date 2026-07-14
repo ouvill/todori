@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todori/src/core/providers.dart';
 
 import 'support/fake_bridge_service.dart';
+import 'support/fake_realtime.dart';
 
 void main() {
   test('sync provider stays idle when signed out', () async {
@@ -65,4 +66,94 @@ void main() {
       contains('Pulled task without due date'),
     );
   });
+
+  test(
+    'every list and task sync mutation reaches the common debounce',
+    () async {
+      final fake = FakeBridgeService();
+      final timers = FakeRealtimeTimers();
+      final container = ProviderContainer(
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          realtimeTimerFactoryProvider.overrideWithValue(timers.create),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(accountProvider.notifier)
+          .login(email: 'alice@example.com', password: 'correct password');
+      await container.read(syncStatusProvider.future);
+      await _pumpAsync();
+
+      Future<void> expectDebouncedSync(Future<void> Function() mutation) async {
+        final before = fake.syncNowCalls;
+        await mutation();
+        timers.activeWithDelay(const Duration(milliseconds: 250)).fire();
+        await _pumpAsync();
+        expect(fake.syncNowCalls, before + 1);
+      }
+
+      await expectDebouncedSync(
+        () => container.read(listsProvider.notifier).createList('Realtime'),
+      );
+      var list = (await container.read(listsProvider.future)).single;
+      await expectDebouncedSync(
+        () => container
+            .read(listsProvider.notifier)
+            .renameList(list.id, 'Renamed'),
+      );
+      list = (await container.read(listsProvider.future)).single;
+      await expectDebouncedSync(
+        () => container.read(listsProvider.notifier).archiveList(list.id),
+      );
+      await expectDebouncedSync(
+        () => container
+            .read(archivedListsProvider.notifier)
+            .unarchiveList(list.id),
+      );
+
+      final tasks = container.read(tasksProvider(list.id).notifier);
+      await expectDebouncedSync(() => tasks.createTask('First'));
+      await expectDebouncedSync(() => tasks.createTask('Second'));
+      var taskRows = await container.read(tasksProvider(list.id).future);
+      final first = taskRows.first;
+      final second = taskRows.last;
+      await expectDebouncedSync(
+        () => tasks.updateTask(
+          taskId: first.id,
+          title: 'Edited',
+          note: first.note,
+          priority: first.priority,
+          due: first.due,
+          scheduledAt: first.scheduledAt,
+          estimatedMinutes: first.estimatedMinutes,
+        ),
+      );
+      final undo = await container.read(latestTaskUndoProvider.future);
+      await expectDebouncedSync(
+        () => container.read(latestTaskUndoProvider.notifier).undo(undo!.id),
+      );
+      await expectDebouncedSync(() => tasks.setStatus(first.id, 'in_progress'));
+      await expectDebouncedSync(
+        () => tasks.reorderTask(
+          taskId: second.id,
+          previousTaskId: null,
+          nextTaskId: first.id,
+        ),
+      );
+      await expectDebouncedSync(() => tasks.deleteTask(second.id));
+
+      taskRows = await container.read(tasksProvider(list.id).future);
+      expect(taskRows, hasLength(1));
+      await expectDebouncedSync(
+        () => container.read(listsProvider.notifier).deleteList(list.id),
+      );
+    },
+  );
+}
+
+Future<void> _pumpAsync() async {
+  await Future<void>.delayed(Duration.zero);
+  await Future<void>.delayed(Duration.zero);
 }

@@ -178,8 +178,15 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final onboardingCompleted = ref.read(onboardingStatusProvider).value;
     if (state == AppLifecycleState.resumed && onboardingCompleted == true) {
+      ref.read(appForegroundProvider.notifier).setForeground(true);
       unawaited(ref.read(syncStatusProvider.notifier).syncOnResume());
       unawaited(_settleTimerOnResume());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      ref.read(appForegroundProvider.notifier).setForeground(false);
+      ref.read(syncStatusProvider.notifier).setForeground(false);
     }
   }
 
@@ -216,6 +223,7 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
           );
         }
         ref.watch(syncStatusProvider);
+        ref.watch(realtimeConnectionControllerProvider);
         ref.watch(timerEngineProvider);
         return MaterialApp.router(
           localizationsDelegates: AppLocalizations.localizationsDelegates,

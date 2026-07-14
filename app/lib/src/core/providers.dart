@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:todori/src/core/bridge_service.dart';
+import 'package:todori/src/core/realtime_sync.dart';
 import 'package:todori/src/core/task_tree.dart';
 import 'package:todori/src/core/task_due.dart';
 import 'package:todori/src/notifications/reminder_notifications.dart';
@@ -37,6 +38,14 @@ import 'package:todori/src/rust/api.dart'
 /// so no test depends on the native Rust library or `initCore`.
 final bridgeServiceProvider = Provider<BridgeService>(
   (ref) => const FrbBridgeService(),
+);
+
+final realtimeTimerFactoryProvider = Provider<RealtimeTimerFactory>(
+  (ref) => systemRealtimeTimerFactory,
+);
+
+final realtimeSocketConnectorProvider = Provider<RealtimeSocketConnector>(
+  (ref) => const IoRealtimeSocketConnector(),
 );
 
 const taskSearchDebounceDuration = Duration(milliseconds: 250);
@@ -304,8 +313,9 @@ class AccountNotifier extends AsyncNotifier<AccountSessionStateDto> {
   }
 
   Future<void> logout() async {
-    await ref.read(bridgeServiceProvider).accountLogout();
-    ref.invalidateSelf();
+    final bridge = ref.read(bridgeServiceProvider);
+    await bridge.accountLogout();
+    state = AsyncData(await bridge.getAccountSessionState());
   }
 }
 
@@ -315,35 +325,50 @@ final accountProvider =
     );
 
 class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
-  Timer? _pollTimer;
-  Future<void>? _syncInFlight;
+  RealtimeSyncScheduler? _scheduler;
+  bool _foreground = true;
+  bool _connected = false;
 
   @override
   FutureOr<SyncStatusDto> build() async {
-    ref.onDispose(() => _pollTimer?.cancel());
+    _scheduler?.dispose();
+    _foreground = ref.read(appForegroundProvider);
     final account = await ref.watch(accountProvider.future);
     final bridge = ref.watch(bridgeServiceProvider);
     final status = await bridge.getSyncStatus();
-    if (account.loggedIn && status.loggedIn) {
-      _startPolling();
-      _runAutomaticSync();
-    }
+    final scheduler = RealtimeSyncScheduler(
+      runSync: _performSync,
+      timerFactory: ref.watch(realtimeTimerFactoryProvider),
+    );
+    _scheduler = scheduler;
+    scheduler.setForeground(_foreground);
+    scheduler.setConnected(_connected);
+    ref.onDispose(scheduler.dispose);
+    scheduleMicrotask(() {
+      if (identical(_scheduler, scheduler)) {
+        scheduler.setEnabled(account.loggedIn && status.loggedIn);
+      }
+    });
     return status;
   }
 
   Future<void> syncNow() {
-    final inFlight = _syncInFlight;
-    if (inFlight != null) {
-      return inFlight;
+    if (state.value?.loggedIn != true) {
+      return _performSync();
     }
-    late final Future<void> operation;
-    operation = _performSync().whenComplete(() {
-      if (identical(_syncInFlight, operation)) {
-        _syncInFlight = null;
-      }
-    });
-    _syncInFlight = operation;
-    return operation;
+    return _scheduler?.syncNow() ?? _performSync();
+  }
+
+  void triggerRealtimeSync() => _scheduler?.trigger();
+
+  void setRealtimeConnected(bool connected) {
+    _connected = connected;
+    _scheduler?.setConnected(connected);
+  }
+
+  void setForeground(bool foreground) {
+    _foreground = foreground;
+    _scheduler?.setForeground(foreground);
   }
 
   Future<void> _performSync() async {
@@ -382,26 +407,11 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
 
   Future<void> syncOnResume() async {
     final status = state.value;
-    if (status == null || !status.loggedIn || status.running) {
+    setForeground(true);
+    if (status == null || !status.loggedIn) {
       return;
     }
     await syncNow();
-  }
-
-  void _startPolling() {
-    if (_pollTimer != null) {
-      return;
-    }
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      final status = state.value;
-      if (status != null && status.loggedIn && !status.running) {
-        _runAutomaticSync();
-      }
-    });
-  }
-
-  void _runAutomaticSync() {
-    unawaited(syncNow().catchError((_) {}));
   }
 }
 
@@ -409,6 +419,55 @@ final syncStatusProvider =
     AsyncNotifierProvider<SyncStatusNotifier, SyncStatusDto>(
       SyncStatusNotifier.new,
     );
+
+class AppForegroundNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void setForeground(bool foreground) {
+    state = foreground;
+  }
+}
+
+final appForegroundProvider = NotifierProvider<AppForegroundNotifier, bool>(
+  AppForegroundNotifier.new,
+);
+
+final realtimeConnectionControllerProvider =
+    Provider<RealtimeConnectionController?>((ref) {
+      final foreground = ref.watch(appForegroundProvider);
+      final account = ref.watch(accountProvider).value;
+      if (!foreground || account?.loggedIn != true) {
+        return null;
+      }
+
+      final bridge = ref.watch(bridgeServiceProvider);
+      final controller = RealtimeConnectionController(
+        fetchTicket: () async {
+          final ticket = await bridge.getRealtimeTicket();
+          return RealtimeTicketView(
+            websocketUrl: ticket.websocketUrl,
+            ticket: ticket.ticket,
+            expiresAt: ticket.expiresAt,
+          );
+        },
+        connector: ref.watch(realtimeSocketConnectorProvider),
+        timerFactory: ref.watch(realtimeTimerFactoryProvider),
+        onChanged: () {
+          ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
+        },
+        onConnectionChanged: (connected) {
+          ref.read(syncStatusProvider.notifier).setRealtimeConnected(connected);
+        },
+      );
+      scheduleMicrotask(() => unawaited(controller.start()));
+      ref.onDispose(() => unawaited(controller.dispose()));
+      return controller;
+    });
+
+final completedTimerSyncTriggerProvider = Provider<void Function()>((ref) {
+  return () => ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
+});
 
 SyncStatusDto _copySyncStatus(SyncStatusDto status, {bool? running}) {
   return SyncStatusDto(
@@ -484,6 +543,7 @@ final timerEngineProvider =
         timerNotificationServiceProvider,
         timerClockProvider,
         (taskId) => completedTimerSessionsProvider(taskId),
+        completedTimerSyncTriggerProvider,
       ),
     );
 
@@ -597,6 +657,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     final bridge = ref.read(bridgeServiceProvider);
     final sortOrder = nextSortOrder(state.value?.length ?? 0);
     await bridge.createList(name: name, sortOrder: sortOrder);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidateSelf();
     ref.read(taskSearchProvider.notifier).refresh();
   }
@@ -605,6 +666,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
   Future<void> renameList(String listId, String name) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.renameList(listId: listId, name: name);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -616,6 +678,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
   Future<void> archiveList(String listId) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.archiveList(listId: listId);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -632,6 +695,7 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     final bridge = ref.read(bridgeServiceProvider);
     final reminders = await bridge.getListReminders(listId: listId);
     await bridge.deleteList(listId: listId);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     await ref
         .read(reminderNotificationServiceProvider)
         .cancelReminders(reminders);
@@ -660,6 +724,7 @@ class ArchivedListsNotifier extends AsyncNotifier<List<ListDto>> {
   Future<void> unarchiveList(String listId) async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.unarchiveList(listId: listId);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidateSelf();
     ref.invalidate(listsProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -874,6 +939,7 @@ class CalendarOccurrencesNotifier
           scheduledAt: scheduledAt,
           estimatedMinutes: task.estimatedMinutes,
         );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -931,6 +997,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
     );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
@@ -957,6 +1024,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
     );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -1002,6 +1070,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     } else {
       await persistStatus();
     }
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)
@@ -1024,6 +1093,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
     final bridge = ref.read(bridgeServiceProvider);
     final reminders = await bridge.getTaskSubtreeReminders(taskId: taskId);
     await bridge.deleteTask(taskId: taskId);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     await ref
         .read(reminderNotificationServiceProvider)
         .cancelReminders(reminders);
@@ -1048,6 +1118,7 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
       previousTaskId: previousTaskId,
       nextTaskId: nextTaskId,
     );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidateSelf();
   }
 }
@@ -1089,6 +1160,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       scheduledAt: scheduledAt,
       estimatedMinutes: estimatedMinutes,
     );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(tasksProvider(listId));
     ref.invalidate(calendarOccurrencesProvider);
     ref.invalidateSelf();
@@ -1114,6 +1186,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
               .read(taskCompletionCoordinatorProvider)
               .complete(taskId: taskId, setDone: persistStatus)
         : await persistStatus();
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     if (status == 'done' || status == 'wont_do') {
       await ref
           .read(reminderNotificationServiceProvider)
@@ -1138,6 +1211,7 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
       scheduledAt: task.scheduledAt,
       estimatedMinutes: task.estimatedMinutes,
     );
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(latestTaskUndoProvider);
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(calendarOccurrencesProvider);
@@ -1187,6 +1261,7 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
     final restored = await ref
         .read(bridgeServiceProvider)
         .undoTaskOperation(undoId: undoId);
+    ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
     ref.invalidate(tasksProvider(restored.listId));
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);

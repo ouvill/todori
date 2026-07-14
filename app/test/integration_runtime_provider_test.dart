@@ -221,7 +221,9 @@ void main() {
       expect(bridge.attempts, 3);
       bridge.gate!.complete();
       await Future.wait([first, second]);
-      expect(bridge.attempts, 3);
+      // The two calls share one in-flight run. The second call marks it dirty,
+      // so one serial follow-up run completes the realtime contract.
+      expect(bridge.attempts, 4);
     },
   );
 }
