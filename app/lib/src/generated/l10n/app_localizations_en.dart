@@ -974,11 +974,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get focusFinishedTitle => 'Focus recorded';
 
   @override
-  String get focusFinishedSummary => 'Your focused work is safely recorded.';
+  String get focusFinishedSummary => 'Focused work recorded.';
 
   @override
   String focusFinishedBody(String time) {
-    return '$time of focused work is safely recorded.';
+    return '$time of focused work recorded.';
   }
 
   @override

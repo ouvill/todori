@@ -836,7 +836,7 @@ class _RadicalSystemStatesMock extends StatelessWidget {
             _CoverageStateRow(
               icon: LucideIcons.cloudOff300,
               title: 'Couldn’t reach private sync',
-              body: 'Your local tasks are safe. Try again when connected.',
+              body: 'Try again when you are connected.',
               error: true,
             ),
           ],

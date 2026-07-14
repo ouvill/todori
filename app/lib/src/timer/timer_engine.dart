@@ -324,6 +324,14 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     return result;
   }
 
+  void clearLastCompletion() {
+    final current = state.value;
+    if (current == null || current.lastCompletion == null) {
+      return;
+    }
+    state = AsyncData(current.copyWith(clearLastCompletion: true));
+  }
+
   Future<void> discard() => _runCommand(() async {
     final active = _requireActive('discard');
     await _notifications.cancel(active.sessionId);

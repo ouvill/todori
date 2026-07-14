@@ -6,6 +6,7 @@ import 'package:todori/main.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
+import 'package:todori/src/rust/api.dart' show TimerFinishKindDto;
 import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/timer/timer_engine.dart';
 import 'package:todori/src/ui/theme.dart';
@@ -371,6 +372,55 @@ void main() {
       expect(await fake.getActiveTimerSession(), isNull);
     },
   );
+
+  testWidgets('Save and exit records work and allows a new focus session', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final listId = (await fake.getLists()).single.id;
+    final task = await fake.createTask(
+      listId: listId,
+      title: 'Return for another focus session',
+    );
+    final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 9));
+    final router = buildAppRouter();
+    await tester.pumpWidget(
+      TodoriApp(
+        router: router,
+        overrides: [
+          bridgeServiceProvider.overrideWithValue(fake),
+          timerClockProvider.overrideWithValue(clock),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    clock.advance(const Duration(minutes: 3));
+    await tester.tap(find.byKey(const ValueKey('focus-session-options')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('focus-save-and-exit')));
+    await tester.pumpAndSettle();
+
+    expect(await fake.getActiveTimerSession(), isNull);
+    final sessions = await fake.getCompletedTimerSessions(taskId: task.id);
+    expect(sessions, hasLength(1));
+    expect(sessions.single.finishKind, TimerFinishKindDto.interrupted);
+
+    router.go('/focus/$listId/${task.id}');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('focus-setup')), findsOneWidget);
+    expect(find.byKey(const ValueKey('focus-finished')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('focus-start')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('focus-running')), findsOneWidget);
+    expect(await fake.getActiveTimerSession(), isNotNull);
+  });
 
   testWidgets('Focus setup and active controls remain usable in RTL', (
     tester,

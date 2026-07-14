@@ -1810,13 +1810,13 @@ abstract class AppLocalizations {
   /// No description provided for @focusFinishedSummary.
   ///
   /// In en, this message translates to:
-  /// **'Your focused work is safely recorded.'**
+  /// **'Focused work recorded.'**
   String get focusFinishedSummary;
 
   /// No description provided for @focusFinishedBody.
   ///
   /// In en, this message translates to:
-  /// **'{time} of focused work is safely recorded.'**
+  /// **'{time} of focused work recorded.'**
   String focusFinishedBody(String time);
 
   /// No description provided for @focusBreakFinishedTitle.

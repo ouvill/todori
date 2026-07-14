@@ -201,6 +201,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
         return;
       }
     }
+    ref.read(timerEngineProvider.notifier).clearLastCompletion();
     _leaveFocus();
   }
 
@@ -250,6 +251,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
       setState(() => _sessionFinished = true);
     }
     if (exit) {
+      ref.read(timerEngineProvider.notifier).clearLastCompletion();
       _leaveFocus();
     }
   }
