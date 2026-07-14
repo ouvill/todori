@@ -35,6 +35,7 @@ class FakeBridgeService implements BridgeService {
   final List<FakeReorderCall> reorderCalls = [];
   final List<String> updateTaskCalls = [];
   int syncNowCalls = 0;
+  int realtimeTicketCalls = 0;
   AccountSessionStateDto _accountSession = const AccountSessionStateDto(
     loggedIn: false,
   );
@@ -76,6 +77,7 @@ class FakeBridgeService implements BridgeService {
     reorderCalls.clear();
     updateTaskCalls.clear();
     syncNowCalls = 0;
+    realtimeTicketCalls = 0;
     _settings.clear();
     _settings[onboardingCompletedSettingKey] = '1';
     _accountSession = const AccountSessionStateDto(loggedIn: false);
@@ -283,6 +285,19 @@ class FakeBridgeService implements BridgeService {
       lastError: null,
     );
     return _syncStatus;
+  }
+
+  @override
+  Future<RealtimeTicketDto> getRealtimeTicket() async {
+    if (!_accountSession.loggedIn) {
+      throw Exception('account request failed');
+    }
+    realtimeTicketCalls += 1;
+    return RealtimeTicketDto(
+      websocketUrl: 'wss://realtime.example/v1/connect',
+      ticket: 'opaque-test-ticket-$realtimeTicketCalls',
+      expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+    );
   }
 
   void addRemoteTaskForNextSync({

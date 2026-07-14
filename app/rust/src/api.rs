@@ -5,9 +5,9 @@ use todori_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
     AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind, CalendarOccurrenceView,
     CalendarRange, CivilDate, ClientError, CompletedTimerSession, CreateTaskCommand, HomeTaskView,
-    List, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue,
-    TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase, TimerRunState,
-    UpdateTaskCommand, UtcInstant, Uuid,
+    List, RealtimeTicket, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task,
+    TaskDue, TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase,
+    TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -181,6 +181,12 @@ pub struct AccountAuthResultDto {
     pub recovery_key: Option<String>,
 }
 
+pub struct RealtimeTicketDto {
+    pub websocket_url: String,
+    pub ticket: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 #[derive(Clone)]
 pub struct SyncStatusDto {
     pub logged_in: bool,
@@ -292,6 +298,14 @@ pub async fn sync_now() -> Result<SyncStatusDto, String> {
         .await
         .map_err(|error| error.to_string())
         .map(sync_status_to_dto)
+}
+
+pub async fn get_realtime_ticket() -> Result<RealtimeTicketDto, String> {
+    client()?
+        .realtime_ticket()
+        .await
+        .map_err(|error| error.to_string())
+        .map(realtime_ticket_to_dto)
 }
 
 /// Creates a list using a client-owned fractional `sort_order`.
@@ -844,6 +858,14 @@ fn account_session_to_dto(session: AccountSessionState) -> AccountSessionStateDt
     }
 }
 
+fn realtime_ticket_to_dto(ticket: RealtimeTicket) -> RealtimeTicketDto {
+    RealtimeTicketDto {
+        websocket_url: ticket.websocket_url,
+        ticket: ticket.ticket,
+        expires_at: ticket.expires_at,
+    }
+}
+
 fn account_auth_to_dto(result: AccountAuthResult) -> AccountAuthResultDto {
     AccountAuthResultDto {
         session: account_session_to_dto(result.session),
@@ -923,6 +945,7 @@ mod tests {
         assert_result_future(account_logout());
         let _: fn() -> Result<SyncStatusDto, String> = get_sync_status;
         assert_result_future(sync_now());
+        assert_result_future(get_realtime_ticket());
         let _: fn(String, String) -> Result<ListDto, String> = create_list;
         let _: fn() -> Result<Vec<ListDto>, String> = get_lists;
         let _: fn() -> Result<Vec<ListDto>, String> = get_archived_lists;

@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -73,6 +73,9 @@ Future<SyncStatusDto> getSyncStatus() =>
     RustLib.instance.api.crateApiGetSyncStatus();
 
 Future<SyncStatusDto> syncNow() => RustLib.instance.api.crateApiSyncNow();
+
+Future<RealtimeTicketDto> getRealtimeTicket() =>
+    RustLib.instance.api.crateApiGetRealtimeTicket();
 
 /// Creates a list using a client-owned fractional `sort_order`.
 ///
@@ -561,6 +564,31 @@ class ListDto {
           archivedAt == other.archivedAt &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
+}
+
+class RealtimeTicketDto {
+  final String websocketUrl;
+  final String ticket;
+  final DateTime expiresAt;
+
+  const RealtimeTicketDto({
+    required this.websocketUrl,
+    required this.ticket,
+    required this.expiresAt,
+  });
+
+  @override
+  int get hashCode =>
+      websocketUrl.hashCode ^ ticket.hashCode ^ expiresAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RealtimeTicketDto &&
+          runtimeType == other.runtimeType &&
+          websocketUrl == other.websocketUrl &&
+          ticket == other.ticket &&
+          expiresAt == other.expiresAt;
 }
 
 class ReminderDto {

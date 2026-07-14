@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 use super::{
     now_ms, CryptoRuntimeState, SyncRuntimeState, TodoriClient, INITIAL_BACKFILL_CURSOR_NAME,
 };
-use crate::{ClientError, SqliteSyncStore, SyncStatus};
+use crate::{ClientError, RealtimeTicket, SqliteSyncStore, SyncStatus};
 
 impl TodoriClient {
     pub fn sync_status(&self) -> Result<SyncStatus, ClientError> {
@@ -63,6 +63,25 @@ impl TodoriClient {
         drop(state);
         drop(running);
         Ok(status)
+    }
+
+    /// Fetches a short-lived foreground realtime ticket without exposing the
+    /// session token or tenant/device identifiers to the frontend.
+    pub async fn realtime_ticket(&self) -> Result<RealtimeTicket, ClientError> {
+        let context = self
+            .active_sync_context()
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(&context.server_url).map_err(|_| ClientError::AccountRequest)?;
+        let response = client
+            .realtime_ticket(context.tenant_id, &context.session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        Ok(RealtimeTicket {
+            websocket_url: response.websocket_url,
+            ticket: response.ticket,
+            expires_at: response.expires_at,
+        })
     }
 
     async fn run_sync_now(&self) -> Result<SyncRunSummary, ClientError> {

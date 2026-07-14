@@ -299,5 +299,6 @@ mod async_contract_tests {
         assert_send(client.account_login("user@example.com".into(), "password".into(), None, None));
         assert_send(client.account_logout());
         assert_send(client.sync_now());
+        assert_send(client.realtime_ticket());
     }
 }

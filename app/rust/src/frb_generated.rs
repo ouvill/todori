@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -425077568;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1194269673;
 
 // Section: executor
 
@@ -876,6 +876,41 @@ fn wire__crate__api__get_local_time_zone_impl(
                     let output_ok = crate::api::get_local_time_zone()?;
                     Ok(output_ok)
                 })())
+            }
+        },
+    )
+}
+fn wire__crate__api__get_realtime_ticket_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "get_realtime_ticket",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok = crate::api::get_realtime_ticket().await?;
+                        Ok(output_ok)
+                    })()
+                    .await,
+                )
             }
         },
     )
@@ -2127,6 +2162,20 @@ impl SseDecode for Option<crate::api::TaskUndoDto> {
     }
 }
 
+impl SseDecode for crate::api::RealtimeTicketDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_websocketUrl = <String>::sse_decode(deserializer);
+        let mut var_ticket = <String>::sse_decode(deserializer);
+        let mut var_expiresAt = <chrono::DateTime<chrono::Utc>>::sse_decode(deserializer);
+        return crate::api::RealtimeTicketDto {
+            websocket_url: var_websocketUrl,
+            ticket: var_ticket,
+            expires_at: var_expiresAt,
+        };
+    }
+}
+
 impl SseDecode for crate::api::ReminderDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2395,30 +2444,31 @@ fn pde_ffi_dispatcher_primary_impl(
         22 => wire__crate__api__get_list_reminders_impl(port, ptr, rust_vec_len, data_len),
         23 => wire__crate__api__get_lists_impl(port, ptr, rust_vec_len, data_len),
         24 => wire__crate__api__get_local_time_zone_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__pomodoro_target_reached_at_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__start_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__update_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__get_realtime_ticket_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__get_setting_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__get_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__get_task_reminders_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__get_task_subtree_reminders_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__get_tasks_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__greet_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__init_core_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__list_pending_reminders_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__pomodoro_target_reached_at_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__start_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__update_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2678,6 +2728,25 @@ impl flutter_rust_bridge::IntoDart for crate::api::ListDto {
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::ListDto {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::ListDto> for crate::api::ListDto {
     fn into_into_dart(self) -> crate::api::ListDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::RealtimeTicketDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.websocket_url.into_into_dart().into_dart(),
+            self.ticket.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::RealtimeTicketDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::RealtimeTicketDto>
+    for crate::api::RealtimeTicketDto
+{
+    fn into_into_dart(self) -> crate::api::RealtimeTicketDto {
         self
     }
 }
@@ -3228,6 +3297,15 @@ impl SseEncode for Option<crate::api::TaskUndoDto> {
         if let Some(value) = self {
             <crate::api::TaskUndoDto>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::RealtimeTicketDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.websocket_url, serializer);
+        <String>::sse_encode(self.ticket, serializer);
+        <chrono::DateTime<chrono::Utc>>::sse_encode(self.expires_at, serializer);
     }
 }
 

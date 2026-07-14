@@ -119,6 +119,7 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
     this._notificationServiceProvider,
     this._clockProvider,
     this._completedSessionsProviderForTask,
+    this._completedSessionSyncTriggerProvider,
   );
 
   final ProviderListenable<BridgeService> _bridgeProvider;
@@ -127,6 +128,8 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
   final ProviderListenable<TimerClock> _clockProvider;
   final ProviderOrFamily Function(String taskId)
   _completedSessionsProviderForTask;
+  final ProviderListenable<void Function()>
+  _completedSessionSyncTriggerProvider;
   Timer? _displayTicker;
   var _commandInFlight = false;
 
@@ -514,7 +517,10 @@ class TimerEngineController extends AsyncNotifier<TimerEngineState> {
       activeDurationMs: duration.inMilliseconds,
       createdAt: createdAt,
     );
-    await _bridge.finishActiveTimerSession(session: completed);
+    final inserted = await _bridge.finishActiveTimerSession(session: completed);
+    if (inserted) {
+      ref.read(_completedSessionSyncTriggerProvider)();
+    }
     if (countsCycle) {
       runtime = runtime.copyWith(
         completedWorkCycles: runtime.completedWorkCycles + 1,

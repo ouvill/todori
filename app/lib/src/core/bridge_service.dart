@@ -32,6 +32,8 @@ abstract class BridgeService {
 
   Future<rust_api.SyncStatusDto> syncNow();
 
+  Future<rust_api.RealtimeTicketDto> getRealtimeTicket();
+
   Future<String> getSyncServerUrl();
 
   Future<void> setSyncServerUrl({required String serverUrl});
@@ -246,6 +248,10 @@ class FrbBridgeService implements BridgeService {
 
   @override
   Future<rust_api.SyncStatusDto> syncNow() => rust_api.syncNow();
+
+  @override
+  Future<rust_api.RealtimeTicketDto> getRealtimeTicket() =>
+      rust_api.getRealtimeTicket();
 
   @override
   Future<String> getSyncServerUrl() => rust_api.getSyncServerUrl();
