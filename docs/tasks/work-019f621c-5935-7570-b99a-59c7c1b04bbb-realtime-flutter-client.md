@@ -1,7 +1,7 @@
 ---
 id: 019f621c-5935-7570-b99a-59c7c1b04bbb
 title: Foreground realtime Flutter client
-status: active
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -75,3 +75,34 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 - scheduler、connection、polling state machineの観測証拠
 - mutation coverageとwidget / provider test結果
 - 実端末・本番Workerで残る確認事項
+
+## 9. 完了報告
+
+### 実装
+
+- `todori-client`にactive sync contextを内部利用する`RealtimeTicket`取得APIを追加し、session token、tenant / device IDをfrontendへ公開せず、FRB 2.12.0で`RealtimeTicketDto`生成物を再生成した。
+- `web_socket_channel 3.0.3`をdirect dependencyにし、ticketをAuthorization headerだけで渡す`wss`接続を実装した。query、fragment、userinfo、`/v1/connect`以外のpathは拒否する。
+- login / foregroundで接続し、background / logout / disposeで切断するlifecycle、期限30秒前ticket更新、1 / 2 / 4 / 8 / 16 / 30秒 + jitterの再接続を実装した。
+- 整数`v: 1`と`type: changed`だけの固定frameを受理し、binary、invalid JSON、`v: 1.0`、unknown、追加metadata frameを無視する。
+- 250ms debounce、single-flight dirty follow-up、接続中5分safety pull、切断中30秒polling、resume即時syncを共通schedulerへ実装した。
+- 指定されたlist / taskの全sync mutation、Undo、completed timer保存成功後を共通triggerへ接続した。anonymous CRUDと既存provider invalidation semanticsは維持した。
+- ticket、WebSocket URL、Authorization header、tenant / device / opaque identifierをlogへ出す経路は追加していない。
+
+### 検証
+
+- `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`: PASS。既存のKeychain実機test 1件とmanual performance test 1件だけがintentional ignore。
+- `cargo build --manifest-path app/rust/Cargo.toml --release`: PASS。
+- `flutter analyze`: PASS。`flutter test`: 241件PASS、既存visual QA harness 1件だけがintentional skip。
+- realtime / provider / sync / timer focused Flutter tests: 31件PASS。
+- hardcoded strings、client boundary scripts、FRB再生成の内容hash一致、`git diff --check`: PASS。
+- Node 24.18.0でWorkerの`npm ci`、typecheck、Vitest 10件、Wrangler 4.110.0 dry-run buildを再実行してPASS。
+- 独立検証担当が修正後HEAD `2a09335d1a5c2c38729b6e63a5f0f62924e5d4e8`を再検証し、契約違反・ブロッキング指摘なしでPASSと判定した。
+
+### Commit
+
+- `5ce02c8 feat(realtime): add Flutter connection and sync scheduler`
+- `2a09335 fix(realtime): require integer frame version`
+
+### 未解決事項
+
+- 実端末のforeground / background lifecycle、deployed Workerとの実接続、実Cloudflare latencyはdeploy後の人間確認として残す。このwork itemではdeploy、credential投入、AWS / Neon変更、releaseを行っていない。
