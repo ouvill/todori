@@ -15,10 +15,10 @@ use crate::{
 };
 
 use crate::enqueue::{
-    enqueue_merged_plaintext, enqueue_rebased_tombstone, list_plaintext, observe_remote_hlc,
-    task_plaintext, LocalFullResyncPhase, LocalSyncAtomicStore, LocalSyncQuarantineEntry,
-    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
-    PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
+    enqueue_merged_plaintext, enqueue_rebased_tombstone, enqueue_task_sync, list_plaintext,
+    observe_remote_hlc, task_plaintext, LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore,
+    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -187,6 +187,34 @@ where
         false
     };
 
+    // A full resync already retried missing-key records once and classified
+    // the remaining failures durably. Replaying them immediately would issue
+    // the same key refresh twice in one run without any new server state.
+    if !store.list_replayable_quarantine(None, 1)?.is_empty() {
+        if !refreshed_in_full_resync
+            && !refreshed_in_normal_pull
+            && !store.list_replayable_quarantine(None, 1)?.is_empty()
+        {
+            context.keys = key_refresher.refresh().await?;
+        }
+        if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
+            if let Some(envelope_version) = replay_upgrade_version(&error) {
+                store.set_setting(
+                    SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+                    &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
+                    now_ms()?,
+                )?;
+                return Err("upgrade required".to_string());
+            }
+            return Err(error);
+        }
+    }
+
+    // ADR-015: only a closed, fully classified remote view may elect the
+    // canonical Inbox. The owned transaction also makes aliases visible to UI
+    // readers only after every known task has moved and been re-encrypted.
+    reconcile_canonical_inbox(&context, store, now_ms)?;
+
     loop {
         let pending = store
             .list_pending_list_key_bundles(context.tenant_id, KEY_BUNDLE_UPLOAD_BATCH_LIMIT)?;
@@ -216,29 +244,6 @@ where
                 return Err("sync failed".to_string());
             }
             transaction.commit()?;
-        }
-    }
-
-    // A full resync already retried missing-key records once and classified
-    // the remaining failures durably. Replaying them immediately would issue
-    // the same key refresh twice in one run without any new server state.
-    if !store.list_replayable_quarantine(None, 1)?.is_empty() {
-        if !refreshed_in_full_resync
-            && !refreshed_in_normal_pull
-            && !store.list_replayable_quarantine(None, 1)?.is_empty()
-        {
-            context.keys = key_refresher.refresh().await?;
-        }
-        if let Err(error) = replay_quarantine(&context, store, now_ms, &mut summary) {
-            if let Some(envelope_version) = replay_upgrade_version(&error) {
-                store.set_setting(
-                    SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-                    &upgrade_block_value(crate::protocol::SYNC_PROTOCOL_VERSION, envelope_version),
-                    now_ms()?,
-                )?;
-                return Err("upgrade required".to_string());
-            }
-            return Err(error);
         }
     }
 
@@ -325,6 +330,120 @@ where
     }
 
     Ok(summary)
+}
+
+fn reconcile_canonical_inbox<S, N>(
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalSyncAtomicStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    let mut transaction = store.begin_write_transaction()?;
+    reconcile_canonical_inbox_in_transaction(context, &mut transaction, now_ms)?;
+    transaction.commit()
+}
+
+fn reconcile_canonical_inbox_in_transaction<S, N>(
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    if store.has_live_quarantine(SyncCollection::Lists)? {
+        return Ok(());
+    }
+
+    let mut candidates = Vec::new();
+    for (record_id, state) in store.list_record_states(SyncCollection::Lists)? {
+        let LocalSyncSemanticState::Live { plaintext_json, .. } = state.state else {
+            continue;
+        };
+        let plaintext: SyncPlaintext =
+            serde_json::from_str(&plaintext_json).map_err(|_| "sync failed".to_string())?;
+        plaintext
+            .validate_for_collection(LISTS_COLLECTION, &record_id.to_string())
+            .map_err(|_| "sync failed".to_string())?;
+        let SyncPlaintext::List(list) = plaintext else {
+            return Err("sync failed".to_string());
+        };
+        if list.is_default.value {
+            candidates.push(record_id);
+        }
+    }
+    candidates.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    candidates.dedup();
+    let Some(canonical_id) = candidates.first().copied() else {
+        return Ok(());
+    };
+    if dek_for_list(&context.keys, canonical_id).is_none() {
+        return Err("sync failed".to_string());
+    }
+
+    let existing_aliases = store.list_list_aliases()?;
+    let mut alias_ids = existing_aliases
+        .iter()
+        .map(|alias| alias.alias_list_id)
+        .chain(candidates.iter().copied().skip(1))
+        .filter(|alias_id| *alias_id != canonical_id)
+        .collect::<Vec<_>>();
+    alias_ids.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    alias_ids.dedup();
+    let aliases = alias_ids
+        .iter()
+        .copied()
+        .map(|alias_list_id| LocalListAlias {
+            alias_list_id,
+            canonical_list_id: canonical_id,
+        })
+        .collect::<Vec<_>>();
+
+    // Validate that every candidate was materialized before changing any row.
+    // A live list quarantine is handled above; a missing row here is a local
+    // consistency failure and must roll the owned transaction back.
+    let _candidate_lists = candidates
+        .iter()
+        .copied()
+        .map(|id| store.get_list(id)?.ok_or_else(|| "sync failed".to_string()))
+        .collect::<Result<Vec<_>, String>>()?;
+    store.materialize_canonical_list(canonical_id)?;
+
+    for mut task in store.list_all_tasks_for_sync()? {
+        if alias_ids.binary_search(&task.list_id).is_err() {
+            continue;
+        }
+        task.list_id = canonical_id;
+        store.upsert_task_for_sync(task.clone())?;
+        enqueue_task_sync(
+            store,
+            &context.keys,
+            &context.device_id,
+            &task,
+            false,
+            now_ms,
+        )?;
+    }
+
+    let mut normalized_existing = existing_aliases;
+    normalized_existing.sort_by(|left, right| {
+        left.alias_list_id
+            .as_bytes()
+            .cmp(right.alias_list_id.as_bytes())
+            .then_with(|| {
+                left.canonical_list_id
+                    .as_bytes()
+                    .cmp(right.canonical_list_id.as_bytes())
+            })
+    });
+    if normalized_existing != aliases {
+        store.replace_list_aliases(&aliases, now_ms()?)?;
+    }
+    Ok(())
 }
 
 async fn pull_to_closure<S, N, R>(
@@ -1210,8 +1329,18 @@ where
     if list.is_default {
         if let Some(default_list_id) = store.default_list_id()? {
             if default_list_id != list.id {
-                // Inbox重複のマージ方針はBACKLOG #30の裁定待ち。ここでは同期を失敗させないための暫定デモーション。
-                list.is_default = false;
+                if default_list_id.as_bytes() < list.id.as_bytes() {
+                    // Preserve the authenticated candidate identity in record
+                    // state, while keeping the domain UNIQUE index valid until
+                    // the closure-level canonical transaction runs.
+                    list.is_default = false;
+                } else {
+                    let mut previous = store
+                        .get_list(default_list_id)?
+                        .ok_or_else(|| "sync failed".to_string())?;
+                    previous.is_default = false;
+                    store.upsert_list_for_sync(previous)?;
+                }
             }
         }
     }
@@ -1346,7 +1475,11 @@ where
         }
         (None, None) => (incoming, false),
     };
-    let task = task_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
+    let mut task = task_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
+    let authenticated_list_id = task.list_id;
+    let resolved_list_id = store.resolve_list_alias(authenticated_list_id)?;
+    let resolved_alias = resolved_list_id != authenticated_list_id;
+    task.list_id = resolved_list_id;
     let dependency = task_dependency_disposition(store, &task)?;
     if matches!(dependency, TaskDependencyDisposition::Missing)
         && store.load_full_resync()?.is_some()
@@ -1409,7 +1542,7 @@ where
         summary.repush_count += 1;
         return Ok(ApplyDisposition::Rebased);
     }
-    store.upsert_task_for_sync(task)?;
+    store.upsert_task_for_sync(task.clone())?;
     store_sync_plaintext(
         store,
         SyncCollection::Tasks,
@@ -1420,7 +1553,20 @@ where
         now_ms,
     )?;
     summary.applied_count += 1;
-    if needs_repush {
+    if resolved_alias {
+        // Persist the authenticated remote merge first, then reuse the normal
+        // mutation enqueue path to stamp only placement, select the canonical
+        // List DEK, and replace any stale outbox head transactionally.
+        enqueue_task_sync(
+            store,
+            &context.keys,
+            &context.device_id,
+            &task,
+            false,
+            now_ms,
+        )?;
+        summary.repush_count += 1;
+    } else if needs_repush {
         enqueue_merged_plaintext(
             store,
             RebasePlaintextRequest {
@@ -1435,7 +1581,7 @@ where
         )?;
         summary.repush_count += 1;
     }
-    Ok(if needs_repush {
+    Ok(if needs_repush || resolved_alias {
         ApplyDisposition::Rebased
     } else {
         ApplyDisposition::AppliedCurrent
@@ -1815,6 +1961,8 @@ mod tests {
         active_timer_task: Option<Uuid>,
         record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
         outbox: Vec<LocalSyncOutboxEntry>,
+        aliases: Vec<LocalListAlias>,
+        live_list_quarantine: bool,
     }
 
     impl LocalMutationSyncStore for FakeStore {
@@ -1910,6 +2058,53 @@ mod tests {
             Ok(())
         }
 
+        fn list_record_states(
+            &mut self,
+            collection: SyncCollection,
+        ) -> Result<Vec<(Uuid, LocalSyncRecordState)>, String> {
+            Ok(self
+                .record_states
+                .iter()
+                .filter(|((stored_collection, _), _)| *stored_collection == collection)
+                .map(|((_, record_id), state)| (*record_id, state.clone()))
+                .collect())
+        }
+
+        fn has_live_quarantine(&mut self, collection: SyncCollection) -> Result<bool, String> {
+            Ok(collection == SyncCollection::Lists && self.live_list_quarantine)
+        }
+
+        fn list_list_aliases(&mut self) -> Result<Vec<LocalListAlias>, String> {
+            Ok(self.aliases.clone())
+        }
+
+        fn replace_list_aliases(
+            &mut self,
+            aliases: &[LocalListAlias],
+            _updated_at: i64,
+        ) -> Result<(), String> {
+            self.aliases = aliases.to_vec();
+            Ok(())
+        }
+
+        fn resolve_list_alias(&mut self, list_id: Uuid) -> Result<Uuid, String> {
+            Ok(self
+                .aliases
+                .iter()
+                .find(|alias| alias.alias_list_id == list_id)
+                .map_or(list_id, |alias| alias.canonical_list_id))
+        }
+
+        fn materialize_canonical_list(&mut self, canonical_list_id: Uuid) -> Result<(), String> {
+            if !self.lists.contains_key(&canonical_list_id) {
+                return Err("canonical list is missing".to_string());
+            }
+            for list in self.lists.values_mut() {
+                list.is_default = list.id == canonical_list_id;
+            }
+            Ok(())
+        }
+
         fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
             Ok(self
                 .lists
@@ -1953,6 +2148,10 @@ mod tests {
                 .filter(|task| task.list_id == list_id)
                 .cloned()
                 .collect())
+        }
+
+        fn list_all_tasks_for_sync(&mut self) -> Result<Vec<Task>, String> {
+            Ok(self.tasks.values().cloned().collect())
         }
 
         fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String> {
@@ -2191,6 +2390,261 @@ mod tests {
         assert!(store.lists.get(&incoming_list.id).unwrap().is_default);
         assert_eq!(summary.applied_count, 1);
         assert_eq!(summary.repush_count, 0);
+    }
+
+    #[test]
+    fn pull_smaller_default_candidate_materializes_deterministically() {
+        let existing = sample_list(uuid(20), true);
+        let incoming = sample_list(uuid(10), true);
+        let dek = [0x3c; KEY_LEN];
+        let record = encrypted_list_record(&incoming, &dek);
+        let context = context_for(incoming.id, dek);
+        let mut store = FakeStore::default();
+        store.lists.insert(existing.id, existing.clone());
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_list(&record, &context, &mut store, &mut now, &mut summary).unwrap();
+
+        assert!(store.lists.get(&incoming.id).unwrap().is_default);
+        assert!(!store.lists.get(&existing.id).unwrap().is_default);
+        let stored = stored_sync_plaintext(&mut store, SyncCollection::Lists, incoming.id)
+            .unwrap()
+            .unwrap();
+        let SyncPlaintext::List(stored) = stored else {
+            panic!("list");
+        };
+        assert!(stored.is_default.value);
+    }
+
+    #[test]
+    fn canonical_reconcile_moves_tasks_reencrypts_and_is_idempotent() {
+        let canonical = sample_list(uuid(1), true);
+        let loser = sample_list(uuid(2), true);
+        let mut local_canonical = canonical.clone();
+        local_canonical.is_default = false;
+        let canonical_dek = [0x11; KEY_LEN];
+        let loser_dek = [0x22; KEY_LEN];
+        let mut task = new_task(
+            loser.id,
+            None,
+            "alias task".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1_799_000_000_000,
+        )
+        .unwrap();
+        task.id = uuid(30);
+        let mut store = FakeStore::default();
+        store.lists.insert(canonical.id, local_canonical);
+        store.lists.insert(loser.id, loser.clone());
+        store.tasks.insert(task.id, task.clone());
+        put_live_plaintext_state(
+            &mut store,
+            SyncCollection::Lists,
+            canonical.id,
+            list_plaintext(&canonical, test_hlc(1, "canonical")),
+        );
+        put_live_plaintext_state(
+            &mut store,
+            SyncCollection::Lists,
+            loser.id,
+            list_plaintext(&loser, test_hlc(1, "loser")),
+        );
+        put_live_plaintext_state(
+            &mut store,
+            SyncCollection::Tasks,
+            task.id,
+            task_plaintext(&task, test_hlc(1, "task")),
+        );
+        let context = context_with_keys(&[(canonical.id, canonical_dek), (loser.id, loser_dek)]);
+        let mut now = ticking_now();
+
+        reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).unwrap();
+
+        assert!(store.lists.get(&canonical.id).unwrap().is_default);
+        assert!(!store.lists.get(&loser.id).unwrap().is_default);
+        assert_eq!(store.tasks.get(&task.id).unwrap().list_id, canonical.id);
+        assert_eq!(
+            store.aliases,
+            vec![LocalListAlias {
+                alias_list_id: loser.id,
+                canonical_list_id: canonical.id,
+            }]
+        );
+        assert_eq!(store.outbox.len(), 1);
+        let encrypted = &store.outbox[0].state;
+        let EncryptedSyncState::Live { blob, .. } = encrypted else {
+            panic!("live");
+        };
+        let plaintext =
+            decrypt_plaintext(&canonical_dek, TASKS_COLLECTION, &task.id.to_string(), blob)
+                .unwrap();
+        let SyncPlaintext::Task(plaintext) = plaintext else {
+            panic!("task");
+        };
+        assert_eq!(plaintext.placement.value.list_id, canonical.id);
+        assert!(
+            decrypt_plaintext(&loser_dek, TASKS_COLLECTION, &task.id.to_string(), blob).is_err()
+        );
+        let op_id = store.outbox[0].op_id;
+
+        reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).unwrap();
+        assert_eq!(store.outbox.len(), 1);
+        assert_eq!(store.outbox[0].op_id, op_id);
+    }
+
+    #[test]
+    fn later_smaller_candidate_flattens_existing_aliases() {
+        let first = sample_list(uuid(20), true);
+        let old_loser = sample_list(uuid(30), true);
+        let later = sample_list(uuid(10), true);
+        let mut store = FakeStore::default();
+        store.lists.insert(first.id, first.clone());
+        let mut old_loser_domain = old_loser.clone();
+        old_loser_domain.is_default = false;
+        store.lists.insert(old_loser.id, old_loser_domain);
+        let mut later_domain = later.clone();
+        later_domain.is_default = false;
+        store.lists.insert(later.id, later_domain);
+        for list in [&first, &old_loser, &later] {
+            put_live_plaintext_state(
+                &mut store,
+                SyncCollection::Lists,
+                list.id,
+                list_plaintext(list, test_hlc(1, "remote")),
+            );
+        }
+        store.aliases = vec![LocalListAlias {
+            alias_list_id: old_loser.id,
+            canonical_list_id: first.id,
+        }];
+        let context = context_with_keys(&[
+            (first.id, [0x20; KEY_LEN]),
+            (old_loser.id, [0x30; KEY_LEN]),
+            (later.id, [0x10; KEY_LEN]),
+        ]);
+        let mut now = ticking_now();
+
+        reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).unwrap();
+
+        assert!(store.lists.get(&later.id).unwrap().is_default);
+        assert_eq!(
+            store.aliases,
+            vec![
+                LocalListAlias {
+                    alias_list_id: first.id,
+                    canonical_list_id: later.id,
+                },
+                LocalListAlias {
+                    alias_list_id: old_loser.id,
+                    canonical_list_id: later.id,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn live_list_quarantine_defers_election_without_writes() {
+        let first = sample_list(uuid(1), true);
+        let second = sample_list(uuid(2), true);
+        let mut store = FakeStore::default();
+        store.lists.insert(first.id, first.clone());
+        let mut second_domain = second.clone();
+        second_domain.is_default = false;
+        store.lists.insert(second.id, second_domain);
+        for list in [&first, &second] {
+            put_live_plaintext_state(
+                &mut store,
+                SyncCollection::Lists,
+                list.id,
+                list_plaintext(list, test_hlc(1, "remote")),
+            );
+        }
+        store.live_list_quarantine = true;
+        let context =
+            context_with_keys(&[(first.id, [0x11; KEY_LEN]), (second.id, [0x22; KEY_LEN])]);
+        let mut now = ticking_now();
+
+        reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).unwrap();
+
+        assert!(store.aliases.is_empty());
+        assert!(store.outbox.is_empty());
+        assert!(store.lists.get(&first.id).unwrap().is_default);
+    }
+
+    #[test]
+    fn missing_canonical_dek_fails_before_materialization() {
+        let canonical = sample_list(uuid(1), true);
+        let loser = sample_list(uuid(2), true);
+        let mut canonical_domain = canonical.clone();
+        canonical_domain.is_default = false;
+        let mut store = FakeStore::default();
+        store.lists.insert(canonical.id, canonical_domain);
+        store.lists.insert(loser.id, loser.clone());
+        for list in [&canonical, &loser] {
+            put_live_plaintext_state(
+                &mut store,
+                SyncCollection::Lists,
+                list.id,
+                list_plaintext(list, test_hlc(1, "remote")),
+            );
+        }
+        let context = context_with_keys(&[(loser.id, [0x22; KEY_LEN])]);
+        let mut now = ticking_now();
+
+        assert!(reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).is_err());
+        assert!(!store.lists.get(&canonical.id).unwrap().is_default);
+        assert!(store.lists.get(&loser.id).unwrap().is_default);
+        assert!(store.aliases.is_empty());
+        assert!(store.outbox.is_empty());
+    }
+
+    #[test]
+    fn pulled_task_for_durable_alias_is_rehomed_and_reencrypted() {
+        let canonical = sample_list(uuid(1), true);
+        let mut alias = sample_list(uuid(2), true);
+        alias.is_default = false;
+        let canonical_dek = [0x41; KEY_LEN];
+        let alias_dek = [0x42; KEY_LEN];
+        let mut task = new_task(
+            alias.id,
+            None,
+            "late".to_string(),
+            "7fffffffffffffffffffffffffffffff".to_string(),
+            1_799_000_000_000,
+        )
+        .unwrap();
+        task.id = uuid(40);
+        let task_hlc = test_hlc(1, "remote");
+        let task_plaintext = task_plaintext(&task, task_hlc.clone());
+        let record = encrypted_task_record(task.id, &task_plaintext, &alias_dek, &task_hlc);
+        let context = context_with_keys(&[(canonical.id, canonical_dek), (alias.id, alias_dek)]);
+        let mut store = FakeStore::default();
+        store.lists.insert(canonical.id, canonical.clone());
+        store.lists.insert(alias.id, alias.clone());
+        store.aliases = vec![LocalListAlias {
+            alias_list_id: alias.id,
+            canonical_list_id: canonical.id,
+        }];
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        assert_eq!(
+            apply_pull_task(&record, &context, &mut store, &mut now, &mut summary).unwrap(),
+            ApplyDisposition::Rebased
+        );
+        assert_eq!(store.tasks.get(&task.id).unwrap().list_id, canonical.id);
+        let EncryptedSyncState::Live { blob, .. } = &store.outbox[0].state else {
+            panic!("live");
+        };
+        let plaintext =
+            decrypt_plaintext(&canonical_dek, TASKS_COLLECTION, &task.id.to_string(), blob)
+                .unwrap();
+        let SyncPlaintext::Task(plaintext) = plaintext else {
+            panic!("task");
+        };
+        assert_eq!(plaintext.placement.value.list_id, canonical.id);
+        assert_eq!(summary.repush_count, 1);
     }
 
     #[test]
@@ -2797,6 +3251,25 @@ mod tests {
         }
     }
 
+    fn put_live_plaintext_state(
+        store: &mut FakeStore,
+        collection: SyncCollection,
+        record_id: Uuid,
+        plaintext: SyncPlaintext,
+    ) {
+        let mutation_hlc = plaintext.record_hlc().encode().unwrap();
+        store.record_states.insert(
+            (collection, record_id),
+            LocalSyncRecordState {
+                current_revision_hlc: Some(mutation_hlc.clone()),
+                state: LocalSyncSemanticState::Live {
+                    mutation_hlc,
+                    plaintext_json: serde_json::to_string(&plaintext).unwrap(),
+                },
+            },
+        );
+    }
+
     fn encrypted_task_record(
         record_id: Uuid,
         plaintext: &SyncPlaintext,
@@ -2817,15 +3290,27 @@ mod tests {
     }
 
     fn context_for(list_id: Uuid, dek: [u8; KEY_LEN]) -> ActiveSyncContext {
+        context_with_keys(&[(list_id, dek)])
+    }
+
+    fn context_with_keys(keys: &[(Uuid, [u8; KEY_LEN])]) -> ActiveSyncContext {
         ActiveSyncContext {
             server_url: "http://localhost".to_string(),
             tenant_id: uuid(100),
             device_id: "local".to_string(),
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
-                list_deks: vec![(list_id, dek)],
+                list_deks: keys.to_vec(),
                 tenant_root_dek: None,
             },
+        }
+    }
+
+    fn test_hlc(counter: u32, device_id: &str) -> Hlc {
+        Hlc {
+            wall_ms: 1_799_000_000_000,
+            counter,
+            device_id: device_id.to_string(),
         }
     }
 

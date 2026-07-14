@@ -177,9 +177,9 @@ impl SqliteMutationService {
     ) -> Result<Task, ClientError> {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
-        transaction.get_list(input.list_id)?;
-        require_list_key(sync, input.list_id)?;
-        let mut tasks = transaction.list_active_tasks_by_list(input.list_id)?;
+        let list_id = transaction.get_list(input.list_id)?.id;
+        require_list_key(sync, list_id)?;
+        let mut tasks = transaction.list_active_tasks_by_list(list_id)?;
         let last_sibling_sort_order = tasks
             .iter()
             .filter(|task| task.parent_task_id == input.parent_task_id)
@@ -215,7 +215,7 @@ impl SqliteMutationService {
                         )?;
                     }
                 }
-                let refreshed = transaction.list_active_tasks_by_list(input.list_id)?;
+                let refreshed = transaction.list_active_tasks_by_list(list_id)?;
                 let last = refreshed
                     .iter()
                     .filter(|task| task.parent_task_id == input.parent_task_id)
@@ -226,7 +226,7 @@ impl SqliteMutationService {
             Err(error) => return Err(error.into()),
         };
         let mut task = new_task(
-            input.list_id,
+            list_id,
             input.parent_task_id,
             input.title,
             sort_order,
@@ -249,7 +249,7 @@ impl SqliteMutationService {
                     Err(error) => return Err(error.into()),
                 }
             }
-            validate_parent_for(task.id, input.list_id, parent_id, &tasks)?;
+            validate_parent_for(task.id, list_id, parent_id, &tasks)?;
         }
         transaction.insert_task(task.clone())?;
         enqueue_task_in_transaction(&mut transaction, sync, &task, false, input.now_ms)?;
@@ -324,7 +324,7 @@ impl SqliteMutationService {
             if list.archived_at.is_none() && list.is_default {
                 return Err(StorageError::DefaultListProtected {
                     operation: "archived",
-                    list_id,
+                    list_id: list.id,
                 }
                 .into());
             }
@@ -417,9 +417,9 @@ mod tests {
     use tempfile::TempDir;
     use todori_domain::{new_list, new_task};
     use todori_storage::{
-        ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-        SqliteSyncStateRepository, SqliteTaskRepository, SyncRecordSemanticState, SyncRecordState,
-        SyncStateRepository, TaskRepository,
+        ListRepository, OwnedSqliteWriteTx, SettingsRepository, SqliteListRepository,
+        SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository,
+        SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
     };
     use todori_sync::{
         Hlc, LocalSyncKeys, SyncPlaintext, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY,
@@ -510,6 +510,57 @@ mod tests {
             estimated_minutes: Some(45),
             now_ms: BASE_MS + 1,
         }
+    }
+
+    #[test]
+    fn alias_list_mutations_target_the_canonical_list_and_key() {
+        let fixture = fixture();
+        let alias = new_list("Other Inbox".into(), "a0".into(), BASE_MS).unwrap();
+        SqliteListRepository::new(
+            open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap(),
+        )
+        .insert(alias.clone())
+        .unwrap();
+        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .materialize_canonical_list(fixture.list.id)
+            .unwrap();
+        transaction
+            .replace_list_aliases(fixture.list.id, &[alias.id], BASE_MS)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let created = fixture
+            .mutation_service
+            .create_task(create_input(alias.id), &fixture.sync)
+            .unwrap();
+        assert_eq!(created.list_id, fixture.list.id);
+        let renamed = fixture
+            .mutation_service
+            .rename_list(
+                alias.id,
+                "Canonical Inbox".into(),
+                BASE_MS + 2,
+                &fixture.sync,
+            )
+            .unwrap();
+        assert_eq!(renamed.id, fixture.list.id);
+        assert_eq!(renamed.name, "Canonical Inbox");
+
+        let state = SqliteSyncStateRepository::new(
+            open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap(),
+        )
+        .get_record_state(TASKS_COLLECTION, created.id)
+        .unwrap()
+        .unwrap();
+        let SyncRecordSemanticState::Live { plaintext_json, .. } = state.state else {
+            panic!("live task state");
+        };
+        let SyncPlaintext::Task(plaintext) = serde_json::from_str(&plaintext_json).unwrap() else {
+            panic!("task plaintext");
+        };
+        assert_eq!(plaintext.placement.value.list_id, fixture.list.id);
     }
 
     #[test]

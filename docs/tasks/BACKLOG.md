@@ -21,7 +21,7 @@ UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLat
 | サーバーのデバイス行重複排除 | 同一インストールからの再ログインで既存device rowを再利用する | 2026-07-10実機同期確認 |
 | Android Keystore DeviceKeyStore | Androidの開発用 `FileDeviceKeyStore` を本番用Android Keystore実装へ置き換える | 技術仕様§4.3 / task-74 |
 | Phase 1リリース前のlight固定 | ダークモード正式対応まで `themeMode` をlight固定する | 2026-07-06人間裁定 |
-| iOSリリース準備 | release build、署名、ストア提出前コンプライアンスを確認する | M5-01。人間作業を含む |
+| iOSリリース準備 | 課金基盤のrelease gate合格後にrelease build、署名、ストア提出前コンプライアンスを確認する | M5-01。Billing foundation release gateと人間作業に依存 |
 | macOS dogfooding配布 | macOS desktop buildを配布し、既知差分をリリースノートへ記録する | M5-02。人間判断を含む |
 | クラッシュレポート方針 | F-53のオプトイン、PII除去、実送信有無を確定する | M5-03。法務・プライバシー判断を含む |
 | P2-M8 テンプレート / 繰り返し | テンプレート、RRULE準拠生成、streak、重複生成防止を実装する | Phase 2計画書 P2-M8 / F-19〜F-21 |
@@ -45,7 +45,7 @@ task文書へ昇格せず、軽量レーンで処理できる候補である。
 - iOS実機でKeychain鍵保持、署名付きゼロプロンプト、通知、同期を確認する。出典: task-64 / 65 / 77。
 - Android実機で同期動作を確認する。出典: task-74。
 - AWS / ECR / Lambda / Neonへ本番デプロイし、WAF / API Gateway / CloudFront前段を確定する。出典: Phase 2計画書。
-- 課金 / IAP / 外部課金 / レシート検証をprivate側事業設計と合わせて確定する。出典: Phase 2計画書 / `docs/billing_overview.md`。
+- 課金provider、product、trial / grace、価格、launch offerを非公開事業設計と合わせて承認する。実装状態はBilling foundation release gate work itemを正本とする。出典: Phase 2計画書 / `docs/billing_overview.md`。
 - coral / amber系表示のコントラストを裁定する。出典: task-66。
 - `~/.codex/config.toml` へ `~/.cargo` を追加するか判断する（任意）。
 

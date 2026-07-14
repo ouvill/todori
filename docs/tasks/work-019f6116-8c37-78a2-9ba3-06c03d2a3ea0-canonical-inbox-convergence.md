@@ -1,7 +1,7 @@
 ---
 id: 019f6116-8c37-78a2-9ba3-06c03d2a3ea0
 title: Canonical Inbox convergence
-status: backlog
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -72,3 +72,20 @@ milestone: maintenance
 - 追加・更新したmulti-deviceと冪等性テスト
 - 実行した品質ゲートと独立検証の結果
 - ADR-015との差分、残る実機確認、未解決事項
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-15
+- 結果: schema v19のdurable `list_aliases`、認証済みtyped plaintextからのUUID最小選挙、closure / quarantine guard、単一`BEGIN IMMEDIATE`内のcanonical materialization、alias配下taskのplacement更新とcanonical List DEK再暗号化、旧alias IDのlocal CRUD解決を実装した。通常sync、full resync、quarantine replay、後着alias task、再起動を同じ冪等な収束規則で扱う。
+- 証拠: `todori-storage` 89 passed / 1 ignored、`todori-sync` 68 passed、`todori-client` 43 unit + 4 doc passed。後着のより小さい候補、alias flatten、live list quarantine保留、鍵不足rollback、canonical DEK再暗号化、再起動後alias、削除済みlistの空結果契約を自動テストで確認した。
+- Commit: `b787b5e` (`feat(sync): converge canonical inbox`)
+- ADR-015との差分: なし。server-visibleなcanonical pointerやplaintext metadataは追加せず、alias list recordとList DEK bundleを保持する。
+- 未解決: なし。実機2台での再確認は追加の運用観測として未実施であり、自動テストと独立品質ゲートの合否には影響しない。
+
+### 独立検証
+
+- 判定: 合格
+- 根拠: 実装を担当していない検証担当が統合HEADを静的レビューし、初回に検出した削除済みlistの`getTasks`回帰を修正後に再検証した。`git diff --check`、`cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`（server integrationを含む）、`sh app/tool/check_client_boundaries.sh`、`sh app/tool/test_client_boundaries.sh`、`cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`、`cd app && flutter analyze`、`cd app && flutter test`、`sh app/tool/check_hardcoded_strings.sh`が成功した。Flutterは232件成功、Visual QA harness 1件のみ仕様どおりskipした。
+- 検証者: 実装を担当していない独立検証サブエージェント

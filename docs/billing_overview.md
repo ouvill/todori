@@ -23,6 +23,18 @@ Todori's planned plan structure is:
 
 Final pricing, trial details, eligibility rules, and launch timing are not committed in this public overview.
 
+## Release Gate
+
+Todori will not make its first general release until the billing foundation is complete. Store submission, release tags, and public launch announcements remain blocked until all of the following are verified:
+
+- iOS purchase and restore work end to end in a store sandbox.
+- Receipts, transactions, and billing events are verified on the server and applied idempotently.
+- Server-side entitlements are the authorization source for paid sync access.
+- Expiration and revocation stop server-backed paid capabilities without making local data unreadable or uneditable.
+- Re-activation restores normal sync without a second billing state maintained only by the client.
+
+Provider selection, concrete products, prices, trial and grace periods, launch offers, revenue assumptions, and operational credentials remain non-public decisions. The public implementation and tests must still make the security boundary and release-gate evidence reviewable.
+
 ## E2EE and Entitlements
 
 Paid capabilities are represented as entitlements associated with an account or organization. Entitlements control access to server-dependent features only. They do not grant the server access to plaintext task data, keys, notes, list names, or other encrypted content.

@@ -11,10 +11,10 @@ use todori_storage::{
 };
 use todori_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
-    EncryptedSyncState, LocalMutationSyncStore, LocalPendingListKeyBundle, LocalSyncAtomicStore,
-    LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
-    LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
-    StableCursor, SyncCollection,
+    EncryptedSyncState, LocalListAlias, LocalMutationSyncStore, LocalPendingListKeyBundle,
+    LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState,
+    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
+    PullFailureReason, StableCursor, SyncCollection,
 };
 
 pub struct SqliteSyncStore {
@@ -282,6 +282,78 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
+    fn list_record_states(
+        &mut self,
+        collection: SyncCollection,
+    ) -> Result<Vec<(Uuid, LocalSyncRecordState)>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_record_states(collection.as_str())
+                .map(|states| {
+                    states
+                        .into_iter()
+                        .map(|state| (state.record_id, storage_record_to_local(state)))
+                        .collect()
+                })
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn has_live_quarantine(&mut self, collection: SyncCollection) -> Result<bool, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .has_live_quarantine(collection.as_str())
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn list_list_aliases(&mut self) -> Result<Vec<LocalListAlias>, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_list_aliases()
+                .map(|aliases| aliases.into_iter().map(storage_alias_to_local).collect())
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn replace_list_aliases(
+        &mut self,
+        aliases: &[LocalListAlias],
+        updated_at: i64,
+    ) -> Result<(), String> {
+        let connection =
+            open_encrypted(&self.db_path, &self.db_key).map_err(|error| error.to_string())?;
+        let mut transaction =
+            OwnedSqliteWriteTx::begin(connection).map_err(|error| error.to_string())?;
+        replace_list_aliases_in_transaction(&mut transaction, aliases, updated_at)?;
+        transaction
+            .commit()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn resolve_list_alias(&mut self, list_id: Uuid) -> Result<Uuid, String> {
+        with_sync_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .resolve_list_alias(list_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn materialize_canonical_list(&mut self, canonical_list_id: Uuid) -> Result<(), String> {
+        let connection =
+            open_encrypted(&self.db_path, &self.db_key).map_err(|error| error.to_string())?;
+        let mut transaction =
+            OwnedSqliteWriteTx::begin(connection).map_err(|error| error.to_string())?;
+        transaction
+            .materialize_canonical_list(canonical_list_id)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .commit()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
         with_list_repository(&self.db_path, &self.db_key, |repository| {
             repository
@@ -337,6 +409,14 @@ impl LocalSyncStore for SqliteSyncStore {
                         .filter(|task| task.list_id == list_id)
                         .collect()
                 })
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn list_all_tasks_for_sync(&mut self) -> Result<Vec<Task>, String> {
+        with_task_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_all_for_sync()
                 .map_err(|error| error.to_string())
         })
     }
@@ -568,6 +648,54 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|e| e.to_string())
     }
 
+    fn list_record_states(
+        &mut self,
+        collection: SyncCollection,
+    ) -> Result<Vec<(Uuid, LocalSyncRecordState)>, String> {
+        self.transaction
+            .list_record_states(collection.as_str())
+            .map(|states| {
+                states
+                    .into_iter()
+                    .map(|state| (state.record_id, storage_record_to_local(state)))
+                    .collect()
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    fn has_live_quarantine(&mut self, collection: SyncCollection) -> Result<bool, String> {
+        self.transaction
+            .has_live_quarantine(collection.as_str())
+            .map_err(|error| error.to_string())
+    }
+
+    fn list_list_aliases(&mut self) -> Result<Vec<LocalListAlias>, String> {
+        self.transaction
+            .list_list_aliases()
+            .map(|aliases| aliases.into_iter().map(storage_alias_to_local).collect())
+            .map_err(|error| error.to_string())
+    }
+
+    fn replace_list_aliases(
+        &mut self,
+        aliases: &[LocalListAlias],
+        updated_at: i64,
+    ) -> Result<(), String> {
+        replace_list_aliases_in_transaction(&mut self.transaction, aliases, updated_at)
+    }
+
+    fn resolve_list_alias(&mut self, list_id: Uuid) -> Result<Uuid, String> {
+        self.transaction
+            .resolve_list_alias(list_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn materialize_canonical_list(&mut self, canonical_list_id: Uuid) -> Result<(), String> {
+        self.transaction
+            .materialize_canonical_list(canonical_list_id)
+            .map_err(|error| error.to_string())
+    }
+
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String> {
         self.transaction
             .default_list_id()
@@ -601,6 +729,12 @@ impl LocalSyncStore for SqliteSyncWriteTx {
     fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String> {
         self.transaction
             .list_tasks_by_list(list_id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn list_all_tasks_for_sync(&mut self) -> Result<Vec<Task>, String> {
+        self.transaction
+            .list_all_tasks_for_sync()
             .map_err(|error| error.to_string())
     }
 
@@ -941,6 +1075,44 @@ fn local_record_to_storage(
     }
 }
 
+fn storage_alias_to_local(alias: todori_storage::ListAlias) -> LocalListAlias {
+    LocalListAlias {
+        alias_list_id: alias.alias_list_id,
+        canonical_list_id: alias.canonical_list_id,
+    }
+}
+
+fn replace_list_aliases_in_transaction(
+    transaction: &mut OwnedSqliteWriteTx,
+    aliases: &[LocalListAlias],
+    updated_at: i64,
+) -> Result<(), String> {
+    let canonical_list_id = if let Some(first) = aliases.first() {
+        if aliases.iter().any(|alias| {
+            alias.canonical_list_id != first.canonical_list_id
+                || alias.alias_list_id == first.canonical_list_id
+        }) {
+            return Err("invalid canonical Inbox alias set".to_string());
+        }
+        first.canonical_list_id
+    } else {
+        let existing = transaction
+            .list_list_aliases()
+            .map_err(|error| error.to_string())?;
+        let Some(first) = existing.first() else {
+            return Ok(());
+        };
+        first.canonical_list_id
+    };
+    let alias_list_ids = aliases
+        .iter()
+        .map(|alias| alias.alias_list_id)
+        .collect::<Vec<_>>();
+    transaction
+        .replace_list_aliases(canonical_list_id, &alias_list_ids, updated_at)
+        .map_err(|error| error.to_string())
+}
+
 fn with_sync_repository<T>(
     db_path: &Path,
     db_key: &[u8; 32],
@@ -995,7 +1167,7 @@ fn with_list_repository<T>(
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use todori_domain::new_list;
+    use todori_domain::{new_list, new_task};
     use todori_storage::{
         ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
         LocalTenantRootKeyBundle, PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
@@ -1003,6 +1175,96 @@ mod tests {
     use todori_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
 
     const DB_KEY: [u8; 32] = [0x51; 32];
+
+    #[test]
+    fn canonical_inbox_contracts_are_available_on_store_and_transaction_adapters() {
+        let temp = tempdir().unwrap();
+        let db_path = temp.path().join("aliases.sqlite3");
+        let canonical = new_list("Canonical".into(), "a0".into(), 1).unwrap();
+        let alias = new_list("Alias".into(), "a1".into(), 1).unwrap();
+        let task = new_task(alias.id, None, "late".into(), "a0".into(), 1).unwrap();
+        let mut lists = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
+        lists.insert(canonical.clone()).unwrap();
+        lists.insert(alias.clone()).unwrap();
+        drop(lists);
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+
+        let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
+        store
+            .put_record_state(
+                SyncCollection::Lists,
+                canonical.id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some("1:0:device".into()),
+                    state: LocalSyncSemanticState::Live {
+                        mutation_hlc: "1:0:device".into(),
+                        plaintext_json: "{}".into(),
+                    },
+                },
+                1,
+            )
+            .unwrap();
+        store
+            .put_quarantine(LocalSyncQuarantineEntry {
+                record_id: Uuid::now_v7(),
+                collection: SyncCollection::Lists,
+                seq: 1,
+                revision_hlc: "1:0:device".into(),
+                state: EncryptedSyncState::Live {
+                    mutation_hlc: "1:0:device".into(),
+                    blob: vec![1],
+                },
+                reason: PullFailureReason::InvalidPlaintext,
+                required_list_id: None,
+                first_failed_at: 1,
+                last_failed_at: 1,
+                attempt_count: 1,
+            })
+            .unwrap();
+        store.materialize_canonical_list(canonical.id).unwrap();
+        store
+            .replace_list_aliases(
+                &[LocalListAlias {
+                    alias_list_id: alias.id,
+                    canonical_list_id: canonical.id,
+                }],
+                2,
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.list_record_states(SyncCollection::Lists).unwrap()[0].0,
+            canonical.id
+        );
+        assert!(store.has_live_quarantine(SyncCollection::Lists).unwrap());
+        assert_eq!(store.resolve_list_alias(alias.id).unwrap(), canonical.id);
+        assert_eq!(store.list_list_aliases().unwrap().len(), 1);
+        assert_eq!(store.list_all_tasks_for_sync().unwrap(), vec![task]);
+
+        let mut transaction = store.begin_write_transaction().unwrap();
+        assert_eq!(
+            transaction.resolve_list_alias(alias.id).unwrap(),
+            canonical.id
+        );
+        assert_eq!(transaction.list_list_aliases().unwrap().len(), 1);
+        assert_eq!(
+            transaction
+                .list_record_states(SyncCollection::Lists)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(transaction
+            .has_live_quarantine(SyncCollection::Lists)
+            .unwrap());
+        assert_eq!(transaction.list_all_tasks_for_sync().unwrap().len(), 1);
+        transaction.replace_list_aliases(&[], 3).unwrap();
+        transaction.commit().unwrap();
+        assert!(store.list_list_aliases().unwrap().is_empty());
+        assert_eq!(store.resolve_list_alias(alias.id).unwrap(), alias.id);
+    }
 
     #[test]
     fn transactional_seed_rolls_back_and_committed_seed_survives_absence_sweep() {
