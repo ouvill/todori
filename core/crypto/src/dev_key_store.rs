@@ -44,6 +44,7 @@ const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
 /// by debug/test builds and never selected by a release process.
 pub struct PlatformLocalKeyCapsuleStore {
     db_dir: PathBuf,
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
     namespace: String,
 }
 
@@ -51,6 +52,7 @@ impl PlatformLocalKeyCapsuleStore {
     pub fn new(db_dir: impl AsRef<Path>) -> Self {
         let db_dir = db_dir.as_ref().to_path_buf();
         Self {
+            #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
             namespace: profile_store_namespace(&db_dir),
             db_dir,
         }

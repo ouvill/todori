@@ -244,4 +244,4 @@ jobs:
           cargo fuzz --version
 
       - name: Fuzz envelope and key parsers
-        run: cargo fuzz run crypto_parsers -- -max_total_time=60 -timeout=10 -max_len=16384 -dict=fuzz/crypto_parsers.dict
+        run: cargo +nightly-2026-07-14 fuzz run crypto_parsers -- -max_total_time=60 -timeout=10 -max_len=16384 -dict=fuzz/crypto_parsers.dict
