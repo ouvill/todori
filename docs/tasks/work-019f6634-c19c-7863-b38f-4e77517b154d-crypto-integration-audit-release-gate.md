@@ -1,7 +1,7 @@
 ---
 id: 019f6634-c19c-7863-b38f-4e77517b154d
 title: Crypto integration audit and release gate
-status: backlog
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -66,3 +66,21 @@ milestone: maintenance
 - 独立レビュー指摘と解消
 - 個人配布 / Organization公開gateの判定
 - 外部監査まで残る人間作業
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-15
+- 結果: 暗号依存のexact pin、root / fuzz双方のlock検証、RustSec audit、秘密値・秘密鍵artifact scan、parser fuzzをCIと公開runbookへ追加した。envelope v4、personal / Organization manifest、account root、device certificate / identity、hybrid DEK package、signed revocationの正規形式をfuzzごとに深部まで通し、変異inputも検査する。長さfieldは32-bit環境でもoverflowせずfail closedになる。
+- 自動証拠: `cargo fmt --all -- --check`、fuzz crate fmt / locked check、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`cargo test --workspace`、bridge release build、`flutter analyze`、Flutter 245 tests（visual QA harness 1件skip）、boundary / hardcoded-string checks、dependency pin / secret scan、`git diff --check`が成功した。
+- 暗号証拠: `cargo audit --deny warnings`は1,160 advisory / 455 dependencyを検査して指摘0件。最新60秒fuzzは481,589 runs、coverage 1,493 / feature 2,596、crash / timeoutなし。RFC 9807、BIP39、FIPS 203 / 204、wrong password / AAD / generation / suite、rotation failure injection、3端末、server攻撃scenarioはworkspace testで成功した。
+- Platform証拠: macOS実機gateは合格済み。JDK 21によるAndroid cross / release APKとiOS cross-buildは先行work itemで成功済みだが、iOS / Android接続実機runtime gateは未実施である。
+- Commit: この完了報告を含むcommit
+- 未解決: iOS / Android接続実機確認、Organization product-level E2E、外部暗号専門家reviewが必要である。それまではiOS / Android個人配布、Organization公開、一般release、`audited`表示を許可しない。
+
+### 独立検証
+
+- 判定: 合格
+- 根拠: 実装を担当していないagentが統合差分をreviewし、parser深部未到達、32-bit length overflow、fuzz lock fail-open、secret scan false-negative、CIの`rg`依存を指摘した。全件修正後、残存P0 / P1 / P2なしを確認した。独立実行したtargeted clippy、Organization / manifest / envelope test、pin / secret script、fmt、diff checkが成功し、20秒fuzzは172,067 runs、coverage 1,456 / feature 2,557、crash / timeoutなしだった。
+- 検証者: Work 5独立暗号gate review agent

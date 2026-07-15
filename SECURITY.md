@@ -34,7 +34,7 @@ Security reports for the following areas are in scope:
 - Server-side control plane data, including wrapped keys, device metadata, organization membership, and subscription-gated synchronization access.
 - CI, build scripts, generated artifacts, release packaging, and dependency or supply-chain issues that could affect shipped binaries.
 
-Todori's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, and per-device hybrid X25519 + ML-KEM-768 key delivery have passed independent review. A security review performed by the implementation team is not described as an external audit.
+Todori's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, per-device hybrid X25519 + ML-KEM-768 key delivery, supported-platform device tests, and the product-level multi-device flow have passed their release gates. The implementation has passed an independent internal review, but an internal review is not described as an external audit. Todori must not be described as "audited" until an external cryptographic review is complete and its findings are resolved. Current gate status is published in [`docs/ops/crypto-release-gate.md`](docs/ops/crypto-release-gate.md).
 
 ## Out of Scope
 

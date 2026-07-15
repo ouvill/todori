@@ -12,6 +12,7 @@ members = [
     "server",
     "xtask",
 ]
+exclude = ["fuzz"]
 
 [workspace.package]
 edition = "2021"
@@ -29,28 +30,28 @@ proptest = "1"
 # core/crypto
 aws-lc-rs = { version = "=1.17.1", features = ["unstable"] }
 aws-lc-sys = "=0.42.0"
-argon2 = "0.5"
-bip39 = { version = "2.2.0", features = ["zeroize"] }
-chacha20poly1305 = "0.10"
-hkdf = "0.12"
-opaque-ke = { version = "4.0.1", features = ["argon2"] }
-rand = "0.8"
-sha2 = "0.10"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
+argon2 = "=0.5.3"
+bip39 = { version = "=2.2.2", features = ["zeroize"] }
+chacha20poly1305 = "=0.10.1"
+hkdf = "=0.12.4"
+opaque-ke = { version = "=4.0.1", features = ["argon2"] }
+rand = "=0.8.6"
+sha2 = "=0.10.9"
+x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }
+zeroize = { version = "=1.9.0", features = ["zeroize_derive"] }
 
 # core/storage
 hex = "0.4"
-rusqlite = { version = "0.40.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { version = "=0.40.1", features = ["bundled-sqlcipher-vendored-openssl"] }
 tempfile = "3"
 
 # app/rust
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
 flutter_rust_bridge = "2.12.0"
-security-framework = { version = "3.7.0", features = ["OSX_10_15"] }
-security-framework-sys = "2.17"
-jni = "0.21.1"
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
+security-framework-sys = "=2.17.0"
+jni = "=0.21.1"
 
 # cli
 clap = { version = "4", features = ["derive"] }

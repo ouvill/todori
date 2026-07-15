@@ -158,7 +158,10 @@ impl KeyManifest {
                     .ok_or(KeyManifestError::EncodingOverflow)?,
             )
             .ok_or(KeyManifestError::EncodingOverflow)?;
-        if bytes.len() != payload_len + 32 {
+        let authenticated_len = payload_len
+            .checked_add(32)
+            .ok_or(KeyManifestError::EncodingOverflow)?;
+        if bytes.len() != authenticated_len {
             return Err(KeyManifestError::InvalidIdentity);
         }
         let recipient_fingerprints = bytes[92..payload_len]
@@ -384,6 +387,15 @@ mod tests {
             manifest.verify_personal(&[8; 32]),
             Err(KeyManifestError::AuthenticationFailed)
         );
+    }
+
+    #[test]
+    fn manifest_rejects_overflowing_recipient_length() {
+        let mut encoded = vec![0; 124];
+        encoded[..4].copy_from_slice(b"TKM1");
+        encoded[88..92].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        assert!(KeyManifest::from_authenticated_bytes(&encoded).is_err());
     }
 
     #[test]

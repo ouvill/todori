@@ -466,7 +466,10 @@ impl HybridDekPackage {
             &bytes[wrapped_len_offset..FIXED],
         )?))
         .map_err(|_| OrganizationCryptoError::InvalidEncoding)?;
-        if wrapped_len == 0 || bytes.len() != FIXED + wrapped_len {
+        let encoded_len = FIXED
+            .checked_add(wrapped_len)
+            .ok_or(OrganizationCryptoError::InvalidEncoding)?;
+        if wrapped_len == 0 || bytes.len() != encoded_len {
             return Err(OrganizationCryptoError::InvalidEncoding);
         }
         let result = Self {
@@ -1403,6 +1406,23 @@ mod tests {
             .unwrap(),
             dek
         );
+    }
+
+    #[test]
+    fn hybrid_package_rejects_overflowing_wrapped_length() {
+        const FIXED: usize = 31
+            + DEVICE_FINGERPRINT_LEN
+            + DEVICE_FINGERPRINT_LEN
+            + RECIPIENT_KEY_FINGERPRINT_LEN
+            + ML_KEM_768_CIPHERTEXT_LEN
+            + 4;
+        let mut encoded = vec![0; FIXED + 1];
+        encoded[..4].copy_from_slice(b"THP1");
+        encoded[4..6].copy_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
+        encoded[6] = HybridScopeKind::Tenant as u8;
+        encoded[FIXED - 4..FIXED].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        assert!(HybridDekPackage::decode(&encoded).is_err());
     }
 
     #[test]

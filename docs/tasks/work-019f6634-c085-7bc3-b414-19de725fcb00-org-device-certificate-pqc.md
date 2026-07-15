@@ -1,7 +1,7 @@
 ---
 id: 019f6634-c085-7bc3-b414-19de725fcb00
 title: Organization device certificates and hybrid PQC sharing
-status: complete
+status: done
 lane: critical
 milestone: maintenance
 ---

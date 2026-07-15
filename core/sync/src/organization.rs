@@ -210,7 +210,10 @@ impl OrganizationKeyManifest {
         let payload_end = 8usize
             .checked_add(payload_len)
             .ok_or(OrganizationManifestError::InvalidEncoding)?;
-        if bytes.len() != payload_end + TRAILER {
+        let encoded_len = payload_end
+            .checked_add(TRAILER)
+            .ok_or(OrganizationManifestError::InvalidEncoding)?;
+        if bytes.len() != encoded_len {
             return Err(OrganizationManifestError::InvalidEncoding);
         }
         let mut personal_shape = bytes[8..payload_end].to_vec();
@@ -374,6 +377,15 @@ mod tests {
 
         let substituted_root = generate_account_root(root.public.user_id).unwrap();
         assert!(decoded.verify(&substituted_root.public).is_err());
+    }
+
+    #[test]
+    fn organization_manifest_rejects_overflowing_payload_length() {
+        let mut encoded = vec![0; 8 + 32 + 64 + 3_309 + 1];
+        encoded[..4].copy_from_slice(b"TOM1");
+        encoded[4..8].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        assert!(OrganizationKeyManifest::decode(&encoded).is_err());
     }
 
     #[test]
