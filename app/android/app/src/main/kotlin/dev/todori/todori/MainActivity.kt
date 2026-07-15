@@ -1,5 +1,11 @@
 package dev.todori.todori
 
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        AndroidCapsuleStore.install(this)
+        super.onCreate(savedInstanceState)
+    }
+}

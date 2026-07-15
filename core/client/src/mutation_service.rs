@@ -17,6 +17,7 @@ use todori_sync::{
     LocalMutationSyncStore, LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState,
     NewLocalSyncOutboxEntry, SyncCollection,
 };
+use zeroize::Zeroizing;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -56,6 +57,13 @@ pub enum ClientError {
     InvalidEstimatedMinutes,
     #[error("local IANA time zone is unavailable")]
     LocalTimeZoneUnavailable,
+    #[error("local key capsule state is invalid")]
+    LocalKeyState,
+    #[error("local key rotation could not recover either database generation")]
+    LocalKeyRecoveryFailed,
+    #[cfg(test)]
+    #[error("injected device key rotation failure")]
+    InjectedDeviceKeyRotationFailure,
     #[error("another active timer already exists: {0}")]
     ActiveTimerConflict(Uuid),
     #[error("calendar range must contain increasing civil-date and instant bounds")]
@@ -86,11 +94,16 @@ pub struct UpdateTaskInput {
 /// integration tests that must exercise mutation and outbox atomicity.
 pub struct SqliteMutationService {
     pub(crate) db_path: PathBuf,
-    pub(crate) db_key: [u8; 32],
+    pub(crate) db_key: Zeroizing<[u8; 32]>,
 }
 
 impl SqliteMutationService {
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(db_path: impl Into<PathBuf>, db_key: [u8; 32]) -> Self {
+        Self::new_secret(db_path, Zeroizing::new(db_key))
+    }
+
+    pub(crate) fn new_secret(db_path: impl Into<PathBuf>, db_key: Zeroizing<[u8; 32]>) -> Self {
         Self {
             db_path: db_path.into(),
             db_key,

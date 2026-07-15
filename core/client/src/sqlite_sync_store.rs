@@ -16,10 +16,11 @@ use todori_sync::{
     LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
     PullFailureReason, StableCursor, SyncCollection,
 };
+use zeroize::Zeroizing;
 
 pub struct SqliteSyncStore {
     db_path: PathBuf,
-    db_key: [u8; 32],
+    db_key: Zeroizing<[u8; 32]>,
 }
 
 pub struct SqliteSyncWriteTx {
@@ -27,7 +28,12 @@ pub struct SqliteSyncWriteTx {
 }
 
 impl SqliteSyncStore {
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(db_path: PathBuf, db_key: [u8; 32]) -> Self {
+        Self::new_secret(db_path, Zeroizing::new(db_key))
+    }
+
+    pub(crate) fn new_secret(db_path: PathBuf, db_key: Zeroizing<[u8; 32]>) -> Self {
         Self { db_path, db_key }
     }
 }

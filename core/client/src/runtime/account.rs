@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use todori_crypto::{
     delete_account_secret,
     key_hierarchy::{unwrap_master_key_with_device_key, INITIAL_KEY_GENERATION},
-    load_account_secret, load_or_create_device_key, store_account_secret, AccountSecretKind,
+    load_account_secret, store_account_secret, AccountSecretKind, LocalKeyCapsuleSlot,
+    LocalKeyCapsuleStore, PlatformLocalKeyCapsuleStore,
 };
 use todori_domain::Uuid;
 use todori_storage::{
@@ -115,8 +116,7 @@ impl TodoriClient {
             }
             None => self.sync_server_url()?,
         };
-        let device_key =
-            Zeroizing::new(load_or_create_device_key(&self.db_dir).map_err(ClientError::KeyStore)?);
+        let device_key = Zeroizing::new(*self.active_capsule()?.device_key());
         let client = AccountClient::new(&server_url).map_err(|_| ClientError::AccountRequest)?;
         let password = Zeroizing::new(password);
 
@@ -193,33 +193,29 @@ impl TodoriClient {
         }
     }
 
-    pub(super) fn ensure_account_runtime_restored(&self) -> Result<(), ClientError> {
+    pub(crate) fn ensure_account_runtime_restored(&self) -> Result<(), ClientError> {
         let restore_crypto = matches!(self.account_state()?.crypto, CryptoRuntimeState::Unloaded);
         if restore_crypto {
-            let master_key =
-                match load_account_secret(&self.db_dir, AccountSecretKind::MasterKeyWrap)
-                    .map_err(ClientError::KeyStore)?
-                {
-                    Some(local_wrapped_master_key) => {
-                        let user_id = self
-                            .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
-                            .ok_or(ClientError::IncompleteAccountState)
-                            .and_then(|value| parse_uuid(&value))?;
-                        let device_key = Zeroizing::new(
-                            load_or_create_device_key(&self.db_dir)
-                                .map_err(ClientError::KeyStore)?,
-                        );
-                        unwrap_master_key_with_device_key(
-                            user_id,
-                            INITIAL_KEY_GENERATION,
-                            &local_wrapped_master_key,
-                            &device_key,
-                        )
-                        .ok()
-                    }
-                    None => None,
-                };
-            let availability = load_local_crypto_context(&self.db_path, &self.db_key, master_key)?;
+            let active_capsule = self.active_capsule()?;
+            let master_key = match active_capsule.wrapped_master_key() {
+                Some(local_wrapped_master_key) => {
+                    let user_id = self
+                        .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+                        .ok_or(ClientError::IncompleteAccountState)
+                        .and_then(|value| parse_uuid(&value))?;
+                    let device_key = Zeroizing::new(*active_capsule.device_key());
+                    unwrap_master_key_with_device_key(
+                        user_id,
+                        INITIAL_KEY_GENERATION,
+                        local_wrapped_master_key,
+                        &device_key,
+                    )
+                    .ok()
+                }
+                None => None,
+            };
+            let availability =
+                load_local_crypto_context(&self.db_path, &self.db_key(), master_key)?;
             let crypto = match availability {
                 LocalCryptoAvailability::Ready(crypto) => CryptoRuntimeState::Ready(crypto),
                 LocalCryptoAvailability::AccountBoundUnavailable(reason) => {
@@ -339,7 +335,7 @@ impl TodoriClient {
         };
         let previous_generation = local_keys.tenant_generation;
         let pending = self.pending_list_key_ids(tenant_id)?;
-        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
+        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
         let sync_keys =
             merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending, &retained)?;
         if sync_keys.tenant_generation > previous_generation {
@@ -354,7 +350,7 @@ impl TodoriClient {
             if lists.iter().any(|list| !sync_keys.contains_list(list.id)) {
                 return Err(ClientError::AccountBoundUnavailable);
             }
-            let mut store = crate::SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+            let mut store = crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
             let mut transaction = store
                 .begin_write_transaction()
                 .map_err(|_| ClientError::SyncRun)?;
@@ -373,7 +369,7 @@ impl TodoriClient {
         }
         let crypto = persist_local_crypto_context(
             &self.db_path,
-            &self.db_key,
+            &self.db_key(),
             LocalCryptoIdentity {
                 tenant_id,
                 user_id,
@@ -383,7 +379,8 @@ impl TodoriClient {
             sync_keys.clone(),
             now_ms()?,
         )?;
-        let mut marker_store = crate::SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+        let mut marker_store =
+            crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
         marker_store
             .set_setting(
                 todori_sync::KEY_ROTATION_PENDING_SETTING_KEY,
@@ -420,10 +417,10 @@ impl TodoriClient {
         session_token: &str,
         keys: &mut AccountKeyMaterial,
     ) -> Result<(), ClientError> {
-        match load_local_crypto_context(&self.db_path, &self.db_key, Some(*keys.master_key))? {
+        match load_local_crypto_context(&self.db_path, &self.db_key(), Some(*keys.master_key))? {
             LocalCryptoAvailability::Ready(local) => {
                 let pending = self.pending_list_key_ids(tenant_id)?;
-                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
+                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
                 let merged = merge_remote_and_pending_local_keys(
                     LocalSyncKeys::from_account_keys(tenant_id, keys),
                     local.sync_keys().clone(),
@@ -476,7 +473,7 @@ impl TodoriClient {
     }
 
     fn pending_list_key_ids(&self, tenant_id: Uuid) -> Result<HashSet<Uuid>, ClientError> {
-        pending_list_key_ids_on(&self.db_path, &self.db_key, tenant_id)
+        pending_list_key_ids_on(&self.db_path, &self.db_key(), tenant_id)
     }
 
     fn ensure_profile_is_unbound_for_registration(&self) -> Result<(), ClientError> {
@@ -491,7 +488,7 @@ impl TodoriClient {
         tenant_id: Uuid,
         user_id: Uuid,
     ) -> Result<(), ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         if let Some(binding) = SqliteLocalCryptoRepository::new(connection).load_binding()? {
             if binding.tenant_id != tenant_id || binding.user_id != user_id {
                 return Err(ClientError::ProfileIdentityMismatch);
@@ -523,14 +520,14 @@ impl TodoriClient {
             user_id: parse_session_id(session.user_id.as_deref())?,
             device_id: parse_session_id(session.device_id.as_deref())?,
         };
-        let crypto =
-            persist_account_crypto_context(&self.db_path, &self.db_key, identity, keys, now_ms()?)?;
-        store_account_secret(
-            &self.db_dir,
-            AccountSecretKind::MasterKeyWrap,
-            local_wrapped_master_key,
-        )
-        .map_err(ClientError::KeyStore)?;
+        let crypto = persist_account_crypto_context(
+            &self.db_path,
+            &self.db_key(),
+            identity,
+            keys,
+            now_ms()?,
+        )?;
+        self.store_active_wrapped_master_key(local_wrapped_master_key.to_vec())?;
         self.set_setting_value(
             ACCOUNT_EMAIL_SETTING_KEY,
             session.email.as_deref().unwrap_or_default(),
@@ -580,18 +577,34 @@ impl TodoriClient {
                 return Ok(true);
             }
         }
-        for kind in [
-            AccountSecretKind::MasterKeyWrap,
-            AccountSecretKind::SessionToken,
-        ] {
-            if load_account_secret(&self.db_dir, kind)
-                .map_err(ClientError::KeyStore)?
-                .is_some()
-            {
-                return Ok(true);
-            }
+        if self.active_capsule()?.wrapped_master_key().is_some() {
+            return Ok(true);
         }
         Ok(false)
+    }
+
+    fn active_capsule(&self) -> Result<todori_crypto::LocalKeyCapsule, ClientError> {
+        PlatformLocalKeyCapsuleStore::new(&self.db_dir)
+            .load(LocalKeyCapsuleSlot::Active)
+            .map_err(ClientError::KeyStore)?
+            .ok_or(ClientError::LocalKeyState)
+    }
+
+    fn store_active_wrapped_master_key(
+        &self,
+        wrapped_master_key: Vec<u8>,
+    ) -> Result<(), ClientError> {
+        let mut store = PlatformLocalKeyCapsuleStore::new(&self.db_dir);
+        let active = store
+            .load(LocalKeyCapsuleSlot::Active)
+            .map_err(ClientError::KeyStore)?
+            .ok_or(ClientError::LocalKeyState)?;
+        let updated = active
+            .with_wrapped_master_key(Some(wrapped_master_key))
+            .map_err(ClientError::KeyStore)?;
+        store
+            .store(LocalKeyCapsuleSlot::Active, &updated)
+            .map_err(ClientError::KeyStore)
     }
 }
 
@@ -718,6 +731,8 @@ fn merge_remote_and_pending_local_keys(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use tempfile::TempDir;
     use todori_domain::new_list;
     use todori_storage::{ListRepository, SqliteListRepository};
@@ -939,7 +954,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: std::sync::Mutex::new(super::super::AccountRuntimeState {
                 session: None,
                 session_restored: false,

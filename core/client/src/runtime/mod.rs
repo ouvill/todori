@@ -17,7 +17,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use todori_crypto::{derive_local_db_key, load_or_create_device_key};
+use todori_crypto::{derive_local_db_key, PlatformLocalKeyCapsuleStore};
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
     SqliteListRepository, SqliteLocalCryptoRepository, SqliteReminderRepository,
@@ -27,8 +27,8 @@ use todori_sync::SyncRunSummary;
 use zeroize::Zeroizing;
 
 use crate::{
-    AccountSessionState, ClientError, LocalCryptoContext, LocalCryptoUnavailable,
-    LocalMutationContext,
+    device_key_rotation::resolve_active_capsule, AccountSessionState, ClientError,
+    LocalCryptoContext, LocalCryptoUnavailable, LocalMutationContext,
 };
 
 pub(super) const SYNC_SERVER_URL_SETTING_KEY: &str = "sync_server_url";
@@ -66,9 +66,9 @@ impl LocalProfileConfig {
 /// owns runtime state and coordinates storage, crypto, account, and sync; it is
 /// not a user-facing account profile model.
 pub struct TodoriClient {
-    db_dir: PathBuf,
-    db_path: PathBuf,
-    db_key: Zeroizing<[u8; 32]>,
+    pub(crate) db_dir: PathBuf,
+    pub(crate) db_path: PathBuf,
+    db_key: Mutex<Zeroizing<[u8; 32]>>,
     account: Mutex<AccountRuntimeState>,
     sync: Mutex<SyncRuntimeState>,
     operation_busy: AtomicBool,
@@ -106,11 +106,10 @@ pub(crate) enum LocalMutationState {
 impl TodoriClient {
     pub fn open(config: LocalProfileConfig) -> Result<Self, ClientError> {
         std::fs::create_dir_all(&config.db_dir).map_err(ClientError::Io)?;
-        let device_key = Zeroizing::new(
-            load_or_create_device_key(&config.db_dir).map_err(ClientError::KeyStore)?,
-        );
-        let db_key = Zeroizing::new(derive_local_db_key(&device_key));
         let db_path = config.db_dir.join("todori.db");
+        let mut capsule_store = PlatformLocalKeyCapsuleStore::new(&config.db_dir);
+        let capsule = resolve_active_capsule(&mut capsule_store, &db_path)?;
+        let db_key = Zeroizing::new(derive_local_db_key(capsule.device_key()));
         let connection = open_encrypted(&db_path, &db_key)?;
         SqliteListRepository::new(connection)
             .ensure_default_list(config.default_inbox_name, now_ms()?)?;
@@ -118,7 +117,7 @@ impl TodoriClient {
         Ok(Self {
             db_dir: config.db_dir,
             db_path,
-            db_key,
+            db_key: Mutex::new(db_key),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: false,
@@ -175,8 +174,16 @@ impl TodoriClient {
         }
     }
 
-    pub(super) fn db_key(&self) -> [u8; 32] {
-        *self.db_key
+    pub(super) fn db_key(&self) -> Zeroizing<[u8; 32]> {
+        self.db_key
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(super) fn replace_db_key(&self, db_key: Zeroizing<[u8; 32]>) -> Result<(), ClientError> {
+        *self.db_key.lock().map_err(|_| ClientError::RuntimeState)? = db_key;
+        Ok(())
     }
 
     pub(super) fn account_state(&self) -> Result<MutexGuard<'_, AccountRuntimeState>, ClientError> {
@@ -204,7 +211,7 @@ impl TodoriClient {
         &self,
         f: impl FnOnce(&mut SqliteTaskRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         f(&mut SqliteTaskRepository::new(connection))
     }
 
@@ -212,7 +219,7 @@ impl TodoriClient {
         &self,
         f: impl FnOnce(&mut SqliteListRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         f(&mut SqliteListRepository::new(connection))
     }
 
@@ -220,7 +227,7 @@ impl TodoriClient {
         &self,
         f: impl FnOnce(&mut SqliteSettingsRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         f(&mut SqliteSettingsRepository::new(connection))
     }
 
@@ -229,7 +236,7 @@ impl TodoriClient {
         &self,
         f: impl FnOnce(&mut SqliteReminderRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         f(&mut SqliteReminderRepository::new(connection))
     }
 
@@ -237,7 +244,7 @@ impl TodoriClient {
         &self,
         f: impl FnOnce(&mut SqliteTimerSessionRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         f(&mut SqliteTimerSessionRepository::new(connection))
     }
 
@@ -258,7 +265,7 @@ impl TodoriClient {
     }
 
     pub(super) fn has_profile_binding(&self) -> Result<bool, ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         Ok(SqliteLocalCryptoRepository::new(connection)
             .load_binding()?
             .is_some())

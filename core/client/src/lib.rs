@@ -28,6 +28,7 @@
 //! ```
 
 mod crud_service;
+mod device_key_rotation;
 mod local_crypto;
 mod model;
 mod mutation_service;

@@ -34,6 +34,11 @@ Future<void> initCore({
   defaultInboxName: defaultInboxName,
 );
 
+/// Rotates the local Device Key and SQLCipher key using the crash-recovery
+/// capsule protocol. No key material crosses the Flutter bridge.
+Future<PlatformInt64> rotateDeviceKey() =>
+    RustLib.instance.api.crateApiRotateDeviceKey();
+
 Future<String> getSyncServerUrl() =>
     RustLib.instance.api.crateApiGetSyncServerUrl();
 

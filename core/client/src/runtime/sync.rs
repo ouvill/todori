@@ -89,7 +89,7 @@ impl TodoriClient {
         let context = self
             .active_sync_context()
             .ok_or(ClientError::AccountRequest)?;
-        let mut store = SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+        let mut store = SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
         let mut clock = || now_ms().map_err(|error| error.to_string());
         let mut key_refresher = ProductionKeyRefresher { client: self };
         let mut pre_push = |store: &mut SqliteSyncStore| {

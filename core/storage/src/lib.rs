@@ -1314,6 +1314,29 @@ pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, Storage
     Ok(connection)
 }
 
+/// Rekeys an existing SQLCipher database and returns immediately after the
+/// SQLCipher operation has completed.
+///
+/// SQLCipher performs `PRAGMA rekey` atomically at the database-file boundary.
+/// The active/pending capsule coordinator in `todori-client` deliberately
+/// performs new-key reopen verification as a separate crash boundary.
+pub fn rekey_encrypted_database(
+    path: &Path,
+    old_key: &[u8; 32],
+    new_key: &[u8; 32],
+) -> Result<(), StorageError> {
+    if old_key == new_key {
+        return Ok(());
+    }
+
+    let connection = open_encrypted(path, old_key)?;
+    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    let new_key_hex = hex::encode(new_key);
+    connection.execute_batch(&format!("PRAGMA rekey = \"x'{new_key_hex}'\";"))?;
+    drop(connection);
+    Ok(())
+}
+
 fn apply_sqlcipher_key(connection: &Connection, key: &[u8; 32]) -> Result<(), StorageError> {
     let key_hex = hex::encode(key);
     connection.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))?;
@@ -6486,6 +6509,28 @@ mod tests {
             Err(error) => panic!("expected invalid database key error, got {error}"),
             Ok(_) => panic!("database opened with wrong key"),
         }
+    }
+
+    #[test]
+    fn sqlcipher_rekey_preserves_data_and_rejects_the_old_key() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(task.clone())
+                .unwrap();
+        }
+
+        rekey_encrypted_database(file.path(), &KEY, &WRONG_KEY).unwrap();
+
+        assert!(matches!(
+            open_encrypted(file.path(), &KEY),
+            Err(StorageError::InvalidDatabaseKey)
+        ));
+        let repository =
+            SqliteTaskRepository::new(open_encrypted(file.path(), &WRONG_KEY).unwrap());
+        assert_eq!(repository.get(task.id).unwrap(), task);
     }
 
     #[test]

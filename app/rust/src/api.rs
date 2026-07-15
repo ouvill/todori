@@ -243,6 +243,15 @@ pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), Strin
     init_client(db_dir, default_inbox_name)
 }
 
+/// Rotates the local Device Key and SQLCipher key using the crash-recovery
+/// capsule protocol. No key material crosses the Flutter bridge.
+pub fn rotate_device_key() -> Result<i64, String> {
+    client()?
+        .rotate_device_key()
+        .and_then(|generation| i64::try_from(generation).map_err(|_| ClientError::LocalKeyState))
+        .map_err(|error| error.to_string())
+}
+
 pub fn get_sync_server_url() -> Result<String, String> {
     client_result(client()?.sync_server_url())
 }

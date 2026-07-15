@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1194269673;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 360116510;
 
 // Section: executor
 
@@ -1317,6 +1317,38 @@ fn wire__crate__api__reorder_task_impl(
         },
     )
 }
+fn wire__crate__api__rotate_device_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "rotate_device_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::rotate_device_key()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__search_tasks_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -2457,18 +2489,19 @@ fn pde_ffi_dispatcher_primary_impl(
         35 => wire__crate__api__pomodoro_target_reached_at_impl(port, ptr, rust_vec_len, data_len),
         36 => wire__crate__api__rename_list_impl(port, ptr, rust_vec_len, data_len),
         37 => wire__crate__api__reorder_task_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__start_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__update_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__rotate_device_key_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__search_tasks_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__set_setting_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__set_sync_server_url_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__set_task_reminder_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__set_task_status_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__snooze_reminder_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__start_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__sync_now_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__unarchive_list_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__undo_task_operation_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__update_active_timer_session_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__update_task_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

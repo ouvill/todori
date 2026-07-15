@@ -179,7 +179,7 @@ impl TodoriClient {
                     &mutation,
                 )?;
                 let refreshed =
-                    load_local_crypto_context(&self.db_path, &self.db_key, Some(*master_key))?;
+                    load_local_crypto_context(&self.db_path, &self.db_key(), Some(*master_key))?;
                 let LocalCryptoAvailability::Ready(crypto) = refreshed else {
                     return Err(ClientError::AccountBoundUnavailable);
                 };
@@ -369,14 +369,14 @@ impl TodoriClient {
         let now = now_ms()?;
         match self.local_mutation_state()? {
             LocalMutationState::Anonymous => {
-                let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+                let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
                 let mut transaction = SqliteWriteTx::begin(&mut connection)?;
                 let inserted = transaction.finish_active_timer_session(session)?;
                 transaction.commit()?;
                 Ok(inserted)
             }
             LocalMutationState::Ready(sync) => {
-                let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+                let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
                 let mut transaction = SqliteWriteTx::begin(&mut connection)?;
                 let inserted = transaction.finish_active_timer_session(session.clone())?;
                 if inserted {
@@ -612,7 +612,7 @@ impl TodoriClient {
 
 impl TodoriClient {
     fn mutation_service(&self) -> SqliteMutationService {
-        SqliteMutationService::new(self.db_path.clone(), self.db_key())
+        SqliteMutationService::new_secret(self.db_path.clone(), self.db_key())
     }
 
     fn create_list_mode(&self) -> Result<CreateListMode, ClientError> {
@@ -632,7 +632,7 @@ impl TodoriClient {
     }
 
     fn create_anonymous_list(&self, name: String, now: i64) -> Result<List, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let mut lists = transaction.list_lists_including_archived()?;
         lists.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
@@ -662,7 +662,7 @@ impl TodoriClient {
         list_id: Uuid,
         mutation: impl FnOnce(List) -> Result<List, ClientError>,
     ) -> Result<List, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_list(list_id)?;
         let updated = mutation(before.clone())?;
@@ -679,7 +679,7 @@ impl TodoriClient {
         command: CreateTaskCommand,
         now: i64,
     ) -> Result<Task, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         transaction.get_list(command.list_id)?;
         let mut tasks = transaction.list_active_tasks_by_list(command.list_id)?;
@@ -741,7 +741,7 @@ impl TodoriClient {
         command: ReorderTaskCommand,
         now: i64,
     ) -> Result<Task, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let target = transaction.get_task(command.task_id)?;
         let mut scope = transaction
@@ -793,7 +793,7 @@ impl TodoriClient {
         command: UpdateTaskCommand,
         now: i64,
     ) -> Result<Task, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_task(command.task_id)?;
         let task = update_title(before.clone(), command.title, now)?;
@@ -812,7 +812,7 @@ impl TodoriClient {
         command: SetTaskStatusCommand,
         now: i64,
     ) -> Result<Task, ClientError> {
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_task(command.task_id)?;
         let updated = transition_task(before.clone(), command.status, command.closed_reason, now)?;
@@ -843,7 +843,7 @@ impl TodoriClient {
                 return Err(ClientError::AccountBoundUnavailable);
             }
         };
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         transaction.get_task(task_id)?;
         let tasks = transaction.list_task_subtree(task_id)?;
@@ -883,7 +883,7 @@ impl TodoriClient {
                 return Err(ClientError::AccountBoundUnavailable);
             }
         };
-        let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let mut connection = open_encrypted(&self.db_path, &self.db_key())?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let list = transaction.get_list(list_id)?;
         let list_id = list.id;
@@ -1076,7 +1076,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1119,7 +1119,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1160,7 +1160,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1278,7 +1278,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1390,7 +1390,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1427,7 +1427,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: temp.path().join("profile.sqlite3"),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1457,7 +1457,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: temp.path().join("profile.sqlite3"),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1498,7 +1498,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1538,7 +1538,7 @@ mod tests {
             let client = TodoriClient {
                 db_dir: temp.path().to_path_buf(),
                 db_path: db_path.clone(),
-                db_key: Zeroizing::new(DB_KEY),
+                db_key: Mutex::new(Zeroizing::new(DB_KEY)),
                 account: Mutex::new(AccountRuntimeState {
                     session: None,
                     session_restored: true,
@@ -1601,7 +1601,7 @@ mod tests {
         let ready = TodoriClient {
             db_dir: ready_temp.path().to_path_buf(),
             db_path: ready_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: Some(AccountSessionState {
                     logged_in: true,
@@ -1677,7 +1677,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
@@ -1736,7 +1736,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
