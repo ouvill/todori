@@ -78,6 +78,35 @@ pub enum KeyManifestError {
 }
 
 impl KeyManifest {
+    #[allow(clippy::too_many_arguments)]
+    pub fn organization_unsigned(
+        scope: KeyScope,
+        tenant_id: Uuid,
+        list_id: Option<Uuid>,
+        generation: u64,
+        status: RotationStatus,
+        minimum_write_generation: u64,
+        previous_manifest_hash: [u8; 32],
+        mut recipient_fingerprints: Vec<[u8; 32]>,
+    ) -> Result<Self, KeyManifestError> {
+        recipient_fingerprints.sort_unstable();
+        recipient_fingerprints.dedup();
+        let manifest = Self {
+            scope,
+            tenant_id,
+            list_id,
+            suite_id: CRYPTO_SUITE_ID,
+            generation,
+            status,
+            minimum_write_generation,
+            previous_manifest_hash,
+            recipient_fingerprints,
+            authenticator: [0; 32],
+        };
+        manifest.validate_fields()?;
+        Ok(manifest)
+    }
+
     pub fn from_authenticated_bytes(bytes: &[u8]) -> Result<Self, KeyManifestError> {
         if bytes.len() < 124 || &bytes[..4] != MANIFEST_MAGIC {
             return Err(KeyManifestError::InvalidIdentity);

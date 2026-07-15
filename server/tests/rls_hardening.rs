@@ -59,8 +59,9 @@ impl Fixture {
             (user_b, "rls-b@example.test"),
         ] {
             query::<Postgres>(
-                "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
-                 VALUES ($1, $2, 2, $3)",
+                "INSERT INTO users
+                    (id, email, opaque_suite_id, opaque_record, account_root_public)
+                 VALUES ($1, $2, 2, $3, '\\x00'::bytea)",
             )
             .bind(user_id)
             .bind(email)

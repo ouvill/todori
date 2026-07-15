@@ -122,4 +122,52 @@ void main() {
 
     expect(find.textContaining('Last synced:'), findsOneWidget);
   });
+
+  testWidgets('Safety number requires an out-of-band comparison', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await _pumpAccountScreen(tester, fake);
+
+    await _enterCredentials(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Log in').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('organization-safety-open')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('organization-tenant-id')),
+      '00000000-0000-4000-8000-000000000001',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('organization-member-id')),
+      '00000000-0000-4000-8000-000000000002',
+    );
+    await tester.tap(find.byKey(const ValueKey('organization-safety-load')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('organization-safety-number')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('organization-safety-qr')),
+      findsOneWidget,
+    );
+    final confirm = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('organization-safety-confirm')),
+    );
+    expect(confirm.onPressed, isNull);
+
+    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.tap(find.byType(Checkbox));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('organization-safety-confirm')),
+    );
+    await tester.tap(find.byKey(const ValueKey('organization-safety-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(fake.organizationSafetyConfirmCalls, 1);
+  });
 }

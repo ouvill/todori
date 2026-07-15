@@ -64,8 +64,8 @@ impl Fixture {
         let device_id = Uuid::now_v7();
         let token = "realtime-gateway-test-token".to_owned();
         query(
-            "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
-             VALUES ($1, $2, 2, $3)",
+            "INSERT INTO users (id, email, opaque_suite_id, opaque_record, account_root_public)
+             VALUES ($1, $2, 2, $3, '\\x00'::bytea)",
         )
         .bind(user_id)
         .bind(format!("{user_id}@example.test"))
@@ -102,12 +102,16 @@ impl Fixture {
         .execute(&admin_pool)
         .await
         .unwrap();
-        query("INSERT INTO devices (id, user_id, device_name) VALUES ($1, $2, 'test')")
-            .bind(device_id)
-            .bind(user_id)
-            .execute(&admin_pool)
-            .await
-            .unwrap();
+        query(
+            "INSERT INTO devices
+               (id, user_id, device_name, certificate, certified_at)
+               VALUES ($1, $2, 'test', '\\x00'::bytea, now())",
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .execute(&admin_pool)
+        .await
+        .unwrap();
         query(
             "INSERT INTO sessions (id, user_id, device_id, token_hash, expires_at)
              VALUES ($1, $2, $3, $4, $5)",

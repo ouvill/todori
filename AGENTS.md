@@ -80,7 +80,7 @@ sh app/tool/test_client_boundaries.sh
 ## 重要な設計制約・ハマりどころ（変更・違反禁止）
 
 1. **命名の三位一体**: cargoパッケージ名 = pod名 = FRB stem = `todori_app_bridge`。cargokitはパッケージ名から `lib<名前>.a` を探し、FRBローダーは `<stem>.framework` を探すため、どれか一つでも変えると壊れる。
-2. **`.cargo/config.toml` の `IPHONEOS_DEPLOYMENT_TARGET=15.0` を消さない**。消すとiOS実機ターゲットで `___chkstk_darwin` 未定義のリンクエラーが発生する（vendoredのOpenSSL/SQLCipherがSDK最新でビルドされるため）。
+2. **`.cargo/config.toml` のiOS 15 target別linker flagを消さない**。消すとiOS実機ターゲットで `___chkstk_darwin` 未定義のリンクエラーが発生する（vendoredのOpenSSL/SQLCipherがSDK最新でビルドされるため）。`IPHONEOS_DEPLOYMENT_TARGET`をglobalな`[env]`へ戻すとmacOS向けAWS-LCにも誤適用されるため禁止する。
 3. **FRB再生成**: Rust API（`app/rust/src/api.rs`）を変更したら、リポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行する。生成物（`frb_generated.*`、`app/lib/src/rust/` 配下）はコミット対象であり、**手編集禁止**である。
 4. **SQLCipher鍵は常にDevice Key由来**（HKDF、`info=todori/local-db-key/v1`）。この文脈文字列は互換性に関わるため変更禁止であり、テストで値が固定されている。
 5. local key capsuleはproductionでApple Data Protection KeychainまたはAndroid Keystore AES-256-GCM sealerを使う。`FileDeviceKeyStore` / file capsule store / `InMemoryDeviceKeyStore` はdevelopment・test専用であり、release processでは平文storeを明示的に拒否する。

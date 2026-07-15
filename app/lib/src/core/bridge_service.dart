@@ -28,6 +28,17 @@ abstract class BridgeService {
 
   Future<void> accountLogout();
 
+  Future<rust_api.OrganizationSafetyStateDto> organizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+  });
+
+  Future<rust_api.OrganizationSafetyStateDto> confirmOrganizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+    required String digest,
+  });
+
   Future<rust_api.SyncStatusDto> getSyncStatus();
 
   Future<rust_api.SyncStatusDto> syncNow();
@@ -242,6 +253,26 @@ class FrbBridgeService implements BridgeService {
 
   @override
   Future<void> accountLogout() => rust_api.accountLogout();
+
+  @override
+  Future<rust_api.OrganizationSafetyStateDto> organizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+  }) => rust_api.organizationSafetyNumber(
+    tenantId: tenantId,
+    memberUserId: memberUserId,
+  );
+
+  @override
+  Future<rust_api.OrganizationSafetyStateDto> confirmOrganizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+    required String digest,
+  }) => rust_api.confirmOrganizationSafetyNumber(
+    tenantId: tenantId,
+    memberUserId: memberUserId,
+    digest: digest,
+  );
 
   @override
   Future<rust_api.SyncStatusDto> getSyncStatus() => rust_api.getSyncStatus();

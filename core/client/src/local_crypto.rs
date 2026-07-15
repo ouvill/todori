@@ -339,11 +339,13 @@ mod tests {
     const NOW: i64 = 1_799_000_000_000;
 
     fn account_keys(list_id: Uuid) -> AccountKeyMaterial {
+        let root = todori_crypto::organization::generate_account_root(Uuid::now_v7()).unwrap();
         AccountKeyMaterial {
             generation: 1,
             tenant_generation: 1,
             master_key: Zeroizing::new(MASTER_KEY),
-            user_secret_key: Zeroizing::new([0x11; KEY_LEN]),
+            account_root_private: root.private,
+            account_root_public: root.public,
             tenant_root_dek: Zeroizing::new([0x22; KEY_LEN]),
             list_deks: vec![AccountListDekMaterial {
                 list_id: list_id.to_string(),

@@ -9,8 +9,18 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::{key_hierarchy::INITIAL_KEY_GENERATION, TodoriCipherSuite, CRYPTO_SUITE_ID};
-use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto, UpdateKeyWrappersRequest};
+use todori_crypto::{
+    key_hierarchy::INITIAL_KEY_GENERATION,
+    organization::{
+        verify_device_certificate, verify_device_proof, AccountRootPublicKeys, DeviceCertificate,
+        DeviceProofOfPossession, DEVICE_CHALLENGE_LEN, DEVICE_FINGERPRINT_LEN,
+        ED25519_SIGNATURE_LEN,
+    },
+    TodoriCipherSuite, CRYPTO_SUITE_ID,
+};
+use todori_sync::account::{
+    AccountKeyBundleDto, DeviceEnrollmentDto, ListDekBundleDto, UpdateKeyWrappersRequest,
+};
 use uuid::Uuid;
 
 use crate::{db, AppError};
@@ -36,6 +46,8 @@ pub struct OpaqueStartResponse {
     pub opaque_suite_id: u16,
     pub user_id: Uuid,
     pub tenant_id: Uuid,
+    pub device_id: Uuid,
+    pub device_challenge: String,
     pub message: String,
     pub expires_at: DateTime<Utc>,
 }
@@ -51,6 +63,7 @@ pub struct RegisterFinishRequest {
     pub state_id: Uuid,
     pub message: String,
     pub key_bundle: AccountKeyBundleDto,
+    pub device_enrollment: DeviceEnrollmentDto,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +86,7 @@ pub struct LoginSessionResponse {
     #[serde(flatten)]
     pub session: SessionResponse,
     pub key_bundle: AccountKeyBundleDto,
+    pub device_challenge: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -102,16 +116,21 @@ pub async fn register_start(
     let state_id = Uuid::now_v7();
     let user_id = Uuid::now_v7();
     let tenant_id = Uuid::now_v7();
+    let device_id = Uuid::now_v7();
+    let device_challenge = random_device_challenge();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
 
     query::<Postgres>(
         "INSERT INTO opaque_registration_states
-            (id, user_id, tenant_id, email, device_name, opaque_suite_id, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (id, user_id, tenant_id, device_id, device_challenge, email, device_name,
+             opaque_suite_id, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(state_id)
     .bind(user_id)
     .bind(tenant_id)
+    .bind(device_id)
+    .bind(device_challenge.as_slice())
     .bind(&email)
     .bind(&device_name)
     .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
@@ -124,6 +143,8 @@ pub async fn register_start(
         opaque_suite_id: CRYPTO_SUITE_ID,
         user_id,
         tenant_id,
+        device_id,
+        device_challenge: STANDARD.encode(device_challenge),
         message: STANDARD.encode(server_start.message.serialize()),
         expires_at,
     })
@@ -144,15 +165,28 @@ pub async fn register_finish(
     let state = consume_registration_state(&mut tx, request.state_id).await?;
     let user_id = state.user_id;
     let tenant_id = state.tenant_id;
-    let device_id = Uuid::now_v7();
+    let device_id = state.device_id;
+    let enrollment = verify_device_enrollment(
+        &request.device_enrollment,
+        user_id,
+        device_id,
+        &state.device_challenge,
+        Utc::now().timestamp_millis(),
+    )?;
+    if key_bundle.account_root_public != enrollment.account_root_public {
+        return Err(AppError::bad_request("account root mismatch"));
+    }
 
     query::<Postgres>(
-        "INSERT INTO users (id, email, opaque_suite_id, opaque_record) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO users
+            (id, email, opaque_suite_id, opaque_record, account_root_public)
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(user_id)
     .bind(&state.email)
     .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(&server_record_bytes)
+    .bind(&enrollment.account_root_public)
     .execute(&mut *tx)
     .await
     .map_err(map_insert_user_error)?;
@@ -166,7 +200,9 @@ pub async fn register_finish(
         .execute(&mut *tx)
         .await?;
     query::<Postgres>(
-        "INSERT INTO tenant_members (tenant_id, user_id, role) VALUES ($1, $2, 'owner')",
+        "INSERT INTO tenant_members
+            (tenant_id, user_id, role, verification_state, verified_at)
+         VALUES ($1, $2, 'owner', 'verified', now())",
     )
     .bind(tenant_id)
     .bind(user_id)
@@ -177,7 +213,7 @@ pub async fn register_finish(
         .execute(&mut *tx)
         .await?;
     insert_account_key_bundle(&mut tx, user_id, tenant_id, key_bundle).await?;
-    insert_device(&mut tx, device_id, user_id, &state.device_name).await?;
+    insert_certified_device(&mut tx, device_id, user_id, &state.device_name, &enrollment).await?;
     let session = create_session(&mut tx, user_id, device_id).await?;
     tx.commit().await?;
 
@@ -246,15 +282,20 @@ pub async fn login_start(
     .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
     let state_id = Uuid::now_v7();
+    let device_id = Uuid::now_v7();
+    let device_challenge = random_device_challenge();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
     query::<Postgres>(
         "INSERT INTO opaque_login_states
-            (id, user_id, tenant_id, device_name, opaque_suite_id, server_login_state, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (id, user_id, tenant_id, device_id, device_challenge, device_name,
+             opaque_suite_id, server_login_state, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(state_id)
     .bind(user_id)
     .bind(tenant_id)
+    .bind(device_id)
+    .bind(device_challenge.as_slice())
     .bind(&device_name)
     .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(login_start.state.serialize().to_vec())
@@ -267,6 +308,8 @@ pub async fn login_start(
         opaque_suite_id: CRYPTO_SUITE_ID,
         user_id,
         tenant_id,
+        device_id,
+        device_challenge: STANDARD.encode(device_challenge),
         message: STANDARD.encode(login_start.message.serialize()),
         expires_at,
     })
@@ -294,8 +337,15 @@ pub async fn login_finish(
     let tenant_id = state.tenant_id;
     db::set_tenant_context(&mut tx, tenant_id).await?;
     let key_bundle = load_account_key_bundle(&mut tx, state.user_id, tenant_id).await?;
-    let device_id = Uuid::now_v7();
-    insert_device(&mut tx, device_id, state.user_id, &state.device_name).await?;
+    let device_id = state.device_id;
+    insert_pending_device(
+        &mut tx,
+        device_id,
+        state.user_id,
+        &state.device_name,
+        &state.device_challenge,
+    )
+    .await?;
     let session = create_session(&mut tx, state.user_id, device_id).await?;
     tx.commit().await?;
 
@@ -308,6 +358,7 @@ pub async fn login_finish(
             expires_at: session.expires_at,
         },
         key_bundle,
+        device_challenge: STANDARD.encode(state.device_challenge),
     })
 }
 
@@ -325,6 +376,69 @@ pub async fn logout(pool: &PgPool, bearer_token: &str) -> Result<LogoutResponse,
     if rows == 0 {
         return Err(AppError::unauthorized());
     }
+    Ok(LogoutResponse {})
+}
+
+pub async fn certify_device(
+    pool: &PgPool,
+    bearer_token: &str,
+    enrollment: DeviceEnrollmentDto,
+) -> Result<LogoutResponse, AppError> {
+    let token_hash = hash_token(bearer_token);
+    let mut tx = pool.begin().await?;
+    let row = query::<Postgres>(
+        "SELECT s.user_id, s.device_id, d.enrollment_challenge,
+                d.enrollment_challenge_expires_at, u.account_root_public
+         FROM sessions s
+         JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
+         JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = $1 AND s.expires_at > now()
+           AND s.revoked_at IS NULL AND d.revoked_at IS NULL
+           AND d.certificate IS NULL
+           AND d.enrollment_challenge_expires_at > now()",
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::unauthorized)?;
+    let user_id: Uuid = row.try_get("user_id")?;
+    let device_id: Uuid = row.try_get("device_id")?;
+    let challenge: [u8; DEVICE_CHALLENGE_LEN] = row
+        .try_get::<Vec<u8>, _>("enrollment_challenge")?
+        .try_into()
+        .map_err(|_| AppError::internal())?;
+    let verified = verify_device_enrollment(
+        &enrollment,
+        user_id,
+        device_id,
+        &challenge,
+        Utc::now().timestamp_millis(),
+    )?;
+    let stored_root: Vec<u8> = row.try_get("account_root_public")?;
+    if stored_root != verified.account_root_public {
+        return Err(AppError::bad_request("account root mismatch"));
+    }
+    db::set_user_context(&mut tx, user_id).await?;
+    let updated = query::<Postgres>(
+        "UPDATE devices
+         SET certificate = $3, certificate_fingerprint = $4,
+             key_expires_at = $5, certified_at = now(),
+             enrollment_challenge = NULL,
+             enrollment_challenge_expires_at = NULL
+         WHERE id = $1 AND user_id = $2 AND certificate IS NULL
+           AND revoked_at IS NULL",
+    )
+    .bind(device_id)
+    .bind(user_id)
+    .bind(&verified.certificate)
+    .bind(verified.certificate_fingerprint.as_slice())
+    .bind(verified.expires_at)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::conflict("device enrollment changed"));
+    }
+    tx.commit().await?;
     Ok(LogoutResponse {})
 }
 
@@ -357,6 +471,7 @@ pub async fn update_key_wrappers(
          JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
          WHERE s.token_hash = $1 AND s.expires_at > now()
            AND s.revoked_at IS NULL AND d.revoked_at IS NULL
+           AND d.certificate IS NOT NULL AND d.certified_at IS NOT NULL
            AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
     )
     .bind(token_hash.as_slice())
@@ -412,6 +527,7 @@ pub async fn authenticate(
            AND s.expires_at > now()
            AND s.revoked_at IS NULL
            AND d.revoked_at IS NULL
+           AND d.certificate IS NOT NULL AND d.certified_at IS NOT NULL
            AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
     )
     .bind(token_hash.as_slice())
@@ -496,12 +612,16 @@ fn decode_bytes_field(message: &str, error: &'static str) -> Result<Vec<u8>, App
         .map_err(|_| AppError::bad_request(error))
 }
 
-fn decode_fixed_key(message: &str, error: &'static str) -> Result<Vec<u8>, AppError> {
+fn decode_account_root_public(message: &str, error: &'static str) -> Result<Vec<u8>, AppError> {
     let bytes = decode_bytes_field(message, error)?;
-    if bytes.len() != 32 {
-        return Err(AppError::bad_request(error));
-    }
+    AccountRootPublicKeys::decode(&bytes).map_err(|_| AppError::bad_request(error))?;
     Ok(bytes)
+}
+
+fn random_device_challenge() -> [u8; DEVICE_CHALLENGE_LEN] {
+    let mut challenge = [0u8; DEVICE_CHALLENGE_LEN];
+    OsRng.fill_bytes(&mut challenge);
+    challenge
 }
 
 async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, AppError> {
@@ -532,6 +652,8 @@ async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, 
 struct RegistrationState {
     user_id: Uuid,
     tenant_id: Uuid,
+    device_id: Uuid,
+    device_challenge: [u8; DEVICE_CHALLENGE_LEN],
     email: String,
     device_name: String,
 }
@@ -543,7 +665,8 @@ async fn consume_registration_state(
     let row = query::<Postgres>(
         "DELETE FROM opaque_registration_states
          WHERE id = $1 AND expires_at > now()
-         RETURNING user_id, tenant_id, email, device_name, opaque_suite_id",
+         RETURNING user_id, tenant_id, device_id, device_challenge, email, device_name,
+                   opaque_suite_id",
     )
     .bind(state_id)
     .fetch_optional(&mut **tx)
@@ -558,6 +681,12 @@ async fn consume_registration_state(
     Ok(RegistrationState {
         user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
         tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
+        device_id: row.try_get("device_id").map_err(|_| AppError::internal())?,
+        device_challenge: row
+            .try_get::<Vec<u8>, _>("device_challenge")
+            .map_err(|_| AppError::internal())?
+            .try_into()
+            .map_err(|_| AppError::internal())?,
         email: row.try_get("email").map_err(|_| AppError::internal())?,
         device_name: row
             .try_get("device_name")
@@ -568,6 +697,8 @@ async fn consume_registration_state(
 struct LoginState {
     user_id: Uuid,
     tenant_id: Uuid,
+    device_id: Uuid,
+    device_challenge: [u8; DEVICE_CHALLENGE_LEN],
     device_name: String,
     server_login_state: Vec<u8>,
 }
@@ -579,7 +710,8 @@ async fn consume_login_state(
     let row = query::<Postgres>(
         "DELETE FROM opaque_login_states
          WHERE id = $1 AND expires_at > now()
-         RETURNING user_id, tenant_id, device_name, opaque_suite_id, server_login_state",
+         RETURNING user_id, tenant_id, device_id, device_challenge, device_name,
+                   opaque_suite_id, server_login_state",
     )
     .bind(state_id)
     .fetch_optional(&mut **tx)
@@ -594,6 +726,12 @@ async fn consume_login_state(
     Ok(LoginState {
         user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
         tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
+        device_id: row.try_get("device_id").map_err(|_| AppError::internal())?,
+        device_challenge: row
+            .try_get::<Vec<u8>, _>("device_challenge")
+            .map_err(|_| AppError::internal())?
+            .try_into()
+            .map_err(|_| AppError::internal())?,
         device_name: row
             .try_get("device_name")
             .map_err(|_| AppError::internal())?,
@@ -610,8 +748,8 @@ struct DecodedAccountKeyBundle {
     wrapper_revision: i64,
     wrapped_master_key_by_password: Vec<u8>,
     wrapped_master_key_by_recovery: Vec<u8>,
-    user_public_key: Vec<u8>,
-    wrapped_user_secret_key: Vec<u8>,
+    account_root_public: Vec<u8>,
+    wrapped_account_root_private: Vec<u8>,
     wrapped_tenant_root_dek: Vec<u8>,
     tenant_key_manifest: Vec<u8>,
     list_deks: Vec<DecodedListDekBundle>,
@@ -658,9 +796,12 @@ fn decode_account_key_bundle(
             &bundle.wrapped_master_key_by_recovery,
             "invalid key bundle",
         )?,
-        user_public_key: decode_fixed_key(&bundle.user_public_key, "invalid key bundle")?,
-        wrapped_user_secret_key: decode_bytes_field(
-            &bundle.wrapped_user_secret_key,
+        account_root_public: decode_account_root_public(
+            &bundle.account_root_public,
+            "invalid key bundle",
+        )?,
+        wrapped_account_root_private: decode_bytes_field(
+            &bundle.wrapped_account_root_private,
             "invalid key bundle",
         )?,
         wrapped_tenant_root_dek: decode_bytes_field(
@@ -705,8 +846,8 @@ async fn insert_account_key_bundle(
             wrapper_revision,
             wrapped_mk_by_password,
             wrapped_mk_by_recovery,
-            user_public_key,
-            wrapped_user_secret_key
+            account_root_public,
+            wrapped_account_root_private
          ) VALUES ($1, 'active', $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(user_id)
@@ -715,8 +856,8 @@ async fn insert_account_key_bundle(
     .bind(bundle.wrapper_revision)
     .bind(&bundle.wrapped_master_key_by_password)
     .bind(&bundle.wrapped_master_key_by_recovery)
-    .bind(&bundle.user_public_key)
-    .bind(&bundle.wrapped_user_secret_key)
+    .bind(&bundle.account_root_public)
+    .bind(&bundle.wrapped_account_root_private)
     .execute(&mut **tx)
     .await?;
 
@@ -766,8 +907,8 @@ async fn load_account_key_bundle(
             wrapper_revision,
             wrapped_mk_by_password AS wrapped_master_key_by_password,
             wrapped_mk_by_recovery AS wrapped_master_key_by_recovery,
-            user_public_key,
-            wrapped_user_secret_key
+            account_root_public,
+            wrapped_account_root_private
          FROM user_key_generations
          WHERE user_id = $1 AND status = 'active'",
     )
@@ -854,12 +995,12 @@ async fn load_account_key_bundle(
             user.try_get::<Vec<u8>, _>("wrapped_master_key_by_recovery")
                 .map_err(|_| AppError::internal())?,
         ),
-        user_public_key: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("user_public_key")
+        account_root_public: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("account_root_public")
                 .map_err(|_| AppError::internal())?,
         ),
-        wrapped_user_secret_key: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("wrapped_user_secret_key")
+        wrapped_account_root_private: STANDARD.encode(
+            user.try_get::<Vec<u8>, _>("wrapped_account_root_private")
                 .map_err(|_| AppError::internal())?,
         ),
         wrapped_tenant_root_dek: STANDARD.encode(
@@ -876,19 +1017,106 @@ async fn load_account_key_bundle(
     })
 }
 
-async fn insert_device(
+struct VerifiedEnrollment {
+    account_root_public: Vec<u8>,
+    certificate: Vec<u8>,
+    certificate_fingerprint: [u8; DEVICE_FINGERPRINT_LEN],
+    expires_at: DateTime<Utc>,
+}
+
+fn verify_device_enrollment(
+    enrollment: &DeviceEnrollmentDto,
+    user_id: Uuid,
+    device_id: Uuid,
+    challenge: &[u8; DEVICE_CHALLENGE_LEN],
+    now_ms: i64,
+) -> Result<VerifiedEnrollment, AppError> {
+    if enrollment.suite_id != CRYPTO_SUITE_ID {
+        return Err(AppError::bad_request("unsupported device suite"));
+    }
+    let account_root_public =
+        decode_account_root_public(&enrollment.account_root_public, "invalid account root")?;
+    let root = AccountRootPublicKeys::decode(&account_root_public)
+        .map_err(|_| AppError::bad_request("invalid account root"))?;
+    let certificate =
+        decode_bytes_field(&enrollment.device_certificate, "invalid device certificate")?;
+    let certificate_value = DeviceCertificate::decode(&certificate)
+        .map_err(|_| AppError::bad_request("invalid device certificate"))?;
+    if root.user_id != user_id
+        || certificate_value.user_id != user_id
+        || certificate_value.device_id != device_id
+    {
+        return Err(AppError::bad_request("device identity mismatch"));
+    }
+    verify_device_certificate(&certificate_value, &root, now_ms, false)
+        .map_err(|_| AppError::bad_request("invalid device certificate"))?;
+    let certificate_fingerprint: [u8; DEVICE_FINGERPRINT_LEN] = STANDARD
+        .decode(&enrollment.certificate_fingerprint)
+        .map_err(|_| AppError::bad_request("invalid device proof"))?
+        .try_into()
+        .map_err(|_| AppError::bad_request("invalid device proof"))?;
+    let proof_signature: [u8; ED25519_SIGNATURE_LEN] = STANDARD
+        .decode(&enrollment.proof_signature)
+        .map_err(|_| AppError::bad_request("invalid device proof"))?
+        .try_into()
+        .map_err(|_| AppError::bad_request("invalid device proof"))?;
+    let proof = DeviceProofOfPossession {
+        certificate_fingerprint,
+        signature: proof_signature,
+    };
+    verify_device_proof(&certificate_value, challenge, &proof)
+        .map_err(|_| AppError::bad_request("invalid device proof"))?;
+    let expires_at = DateTime::from_timestamp_millis(certificate_value.expires_at_ms)
+        .ok_or_else(|| AppError::bad_request("invalid device certificate"))?;
+    Ok(VerifiedEnrollment {
+        account_root_public,
+        certificate,
+        certificate_fingerprint,
+        expires_at,
+    })
+}
+
+async fn insert_certified_device(
     tx: &mut PgTransaction<'_>,
     device_id: Uuid,
     user_id: Uuid,
     device_name: &str,
+    enrollment: &VerifiedEnrollment,
 ) -> Result<(), AppError> {
     query::<Postgres>(
-        "INSERT INTO devices (id, user_id, device_name)
-         VALUES ($1, $2, $3)",
+        "INSERT INTO devices
+            (id, user_id, device_name, certificate, certificate_fingerprint,
+             key_expires_at, certified_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now())",
     )
     .bind(device_id)
     .bind(user_id)
     .bind(device_name)
+    .bind(&enrollment.certificate)
+    .bind(enrollment.certificate_fingerprint.as_slice())
+    .bind(enrollment.expires_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn insert_pending_device(
+    tx: &mut PgTransaction<'_>,
+    device_id: Uuid,
+    user_id: Uuid,
+    device_name: &str,
+    challenge: &[u8; DEVICE_CHALLENGE_LEN],
+) -> Result<(), AppError> {
+    query::<Postgres>(
+        "INSERT INTO devices
+            (id, user_id, device_name, enrollment_challenge,
+             enrollment_challenge_expires_at)
+         VALUES ($1, $2, $3, $4, now() + interval '10 minutes')",
+    )
+    .bind(device_id)
+    .bind(user_id)
+    .bind(device_name)
+    .bind(challenge.as_slice())
     .execute(&mut **tx)
     .await?;
     Ok(())

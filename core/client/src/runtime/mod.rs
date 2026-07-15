@@ -38,6 +38,8 @@ pub(super) const ACCOUNT_USER_ID_SETTING_KEY: &str = "account_user_id";
 pub(super) const ACCOUNT_TENANT_ID_SETTING_KEY: &str = "account_tenant_id";
 pub(super) const ACCOUNT_DEVICE_ID_SETTING_KEY: &str = "account_device_id";
 pub(super) const ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY: &str = "account_session_expires_at";
+pub(super) const ACCOUNT_ROOT_PUBLIC_SETTING_KEY: &str = "account_root_public";
+pub(super) const ACCOUNT_MK_GENERATION_SETTING_KEY: &str = "account_mk_generation";
 pub(super) const INITIAL_BACKFILL_CURSOR_NAME: &str = "initial_backfill";
 
 #[derive(Debug, Clone)]

@@ -27,10 +27,14 @@ pub(crate) fn load(
     namespace: &str,
     slot: LocalKeyCapsuleSlot,
 ) -> Result<Option<Vec<u8>>, KeyStoreError> {
+    load_named(namespace, slot.label())
+}
+
+pub(crate) fn load_named(namespace: &str, slot: &str) -> Result<Option<Vec<u8>>, KeyStoreError> {
     with_env(|env| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
-        let slot = env.new_string(slot.label()).map_err(jni_error)?;
+        let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         let value = env
             .call_static_method(
@@ -62,10 +66,14 @@ pub(crate) fn store(
     slot: LocalKeyCapsuleSlot,
     value: &[u8],
 ) -> Result<(), KeyStoreError> {
+    store_named(namespace, slot.label(), value)
+}
+
+pub(crate) fn store_named(namespace: &str, slot: &str, value: &[u8]) -> Result<(), KeyStoreError> {
     with_env(|env| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
-        let slot = env.new_string(slot.label()).map_err(jni_error)?;
+        let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         let bytes = env.byte_array_from_slice(value).map_err(jni_error)?;
         env.call_static_method(
@@ -87,10 +95,14 @@ pub(crate) fn store(
 }
 
 pub(crate) fn delete(namespace: &str, slot: LocalKeyCapsuleSlot) -> Result<(), KeyStoreError> {
+    delete_named(namespace, slot.label())
+}
+
+pub(crate) fn delete_named(namespace: &str, slot: &str) -> Result<(), KeyStoreError> {
     with_env(|env| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
-        let slot = env.new_string(slot.label()).map_err(jni_error)?;
+        let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         env.call_static_method(
             STORE_CLASS,

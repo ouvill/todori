@@ -150,6 +150,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto? dco_decode_opt_box_autoadd_task_undo_dto(dynamic raw);
 
   @protected
+  OrganizationSafetyStateDto dco_decode_organization_safety_state_dto(
+    dynamic raw,
+  );
+
+  @protected
   RealtimeTicketDto dco_decode_realtime_ticket_dto(dynamic raw);
 
   @protected
@@ -340,6 +345,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TaskUndoDto? sse_decode_opt_box_autoadd_task_undo_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  OrganizationSafetyStateDto sse_decode_organization_safety_state_dto(
     SseDeserializer deserializer,
   );
 
@@ -581,6 +591,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_task_undo_dto(
     TaskUndoDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_organization_safety_state_dto(
+    OrganizationSafetyStateDto self,
     SseSerializer serializer,
   );
 

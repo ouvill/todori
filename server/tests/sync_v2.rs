@@ -179,8 +179,9 @@ impl Fixture {
         let device_id = Uuid::now_v7();
         let token = "protocol-v2-test-token".to_string();
         query(
-            "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO users
+                (id, email, opaque_suite_id, opaque_record, account_root_public)
+             VALUES ($1, $2, $3, $4, '\\x00'::bytea)",
         )
         .bind(user_id)
         .bind(format!("{user_id}@example.test"))
@@ -219,12 +220,16 @@ impl Fixture {
         .execute(&pool)
         .await
         .unwrap();
-        query("INSERT INTO devices (id, user_id, device_name) VALUES ($1, $2, 'test')")
-            .bind(device_id)
-            .bind(user_id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        query(
+            "INSERT INTO devices
+               (id, user_id, device_name, certificate, certified_at)
+               VALUES ($1, $2, 'test', '\\x00'::bytea, now())",
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
         query(
             "INSERT INTO sessions (id, user_id, device_id, token_hash, expires_at)
              VALUES ($1, $2, $3, $4, $5)",
@@ -2317,9 +2322,10 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
     let offline_device_id = Uuid::now_v7();
     let expired_device_id = Uuid::now_v7();
     query(
-        "INSERT INTO devices (id, user_id, device_name, key_expires_at)
-         VALUES ($1, $3, 'offline-device', NULL),
-                ($2, $3, 'expired-device', NULL)",
+        "INSERT INTO devices
+            (id, user_id, device_name, certificate, certified_at, key_expires_at)
+         VALUES ($1, $3, 'offline-device', '\\x00'::bytea, now(), NULL),
+                ($2, $3, 'expired-device', '\\x00'::bytea, now(), NULL)",
     )
     .bind(offline_device_id)
     .bind(expired_device_id)

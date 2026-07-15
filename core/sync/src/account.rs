@@ -9,15 +9,22 @@ use thiserror::Error;
 use todori_crypto::{
     key_hierarchy::{
         derive_kek_pw, derive_recovery_wrap_key, generate_list_dek, generate_master_key,
-        generate_recovery_key, generate_tenant_root_dek, generate_user_x25519_key_pair,
-        unwrap_list_dek_with_master_key, unwrap_master_key_with_kek_pw,
-        unwrap_tenant_root_dek_with_master_key, unwrap_user_secret_key_with_master_key,
-        wrap_list_dek_with_master_key, wrap_master_key_with_device_key,
-        wrap_master_key_with_kek_pw, wrap_master_key_with_recovery_key,
-        wrap_tenant_root_dek_with_master_key, wrap_user_secret_key_with_master_key,
-        KeyHierarchyError, INITIAL_KEY_GENERATION, KEY_LEN,
+        generate_recovery_key, generate_tenant_root_dek,
+        unwrap_account_root_private_key_with_master_key, unwrap_list_dek_with_master_key,
+        unwrap_master_key_with_kek_pw, unwrap_tenant_root_dek_with_master_key,
+        wrap_account_root_private_key_with_master_key, wrap_list_dek_with_master_key,
+        wrap_master_key_with_device_key, wrap_master_key_with_kek_pw,
+        wrap_master_key_with_recovery_key, wrap_tenant_root_dek_with_master_key, KeyHierarchyError,
+        INITIAL_KEY_GENERATION, KEY_LEN,
     },
-    opaque_login_parameters, opaque_registration_parameters, TodoriCipherSuite, CRYPTO_SUITE_ID,
+    opaque_login_parameters, opaque_registration_parameters,
+    organization::{
+        create_device_proof, derive_safety_number, generate_account_root, generate_device_keys,
+        issue_device_certificate, verify_device_certificate, AccountRootPrivateKeys,
+        AccountRootPublicKeys, DeviceCertificate, DeviceIdentity, DeviceProofOfPossession,
+        HybridDekPackage, OrganizationCryptoError, SignedDeviceRevocation, DEVICE_CHALLENGE_LEN,
+    },
+    TodoriCipherSuite, CRYPTO_SUITE_ID,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -40,10 +47,14 @@ pub enum AccountClientError {
     KeyHierarchy(#[from] KeyHierarchyError),
     #[error("key manifest error")]
     KeyManifest(#[from] KeyManifestError),
+    #[error("organization cryptography error")]
+    OrganizationCrypto(#[from] OrganizationCryptoError),
     #[error("invalid list ID")]
     InvalidListId,
     #[error("list key bundle conflicts with the immutable server value")]
     KeyBundleConflict,
+    #[error("organization public-key verification failed")]
+    OrganizationVerification,
 }
 
 pub struct AccountClient {
@@ -56,12 +67,14 @@ pub struct AccountRegisterOutcome {
     pub recovery_key: Zeroizing<String>,
     pub local_wrapped_master_key: Vec<u8>,
     pub keys: AccountKeyMaterial,
+    pub device_identity: DeviceIdentity,
 }
 
 pub struct AccountLoginOutcome {
     pub session: AccountSession,
     pub local_wrapped_master_key: Vec<u8>,
     pub keys: AccountKeyMaterial,
+    pub device_identity: DeviceIdentity,
 }
 
 pub struct AccountSession {
@@ -77,7 +90,8 @@ pub struct AccountKeyMaterial {
     pub generation: u64,
     pub tenant_generation: u64,
     pub master_key: Zeroizing<[u8; KEY_LEN]>,
-    pub user_secret_key: Zeroizing<[u8; KEY_LEN]>,
+    pub account_root_private: AccountRootPrivateKeys,
+    pub account_root_public: AccountRootPublicKeys,
     pub tenant_root_dek: Zeroizing<[u8; KEY_LEN]>,
     pub list_deks: Vec<AccountListDekMaterial>,
 }
@@ -86,6 +100,118 @@ pub struct AccountListDekMaterial {
     pub list_id: String,
     pub generation: u64,
     pub dek: Zeroizing<[u8; KEY_LEN]>,
+}
+
+pub struct OrganizationDekDelivery<'a> {
+    pub sender_identity: &'a DeviceIdentity,
+    pub sender_root: &'a AccountRootPublicKeys,
+    pub recipient: &'a crate::organization::OrganizationDeviceDto,
+    pub expected_recipient_root: &'a AccountRootPublicKeys,
+    pub scope_kind: todori_crypto::organization::HybridScopeKind,
+    pub scope_id: Uuid,
+    pub generation: u64,
+    pub dek: &'a [u8; KEY_LEN],
+    pub now_ms: i64,
+}
+
+pub struct VerifiedOrganizationDeviceRoster {
+    pub revision: u64,
+    pub head_hash: [u8; 32],
+    pub devices: Vec<crate::organization::OrganizationDeviceDto>,
+}
+
+#[derive(Clone, Copy)]
+pub struct OrganizationRosterTrust<'a> {
+    pub user_id: Uuid,
+    pub root_public: &'a str,
+    pub minimum_revision: u64,
+    pub minimum_head_hash: [u8; 32],
+}
+
+pub fn wrap_organization_dek_for_verified_device(
+    delivery: OrganizationDekDelivery<'_>,
+) -> Result<HybridDekPackage, AccountClientError> {
+    let OrganizationDekDelivery {
+        sender_identity,
+        sender_root,
+        recipient,
+        expected_recipient_root,
+        scope_kind,
+        scope_id,
+        generation,
+        dek,
+        now_ms,
+    } = delivery;
+    if recipient.revoked
+        || recipient.user_id != expected_recipient_root.user_id
+        || decode_base64(&recipient.account_root_public)? != expected_recipient_root.encode()?
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let recipient_certificate = DeviceCertificate::decode(&decode_base64(&recipient.certificate)?)?;
+    if recipient_certificate.device_id != recipient.device_id
+        || decode_base64(&recipient.certificate_fingerprint)?
+            != recipient_certificate.fingerprint()?
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let verified_sender =
+        verify_device_certificate(sender_identity.certificate(), sender_root, now_ms, false)?;
+    let verified_recipient = verify_device_certificate(
+        &recipient_certificate,
+        expected_recipient_root,
+        now_ms,
+        recipient.revoked,
+    )?;
+    Ok(todori_crypto::organization::wrap_dek_for_device(
+        sender_identity.private(),
+        verified_sender,
+        verified_recipient,
+        scope_kind,
+        scope_id,
+        generation,
+        dek,
+    )?)
+}
+
+pub fn unwrap_organization_dek_from_verified_device(
+    recipient_identity: &DeviceIdentity,
+    recipient_root: &AccountRootPublicKeys,
+    sender: &crate::organization::OrganizationDeviceDto,
+    expected_sender_root: &AccountRootPublicKeys,
+    package: &HybridDekPackage,
+    now_ms: i64,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, AccountClientError> {
+    if sender.revoked
+        || sender.user_id != expected_sender_root.user_id
+        || decode_base64(&sender.account_root_public)? != expected_sender_root.encode()?
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let sender_certificate = DeviceCertificate::decode(&decode_base64(&sender.certificate)?)?;
+    if sender_certificate.device_id != sender.device_id
+        || decode_base64(&sender.certificate_fingerprint)? != sender_certificate.fingerprint()?
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let verified_sender = verify_device_certificate(
+        &sender_certificate,
+        expected_sender_root,
+        now_ms,
+        sender.revoked,
+    )?;
+    let verified_recipient = verify_device_certificate(
+        recipient_identity.certificate(),
+        recipient_root,
+        now_ms,
+        false,
+    )?;
+    Ok(todori_crypto::organization::unwrap_dek_for_device(
+        recipient_identity.private(),
+        verified_sender,
+        verified_recipient,
+        package,
+    )?)
 }
 
 /// Short-lived authorization material for the foreground notification
@@ -105,11 +231,20 @@ pub struct AccountKeyBundleDto {
     pub wrapper_revision: u64,
     pub wrapped_master_key_by_password: String,
     pub wrapped_master_key_by_recovery: String,
-    pub user_public_key: String,
-    pub wrapped_user_secret_key: String,
+    pub account_root_public: String,
+    pub wrapped_account_root_private: String,
     pub wrapped_tenant_root_dek: String,
     pub tenant_key_manifest: String,
     pub list_deks: Vec<ListDekBundleDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceEnrollmentDto {
+    pub suite_id: u16,
+    pub account_root_public: String,
+    pub device_certificate: String,
+    pub certificate_fingerprint: String,
+    pub proof_signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -263,6 +398,22 @@ impl AccountClient {
         )?;
         export_key.zeroize();
 
+        let device_keys = generate_device_keys()?;
+        let now_ms = Utc::now().timestamp_millis();
+        let certificate = issue_device_certificate(
+            &key_setup.keys.account_root_private,
+            &key_setup.keys.account_root_public,
+            start.device_id,
+            &device_keys,
+            now_ms,
+            now_ms + chrono::Duration::days(365).num_milliseconds(),
+        )?;
+        let challenge = decode_fixed_array::<DEVICE_CHALLENGE_LEN>(&start.device_challenge)?;
+        let proof = create_device_proof(&device_keys.private, &certificate, &challenge)?;
+        let enrollment =
+            device_enrollment_dto(&key_setup.keys.account_root_public, &certificate, &proof)?;
+        let device_identity = DeviceIdentity::new(device_keys.private, certificate)?;
+
         let session = self
             .post_json::<SessionResponse>(
                 "/v1/auth/register/finish",
@@ -270,6 +421,7 @@ impl AccountClient {
                     state_id: start.state_id,
                     message: STANDARD.encode(client_finish.message.serialize()),
                     key_bundle: key_setup.bundle,
+                    device_enrollment: enrollment,
                 },
                 None,
             )
@@ -280,6 +432,7 @@ impl AccountClient {
             recovery_key: key_setup.recovery_key,
             local_wrapped_master_key: key_setup.local_wrapped_master_key,
             keys: key_setup.keys,
+            device_identity,
         })
     }
 
@@ -337,6 +490,26 @@ impl AccountClient {
             &export_key,
         )?;
         export_key.zeroize();
+        let device_keys = generate_device_keys()?;
+        let now_ms = Utc::now().timestamp_millis();
+        let certificate = issue_device_certificate(
+            &keys.account_root_private,
+            &keys.account_root_public,
+            response.session.device_id,
+            &device_keys,
+            now_ms,
+            now_ms + chrono::Duration::days(365).num_milliseconds(),
+        )?;
+        let challenge = decode_fixed_array::<DEVICE_CHALLENGE_LEN>(&response.device_challenge)?;
+        let proof = create_device_proof(&device_keys.private, &certificate, &challenge)?;
+        let enrollment = device_enrollment_dto(&keys.account_root_public, &certificate, &proof)?;
+        self.post_json::<LogoutResponse>(
+            "/v1/auth/device/certify",
+            &enrollment,
+            Some(&response.session.session_token),
+        )
+        .await?;
+        let device_identity = DeviceIdentity::new(device_keys.private, certificate)?;
         let local_wrapped_master_key = wrap_master_key_with_device_key(
             response.session.user_id,
             response.key_bundle.generation,
@@ -348,6 +521,7 @@ impl AccountClient {
             session: response.session.into_account_session(email),
             local_wrapped_master_key,
             keys,
+            device_identity,
         })
     }
 
@@ -359,6 +533,216 @@ impl AccountClient {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn invite_organization_member(
+        &self,
+        tenant_id: Uuid,
+        email: String,
+        session_token: &str,
+    ) -> Result<crate::organization::OrganizationMemberResponse, AccountClientError> {
+        self.post_protocol_json(
+            &format!("/v2/tenants/{tenant_id}/organization/invites"),
+            &crate::organization::OrganizationInviteRequest { email },
+            session_token,
+        )
+        .await
+    }
+
+    pub async fn organization_safety_number(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        session_token: &str,
+    ) -> Result<crate::organization::OrganizationSafetyResponse, AccountClientError> {
+        let response = self
+            .get_protocol_json(
+                &format!("/v2/tenants/{tenant_id}/organization/safety/{member_user_id}"),
+                session_token,
+            )
+            .await?;
+        verify_safety_response(&response)?;
+        if response.member_user_id != member_user_id {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        Ok(response)
+    }
+
+    pub async fn confirm_organization_safety_number(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        digest: String,
+        session_token: &str,
+    ) -> Result<crate::organization::OrganizationSafetyResponse, AccountClientError> {
+        let current = self
+            .organization_safety_number(tenant_id, member_user_id, session_token)
+            .await?;
+        if current.digest != digest {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        let response = self
+            .post_protocol_json(
+                &format!("/v2/tenants/{tenant_id}/organization/safety/confirm"),
+                &crate::organization::OrganizationSafetyConfirmRequest {
+                    member_user_id,
+                    digest,
+                },
+                session_token,
+            )
+            .await?;
+        verify_safety_response(&response)?;
+        if response.member_user_id != member_user_id {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        Ok(response)
+    }
+
+    pub async fn organization_member_devices(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        trust: OrganizationRosterTrust<'_>,
+        session_token: &str,
+    ) -> Result<VerifiedOrganizationDeviceRoster, AccountClientError> {
+        let safety = self
+            .organization_safety_number(tenant_id, member_user_id, session_token)
+            .await?;
+        if safety.verification_state != "verified"
+            || trust.user_id != member_user_id
+            || safety.member_user_id != trust.user_id
+            || safety.member_root_public != trust.root_public
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        let roster: crate::organization::OrganizationDeviceRosterDto = self
+            .get_protocol_json(
+                &format!("/v2/tenants/{tenant_id}/organization/devices/{member_user_id}"),
+                session_token,
+            )
+            .await?;
+        verify_organization_devices(
+            roster,
+            trust.user_id,
+            trust.root_public,
+            trust.minimum_revision,
+            trust.minimum_head_hash,
+        )
+    }
+
+    pub async fn organization_owner_devices(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        trust: OrganizationRosterTrust<'_>,
+        session_token: &str,
+    ) -> Result<VerifiedOrganizationDeviceRoster, AccountClientError> {
+        let safety = self
+            .organization_safety_number(tenant_id, member_user_id, session_token)
+            .await?;
+        if safety.verification_state != "verified"
+            || safety.owner_user_id != trust.user_id
+            || safety.owner_root_public != trust.root_public
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        let roster: crate::organization::OrganizationDeviceRosterDto = self
+            .get_protocol_json(
+                &format!(
+                    "/v2/tenants/{tenant_id}/organization/devices/{}",
+                    trust.user_id
+                ),
+                session_token,
+            )
+            .await?;
+        verify_organization_devices(
+            roster,
+            trust.user_id,
+            trust.root_public,
+            trust.minimum_revision,
+            trust.minimum_head_hash,
+        )
+    }
+
+    pub async fn remove_organization_member(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        self.delete_protocol(
+            &format!("/v2/tenants/{tenant_id}/organization/members/{member_user_id}"),
+            session_token,
+        )
+        .await
+    }
+
+    pub async fn revoke_organization_device(
+        &self,
+        tenant_id: Uuid,
+        device_id: Uuid,
+        signed_revocation: &SignedDeviceRevocation,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        let _: serde_json::Value = self
+            .post_protocol_json(
+                &format!("/v2/tenants/{tenant_id}/organization/device-revocations/{device_id}"),
+                &crate::organization::OrganizationDeviceRevocationRequest {
+                    signed_revocation: STANDARD.encode(signed_revocation.encode()?),
+                },
+                session_token,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn store_recipient_package(
+        &self,
+        tenant_id: Uuid,
+        device_id: Uuid,
+        package: &todori_crypto::organization::HybridDekPackage,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        let response: crate::organization::RecipientPackageResponse = self
+            .post_protocol_json(
+                &recipient_package_path(tenant_id, package),
+                &crate::organization::RecipientPackageRequest {
+                    device_id,
+                    package: STANDARD.encode(package.encode()?),
+                },
+                session_token,
+            )
+            .await?;
+        if decode_base64(&response.package)? != package.encode()? {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        Ok(())
+    }
+
+    pub async fn load_recipient_package(
+        &self,
+        tenant_id: Uuid,
+        scope_kind: todori_crypto::organization::HybridScopeKind,
+        scope_id: Uuid,
+        generation: u64,
+        session_token: &str,
+    ) -> Result<todori_crypto::organization::HybridDekPackage, AccountClientError> {
+        let path = format!(
+            "/v2/tenants/{tenant_id}/organization/recipients/{}/{scope_id}/{generation}",
+            scope_kind as u8
+        );
+        let response: crate::organization::RecipientPackageResponse =
+            self.get_protocol_json(&path, session_token).await?;
+        let package = todori_crypto::organization::HybridDekPackage::decode(&decode_base64(
+            &response.package,
+        )?)?;
+        if package.scope_kind != scope_kind
+            || package.scope_id != scope_id
+            || package.generation != generation
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        Ok(package)
     }
 
     pub async fn upsert_list_key_bundle(
@@ -525,6 +909,71 @@ impl AccountClient {
         response.json::<T>().await.map_err(AccountClientError::Http)
     }
 
+    async fn get_protocol_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        session_token: &str,
+    ) -> Result<T, AccountClientError> {
+        let response = self
+            .http
+            .get(format!("{}{}", self.base_url, path))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server(response.status().as_u16()));
+        }
+        response.json().await.map_err(AccountClientError::Http)
+    }
+
+    async fn post_protocol_json<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+        session_token: &str,
+    ) -> Result<T, AccountClientError> {
+        let response = self
+            .http
+            .post(format!("{}{}", self.base_url, path))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .json(body)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server(response.status().as_u16()));
+        }
+        response.json().await.map_err(AccountClientError::Http)
+    }
+
+    async fn delete_protocol(
+        &self,
+        path: &str,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        let response = self
+            .http
+            .delete(format!("{}{}", self.base_url, path))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server(response.status().as_u16()));
+        }
+        Ok(())
+    }
+
     async fn post_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -562,12 +1011,21 @@ pub fn unwrap_login_key_bundle(
     )?);
     kek_pw.zeroize();
 
-    let user_secret_key = Zeroizing::new(unwrap_user_secret_key_with_master_key(
+    let account_root_private_bytes = unwrap_account_root_private_key_with_master_key(
         user_id,
         bundle.generation,
-        &decode_base64(&bundle.wrapped_user_secret_key)?,
+        &decode_base64(&bundle.wrapped_account_root_private)?,
         &master_key,
-    )?);
+    )?;
+    let account_root_private = AccountRootPrivateKeys::decode(&*account_root_private_bytes)?;
+    let account_root_public =
+        AccountRootPublicKeys::decode(&decode_base64(&bundle.account_root_public)?)?;
+    if account_root_public.user_id != user_id {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    if account_root_private.public_keys(user_id)? != account_root_public {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
     let tenant_root_dek = Zeroizing::new(unwrap_tenant_root_dek_with_master_key(
         tenant_id,
         bundle.tenant_generation,
@@ -594,7 +1052,8 @@ pub fn unwrap_login_key_bundle(
         generation: bundle.generation,
         tenant_generation: bundle.tenant_generation,
         master_key,
-        user_secret_key,
+        account_root_private,
+        account_root_public,
         tenant_root_dek,
         list_deks,
     })
@@ -780,8 +1239,7 @@ fn build_registration_key_bundle(
     let master_key = Zeroizing::new(generate_master_key());
     let recovery_key = generate_recovery_key();
     let mut recovery_wrap_key = Zeroizing::new(derive_recovery_wrap_key(&recovery_key)?);
-    let user_key_pair = generate_user_x25519_key_pair();
-    let user_secret_key = user_key_pair.secret_key;
+    let account_root = generate_account_root(user_id)?;
     let tenant_root_dek = Zeroizing::new(generate_tenant_root_dek());
 
     let wrapped_master_key_by_password =
@@ -792,10 +1250,11 @@ fn build_registration_key_bundle(
         &master_key,
         &recovery_wrap_key,
     )?;
-    let wrapped_user_secret_key = wrap_user_secret_key_with_master_key(
+    let account_root_private_bytes = account_root.private.encode();
+    let wrapped_account_root_private = wrap_account_root_private_key_with_master_key(
         user_id,
         INITIAL_KEY_GENERATION,
-        &user_secret_key,
+        &account_root_private_bytes,
         &master_key,
     )?;
     let wrapped_tenant_root_dek = wrap_tenant_root_dek_with_master_key(
@@ -847,8 +1306,8 @@ fn build_registration_key_bundle(
             wrapper_revision: 1,
             wrapped_master_key_by_password: STANDARD.encode(wrapped_master_key_by_password),
             wrapped_master_key_by_recovery: STANDARD.encode(wrapped_master_key_by_recovery),
-            user_public_key: STANDARD.encode(user_key_pair.public_key),
-            wrapped_user_secret_key: STANDARD.encode(wrapped_user_secret_key),
+            account_root_public: STANDARD.encode(account_root.public.encode()?),
+            wrapped_account_root_private: STANDARD.encode(wrapped_account_root_private),
             wrapped_tenant_root_dek: STANDARD.encode(wrapped_tenant_root_dek),
             tenant_key_manifest: STANDARD.encode(tenant_key_manifest),
             list_deks: list_dek_bundles,
@@ -859,7 +1318,8 @@ fn build_registration_key_bundle(
             generation: INITIAL_KEY_GENERATION,
             tenant_generation: INITIAL_KEY_GENERATION,
             master_key,
-            user_secret_key,
+            account_root_private: account_root.private,
+            account_root_public: account_root.public,
             tenant_root_dek,
             list_deks,
         },
@@ -880,8 +1340,129 @@ fn decode_base64(value: &str) -> Result<Vec<u8>, AccountClientError> {
         .map_err(|_| AccountClientError::Base64)
 }
 
+fn decode_fixed_array<const N: usize>(value: &str) -> Result<[u8; N], AccountClientError> {
+    decode_base64(value)?
+        .try_into()
+        .map_err(|_| AccountClientError::Base64)
+}
+
+fn verify_safety_response(
+    response: &crate::organization::OrganizationSafetyResponse,
+) -> Result<(), AccountClientError> {
+    let owner = AccountRootPublicKeys::decode(&decode_base64(&response.owner_root_public)?)?;
+    let member = AccountRootPublicKeys::decode(&decode_base64(&response.member_root_public)?)?;
+    if owner.user_id != response.owner_user_id || member.user_id != response.member_user_id {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let expected = derive_safety_number(&owner, &member)?;
+    if decode_base64(&response.digest)? != expected.digest
+        || response.decimal != expected.decimal
+        || decode_base64(&response.qr_payload)? != expected.qr_payload
+        || !matches!(
+            response.verification_state.as_str(),
+            "verified" | "unverified"
+        )
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    Ok(())
+}
+
+fn verify_organization_devices(
+    roster: crate::organization::OrganizationDeviceRosterDto,
+    user_id: Uuid,
+    expected_root: &str,
+    minimum_roster_revision: u64,
+    minimum_roster_head_hash: [u8; 32],
+) -> Result<VerifiedOrganizationDeviceRoster, AccountClientError> {
+    let expected_root_bytes = decode_base64(expected_root)?;
+    let root = AccountRootPublicKeys::decode(&expected_root_bytes)?;
+    if root.user_id != user_id
+        || roster.user_id != user_id
+        || decode_base64(&roster.account_root_public)? != expected_root_bytes
+        || roster.revision < minimum_roster_revision
+        || usize::try_from(roster.revision).ok() != Some(roster.signed_revocations.len())
+        || roster.devices.is_empty()
+    {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let mut revoked_fingerprints =
+        std::collections::HashSet::with_capacity(roster.signed_revocations.len());
+    let mut expected_previous_hash = [0u8; 32];
+    let mut pinned_revision_hash = (minimum_roster_revision == 0).then_some([0u8; 32]);
+    for (index, encoded) in roster.signed_revocations.iter().enumerate() {
+        let statement = SignedDeviceRevocation::decode(&decode_base64(encoded)?)?;
+        statement.verify(&root)?;
+        if statement.user_id != user_id
+            || statement.revision != u64::try_from(index + 1).unwrap_or(u64::MAX)
+            || statement.previous_statement_hash != expected_previous_hash
+            || !revoked_fingerprints.insert(statement.certificate_fingerprint)
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        expected_previous_hash = statement.authenticated_hash()?;
+        if statement.revision == minimum_roster_revision {
+            pinned_revision_hash = Some(expected_previous_hash);
+        }
+    }
+    if pinned_revision_hash != Some(minimum_roster_head_hash) {
+        return Err(AccountClientError::OrganizationVerification);
+    }
+    let now_ms = Utc::now().timestamp_millis();
+    let mut fingerprints = std::collections::HashSet::with_capacity(roster.devices.len());
+    for device in &roster.devices {
+        if device.user_id != user_id
+            || device.revoked
+            || decode_base64(&device.account_root_public)? != expected_root_bytes
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        let certificate = DeviceCertificate::decode(&decode_base64(&device.certificate)?)?;
+        if certificate.user_id != user_id || certificate.device_id != device.device_id {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+        verify_device_certificate(&certificate, &root, now_ms, device.revoked)?;
+        let fingerprint = certificate.fingerprint()?;
+        if decode_base64(&device.certificate_fingerprint)? != fingerprint
+            || revoked_fingerprints.contains(&fingerprint)
+            || !fingerprints.insert(fingerprint)
+        {
+            return Err(AccountClientError::OrganizationVerification);
+        }
+    }
+    Ok(VerifiedOrganizationDeviceRoster {
+        revision: roster.revision,
+        head_hash: expected_previous_hash,
+        devices: roster.devices,
+    })
+}
+
+fn recipient_package_path(tenant_id: Uuid, package: &HybridDekPackage) -> String {
+    format!(
+        "/v2/tenants/{tenant_id}/organization/recipients/{}/{}/{}",
+        package.scope_kind as u8, package.scope_id, package.generation
+    )
+}
+
+fn device_enrollment_dto(
+    root_public: &AccountRootPublicKeys,
+    certificate: &DeviceCertificate,
+    proof: &DeviceProofOfPossession,
+) -> Result<DeviceEnrollmentDto, AccountClientError> {
+    Ok(DeviceEnrollmentDto {
+        suite_id: CRYPTO_SUITE_ID,
+        account_root_public: STANDARD.encode(root_public.encode()?),
+        device_certificate: STANDARD.encode(certificate.encode()?),
+        certificate_fingerprint: STANDARD.encode(proof.certificate_fingerprint),
+        proof_signature: STANDARD.encode(proof.signature),
+    })
+}
+
 fn validate_opaque_start(start: &OpaqueStartResponse) -> Result<(), AccountClientError> {
-    if start.opaque_suite_id != CRYPTO_SUITE_ID {
+    if start.opaque_suite_id != CRYPTO_SUITE_ID
+        || start.device_id.is_nil()
+        || decode_fixed_array::<DEVICE_CHALLENGE_LEN>(&start.device_challenge).is_err()
+    {
         return Err(AccountClientError::Opaque);
     }
     Ok(())
@@ -923,6 +1504,8 @@ struct OpaqueStartResponse {
     opaque_suite_id: u16,
     user_id: Uuid,
     tenant_id: Uuid,
+    device_id: Uuid,
+    device_challenge: String,
     message: String,
     #[allow(dead_code)]
     expires_at: DateTime<Utc>,
@@ -933,6 +1516,7 @@ struct RegisterFinishRequest {
     state_id: Uuid,
     message: String,
     key_bundle: AccountKeyBundleDto,
+    device_enrollment: DeviceEnrollmentDto,
 }
 
 #[derive(Debug, Serialize)]
@@ -946,6 +1530,7 @@ struct LoginFinishResponse {
     #[serde(flatten)]
     session: SessionResponse,
     key_bundle: AccountKeyBundleDto,
+    device_challenge: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -998,12 +1583,104 @@ mod tests {
     use super::*;
 
     #[test]
+    fn device_roster_rejects_revocation_omission_rollback_and_replayed_certificate() {
+        let user_id = Uuid::now_v7();
+        let root = generate_account_root(user_id).unwrap();
+        let device = generate_device_keys().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let certificate = issue_device_certificate(
+            &root.private,
+            &root.public,
+            Uuid::now_v7(),
+            &device,
+            now - 1_000,
+            now + 60_000,
+        )
+        .unwrap();
+        let fingerprint = certificate.fingerprint().unwrap();
+        let statement = SignedDeviceRevocation::sign(
+            &root.private,
+            &root.public,
+            certificate.device_id,
+            fingerprint,
+            1,
+            now,
+            [0; 32],
+        )
+        .unwrap();
+        let root_encoded = STANDARD.encode(root.public.encode().unwrap());
+        let replayed = crate::organization::OrganizationDeviceDto {
+            user_id,
+            device_id: certificate.device_id,
+            account_root_public: root_encoded.clone(),
+            certificate: STANDARD.encode(certificate.encode().unwrap()),
+            certificate_fingerprint: STANDARD.encode(fingerprint),
+            revoked: false,
+        };
+        let roster = crate::organization::OrganizationDeviceRosterDto {
+            user_id,
+            account_root_public: root_encoded.clone(),
+            revision: 1,
+            devices: vec![replayed],
+            signed_revocations: vec![STANDARD.encode(statement.encode().unwrap())],
+        };
+        let fork = SignedDeviceRevocation::sign(
+            &root.private,
+            &root.public,
+            certificate.device_id,
+            fingerprint,
+            1,
+            now + 1,
+            [0; 32],
+        )
+        .unwrap();
+        let mut forked_roster = roster.clone();
+        forked_roster.signed_revocations = vec![STANDARD.encode(fork.encode().unwrap())];
+        assert!(matches!(
+            verify_organization_devices(
+                forked_roster,
+                user_id,
+                &root_encoded,
+                1,
+                statement.authenticated_hash().unwrap(),
+            ),
+            Err(AccountClientError::OrganizationVerification)
+        ));
+        assert!(matches!(
+            verify_organization_devices(
+                roster.clone(),
+                user_id,
+                &root_encoded,
+                1,
+                statement.authenticated_hash().unwrap(),
+            ),
+            Err(AccountClientError::OrganizationVerification)
+        ));
+
+        let mut omitted = roster;
+        omitted.devices.clear();
+        omitted.signed_revocations.clear();
+        assert!(matches!(
+            verify_organization_devices(
+                omitted,
+                user_id,
+                &root_encoded,
+                1,
+                statement.authenticated_hash().unwrap(),
+            ),
+            Err(AccountClientError::OrganizationVerification)
+        ));
+    }
+
+    #[test]
     fn client_rejects_unknown_opaque_suite_before_deserializing_protocol_state() {
         let response = OpaqueStartResponse {
             state_id: Uuid::now_v7(),
             opaque_suite_id: CRYPTO_SUITE_ID - 1,
             user_id: Uuid::now_v7(),
             tenant_id: Uuid::now_v7(),
+            device_id: Uuid::now_v7(),
+            device_challenge: STANDARD.encode([0u8; DEVICE_CHALLENGE_LEN]),
             message: String::new(),
             expires_at: Utc::now(),
         };
@@ -1023,8 +1700,8 @@ mod tests {
             wrapper_revision: 1,
             wrapped_master_key_by_password: String::new(),
             wrapped_master_key_by_recovery: String::new(),
-            user_public_key: String::new(),
-            wrapped_user_secret_key: String::new(),
+            account_root_public: String::new(),
+            wrapped_account_root_private: String::new(),
             wrapped_tenant_root_dek: String::new(),
             tenant_key_manifest: String::new(),
             list_deks: vec![ListDekBundleDto {
@@ -1073,7 +1750,10 @@ mod tests {
             unwrap_login_key_bundle(&setup.bundle, user_id, tenant_id, export_key).unwrap();
 
         assert_eq!(*unwrapped.master_key, *setup.keys.master_key);
-        assert_eq!(*unwrapped.user_secret_key, *setup.keys.user_secret_key);
+        assert_eq!(
+            unwrapped.account_root_public,
+            setup.keys.account_root_public
+        );
         assert_eq!(*unwrapped.tenant_root_dek, *setup.keys.tenant_root_dek);
         assert_eq!(unwrapped.list_deks.len(), 1);
         assert_eq!(unwrapped.list_deks[0].list_id, list_id.to_string());
@@ -1127,11 +1807,13 @@ mod tests {
         let tenant_id = Uuid::now_v7();
         let first_list_id = Uuid::now_v7();
         let second_list_id = Uuid::now_v7();
+        let root = generate_account_root(Uuid::now_v7()).unwrap();
         let keys = AccountKeyMaterial {
             generation: 1,
             tenant_generation: 1,
             master_key: Zeroizing::new([0x62; KEY_LEN]),
-            user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
+            account_root_private: root.private,
+            account_root_public: root.public,
             tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
             list_deks: vec![
                 AccountListDekMaterial {
@@ -1159,11 +1841,13 @@ mod tests {
 
     #[test]
     fn account_list_dek_bundle_conversion_rejects_invalid_id_without_partial_result() {
+        let root = generate_account_root(Uuid::now_v7()).unwrap();
         let keys = AccountKeyMaterial {
             generation: 1,
             tenant_generation: 1,
             master_key: Zeroizing::new([0x62; KEY_LEN]),
-            user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
+            account_root_private: root.private,
+            account_root_public: root.public,
             tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
             list_deks: vec![
                 AccountListDekMaterial {

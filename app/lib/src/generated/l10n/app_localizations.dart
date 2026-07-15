@@ -1471,6 +1471,78 @@ abstract class AppLocalizations {
   /// **'Sync now'**
   String get accountSyncNowTooltip;
 
+  /// No description provided for @organizationSafetyOpenButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify organization member'**
+  String get organizationSafetyOpenButton;
+
+  /// No description provided for @organizationSafetyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Safety number'**
+  String get organizationSafetyTitle;
+
+  /// No description provided for @organizationSafetyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare this number or QR code with the other account through a separate trusted channel. Organization keys are not delivered until both accounts confirm the same value.'**
+  String get organizationSafetyBody;
+
+  /// No description provided for @organizationTenantIdLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Organization ID'**
+  String get organizationTenantIdLabel;
+
+  /// No description provided for @organizationMemberIdLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Member account ID'**
+  String get organizationMemberIdLabel;
+
+  /// No description provided for @organizationSafetyLoadButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Safety number'**
+  String get organizationSafetyLoadButton;
+
+  /// No description provided for @organizationSafetyQrSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Safety number QR code'**
+  String get organizationSafetyQrSemantics;
+
+  /// No description provided for @organizationSafetyVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'Verified by both accounts'**
+  String get organizationSafetyVerified;
+
+  /// No description provided for @organizationSafetyUnverified.
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet verified by both accounts'**
+  String get organizationSafetyUnverified;
+
+  /// No description provided for @organizationSafetyComparedOutOfBand.
+  ///
+  /// In en, this message translates to:
+  /// **'I compared this value through a separate trusted channel'**
+  String get organizationSafetyComparedOutOfBand;
+
+  /// No description provided for @organizationSafetyConfirmButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm this Safety number'**
+  String get organizationSafetyConfirmButton;
+
+  /// No description provided for @organizationSafetyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not verify the Safety number. Reload it and compare again.'**
+  String get organizationSafetyFailed;
+
   /// No description provided for @onboardingWelcomeTitle.
   ///
   /// In en, this message translates to:

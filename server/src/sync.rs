@@ -1,12 +1,19 @@
-use std::{collections::HashSet, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::CRYPTO_SUITE_ID;
+use todori_crypto::{
+    organization::{AccountRootPublicKeys, DeviceCertificate},
+    CRYPTO_SUITE_ID,
+};
 use todori_sync::{
     account::{ActiveKeyBundleDto, HistoricalKeyBundleDto, ListDekBundleDto},
+    organization::OrganizationKeyManifest,
     parse_envelope_header,
     protocol::{
         BaseScanResponse, ClosureProof, ContinuityAckRequest, ContinuityAckResponse,
@@ -458,6 +465,15 @@ pub async fn push(
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    let rotation_required: bool =
+        query::<Postgres>("SELECT rotation_required FROM tenants WHERE id = $1")
+            .bind(tenant_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .try_get("rotation_required")?;
+    if rotation_required {
+        return Err(AppError::conflict("key rotation is required"));
+    }
     require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     require_live_write_generation(&mut tx, tenant_id, &ops).await?;
     let mut results = Vec::with_capacity(ops.len());
@@ -619,17 +635,25 @@ pub async fn upsert_list_key_bundle(
     let wrapped_list_dek = STANDARD
         .decode(&bundle.wrapped_list_dek)
         .map_err(|_| AppError::bad_request("invalid list key bundle"))?;
-    if wrapped_list_dek.is_empty() {
-        return Err(AppError::bad_request("invalid list key bundle"));
-    }
     let signed_manifest = STANDARD
         .decode(&bundle.signed_manifest)
         .map_err(|_| AppError::bad_request("invalid list key manifest"))?;
     if signed_manifest.len() < 124 || bundle.generation == 0 {
         return Err(AppError::bad_request("invalid list key manifest"));
     }
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let manifest_mode = rotation_manifest_mode(&mut tx, tenant_id).await?;
+    let wrapper_valid = match &manifest_mode {
+        RotationManifestMode::Personal => !wrapped_list_dek.is_empty(),
+        RotationManifestMode::Organization(_) => wrapped_list_dek.is_empty(),
+    };
+    if !wrapper_valid {
+        return Err(AppError::bad_request("invalid list key bundle"));
+    }
     validate_rotation_manifest(
         &signed_manifest,
+        &manifest_mode,
         KeyScope::List,
         tenant_id,
         Some(bundle.list_id),
@@ -637,8 +661,6 @@ pub async fn upsert_list_key_bundle(
         RotationStatus::Active,
         bundle.generation,
     )?;
-    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
-    require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let active_generation: i64 = query::<Postgres>(
         "SELECT generation FROM tenant_key_generations
          WHERE tenant_id = $1 AND status = 'active'",
@@ -705,15 +727,6 @@ pub async fn prepare_rotation(
     let generation = i64::try_from(request.generation)
         .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
     let tenant_manifest_bytes = decode_rotation_bytes(&request.signed_manifest, true)?;
-    let tenant_manifest = validate_rotation_manifest(
-        &tenant_manifest_bytes,
-        KeyScope::Tenant,
-        tenant_id,
-        None,
-        request.generation,
-        RotationStatus::Prepared,
-        request.generation - 1,
-    )?;
     let wrapped_tenant_root_dek = decode_rotation_bytes(&request.wrapped_tenant_root_dek, false)?;
     let mut seen_lists = HashSet::with_capacity(request.list_keys.len());
     let mut lists = Vec::with_capacity(request.list_keys.len());
@@ -722,25 +735,31 @@ pub async fn prepare_rotation(
             return Err(AppError::bad_request("invalid rotation list set"));
         }
         let signed_manifest = decode_rotation_bytes(&list.signed_manifest, true)?;
-        let manifest = validate_rotation_manifest(
-            &signed_manifest,
-            KeyScope::List,
-            tenant_id,
-            Some(list.list_id),
-            list.generation,
-            RotationStatus::Prepared,
-            list.generation - 1,
-        )?;
         lists.push((
             list.list_id,
             signed_manifest,
-            manifest,
             decode_rotation_bytes(&list.wrapped_list_dek, false)?,
         ));
     }
 
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let manifest_mode = rotation_manifest_mode(&mut tx, tenant_id).await?;
+    require_rotation_wrapper_shape(
+        &manifest_mode,
+        &wrapped_tenant_root_dek,
+        lists.iter().map(|(_, _, wrapped)| wrapped.as_slice()),
+    )?;
+    let tenant_manifest = validate_rotation_manifest(
+        &tenant_manifest_bytes,
+        &manifest_mode,
+        KeyScope::Tenant,
+        tenant_id,
+        None,
+        request.generation,
+        RotationStatus::Prepared,
+        request.generation - 1,
+    )?;
     let active_generation: i64 = query::<Postgres>(
         "SELECT generation FROM tenant_key_generations
          WHERE tenant_id = $1 AND status = 'active' FOR UPDATE",
@@ -774,13 +793,8 @@ pub async fn prepare_rotation(
     .fetch_one(&mut *tx)
     .await?
     .try_get("signed_manifest")?;
-    let active_tenant_manifest = KeyManifest::from_authenticated_bytes(&active_tenant_manifest)
-        .map_err(|_| AppError::internal())?;
-    if tenant_manifest.previous_manifest_hash
-        != active_tenant_manifest
-            .authenticated_hash()
-            .map_err(|_| AppError::internal())?
-    {
+    let active_tenant_manifest = decode_rotation_manifest(&active_tenant_manifest, &manifest_mode)?;
+    if tenant_manifest.manifest.previous_manifest_hash != active_tenant_manifest.hash {
         return Err(AppError::conflict("rotation manifest chain mismatch"));
     }
     let active_list_ids = query::<Postgres>(
@@ -813,7 +827,17 @@ pub async fn prepare_rotation(
     .execute(&mut *tx)
     .await
     .map_err(|_| AppError::conflict("rotation is already prepared"))?;
-    for (list_id, signed_manifest, manifest, wrapped_list_dek) in lists {
+    for (list_id, signed_manifest, wrapped_list_dek) in lists {
+        let manifest = validate_rotation_manifest(
+            &signed_manifest,
+            &manifest_mode,
+            KeyScope::List,
+            tenant_id,
+            Some(list_id),
+            request.generation,
+            RotationStatus::Prepared,
+            request.generation - 1,
+        )?;
         let active_manifest: Vec<u8> = query::<Postgres>(
             "SELECT signed_manifest FROM list_key_generations
              WHERE tenant_id = $1 AND list_id = $2 AND status = 'active'",
@@ -823,13 +847,8 @@ pub async fn prepare_rotation(
         .fetch_one(&mut *tx)
         .await?
         .try_get("signed_manifest")?;
-        let active_manifest = KeyManifest::from_authenticated_bytes(&active_manifest)
-            .map_err(|_| AppError::internal())?;
-        if manifest.previous_manifest_hash
-            != active_manifest
-                .authenticated_hash()
-                .map_err(|_| AppError::internal())?
-        {
+        let active_manifest = decode_rotation_manifest(&active_manifest, &manifest_mode)?;
+        if manifest.manifest.previous_manifest_hash != active_manifest.hash {
             return Err(AppError::conflict("rotation manifest chain mismatch"));
         }
         query::<Postgres>(
@@ -868,6 +887,7 @@ pub async fn activate_rotation(
         .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let manifest_mode = rotation_manifest_mode(&mut tx, tenant_id).await?;
     let active_generation: i64 = query::<Postgres>(
         "SELECT generation FROM tenant_key_generations
          WHERE tenant_id = $1 AND status = 'active' FOR UPDATE",
@@ -889,11 +909,11 @@ pub async fn activate_rotation(
     .await?
     .ok_or_else(|| AppError::conflict("rotation generation is not prepared"))?
     .try_get("signed_manifest")?;
-    let prepared_tenant = KeyManifest::from_authenticated_bytes(&prepared_tenant_bytes)
-        .map_err(|_| AppError::internal())?;
+    let prepared_tenant = decode_rotation_manifest(&prepared_tenant_bytes, &manifest_mode)?;
     let active_tenant_bytes = decode_rotation_bytes(&request.signed_manifest, true)?;
     let active_tenant = validate_rotation_manifest(
         &active_tenant_bytes,
+        &manifest_mode,
         KeyScope::Tenant,
         tenant_id,
         None,
@@ -901,11 +921,7 @@ pub async fn activate_rotation(
         RotationStatus::Active,
         request.generation,
     )?;
-    if active_tenant.previous_manifest_hash
-        != prepared_tenant
-            .authenticated_hash()
-            .map_err(|_| AppError::internal())?
-    {
+    if active_tenant.manifest.previous_manifest_hash != prepared_tenant.hash {
         return Err(AppError::conflict("rotation manifest chain mismatch"));
     }
     let mut active_list_manifests = std::collections::HashMap::new();
@@ -972,10 +988,10 @@ pub async fn activate_rotation(
         .await?
         .ok_or_else(|| AppError::conflict("rotation recipient coverage is incomplete"))?
         .try_get("signed_manifest")?;
-        let prepared = KeyManifest::from_authenticated_bytes(&prepared_bytes)
-            .map_err(|_| AppError::internal())?;
+        let prepared = decode_rotation_manifest(&prepared_bytes, &manifest_mode)?;
         let active = validate_rotation_manifest(
             active_bytes,
+            &manifest_mode,
             KeyScope::List,
             tenant_id,
             Some(*list_id),
@@ -983,13 +999,26 @@ pub async fn activate_rotation(
             RotationStatus::Active,
             request.generation,
         )?;
-        if active.previous_manifest_hash
-            != prepared
-                .authenticated_hash()
-                .map_err(|_| AppError::internal())?
-        {
+        if active.manifest.previous_manifest_hash != prepared.hash {
             return Err(AppError::conflict("rotation manifest chain mismatch"));
         }
+    }
+    if matches!(manifest_mode, RotationManifestMode::Organization(_)) {
+        let list_manifests = active_list_manifests
+            .iter()
+            .map(|(list_id, bytes)| {
+                decode_rotation_manifest(bytes, &manifest_mode)
+                    .map(|manifest| (*list_id, manifest.manifest))
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        require_organization_recipient_coverage(
+            &mut tx,
+            tenant_id,
+            request.generation,
+            &active_tenant.manifest,
+            &list_manifests,
+        )
+        .await?;
     }
     let live_heads: i64 = query::<Postgres>(
         "SELECT count(*)::BIGINT AS count FROM sync_records
@@ -1049,6 +1078,10 @@ pub async fn activate_rotation(
     .bind(active_list_manifests.values().cloned().collect::<Vec<_>>())
     .execute(&mut *tx)
     .await?;
+    query::<Postgres>("UPDATE tenants SET rotation_required = FALSE WHERE id = $1")
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(RotationStateResponse {
         active_generation: request.generation,
@@ -1123,6 +1156,12 @@ pub async fn set_device_key_expiry(
             "UPDATE sessions SET revoked_at = coalesce(revoked_at, now()) WHERE device_id = $1",
         )
         .bind(device_id)
+        .execute(&mut *tx)
+        .await?;
+        query::<Postgres>(
+            "UPDATE tenants SET rotation_required = TRUE WHERE id = $1 AND kind = 'org'",
+        )
+        .bind(tenant_id)
         .execute(&mut *tx)
         .await?;
     }
@@ -1241,23 +1280,65 @@ fn decode_rotation_bytes(value: &str, manifest: bool) -> Result<Vec<u8>, AppErro
     let bytes = STANDARD
         .decode(value)
         .map_err(|_| AppError::bad_request("invalid rotation payload"))?;
-    if bytes.is_empty() || (manifest && bytes.len() < 124) {
+    if manifest && bytes.len() < 124 {
         return Err(AppError::bad_request("invalid rotation payload"));
     }
     Ok(bytes)
 }
 
+enum RotationManifestMode {
+    Personal,
+    Organization(AccountRootPublicKeys),
+}
+
+struct ValidatedRotationManifest {
+    manifest: KeyManifest,
+    hash: [u8; 32],
+}
+
+fn decode_rotation_manifest(
+    bytes: &[u8],
+    mode: &RotationManifestMode,
+) -> Result<ValidatedRotationManifest, AppError> {
+    match mode {
+        RotationManifestMode::Personal => {
+            let manifest = KeyManifest::from_authenticated_bytes(bytes)
+                .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+            let hash = manifest
+                .authenticated_hash()
+                .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+            Ok(ValidatedRotationManifest { manifest, hash })
+        }
+        RotationManifestMode::Organization(root) => {
+            let signed = OrganizationKeyManifest::decode(bytes)
+                .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+            signed
+                .verify(root)
+                .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+            let hash = signed
+                .authenticated_hash()
+                .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+            Ok(ValidatedRotationManifest {
+                manifest: signed.manifest,
+                hash,
+            })
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn validate_rotation_manifest(
     bytes: &[u8],
+    mode: &RotationManifestMode,
     scope: KeyScope,
     tenant_id: Uuid,
     list_id: Option<Uuid>,
     generation: u64,
     status: RotationStatus,
     minimum_write_generation: u64,
-) -> Result<KeyManifest, AppError> {
-    let manifest = KeyManifest::from_authenticated_bytes(bytes)
-        .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+) -> Result<ValidatedRotationManifest, AppError> {
+    let validated = decode_rotation_manifest(bytes, mode)?;
+    let manifest = &validated.manifest;
     if manifest.scope != scope
         || manifest.tenant_id != tenant_id
         || manifest.list_id != list_id
@@ -1268,7 +1349,158 @@ fn validate_rotation_manifest(
     {
         return Err(AppError::bad_request("invalid rotation manifest"));
     }
-    Ok(manifest)
+    Ok(validated)
+}
+
+async fn rotation_manifest_mode(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+) -> Result<RotationManifestMode, AppError> {
+    let row = query::<Postgres>(
+        "SELECT t.kind, u.account_root_public
+         FROM tenants t JOIN users u ON u.id = t.owner_user_id WHERE t.id = $1",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    match row.try_get::<String, _>("kind")?.as_str() {
+        "personal" => Ok(RotationManifestMode::Personal),
+        "org" => Ok(RotationManifestMode::Organization(
+            AccountRootPublicKeys::decode(&row.try_get::<Vec<u8>, _>("account_root_public")?)
+                .map_err(|_| AppError::internal())?,
+        )),
+        _ => Err(AppError::internal()),
+    }
+}
+
+fn require_rotation_wrapper_shape<'a>(
+    mode: &RotationManifestMode,
+    tenant_wrapper: &[u8],
+    list_wrappers: impl Iterator<Item = &'a [u8]>,
+) -> Result<(), AppError> {
+    let list_wrappers = list_wrappers.collect::<Vec<_>>();
+    let valid = match mode {
+        RotationManifestMode::Personal => {
+            !tenant_wrapper.is_empty() && list_wrappers.iter().all(|wrapper| !wrapper.is_empty())
+        }
+        RotationManifestMode::Organization(_) => {
+            tenant_wrapper.is_empty() && list_wrappers.iter().all(|wrapper| wrapper.is_empty())
+        }
+    };
+    if !valid {
+        return Err(AppError::bad_request("invalid rotation key wrapper"));
+    }
+    Ok(())
+}
+
+async fn require_organization_recipient_coverage(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    generation: u64,
+    tenant_manifest: &KeyManifest,
+    list_manifests: &[(Uuid, KeyManifest)],
+) -> Result<(), AppError> {
+    let required = query::<Postgres>(
+        "SELECT d.id, d.certificate
+         FROM devices d
+         JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1
+         JOIN tenants t ON t.id = m.tenant_id
+         WHERE d.certificate IS NOT NULL AND d.certificate_fingerprint IS NOT NULL
+           AND d.revoked_at IS NULL AND (d.key_expires_at IS NULL OR d.key_expires_at > now())
+           AND (d.user_id = t.owner_user_id OR m.verification_state = 'verified')",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| {
+        let certificate = DeviceCertificate::decode(&row.try_get::<Vec<u8>, _>("certificate")?)
+            .map_err(|_| sqlx_core::Error::Decode("invalid device certificate".into()))?;
+        let fingerprint = certificate
+            .recipient_key_fingerprint()
+            .map_err(|_| sqlx_core::Error::Decode("invalid recipient key fingerprint".into()))?;
+        Ok((row.try_get::<Uuid, _>("id")?, fingerprint))
+    })
+    .collect::<Result<HashMap<_, _>, sqlx_core::Error>>()?;
+    if required.is_empty() {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    let required_fingerprints = required.values().copied().collect::<HashSet<_>>();
+    if tenant_manifest
+        .recipient_fingerprints
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>()
+        != required_fingerprints
+    {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    require_scope_recipient_rows(tx, tenant_id, None, generation, &required).await?;
+    for (list_id, manifest) in list_manifests {
+        if manifest
+            .recipient_fingerprints
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
+            != required_fingerprints
+        {
+            return Err(AppError::conflict(
+                "rotation recipient coverage is incomplete",
+            ));
+        }
+        require_scope_recipient_rows(tx, tenant_id, Some(*list_id), generation, &required).await?;
+    }
+    Ok(())
+}
+
+async fn require_scope_recipient_rows(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    list_id: Option<Uuid>,
+    generation: u64,
+    required: &HashMap<Uuid, [u8; 32]>,
+) -> Result<(), AppError> {
+    let scope_kind = if list_id.is_some() { 2_i16 } else { 1_i16 };
+    let rows = query::<Postgres>(
+        "SELECT device_id, recipient_key_fingerprint, wrapped_dek
+         FROM key_recipients
+         WHERE scope_kind = $1 AND tenant_id = $2
+           AND list_id IS NOT DISTINCT FROM $3 AND generation = $4",
+    )
+    .bind(scope_kind)
+    .bind(tenant_id)
+    .bind(list_id)
+    .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
+    .fetch_all(&mut **tx)
+    .await?;
+    if rows.len() != required.len() {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    for row in rows {
+        let device_id: Uuid = row.try_get("device_id")?;
+        let fingerprint: [u8; 32] = row
+            .try_get::<Vec<u8>, _>("recipient_key_fingerprint")?
+            .try_into()
+            .map_err(|_| AppError::internal())?;
+        if required.get(&device_id) != Some(&fingerprint) {
+            return Err(AppError::conflict(
+                "rotation recipient coverage is incomplete",
+            ));
+        }
+        let wrapped: Vec<u8> = row.try_get("wrapped_dek")?;
+        if todori_crypto::organization::HybridDekPackage::decode(&wrapped).is_err() {
+            return Err(AppError::conflict(
+                "rotation recipient coverage is incomplete",
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn require_rotation_owner(

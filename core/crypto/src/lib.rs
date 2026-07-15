@@ -17,6 +17,7 @@ pub mod kdf;
 pub mod key_hierarchy;
 pub mod local_capsule;
 pub mod opaque;
+pub mod organization;
 
 pub use aead::{decrypt, encrypt, CryptoError};
 pub use dev_key_store::{

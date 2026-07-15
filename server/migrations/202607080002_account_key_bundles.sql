@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS user_key_generations (
     wrapper_revision BIGINT NOT NULL CHECK (wrapper_revision > 0),
     wrapped_mk_by_password BYTEA NOT NULL,
     wrapped_mk_by_recovery BYTEA NOT NULL,
-    user_public_key BYTEA NOT NULL CHECK (octet_length(user_public_key) = 32),
-    wrapped_user_secret_key BYTEA NOT NULL,
+    account_root_public BYTEA NOT NULL,
+    wrapped_account_root_private BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, generation)

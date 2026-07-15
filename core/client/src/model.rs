@@ -28,6 +28,18 @@ pub struct AccountAuthResult {
     pub recovery_key: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrganizationSafetyState {
+    pub owner_user_id: String,
+    pub member_user_id: String,
+    pub digest: String,
+    pub decimal: String,
+    pub qr_payload: String,
+    pub verification_state: String,
+    pub owner_confirmed: bool,
+    pub member_confirmed: bool,
+}
+
 /// Frontend-neutral short-lived authorization for the realtime wake-up
 /// channel. The ticket is intentionally not `Debug` so routine diagnostics
 /// cannot accidentally print it.

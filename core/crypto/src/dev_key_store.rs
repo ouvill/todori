@@ -12,12 +12,18 @@ use zeroize::Zeroizing;
 
 const DEVICE_KEY_FILE_NAME: &str = "device.key";
 const SESSION_TOKEN_FILE_NAME: &str = "session.token";
+const DEVICE_IDENTITY_FILE_NAME: &str = "device-identity.secret";
+const WRAPPED_ACCOUNT_ROOT_FILE_NAME: &str = "account-root.wrapped";
 const ACTIVE_CAPSULE_FILE_NAME: &str = "local-key.active.capsule";
 const PENDING_CAPSULE_FILE_NAME: &str = "local-key.pending.capsule";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-key";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "dev.todori.todori.session-token.v2";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const DEVICE_IDENTITY_KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-identity.v1";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE: &str = "dev.todori.todori.account-root-wrapped.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const ACTIVE_CAPSULE_KEYCHAIN_SERVICE: &str = "dev.todori.todori.local-key-capsule.active.v2";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -235,6 +241,8 @@ pub fn load_or_create_device_key(
 
 pub enum AccountSecretKind {
     SessionToken,
+    DeviceIdentity,
+    WrappedAccountRoot,
 }
 
 pub fn load_account_secret(
@@ -259,6 +267,20 @@ pub fn load_account_secret(
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::load_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.load()
     }
 }
@@ -286,6 +308,21 @@ pub fn store_account_secret(
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::store_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+                value,
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.store(value)
     }
 }
@@ -312,6 +349,20 @@ pub fn delete_account_secret(
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::delete_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.delete()
     }
 }
@@ -320,6 +371,8 @@ impl AccountSecretKind {
     fn file_name(&self) -> &'static str {
         match self {
             AccountSecretKind::SessionToken => SESSION_TOKEN_FILE_NAME,
+            AccountSecretKind::DeviceIdentity => DEVICE_IDENTITY_FILE_NAME,
+            AccountSecretKind::WrappedAccountRoot => WRAPPED_ACCOUNT_ROOT_FILE_NAME,
         }
     }
 
@@ -327,6 +380,8 @@ impl AccountSecretKind {
     fn keychain_service(&self) -> &'static str {
         match self {
             AccountSecretKind::SessionToken => SESSION_TOKEN_KEYCHAIN_SERVICE,
+            AccountSecretKind::DeviceIdentity => DEVICE_IDENTITY_KEYCHAIN_SERVICE,
+            AccountSecretKind::WrappedAccountRoot => WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE,
         }
     }
 }

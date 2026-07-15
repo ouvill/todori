@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod db;
+pub mod organization;
 pub mod realtime;
 pub mod routes;
 pub mod sync;

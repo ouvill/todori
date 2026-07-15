@@ -6403,7 +6403,7 @@ mod tests {
                     let is_closed = status == "done" || status == "wont_do";
                     let completed_at = if is_closed {
                         closed_task_count += 1;
-                        if global_index % 4 == 0 {
+                        if global_index.is_multiple_of(4) {
                             Some(today_start_ms + ((global_index % 10) as i64 * 600_000))
                         } else {
                             Some(today_start_ms - 2 * 86_400_000)
@@ -6411,9 +6411,9 @@ mod tests {
                     } else {
                         None
                     };
-                    let keyword = if global_index % 17 == 0 {
+                    let keyword = if global_index.is_multiple_of(17) {
                         "alpha"
-                    } else if global_index % 19 == 0 {
+                    } else if global_index.is_multiple_of(19) {
                         "日本語"
                     } else {
                         "routine"
@@ -7058,7 +7058,7 @@ mod tests {
             .bind_and_replace_bundles(
                 original_binding.clone(),
                 &local_tenant_root_bundle(tenant_id, 100),
-                &[original_bundle.clone()],
+                std::slice::from_ref(&original_bundle),
             )
             .unwrap();
 
@@ -7222,7 +7222,7 @@ mod tests {
                 .bind_and_replace_bundles(
                     binding.clone(),
                     &local_tenant_root_bundle(tenant_id, 100),
-                    &[bundle.clone()],
+                    std::slice::from_ref(&bundle),
                 )
                 .unwrap();
         }

@@ -14,6 +14,7 @@ pub mod hlc;
 pub mod key_manifest;
 pub mod keys;
 pub mod merge;
+pub mod organization;
 pub mod protocol;
 pub mod resync;
 pub mod rotation;

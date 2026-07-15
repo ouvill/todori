@@ -5,9 +5,9 @@ use todori_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
     AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind, CalendarOccurrenceView,
     CalendarRange, CivilDate, ClientError, CompletedTimerSession, CreateTaskCommand, HomeTaskView,
-    List, RealtimeTicket, ReminderView, ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task,
-    TaskDue, TaskStatus, TaskUndoKind, TaskUndoView, TimerFinishKind, TimerMode, TimerPhase,
-    TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
+    List, OrganizationSafetyState, RealtimeTicket, ReminderView, ReorderTaskCommand,
+    SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind, TaskUndoView,
+    TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -181,6 +181,17 @@ pub struct AccountAuthResultDto {
     pub recovery_key: Option<String>,
 }
 
+pub struct OrganizationSafetyStateDto {
+    pub owner_user_id: String,
+    pub member_user_id: String,
+    pub digest: String,
+    pub decimal: String,
+    pub qr_payload: String,
+    pub verification_state: String,
+    pub owner_confirmed: bool,
+    pub member_confirmed: bool,
+}
+
 pub struct RealtimeTicketDto {
     pub websocket_url: String,
     pub ticket: String,
@@ -295,6 +306,29 @@ pub async fn account_logout() -> Result<(), String> {
         .account_logout()
         .await
         .map_err(|error| error.to_string())
+}
+
+pub async fn organization_safety_number(
+    tenant_id: String,
+    member_user_id: String,
+) -> Result<OrganizationSafetyStateDto, String> {
+    client()?
+        .organization_safety_number(tenant_id, member_user_id)
+        .await
+        .map_err(|error| error.to_string())
+        .map(organization_safety_to_dto)
+}
+
+pub async fn confirm_organization_safety_number(
+    tenant_id: String,
+    member_user_id: String,
+    digest: String,
+) -> Result<OrganizationSafetyStateDto, String> {
+    client()?
+        .confirm_organization_safety_number(tenant_id, member_user_id, digest)
+        .await
+        .map_err(|error| error.to_string())
+        .map(organization_safety_to_dto)
 }
 
 pub fn get_sync_status() -> Result<SyncStatusDto, String> {
@@ -879,6 +913,19 @@ fn account_auth_to_dto(result: AccountAuthResult) -> AccountAuthResultDto {
     AccountAuthResultDto {
         session: account_session_to_dto(result.session),
         recovery_key: result.recovery_key,
+    }
+}
+
+fn organization_safety_to_dto(state: OrganizationSafetyState) -> OrganizationSafetyStateDto {
+    OrganizationSafetyStateDto {
+        owner_user_id: state.owner_user_id,
+        member_user_id: state.member_user_id,
+        digest: state.digest,
+        decimal: state.decimal,
+        qr_payload: state.qr_payload,
+        verification_state: state.verification_state,
+        owner_confirmed: state.owner_confirmed,
+        member_confirmed: state.member_confirmed,
     }
 }
 

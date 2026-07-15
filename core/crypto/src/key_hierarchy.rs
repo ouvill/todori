@@ -8,12 +8,12 @@ use bip39::{Language, Mnemonic};
 use rand::{rngs::OsRng, RngCore};
 use thiserror::Error;
 use uuid::Uuid;
-use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 use crate::{decrypt, derive_key, encrypt, CryptoError, CRYPTO_SUITE_ID};
 
 pub const KEY_LEN: usize = 32;
+pub const ACCOUNT_ROOT_PRIVATE_KEY_LEN: usize = 64;
 pub const INITIAL_KEY_GENERATION: u64 = 1;
 
 pub const KEK_PW_INFO: &[u8] = b"todori/kek-pw/v1";
@@ -37,7 +37,7 @@ enum WrapPurpose {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum KeyHierarchyError {
-    #[error("wrapped key did not contain exactly 32 bytes")]
+    #[error("wrapped key had an invalid plaintext length")]
     InvalidUnwrappedKeyLength,
     #[error("crypto error: {0}")]
     Crypto(#[from] CryptoError),
@@ -45,12 +45,6 @@ pub enum KeyHierarchyError {
     InvalidRecoveryKey,
     #[error("invalid key wrap context")]
     InvalidWrapContext,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct UserX25519KeyPair {
-    pub secret_key: Zeroizing<[u8; KEY_LEN]>,
-    pub public_key: [u8; KEY_LEN],
 }
 
 pub fn generate_master_key() -> [u8; KEY_LEN] {
@@ -63,15 +57,6 @@ pub fn generate_tenant_root_dek() -> [u8; KEY_LEN] {
 
 pub fn generate_list_dek() -> [u8; KEY_LEN] {
     random_key()
-}
-
-pub fn generate_user_x25519_key_pair() -> UserX25519KeyPair {
-    let secret = StaticSecret::random_from_rng(OsRng);
-    let public = PublicKey::from(&secret);
-    UserX25519KeyPair {
-        secret_key: Zeroizing::new(secret.to_bytes()),
-        public_key: public.to_bytes(),
-    }
 }
 
 pub fn generate_recovery_key() -> Zeroizing<String> {
@@ -213,42 +198,49 @@ pub fn unwrap_master_key_with_recovery_key(
     )
 }
 
-pub fn wrap_user_secret_key_with_master_key(
+pub fn wrap_account_root_private_key_with_master_key(
     user_id: Uuid,
     generation: u64,
-    user_secret_key: &[u8; KEY_LEN],
+    account_root_private_key: &[u8; ACCOUNT_ROOT_PRIVATE_KEY_LEN],
     master_key: &[u8; KEY_LEN],
 ) -> Result<Vec<u8>, KeyHierarchyError> {
-    wrap_key(
-        user_secret_key,
+    encrypt(
         master_key,
-        wrap_aad(
+        account_root_private_key,
+        &wrap_aad(
             WrapPurpose::AccountSecretByMasterKey,
             generation,
             Some(user_id),
             None,
             None,
-        ),
+        )?,
     )
+    .map_err(KeyHierarchyError::from)
 }
 
-pub fn unwrap_user_secret_key_with_master_key(
+pub fn unwrap_account_root_private_key_with_master_key(
     user_id: Uuid,
     generation: u64,
     wrapped: &[u8],
     master_key: &[u8; KEY_LEN],
-) -> Result<[u8; KEY_LEN], KeyHierarchyError> {
-    unwrap_key(
-        wrapped,
+) -> Result<Zeroizing<[u8; ACCOUNT_ROOT_PRIVATE_KEY_LEN]>, KeyHierarchyError> {
+    let plaintext = Zeroizing::new(decrypt(
         master_key,
-        wrap_aad(
+        wrapped,
+        &wrap_aad(
             WrapPurpose::AccountSecretByMasterKey,
             generation,
             Some(user_id),
             None,
             None,
-        ),
-    )
+        )?,
+    )?);
+    if plaintext.len() != ACCOUNT_ROOT_PRIVATE_KEY_LEN {
+        return Err(KeyHierarchyError::InvalidUnwrappedKeyLength);
+    }
+    let mut output = Zeroizing::new([0u8; ACCOUNT_ROOT_PRIVATE_KEY_LEN]);
+    output.copy_from_slice(&plaintext);
+    Ok(output)
 }
 
 pub fn wrap_tenant_root_dek_with_master_key(
@@ -495,10 +487,6 @@ mod tests {
         assert_eq!(generate_master_key().len(), KEY_LEN);
         assert_eq!(generate_tenant_root_dek().len(), KEY_LEN);
         assert_eq!(generate_list_dek().len(), KEY_LEN);
-
-        let pair = generate_user_x25519_key_pair();
-        assert_eq!(pair.secret_key.len(), KEY_LEN);
-        assert_eq!(pair.public_key.len(), KEY_LEN);
     }
 
     #[test]
@@ -691,27 +679,36 @@ mod tests {
     }
 
     #[test]
-    fn user_secret_tenant_dek_and_list_dek_roundtrip_with_distinct_contexts() {
+    fn account_root_tenant_dek_and_list_dek_roundtrip_with_distinct_contexts() {
         let master_key = key(0x42);
-        let user_secret_key = key(0x10);
+        let account_root_private = [0x10; ACCOUNT_ROOT_PRIVATE_KEY_LEN];
         let tenant_dek = key(0x20);
         let list_dek = key(0x30);
         let user_id = id(1);
         let tenant_id = id(2);
         let list_id = id(3);
 
-        let wrapped_user_secret =
-            wrap_user_secret_key_with_master_key(user_id, 1, &user_secret_key, &master_key)
-                .unwrap();
+        let wrapped_account_root = wrap_account_root_private_key_with_master_key(
+            user_id,
+            1,
+            &account_root_private,
+            &master_key,
+        )
+        .unwrap();
         let wrapped_tenant =
             wrap_tenant_root_dek_with_master_key(tenant_id, 1, &tenant_dek, &master_key).unwrap();
         let wrapped_list =
             wrap_list_dek_with_master_key(tenant_id, list_id, 1, &list_dek, &master_key).unwrap();
 
         assert_eq!(
-            unwrap_user_secret_key_with_master_key(user_id, 1, &wrapped_user_secret, &master_key)
-                .unwrap(),
-            user_secret_key
+            *unwrap_account_root_private_key_with_master_key(
+                user_id,
+                1,
+                &wrapped_account_root,
+                &master_key
+            )
+            .unwrap(),
+            account_root_private
         );
         assert_eq!(
             unwrap_tenant_root_dek_with_master_key(tenant_id, 1, &wrapped_tenant, &master_key)
