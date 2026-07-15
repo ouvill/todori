@@ -36,3 +36,4 @@ todori-client = { workspace = true, features = ["test-support"] }
 todori-domain.workspace = true
 todori-storage.workspace = true
 tower.workspace = true
+zeroize.workspace = true

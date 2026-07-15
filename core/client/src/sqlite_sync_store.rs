@@ -16,10 +16,11 @@ use todori_sync::{
     LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
     PullFailureReason, StableCursor, SyncCollection,
 };
+use zeroize::Zeroizing;
 
 pub struct SqliteSyncStore {
     db_path: PathBuf,
-    db_key: [u8; 32],
+    db_key: Zeroizing<[u8; 32]>,
 }
 
 pub struct SqliteSyncWriteTx {
@@ -27,7 +28,12 @@ pub struct SqliteSyncWriteTx {
 }
 
 impl SqliteSyncStore {
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(db_path: PathBuf, db_key: [u8; 32]) -> Self {
+        Self::new_secret(db_path, Zeroizing::new(db_key))
+    }
+
+    pub(crate) fn new_secret(db_path: PathBuf, db_key: Zeroizing<[u8; 32]>) -> Self {
         Self { db_path, db_key }
     }
 }
@@ -953,7 +959,9 @@ fn storage_pending_to_local(entry: PendingListKeyBundle) -> LocalPendingListKeyB
     LocalPendingListKeyBundle {
         tenant_id: entry.tenant_id,
         list_id: entry.list_id,
+        generation: entry.generation,
         wrapped_list_dek: entry.wrapped_list_dek,
+        signed_manifest: entry.signed_manifest,
         created_at: entry.created_at,
     }
 }
@@ -1290,13 +1298,14 @@ mod tests {
                 },
                 &LocalTenantRootKeyBundle {
                     tenant_id,
-                    key_version: 1,
+                    generation: 1,
                     wrapped_tenant_root_dek: vec![2],
                     updated_at: 1,
                 },
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: list.id,
+                    generation: 1,
                     wrapped_list_dek: vec![1],
                     updated_at: 1,
                 }],
@@ -1308,7 +1317,9 @@ mod tests {
             .put_pending_list_key_bundle(PendingListKeyBundle {
                 tenant_id,
                 list_id: list.id,
+                generation: 1,
                 wrapped_list_dek: vec![1],
+                signed_manifest: vec![0; 124],
                 created_at: 1,
             })
             .unwrap();
@@ -1318,8 +1329,13 @@ mod tests {
         drop(repository);
 
         let keys = LocalSyncKeys {
-            list_deks: vec![(list.id, [0x33; 32])],
+            tenant_id,
+            list_deks: vec![(list.id, [0x33; 32].into())],
+            list_generations: vec![(list.id, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);
         let mut now = || Ok(10);

@@ -774,6 +774,44 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountSyncNowTooltip => '今すぐ同期';
 
   @override
+  String get organizationSafetyOpenButton => '組織メンバーを確認';
+
+  @override
+  String get organizationSafetyTitle => 'Safety number';
+
+  @override
+  String get organizationSafetyBody =>
+      '別の信頼できる経路で相手とこの番号またはQRコードを照合してください。両アカウントが同じ値を確認するまで、組織の鍵は配送されません。';
+
+  @override
+  String get organizationTenantIdLabel => '組織ID';
+
+  @override
+  String get organizationMemberIdLabel => 'メンバーのアカウントID';
+
+  @override
+  String get organizationSafetyLoadButton => 'Safety numberを表示';
+
+  @override
+  String get organizationSafetyQrSemantics => 'Safety numberのQRコード';
+
+  @override
+  String get organizationSafetyVerified => '両アカウントで確認済み';
+
+  @override
+  String get organizationSafetyUnverified => '両アカウントでの確認が未完了です';
+
+  @override
+  String get organizationSafetyComparedOutOfBand => '別の信頼できる経路でこの値を照合しました';
+
+  @override
+  String get organizationSafetyConfirmButton => 'このSafety numberを確認';
+
+  @override
+  String get organizationSafetyFailed =>
+      'Safety numberを確認できませんでした。再読み込みして、もう一度照合してください。';
+
+  @override
   String get onboardingWelcomeTitle => '大切なことに、余白を';
 
   @override

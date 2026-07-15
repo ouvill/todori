@@ -1013,7 +1013,7 @@ mod tests {
         let task = task_fixture();
 
         assert_eq!(
-            validate_parent(&task, task.id, &[task.clone()]),
+            validate_parent(&task, task.id, std::slice::from_ref(&task)),
             Err(DomainError::SelfReferenceParent)
         );
     }

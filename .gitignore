@@ -1,6 +1,10 @@
 /target
 /app/target
 /app/rust/target
+/fuzz/target
+/fuzz/artifacts
+/fuzz/coverage
+/fuzz/corpus
 **/*.rs.bk
 Cargo.lock.bak
 

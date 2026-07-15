@@ -110,7 +110,9 @@ pub struct LocalSyncQuarantineEntry {
 pub struct LocalPendingListKeyBundle {
     pub tenant_id: Uuid,
     pub list_id: Uuid,
+    pub generation: u64,
     pub wrapped_list_dek: Vec<u8>,
+    pub signed_manifest: Vec<u8>,
     pub created_at: i64,
 }
 
@@ -404,6 +406,68 @@ where
     Ok(summary)
 }
 
+/// Re-encrypts every locally live head with the active key generation.
+/// Existing outbox heads are intentionally replaced; tombstones have no
+/// domain row and therefore remain untouched.
+pub fn enqueue_rotation_backfill<S, N>(
+    store: &mut S,
+    keys: &LocalSyncKeys,
+    device_id: &str,
+    lists: &[List],
+    tasks: &[Task],
+    timer_sessions: &[CompletedTimerSession],
+    now_ms: &mut N,
+) -> Result<BackfillSummary, String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    keys.validate_for_write().map_err(str::to_string)?;
+    if store
+        .get_setting(crate::KEY_ROTATION_PENDING_SETTING_KEY)?
+        .as_deref()
+        .is_some_and(|value| value != "0" && value != keys.tenant_generation.to_string())
+    {
+        return Err("active key generation required".to_string());
+    }
+    store.set_setting(crate::KEY_ROTATION_PENDING_SETTING_KEY, "0", now_ms()?)?;
+    let mut summary = BackfillSummary::default();
+    for list in lists {
+        if dek_for_list(keys, list.id).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_list_sync(store, keys, device_id, list, false, now_ms)?;
+        summary.enqueued_lists += 1;
+    }
+    let mut sorted_tasks = tasks.iter().collect::<Vec<_>>();
+    sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
+    for task in sorted_tasks {
+        if dek_for_list(keys, task.list_id).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_task_sync(store, keys, device_id, task, false, now_ms)?;
+        summary.enqueued_tasks += 1;
+    }
+    let mut sorted_sessions = timer_sessions.iter().collect::<Vec<_>>();
+    sorted_sessions.sort_by_key(|session| (session.created_at, session.id));
+    for session in sorted_sessions {
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_timer_session_sync(store, keys, device_id, session, false, now_ms)?;
+        summary.enqueued_timer_sessions += 1;
+    }
+    store.set_setting(
+        crate::KEY_ROTATION_PENDING_SETTING_KEY,
+        &keys.tenant_generation.to_string(),
+        now_ms()?,
+    )?;
+    Ok(summary)
+}
+
 pub fn enqueue_task_sync<S, N>(
     store: &mut S,
     keys: &LocalSyncKeys,
@@ -416,6 +480,7 @@ where
     S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
+    ensure_no_pending_rotation(store)?;
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
     let previous_state = store.get_record_state(SyncCollection::Tasks, task.id)?;
@@ -424,6 +489,9 @@ where
         .and_then(|state| state.current_revision_hlc.clone());
     let dek = dek_for_list(keys, task.list_id)
         .ok_or_else(|| "missing list key for task sync".to_string())?;
+    let generation = keys
+        .generation_for_list(task.list_id)
+        .ok_or_else(|| "missing active list key generation".to_string())?;
     let plaintext = changed_task_plaintext(previous_state.as_ref(), task, hlc.clone())?;
     enqueue_plaintext(
         store,
@@ -432,7 +500,9 @@ where
             collection: SyncCollection::Tasks,
             deleted,
             plaintext: &plaintext,
-            dek: &dek,
+            dek,
+            tenant_id: keys.tenant_id,
+            generation,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -453,8 +523,12 @@ where
     S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
+    ensure_no_pending_rotation(store)?;
     let dek = tenant_root_dek(keys)
         .ok_or_else(|| "missing Tenant Root DEK for timer sync".to_string())?;
+    if keys.tenant_id.is_nil() || keys.tenant_generation == 0 {
+        return Err("missing active tenant key generation".to_string());
+    }
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
     let previous_state = store.get_record_state(SyncCollection::TimerSessions, session.id)?;
@@ -485,6 +559,8 @@ where
             deleted,
             plaintext: &plaintext,
             dek,
+            tenant_id: keys.tenant_id,
+            generation: keys.tenant_generation,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -505,6 +581,7 @@ where
     S: LocalMutationSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
+    ensure_no_pending_rotation(store)?;
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
     let previous_state = store.get_record_state(SyncCollection::Lists, list.id)?;
@@ -513,6 +590,9 @@ where
         .and_then(|state| state.current_revision_hlc.clone());
     let dek =
         dek_for_list(keys, list.id).ok_or_else(|| "missing list key for list sync".to_string())?;
+    let generation = keys
+        .generation_for_list(list.id)
+        .ok_or_else(|| "missing active list key generation".to_string())?;
     let plaintext = changed_list_plaintext(previous_state.as_ref(), list, hlc.clone())?;
     enqueue_plaintext(
         store,
@@ -521,7 +601,9 @@ where
             collection: SyncCollection::Lists,
             deleted,
             plaintext: &plaintext,
-            dek: &dek,
+            dek,
+            tenant_id: keys.tenant_id,
+            generation,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -530,11 +612,24 @@ where
     )
 }
 
+fn ensure_no_pending_rotation<S: LocalMutationSyncStore>(store: &mut S) -> Result<(), String> {
+    if store
+        .get_setting(crate::KEY_ROTATION_PENDING_SETTING_KEY)?
+        .as_deref()
+        .is_some_and(|value| value != "0")
+    {
+        return Err("active key generation required".to_string());
+    }
+    Ok(())
+}
+
 pub(crate) struct RebasePlaintextRequest<'a> {
     pub record_id: Uuid,
     pub collection: SyncCollection,
     pub plaintext: &'a SyncPlaintext,
     pub dek: &'a [u8; KEY_LEN],
+    pub tenant_id: Uuid,
+    pub generation: u64,
     pub device_id: &'a str,
     pub base_revision_hlc: &'a str,
 }
@@ -563,6 +658,8 @@ where
             deleted: false,
             plaintext: request.plaintext,
             dek: request.dek,
+            tenant_id: request.tenant_id,
+            generation: request.generation,
             revision_hlc: &revision_hlc,
             semantic_hlc: &mutation_hlc,
             base_revision_hlc: Some(request.base_revision_hlc.to_string()),
@@ -623,6 +720,8 @@ struct EnqueuePlaintextRequest<'a> {
     deleted: bool,
     plaintext: &'a SyncPlaintext,
     dek: &'a [u8; KEY_LEN],
+    tenant_id: Uuid,
+    generation: u64,
     revision_hlc: &'a Hlc,
     semantic_hlc: &'a str,
     base_revision_hlc: Option<String>,
@@ -644,8 +743,10 @@ where
     } else {
         let blob = encrypt_plaintext(
             request.dek,
+            request.tenant_id,
+            request.generation,
             request.collection.as_str(),
-            &request.record_id.to_string(),
+            request.record_id,
             request.plaintext,
         )
         .map_err(|_| "sync failed".to_string())?;
@@ -809,6 +910,7 @@ mod tests {
 
     use super::*;
     use todori_domain::TaskStatus;
+    use zeroize::Zeroizing;
 
     #[derive(Default)]
     struct FakeStore {
@@ -1002,10 +1104,80 @@ mod tests {
             .any(|entry| entry.record_id == synced_task.id));
     }
 
+    #[test]
+    fn rotation_backfill_replaces_live_outbox_with_new_generation_and_keeps_tombstones() {
+        let list = sample_list(uuid(12), 10);
+        let task = sample_task(uuid(13), list.id, 20);
+        let tombstone_id = uuid(14);
+        let mut store = FakeStore::default();
+        store
+            .outbox
+            .push(existing_outbox(SyncCollection::Tasks, task.id));
+        store.record_states.insert(
+            (SyncCollection::Tasks, tombstone_id),
+            LocalSyncRecordState {
+                current_revision_hlc: Some(Hlc::new("remote").now(1).encode().unwrap()),
+                state: LocalSyncSemanticState::Tombstone {
+                    delete_hlc: Hlc::new("remote").now(1).encode().unwrap(),
+                },
+            },
+        );
+        let keys = LocalSyncKeys {
+            tenant_id: Uuid::from_u128(100),
+            list_deks: vec![(list.id, Zeroizing::new([9; KEY_LEN]))],
+            list_generations: vec![(list.id, 2)],
+            tenant_root_dek: Some(Zeroizing::new([8; KEY_LEN])),
+            tenant_generation: 2,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
+        };
+        let mut now = ticking_now();
+
+        let summary = enqueue_rotation_backfill(
+            &mut store,
+            &keys,
+            "device-a",
+            std::slice::from_ref(&list),
+            std::slice::from_ref(&task),
+            &[],
+            &mut now,
+        )
+        .unwrap();
+
+        assert_eq!(summary.enqueued_lists, 1);
+        assert_eq!(summary.enqueued_tasks, 1);
+        assert_eq!(store.outbox.len(), 2);
+        for entry in &store.outbox {
+            let EncryptedSyncState::Live { blob, .. } = &entry.state else {
+                panic!("rotation backfill emitted a tombstone")
+            };
+            assert_eq!(
+                crate::parse_envelope_header(blob).unwrap().key_generation,
+                2
+            );
+        }
+        assert!(matches!(
+            store
+                .record_states
+                .get(&(SyncCollection::Tasks, tombstone_id))
+                .unwrap()
+                .state,
+            LocalSyncSemanticState::Tombstone { .. }
+        ));
+    }
+
     fn sync_keys(list_ids: &[Uuid]) -> LocalSyncKeys {
         LocalSyncKeys {
-            list_deks: list_ids.iter().map(|id| (*id, [7; KEY_LEN])).collect(),
+            tenant_id: Uuid::from_u128(100),
+            list_deks: list_ids
+                .iter()
+                .map(|id| (*id, Zeroizing::new([7; KEY_LEN])))
+                .collect(),
+            list_generations: list_ids.iter().map(|id| (*id, 1)).collect(),
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         }
     }
 

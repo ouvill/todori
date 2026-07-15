@@ -3,17 +3,32 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{ensure_device_key, DeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN};
+use crate::{
+    ensure_device_key, DeviceKeyStore, KeyStoreError, LocalKeyCapsule, LocalKeyCapsuleSlot,
+    LocalKeyCapsuleStore, DEVICE_KEY_LEN,
+};
+#[cfg(any(test, target_os = "ios", target_os = "macos", target_os = "android"))]
+use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 const DEVICE_KEY_FILE_NAME: &str = "device.key";
 const SESSION_TOKEN_FILE_NAME: &str = "session.token";
-const MASTER_KEY_WRAP_FILE_NAME: &str = "master_key.wrap";
+const DEVICE_IDENTITY_FILE_NAME: &str = "device-identity.secret";
+const WRAPPED_ACCOUNT_ROOT_FILE_NAME: &str = "account-root.wrapped";
+const ACTIVE_CAPSULE_FILE_NAME: &str = "local-key.active.capsule";
+const PENDING_CAPSULE_FILE_NAME: &str = "local-key.pending.capsule";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-key";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "dev.todori.todori.session-token";
+const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "dev.todori.todori.session-token.v2";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const MASTER_KEY_WRAP_KEYCHAIN_SERVICE: &str = "dev.todori.todori.master-key-wrap";
+const DEVICE_IDENTITY_KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-identity.v1";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE: &str = "dev.todori.todori.account-root-wrapped.v1";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const ACTIVE_CAPSULE_KEYCHAIN_SERVICE: &str = "dev.todori.todori.local-key-capsule.active.v2";
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const PENDING_CAPSULE_KEYCHAIN_SERVICE: &str = "dev.todori.todori.local-key-capsule.pending.v2";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_ACCOUNT: &str = "default";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -22,6 +37,190 @@ const KEYCHAIN_ACCESS_GROUP_ENTITLEMENT: &str = "keychain-access-groups";
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 #[cfg(target_os = "macos")]
 const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
+
+/// Platform-selected local capsule store.
+///
+/// Apple production uses Data Protection Keychain. Android production uses
+/// the JNI-backed Android Keystore sealer. Plaintext files are accepted only
+/// by debug/test builds and never selected by a release process.
+pub struct PlatformLocalKeyCapsuleStore {
+    db_dir: PathBuf,
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
+    namespace: String,
+}
+
+impl PlatformLocalKeyCapsuleStore {
+    pub fn new(db_dir: impl AsRef<Path>) -> Self {
+        let db_dir = db_dir.as_ref().to_path_buf();
+        Self {
+            #[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
+            namespace: profile_store_namespace(&db_dir),
+            db_dir,
+        }
+    }
+
+    fn file_store(&self, slot: LocalKeyCapsuleSlot) -> FileSecretStore {
+        FileSecretStore::new(
+            &self.db_dir,
+            match slot {
+                LocalKeyCapsuleSlot::Active => ACTIVE_CAPSULE_FILE_NAME,
+                LocalKeyCapsuleSlot::Pending => PENDING_CAPSULE_FILE_NAME,
+            },
+        )
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    fn apple_store(&self, slot: LocalKeyCapsuleSlot) -> AppleKeychainSecretStore {
+        let service = match slot {
+            LocalKeyCapsuleSlot::Active => ACTIVE_CAPSULE_KEYCHAIN_SERVICE,
+            LocalKeyCapsuleSlot::Pending => PENDING_CAPSULE_KEYCHAIN_SERVICE,
+        };
+        AppleKeychainSecretStore::new_data_protection_only(format!("{service}.{}", self.namespace))
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    fn plaintext_allowed() -> bool {
+        cfg!(debug_assertions)
+            || cfg!(test)
+            || std::env::var_os("FLUTTER_TEST").is_some()
+            || std::env::var_os("DART_TEST").is_some()
+    }
+
+    fn load_bytes(
+        &self,
+        slot: LocalKeyCapsuleSlot,
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, KeyStoreError> {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            if is_flutter_test_process() {
+                return self
+                    .file_store(slot)
+                    .load()
+                    .map(|value| value.map(Zeroizing::new));
+            }
+            self.apple_store(slot)
+                .load()
+                .map(|value| value.map(Zeroizing::new))
+        }
+
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            #[cfg(target_os = "android")]
+            {
+                if !Self::plaintext_allowed() {
+                    return crate::android_capsule_store::load(&self.namespace, slot)
+                        .map(|value| value.map(Zeroizing::new));
+                }
+            }
+            if !Self::plaintext_allowed() {
+                return Err(KeyStoreError::PlaintextStoreForbidden);
+            }
+            self.file_store(slot)
+                .load()
+                .map(|value| value.map(Zeroizing::new))
+        }
+    }
+
+    fn store_bytes(&self, slot: LocalKeyCapsuleSlot, value: &[u8]) -> Result<(), KeyStoreError> {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            if is_flutter_test_process() {
+                return self.file_store(slot).store(value);
+            }
+            self.apple_store(slot).store(value)
+        }
+
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            #[cfg(target_os = "android")]
+            {
+                if !Self::plaintext_allowed() {
+                    return crate::android_capsule_store::store(&self.namespace, slot, value);
+                }
+            }
+            if !Self::plaintext_allowed() {
+                return Err(KeyStoreError::PlaintextStoreForbidden);
+            }
+            self.file_store(slot).store(value)
+        }
+    }
+
+    fn delete_slot(&self, slot: LocalKeyCapsuleSlot) -> Result<(), KeyStoreError> {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            if is_flutter_test_process() {
+                return self.file_store(slot).delete();
+            }
+            self.apple_store(slot).delete()
+        }
+
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            #[cfg(target_os = "android")]
+            {
+                if !Self::plaintext_allowed() {
+                    return crate::android_capsule_store::delete(&self.namespace, slot);
+                }
+            }
+            if !Self::plaintext_allowed() {
+                return Err(KeyStoreError::PlaintextStoreForbidden);
+            }
+            self.file_store(slot).delete()
+        }
+    }
+}
+
+#[cfg(any(test, target_os = "ios", target_os = "macos", target_os = "android"))]
+fn profile_store_namespace(db_dir: &Path) -> String {
+    let canonical = fs::canonicalize(db_dir).unwrap_or_else(|_| db_dir.to_path_buf());
+    let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+    let mut namespace = String::with_capacity(33);
+    namespace.push('p');
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in &digest[..16] {
+        namespace.push(HEX[(byte >> 4) as usize] as char);
+        namespace.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    namespace
+}
+
+#[cfg(test)]
+mod profile_namespace_tests {
+    use super::profile_store_namespace;
+    use tempfile::TempDir;
+
+    #[test]
+    fn namespace_is_stable_per_profile_and_distinct_across_profiles() {
+        let first = TempDir::new().unwrap();
+        let second = TempDir::new().unwrap();
+        let first_namespace = profile_store_namespace(first.path());
+
+        assert_eq!(first_namespace, profile_store_namespace(first.path()));
+        assert_ne!(first_namespace, profile_store_namespace(second.path()));
+        assert_eq!(first_namespace.len(), 33);
+        assert!(first_namespace.starts_with('p'));
+    }
+}
+
+impl LocalKeyCapsuleStore for PlatformLocalKeyCapsuleStore {
+    fn load(&self, slot: LocalKeyCapsuleSlot) -> Result<Option<LocalKeyCapsule>, KeyStoreError> {
+        self.load_bytes(slot)?
+            .map(|encoded| LocalKeyCapsule::decode(&encoded))
+            .transpose()
+    }
+
+    fn store(
+        &mut self,
+        slot: LocalKeyCapsuleSlot,
+        capsule: &LocalKeyCapsule,
+    ) -> Result<(), KeyStoreError> {
+        self.store_bytes(slot, &capsule.encode())
+    }
+
+    fn delete(&mut self, slot: LocalKeyCapsuleSlot) -> Result<(), KeyStoreError> {
+        self.delete_slot(slot)
+    }
+}
 
 pub fn load_or_create_device_key(
     db_dir: impl AsRef<Path>,
@@ -46,13 +245,15 @@ pub fn load_or_create_device_key(
 
 pub enum AccountSecretKind {
     SessionToken,
-    MasterKeyWrap,
+    DeviceIdentity,
+    WrappedAccountRoot,
 }
 
 pub fn load_account_secret(
     db_dir: impl AsRef<Path>,
     kind: AccountSecretKind,
 ) -> Result<Option<Vec<u8>>, KeyStoreError> {
+    let db_dir = db_dir.as_ref();
     let file_store = FileSecretStore::new(db_dir, kind.file_name());
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -60,11 +261,30 @@ pub fn load_account_secret(
         if is_flutter_test_process() {
             return file_store.load();
         }
-        AppleKeychainSecretStore::new(kind.keychain_service()).load()
+        AppleKeychainSecretStore::new_data_protection_only(format!(
+            "{}.{}",
+            kind.keychain_service(),
+            profile_store_namespace(db_dir)
+        ))
+        .load()
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::load_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.load()
     }
 }
@@ -74,6 +294,7 @@ pub fn store_account_secret(
     kind: AccountSecretKind,
     value: &[u8],
 ) -> Result<(), KeyStoreError> {
+    let db_dir = db_dir.as_ref();
     let file_store = FileSecretStore::new(db_dir, kind.file_name());
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -81,11 +302,31 @@ pub fn store_account_secret(
         if is_flutter_test_process() {
             return file_store.store(value);
         }
-        AppleKeychainSecretStore::new(kind.keychain_service()).store(value)
+        AppleKeychainSecretStore::new_data_protection_only(format!(
+            "{}.{}",
+            kind.keychain_service(),
+            profile_store_namespace(db_dir)
+        ))
+        .store(value)
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::store_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+                value,
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.store(value)
     }
 }
@@ -94,6 +335,7 @@ pub fn delete_account_secret(
     db_dir: impl AsRef<Path>,
     kind: AccountSecretKind,
 ) -> Result<(), KeyStoreError> {
+    let db_dir = db_dir.as_ref();
     let file_store = FileSecretStore::new(db_dir, kind.file_name());
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -101,11 +343,30 @@ pub fn delete_account_secret(
         if is_flutter_test_process() {
             return file_store.delete();
         }
-        AppleKeychainSecretStore::new(kind.keychain_service()).delete()
+        AppleKeychainSecretStore::new_data_protection_only(format!(
+            "{}.{}",
+            kind.keychain_service(),
+            profile_store_namespace(db_dir)
+        ))
+        .delete()
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
+        #[cfg(target_os = "android")]
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return crate::android_capsule_store::delete_named(
+                &profile_store_namespace(db_dir),
+                "device-identity",
+            );
+        }
+        if matches!(kind, AccountSecretKind::DeviceIdentity)
+            && !PlatformLocalKeyCapsuleStore::plaintext_allowed()
+        {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         file_store.delete()
     }
 }
@@ -114,7 +375,8 @@ impl AccountSecretKind {
     fn file_name(&self) -> &'static str {
         match self {
             AccountSecretKind::SessionToken => SESSION_TOKEN_FILE_NAME,
-            AccountSecretKind::MasterKeyWrap => MASTER_KEY_WRAP_FILE_NAME,
+            AccountSecretKind::DeviceIdentity => DEVICE_IDENTITY_FILE_NAME,
+            AccountSecretKind::WrappedAccountRoot => WRAPPED_ACCOUNT_ROOT_FILE_NAME,
         }
     }
 
@@ -122,7 +384,8 @@ impl AccountSecretKind {
     fn keychain_service(&self) -> &'static str {
         match self {
             AccountSecretKind::SessionToken => SESSION_TOKEN_KEYCHAIN_SERVICE,
-            AccountSecretKind::MasterKeyWrap => MASTER_KEY_WRAP_KEYCHAIN_SERVICE,
+            AccountSecretKind::DeviceIdentity => DEVICE_IDENTITY_KEYCHAIN_SERVICE,
+            AccountSecretKind::WrappedAccountRoot => WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE,
         }
     }
 }
@@ -156,14 +419,18 @@ pub fn ensure_device_key_with_migration(
 struct AppleKeychainSecretStore {
     service: String,
     account: String,
+    #[cfg(target_os = "macos")]
+    allow_legacy: bool,
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 impl AppleKeychainSecretStore {
-    fn new(service: impl Into<String>) -> Self {
+    fn new_data_protection_only(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),
             account: KEYCHAIN_ACCOUNT.to_string(),
+            #[cfg(target_os = "macos")]
+            allow_legacy: false,
         }
     }
 
@@ -210,7 +477,7 @@ impl AppleKeychainSecretStore {
         {
             match self.load_from_backend(KeychainBackend::DataProtection) {
                 Ok(bytes) => Ok(bytes),
-                Err(error) if is_keychain_missing_entitlement(&error) => {
+                Err(error) if is_keychain_missing_entitlement(&error) && self.allow_legacy => {
                     log_legacy_keychain_fallback();
                     self.load_from_legacy_backend_and_migrate()
                         .map_err(keychain_error)
@@ -231,7 +498,7 @@ impl AppleKeychainSecretStore {
         {
             match self.store_in_backend(KeychainBackend::DataProtection, value) {
                 Ok(()) => Ok(()),
-                Err(error) if is_keychain_missing_entitlement(&error) => {
+                Err(error) if is_keychain_missing_entitlement(&error) && self.allow_legacy => {
                     log_legacy_keychain_fallback();
                     self.store_in_legacy_backend_with_acl(value, None)
                         .map_err(keychain_error)
@@ -250,6 +517,11 @@ impl AppleKeychainSecretStore {
     fn delete(&self) -> Result<(), KeyStoreError> {
         #[cfg(target_os = "macos")]
         {
+            if !self.allow_legacy {
+                return self
+                    .delete_from_backend(KeychainBackend::DataProtection)
+                    .map_err(keychain_error);
+            }
             let data_protection_error =
                 match self.delete_from_backend(KeychainBackend::DataProtection) {
                     Ok(()) => None,
@@ -1003,10 +1275,34 @@ mod tests {
             "device key was not deleted"
         );
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "touches the real macOS Keychain; run manually during platform verification"]
+    fn apple_data_protection_keychain_round_trips_capsule_v2_without_prompt_flags() {
+        let service = format!(
+            "{}.test.{}",
+            ACTIVE_CAPSULE_KEYCHAIN_SERVICE,
+            std::process::id()
+        );
+        let store = AppleKeychainSecretStore::new_data_protection_only(service);
+        let capsule = LocalKeyCapsule::new(2, [0x5a; DEVICE_KEY_LEN], Some(vec![1, 2, 3])).unwrap();
+
+        let _ = store.delete();
+        store.store(&capsule.encode()).unwrap();
+        let decoded = LocalKeyCapsule::decode(&store.load().unwrap().unwrap()).unwrap();
+        assert_eq!(decoded.generation(), 2);
+        assert_eq!(decoded.device_key(), &[0x5a; DEVICE_KEY_LEN]);
+        store.delete().unwrap();
+        assert!(store.load().unwrap().is_none());
+    }
 }
 
 impl DeviceKeyStore for FileDeviceKeyStore {
     fn load(&self) -> Result<Option<[u8; DEVICE_KEY_LEN]>, KeyStoreError> {
+        if !cfg!(debug_assertions) && !cfg!(test) {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         match fs::read(&self.path) {
             Ok(bytes) => {
                 if bytes.len() != DEVICE_KEY_LEN {
@@ -1026,6 +1322,9 @@ impl DeviceKeyStore for FileDeviceKeyStore {
     }
 
     fn store(&mut self, key: &[u8; DEVICE_KEY_LEN]) -> Result<(), KeyStoreError> {
+        if !cfg!(debug_assertions) && !cfg!(test) {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| KeyStoreError::Backend(error.to_string()))?;
@@ -1035,6 +1334,9 @@ impl DeviceKeyStore for FileDeviceKeyStore {
     }
 
     fn delete(&mut self) -> Result<(), KeyStoreError> {
+        if !cfg!(debug_assertions) && !cfg!(test) {
+            return Err(KeyStoreError::PlaintextStoreForbidden);
+        }
         match fs::remove_file(&self.path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

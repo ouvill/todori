@@ -28,6 +28,7 @@
 //! ```
 
 mod crud_service;
+mod device_key_rotation;
 mod local_crypto;
 mod model;
 mod mutation_service;
@@ -39,7 +40,9 @@ pub(crate) use local_crypto::{
     load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
     LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity, LocalCryptoUnavailable,
 };
-pub use model::{AccountAuthResult, AccountSessionState, RealtimeTicket, SyncStatus};
+pub use model::{
+    AccountAuthResult, AccountSessionState, OrganizationSafetyState, RealtimeTicket, SyncStatus,
+};
 pub use mutation_service::ClientError;
 pub(crate) use mutation_service::{LocalMutationContext, SqliteMutationService, UpdateTaskInput};
 pub use runtime::{

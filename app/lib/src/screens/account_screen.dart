@@ -1,6 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/rust/api.dart';
@@ -87,6 +91,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       busy: _busy,
                       onLogout: _logout,
                       onSyncNow: _syncNow,
+                      onVerifyOrganization: _showOrganizationVerification,
                     )
                   else
                     _SignedOutSection(
@@ -214,6 +219,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   Future<void> _syncNow() async {
     await ref.read(syncStatusProvider.notifier).syncNow();
+  }
+
+  Future<void> _showOrganizationVerification() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) =>
+          _OrganizationSafetyDialog(bridge: ref.read(bridgeServiceProvider)),
+    );
   }
 }
 
@@ -407,6 +420,7 @@ class _SignedInSection extends StatelessWidget {
     required this.busy,
     required this.onLogout,
     required this.onSyncNow,
+    required this.onVerifyOrganization,
   });
 
   final AccountSessionStateDto account;
@@ -414,6 +428,7 @@ class _SignedInSection extends StatelessWidget {
   final bool busy;
   final VoidCallback onLogout;
   final VoidCallback onSyncNow;
+  final VoidCallback onVerifyOrganization;
 
   @override
   Widget build(BuildContext context) {
@@ -433,6 +448,17 @@ class _SignedInSection extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.lg),
         OutlinedButton.icon(
+          key: const ValueKey('organization-safety-open'),
+          onPressed: busy ? null : onVerifyOrganization,
+          icon: const Icon(LucideIcons.shieldCheck300),
+          label: Text(l10n.organizationSafetyOpenButton),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide.none,
+            alignment: AlignmentDirectional.centerStart,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton.icon(
           onPressed: busy ? null : onLogout,
           icon: const Icon(LucideIcons.logOut300),
           label: Text(l10n.accountLogoutButton),
@@ -446,6 +472,184 @@ class _SignedInSection extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _OrganizationSafetyDialog extends StatefulWidget {
+  const _OrganizationSafetyDialog({required this.bridge});
+
+  final BridgeService bridge;
+
+  @override
+  State<_OrganizationSafetyDialog> createState() =>
+      _OrganizationSafetyDialogState();
+}
+
+class _OrganizationSafetyDialogState extends State<_OrganizationSafetyDialog> {
+  final _tenantController = TextEditingController();
+  final _memberController = TextEditingController();
+  OrganizationSafetyStateDto? _state;
+  bool _comparedOutOfBand = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _tenantController.dispose();
+    _memberController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final state = _state;
+    return AlertDialog(
+      title: Text(l10n.organizationSafetyTitle),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(l10n.organizationSafetyBody),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                key: const ValueKey('organization-tenant-id'),
+                controller: _tenantController,
+                enabled: !_busy,
+                decoration: InputDecoration(
+                  labelText: l10n.organizationTenantIdLabel,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                key: const ValueKey('organization-member-id'),
+                controller: _memberController,
+                enabled: !_busy,
+                decoration: InputDecoration(
+                  labelText: l10n.organizationMemberIdLabel,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              if (state == null)
+                FilledButton(
+                  key: const ValueKey('organization-safety-load'),
+                  onPressed: _busy ? null : _load,
+                  child: Text(l10n.organizationSafetyLoadButton),
+                )
+              else ...[
+                Center(
+                  child: QrImageView.withQr(
+                    key: const ValueKey('organization-safety-qr'),
+                    qr: QrCode.fromUint8List(
+                      data: base64Decode(state.qrPayload),
+                      errorCorrectLevel: QrErrorCorrectLevel.M,
+                    ),
+                    size: 180,
+                    semanticsLabel: l10n.organizationSafetyQrSemantics,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SelectableText(
+                  _groupSafetyNumber(state.decimal),
+                  key: const ValueKey('organization-safety-number'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  state.verificationState == 'verified'
+                      ? l10n.organizationSafetyVerified
+                      : l10n.organizationSafetyUnverified,
+                  textAlign: TextAlign.center,
+                ),
+                CheckboxListTile(
+                  key: const ValueKey('organization-safety-compared'),
+                  contentPadding: EdgeInsets.zero,
+                  value: _comparedOutOfBand,
+                  onChanged: _busy
+                      ? null
+                      : (value) =>
+                            setState(() => _comparedOutOfBand = value ?? false),
+                  title: Text(l10n.organizationSafetyComparedOutOfBand),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                FilledButton.icon(
+                  key: const ValueKey('organization-safety-confirm'),
+                  onPressed: _busy || !_comparedOutOfBand ? null : _confirm,
+                  icon: const Icon(LucideIcons.badgeCheck300),
+                  label: Text(l10n.organizationSafetyConfirmButton),
+                ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: Text(l10n.cancelButton),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _load() async {
+    await _run(() async {
+      final state = await widget.bridge.organizationSafetyNumber(
+        tenantId: _tenantController.text.trim(),
+        memberUserId: _memberController.text.trim(),
+      );
+      if (mounted) setState(() => _state = state);
+    });
+  }
+
+  Future<void> _confirm() async {
+    final current = _state;
+    if (current == null) return;
+    await _run(() async {
+      final state = await widget.bridge.confirmOrganizationSafetyNumber(
+        tenantId: _tenantController.text.trim(),
+        memberUserId: _memberController.text.trim(),
+        digest: current.digest,
+      );
+      if (mounted) setState(() => _state = state);
+    });
+  }
+
+  Future<void> _run(Future<void> Function() operation) async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await operation();
+    } catch (_) {
+      if (mounted) setState(() => _error = l10n.organizationSafetyFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _groupSafetyNumber(String value) {
+    final chunks = <String>[];
+    for (var offset = 0; offset < value.length; offset += 5) {
+      final end = (offset + 5).clamp(0, value.length);
+      chunks.add(value.substring(offset, end));
+    }
+    return chunks.join(' ');
   }
 }
 

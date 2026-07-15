@@ -88,6 +88,11 @@ pub struct PreflightResult {
     pub continuity_generation: i64,
     pub required_generation: i64,
     pub full_resync_required: bool,
+    pub suite_id: u16,
+    pub active_key_generation: u64,
+    pub minimum_write_generation: u64,
+    pub migrating_key_generation: Option<u64>,
+    pub key_manifests: Vec<protocol::KeyManifestDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,8 +195,39 @@ impl SyncEngine {
             || capabilities.continuity_generation < 0
             || capabilities.required_generation < capabilities.continuity_generation
             || capabilities.full_resync_required != full_resync_required
+            || capabilities.suite_id != todori_crypto::CRYPTO_SUITE_ID
+            || capabilities.active_key_generation == 0
+            || capabilities.minimum_write_generation != capabilities.active_key_generation
+            || capabilities.key_manifests.is_empty()
+            || capabilities.key_manifests.iter().any(|manifest| {
+                manifest.suite_id != capabilities.suite_id
+                    || manifest.generation != capabilities.active_key_generation
+                    || manifest.minimum_write_generation != capabilities.minimum_write_generation
+                    || !matches!(
+                        manifest.status,
+                        crate::RotationStatus::Active | crate::RotationStatus::Migrating
+                    )
+                    || manifest.signed_manifest.is_empty()
+            })
         {
             return Err(SyncEngineError::InvalidPreflightResponse);
+        }
+        for descriptor in &capabilities.key_manifests {
+            let bytes = STANDARD
+                .decode(&descriptor.signed_manifest)
+                .map_err(|_| SyncEngineError::InvalidPreflightResponse)?;
+            let manifest = crate::KeyManifest::from_authenticated_bytes(&bytes)
+                .map_err(|_| SyncEngineError::InvalidPreflightResponse)?;
+            if manifest.scope != descriptor.scope
+                || manifest.list_id != descriptor.list_id
+                || manifest.tenant_id != self.tenant_id
+                || manifest.suite_id != descriptor.suite_id
+                || manifest.generation != descriptor.generation
+                || manifest.status != descriptor.status
+                || manifest.minimum_write_generation != descriptor.minimum_write_generation
+            {
+                return Err(SyncEngineError::InvalidPreflightResponse);
+            }
         }
         Ok(PreflightResult {
             gc_horizon_seq: capabilities.gc_horizon_seq,
@@ -199,6 +235,11 @@ impl SyncEngine {
             continuity_generation: capabilities.continuity_generation,
             required_generation: capabilities.required_generation,
             full_resync_required,
+            suite_id: capabilities.suite_id,
+            active_key_generation: capabilities.active_key_generation,
+            minimum_write_generation: capabilities.minimum_write_generation,
+            migrating_key_generation: capabilities.migrating_key_generation,
+            key_manifests: capabilities.key_manifests,
         })
     }
 

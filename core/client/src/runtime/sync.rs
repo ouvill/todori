@@ -89,7 +89,7 @@ impl TodoriClient {
         let context = self
             .active_sync_context()
             .ok_or(ClientError::AccountRequest)?;
-        let mut store = SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+        let mut store = SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
         let mut clock = || now_ms().map_err(|error| error.to_string());
         let mut key_refresher = ProductionKeyRefresher { client: self };
         let mut pre_push = |store: &mut SqliteSyncStore| {
@@ -162,7 +162,7 @@ impl TodoriClient {
             keys,
             now_ms()?,
         )?;
-        self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+        self.account_state()?.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(())
     }
 
@@ -228,6 +228,8 @@ impl TodoriClient {
         let tenant_id = crypto.tenant_id();
         let device_id = crypto.device_id().to_string();
         let keys = crypto.sync_keys().clone();
+        let manifest_auth_key =
+            todori_sync::derive_personal_manifest_auth_key(crypto.master_key()).ok()?;
         drop(account);
         let token = load_account_secret(&self.db_dir, AccountSecretKind::SessionToken).ok()??;
         let token = Zeroizing::new(String::from_utf8(token).ok()?);
@@ -240,6 +242,7 @@ impl TodoriClient {
             device_id,
             session_token: token.to_string(),
             keys,
+            manifest_auth_key,
         })
     }
 

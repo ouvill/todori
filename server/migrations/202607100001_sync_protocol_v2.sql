@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS sync_records (
     mutation_hlc TEXT,
     delete_hlc TEXT,
     encrypted_blob BYTEA,
+    suite_id SMALLINT,
+    key_generation BIGINT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, record_id),
     UNIQUE (tenant_id, seq),
@@ -37,6 +39,8 @@ CREATE TABLE IF NOT EXISTS sync_records (
             AND delete_hlc IS NULL
             AND encrypted_blob IS NOT NULL
             AND octet_length(encrypted_blob) > 0
+            AND suite_id = 2
+            AND key_generation > 0
         )
         OR
         (
@@ -45,6 +49,8 @@ CREATE TABLE IF NOT EXISTS sync_records (
             AND delete_hlc <> ''
             AND revision_hlc >= delete_hlc
             AND encrypted_blob IS NULL
+            AND suite_id IS NULL
+            AND key_generation IS NULL
         )
     )
 );
@@ -59,6 +65,8 @@ CREATE TABLE IF NOT EXISTS sync_records_history (
     mutation_hlc TEXT,
     delete_hlc TEXT,
     encrypted_blob BYTEA,
+    suite_id SMALLINT,
+    key_generation BIGINT,
     author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     overwritten_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
@@ -69,6 +77,8 @@ CREATE TABLE IF NOT EXISTS sync_records_history (
             AND delete_hlc IS NULL
             AND encrypted_blob IS NOT NULL
             AND octet_length(encrypted_blob) > 0
+            AND suite_id = 2
+            AND key_generation > 0
         )
         OR
         (
@@ -77,6 +87,8 @@ CREATE TABLE IF NOT EXISTS sync_records_history (
             AND delete_hlc <> ''
             AND revision_hlc >= delete_hlc
             AND encrypted_blob IS NULL
+            AND suite_id IS NULL
+            AND key_generation IS NULL
         )
     )
 );

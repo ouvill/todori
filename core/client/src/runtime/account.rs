@@ -1,29 +1,45 @@
 use std::collections::HashSet;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use todori_crypto::{
-    delete_account_secret, key_hierarchy::unwrap_master_key_with_device_key, load_account_secret,
-    load_or_create_device_key, store_account_secret, AccountSecretKind,
+    delete_account_secret,
+    key_hierarchy::{
+        unwrap_account_root_private_key_with_master_key, unwrap_master_key_with_device_key,
+        wrap_account_root_private_key_with_master_key, INITIAL_KEY_GENERATION,
+    },
+    load_account_secret,
+    organization::{
+        AccountRootPrivateKeys, AccountRootPublicKeys, DeviceCertificate, DeviceIdentity,
+        SignedDeviceRevocation,
+    },
+    store_account_secret, AccountSecretKind, LocalKeyCapsuleSlot, LocalKeyCapsuleStore,
+    PlatformLocalKeyCapsuleStore,
 };
 use todori_domain::Uuid;
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SqliteLocalCryptoRepository,
-    SqliteSyncStateRepository, StorageError,
+    SqliteSyncStateRepository, StorageError, TaskRepository, TimerSessionRepository,
 };
 use todori_sync::{
-    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
-    LocalSyncKeys,
+    account::{
+        unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountKeyMaterial,
+        AccountListDekMaterial, OrganizationRosterTrust,
+    },
+    organization::verify_organization_active_bundle,
+    LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncWriteTransaction,
 };
 use zeroize::Zeroizing;
 
 use super::{
     now_ms, CryptoRuntimeState, TodoriClient, ACCOUNT_DEVICE_ID_SETTING_KEY,
-    ACCOUNT_EMAIL_SETTING_KEY, ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
-    ACCOUNT_TENANT_ID_SETTING_KEY, ACCOUNT_USER_ID_SETTING_KEY,
+    ACCOUNT_EMAIL_SETTING_KEY, ACCOUNT_MK_GENERATION_SETTING_KEY, ACCOUNT_ROOT_PUBLIC_SETTING_KEY,
+    ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY, ACCOUNT_TENANT_ID_SETTING_KEY,
+    ACCOUNT_USER_ID_SETTING_KEY,
 };
 use crate::{
     load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
     AccountAuthResult, AccountSessionState, ClientError, LocalCryptoAvailability,
-    LocalCryptoIdentity, LocalCryptoUnavailable,
+    LocalCryptoIdentity, LocalCryptoUnavailable, OrganizationSafetyState,
 };
 
 enum AccountAuthMode {
@@ -31,7 +47,510 @@ enum AccountAuthMode {
     Login,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OrganizationTrustPin {
+    owner_root_public: String,
+    member_root_public: String,
+    digest: String,
+    locally_confirmed: bool,
+    minimum_generation: u64,
+    required_generation: u64,
+    owner_roster_revision: u64,
+    owner_roster_head_hash: String,
+    member_roster_revision: u64,
+    member_roster_head_hash: String,
+}
+
+impl OrganizationTrustPin {
+    fn candidate(response: &todori_sync::organization::OrganizationSafetyResponse) -> Self {
+        Self {
+            owner_root_public: response.owner_root_public.clone(),
+            member_root_public: response.member_root_public.clone(),
+            digest: response.digest.clone(),
+            locally_confirmed: false,
+            minimum_generation: 1,
+            required_generation: 0,
+            owner_roster_revision: 0,
+            owner_roster_head_hash: STANDARD.encode([0u8; 32]),
+            member_roster_revision: 0,
+            member_roster_head_hash: STANDARD.encode([0u8; 32]),
+        }
+    }
+
+    fn matches(&self, response: &todori_sync::organization::OrganizationSafetyResponse) -> bool {
+        self.owner_root_public == response.owner_root_public
+            && self.member_root_public == response.member_root_public
+            && self.digest == response.digest
+    }
+
+    fn encode(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            self.owner_root_public,
+            self.member_root_public,
+            self.digest,
+            u8::from(self.locally_confirmed),
+            self.minimum_generation,
+            self.required_generation,
+            self.owner_roster_revision,
+            self.owner_roster_head_hash,
+            self.member_roster_revision,
+            self.member_roster_head_hash
+        )
+    }
+
+    fn decode(value: &str) -> Option<Self> {
+        let mut fields = value.split('|');
+        let result = Self {
+            owner_root_public: fields.next()?.to_string(),
+            member_root_public: fields.next()?.to_string(),
+            digest: fields.next()?.to_string(),
+            locally_confirmed: match fields.next()? {
+                "0" => false,
+                "1" => true,
+                _ => return None,
+            },
+            minimum_generation: fields.next()?.parse().ok()?,
+            required_generation: fields.next()?.parse().ok()?,
+            owner_roster_revision: fields.next()?.parse().ok()?,
+            owner_roster_head_hash: fields.next()?.to_string(),
+            member_roster_revision: fields.next()?.parse().ok()?,
+            member_roster_head_hash: fields.next()?.to_string(),
+        };
+        if fields.next().is_some()
+            || result.owner_root_public.is_empty()
+            || result.member_root_public.is_empty()
+            || result.digest.is_empty()
+            || result.minimum_generation == 0
+            || (result.required_generation != 0
+                && result.required_generation <= result.minimum_generation)
+            || STANDARD.decode(&result.owner_roster_head_hash).ok()?.len() != 32
+            || STANDARD.decode(&result.member_roster_head_hash).ok()?.len() != 32
+        {
+            return None;
+        }
+        Some(result)
+    }
+}
+
+fn organization_safety_state(
+    mut response: todori_sync::organization::OrganizationSafetyResponse,
+    locally_verified: bool,
+) -> OrganizationSafetyState {
+    if !locally_verified {
+        response.verification_state = "unverified".to_string();
+    }
+    OrganizationSafetyState {
+        owner_user_id: response.owner_user_id.to_string(),
+        member_user_id: response.member_user_id.to_string(),
+        digest: response.digest,
+        decimal: response.decimal,
+        qr_payload: response.qr_payload,
+        verification_state: response.verification_state,
+        owner_confirmed: response.owner_confirmed,
+        member_confirmed: response.member_confirmed,
+    }
+}
+
+fn decode_trust_hash(value: &str) -> Result<[u8; 32], ClientError> {
+    STANDARD
+        .decode(value)
+        .map_err(|_| ClientError::AccountRequest)?
+        .try_into()
+        .map_err(|_| ClientError::AccountRequest)
+}
+
+fn decode_trust_root(value: &str) -> Result<AccountRootPublicKeys, ClientError> {
+    AccountRootPublicKeys::decode(
+        &STANDARD
+            .decode(value)
+            .map_err(|_| ClientError::AccountRequest)?,
+    )
+    .map_err(|_| ClientError::AccountRequest)
+}
+
 impl TodoriClient {
+    pub async fn organization_safety_number(
+        &self,
+        tenant_id: String,
+        member_user_id: String,
+    ) -> Result<OrganizationSafetyState, ClientError> {
+        let _operation = self.begin_operation()?;
+        self.ensure_account_runtime_restored()?;
+        let tenant_id = parse_uuid(&tenant_id)?;
+        let member_user_id = parse_uuid(&member_user_id)?;
+        let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let response = client
+            .organization_safety_number(tenant_id, member_user_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&response)?;
+        let locally_verified = self
+            .load_organization_trust_pin(tenant_id, member_user_id)?
+            .is_some_and(|pin| {
+                pin.locally_confirmed
+                    && pin.matches(&response)
+                    && response.verification_state == "verified"
+            });
+        Ok(organization_safety_state(response, locally_verified))
+    }
+
+    pub async fn confirm_organization_safety_number(
+        &self,
+        tenant_id: String,
+        member_user_id: String,
+        digest: String,
+    ) -> Result<OrganizationSafetyState, ClientError> {
+        let _operation = self.begin_operation()?;
+        self.ensure_account_runtime_restored()?;
+        let tenant_id = parse_uuid(&tenant_id)?;
+        let member_user_id = parse_uuid(&member_user_id)?;
+        let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let current = client
+            .organization_safety_number(tenant_id, member_user_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&current)?;
+        if current.digest != digest {
+            return Err(ClientError::AccountRequest);
+        }
+        let response = client
+            .confirm_organization_safety_number(tenant_id, member_user_id, digest, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&response)?;
+        if !OrganizationTrustPin::candidate(&current).matches(&response) {
+            return Err(ClientError::AccountRequest);
+        }
+        let mut pin = OrganizationTrustPin::candidate(&response);
+        pin.locally_confirmed = true;
+        self.store_organization_trust_pin(tenant_id, member_user_id, &pin)?;
+        let locally_verified = response.verification_state == "verified";
+        Ok(organization_safety_state(response, locally_verified))
+    }
+
+    pub async fn verify_organization_device_rosters(
+        &self,
+        tenant_id: String,
+        member_user_id: String,
+    ) -> Result<(), ClientError> {
+        let _operation = self.begin_operation()?;
+        self.ensure_account_runtime_restored()?;
+        let tenant_id = parse_uuid(&tenant_id)?;
+        let member_user_id = parse_uuid(&member_user_id)?;
+        let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let safety = client
+            .organization_safety_number(tenant_id, member_user_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&safety)?;
+        let mut pin = self
+            .load_organization_trust_pin(tenant_id, member_user_id)?
+            .filter(|pin| {
+                pin.locally_confirmed
+                    && pin.matches(&safety)
+                    && safety.verification_state == "verified"
+            })
+            .ok_or(ClientError::AccountRequest)?;
+        let owner_root = decode_trust_root(&pin.owner_root_public)?;
+        let member_root = decode_trust_root(&pin.member_root_public)?;
+        if member_root.user_id != member_user_id {
+            return Err(ClientError::AccountRequest);
+        }
+        let owner = client
+            .organization_owner_devices(
+                tenant_id,
+                member_user_id,
+                OrganizationRosterTrust {
+                    user_id: owner_root.user_id,
+                    root_public: &pin.owner_root_public,
+                    minimum_revision: pin.owner_roster_revision,
+                    minimum_head_hash: decode_trust_hash(&pin.owner_roster_head_hash)?,
+                },
+                &session_token,
+            )
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        let member = client
+            .organization_member_devices(
+                tenant_id,
+                member_user_id,
+                OrganizationRosterTrust {
+                    user_id: member_root.user_id,
+                    root_public: &pin.member_root_public,
+                    minimum_revision: pin.member_roster_revision,
+                    minimum_head_hash: decode_trust_hash(&pin.member_roster_head_hash)?,
+                },
+                &session_token,
+            )
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        if owner.revision != pin.owner_roster_revision
+            || owner.head_hash != decode_trust_hash(&pin.owner_roster_head_hash)?
+            || member.revision != pin.member_roster_revision
+            || member.head_hash != decode_trust_hash(&pin.member_roster_head_hash)?
+        {
+            pin.required_generation = pin
+                .minimum_generation
+                .checked_add(1)
+                .ok_or(ClientError::AccountRequest)?;
+        }
+        pin.owner_roster_revision = owner.revision;
+        pin.owner_roster_head_hash = STANDARD.encode(owner.head_hash);
+        pin.member_roster_revision = member.revision;
+        pin.member_roster_head_hash = STANDARD.encode(member.head_hash);
+        self.store_organization_trust_pin(tenant_id, member_user_id, &pin)
+    }
+
+    pub async fn verify_organization_active_key_bundle(
+        &self,
+        tenant_id: String,
+        member_user_id: String,
+    ) -> Result<u64, ClientError> {
+        let _operation = self.begin_operation()?;
+        self.ensure_account_runtime_restored()?;
+        let tenant_id = parse_uuid(&tenant_id)?;
+        let member_user_id = parse_uuid(&member_user_id)?;
+        let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let safety = client
+            .organization_safety_number(tenant_id, member_user_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&safety)?;
+        let mut pin = self
+            .load_organization_trust_pin(tenant_id, member_user_id)?
+            .filter(|pin| {
+                pin.locally_confirmed
+                    && pin.matches(&safety)
+                    && safety.verification_state == "verified"
+            })
+            .ok_or(ClientError::AccountRequest)?;
+        let owner_root = decode_trust_root(&pin.owner_root_public)?;
+        let member_root = decode_trust_root(&pin.member_root_public)?;
+        if member_root.user_id != member_user_id {
+            return Err(ClientError::AccountRequest);
+        }
+        let device_identity = DeviceIdentity::decode(
+            &load_account_secret(&self.db_dir, AccountSecretKind::DeviceIdentity)
+                .map_err(ClientError::KeyStore)?
+                .ok_or(ClientError::AccountRequest)?,
+        )
+        .map_err(|_| ClientError::AccountRequest)?;
+        let owner_roster = client
+            .organization_owner_devices(
+                tenant_id,
+                member_user_id,
+                OrganizationRosterTrust {
+                    user_id: owner_root.user_id,
+                    root_public: &pin.owner_root_public,
+                    minimum_revision: pin.owner_roster_revision,
+                    minimum_head_hash: decode_trust_hash(&pin.owner_roster_head_hash)?,
+                },
+                &session_token,
+            )
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        let member_roster = client
+            .organization_member_devices(
+                tenant_id,
+                member_user_id,
+                OrganizationRosterTrust {
+                    user_id: member_root.user_id,
+                    root_public: &pin.member_root_public,
+                    minimum_revision: pin.member_roster_revision,
+                    minimum_head_hash: decode_trust_hash(&pin.member_roster_head_hash)?,
+                },
+                &session_token,
+            )
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        if owner_roster.revision != pin.owner_roster_revision
+            || owner_roster.head_hash != decode_trust_hash(&pin.owner_roster_head_hash)?
+            || member_roster.revision != pin.member_roster_revision
+            || member_roster.head_hash != decode_trust_hash(&pin.member_roster_head_hash)?
+        {
+            pin.required_generation = pin
+                .minimum_generation
+                .checked_add(1)
+                .ok_or(ClientError::AccountRequest)?;
+        }
+        let expected_recipients = owner_roster
+            .devices
+            .iter()
+            .chain(member_roster.devices.iter())
+            .map(|device| {
+                DeviceCertificate::decode(
+                    &STANDARD
+                        .decode(&device.certificate)
+                        .map_err(|_| ClientError::AccountRequest)?,
+                )
+                .and_then(|certificate| certificate.recipient_key_fingerprint())
+                .map_err(|_| ClientError::AccountRequest)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let bundle = client
+            .active_key_bundle(tenant_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        verify_organization_active_bundle(
+            &bundle,
+            tenant_id,
+            pin.required_generation.max(pin.minimum_generation),
+            &owner_root,
+            device_identity.certificate(),
+            &expected_recipients,
+        )
+        .map_err(|_| ClientError::AccountRequest)?;
+        pin.minimum_generation = bundle.generation;
+        pin.required_generation = 0;
+        pin.owner_roster_revision = owner_roster.revision;
+        pin.owner_roster_head_hash = STANDARD.encode(owner_roster.head_hash);
+        pin.member_roster_revision = member_roster.revision;
+        pin.member_roster_head_hash = STANDARD.encode(member_roster.head_hash);
+        self.store_organization_trust_pin(tenant_id, member_user_id, &pin)?;
+        Ok(bundle.generation)
+    }
+
+    pub async fn revoke_organization_device(
+        &self,
+        tenant_id: String,
+        member_user_id: String,
+        device_id: String,
+    ) -> Result<(), ClientError> {
+        let _operation = self.begin_operation()?;
+        self.ensure_account_runtime_restored()?;
+        let tenant_id = parse_uuid(&tenant_id)?;
+        let member_user_id = parse_uuid(&member_user_id)?;
+        let device_id = parse_uuid(&device_id)?;
+        let local_user_id = parse_uuid(
+            &self
+                .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+                .ok_or(ClientError::IncompleteAccountState)?,
+        )?;
+        let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let safety = client
+            .organization_safety_number(tenant_id, member_user_id, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        self.verify_local_safety_participant(&safety)?;
+        let mut pin = self
+            .load_organization_trust_pin(tenant_id, member_user_id)?
+            .filter(|pin| {
+                pin.locally_confirmed
+                    && pin.matches(&safety)
+                    && safety.verification_state == "verified"
+            })
+            .ok_or(ClientError::AccountRequest)?;
+        let owner_root = decode_trust_root(&pin.owner_root_public)?;
+        let member_root = decode_trust_root(&pin.member_root_public)?;
+        if member_root.user_id != member_user_id {
+            return Err(ClientError::AccountRequest);
+        }
+        let (roster, is_owner) = if safety.owner_user_id == local_user_id {
+            (
+                client
+                    .organization_owner_devices(
+                        tenant_id,
+                        member_user_id,
+                        OrganizationRosterTrust {
+                            user_id: owner_root.user_id,
+                            root_public: &pin.owner_root_public,
+                            minimum_revision: pin.owner_roster_revision,
+                            minimum_head_hash: decode_trust_hash(&pin.owner_roster_head_hash)?,
+                        },
+                        &session_token,
+                    )
+                    .await
+                    .map_err(|_| ClientError::AccountRequest)?,
+                true,
+            )
+        } else if safety.member_user_id == local_user_id {
+            (
+                client
+                    .organization_member_devices(
+                        tenant_id,
+                        member_user_id,
+                        OrganizationRosterTrust {
+                            user_id: member_root.user_id,
+                            root_public: &pin.member_root_public,
+                            minimum_revision: pin.member_roster_revision,
+                            minimum_head_hash: decode_trust_hash(&pin.member_roster_head_hash)?,
+                        },
+                        &session_token,
+                    )
+                    .await
+                    .map_err(|_| ClientError::AccountRequest)?,
+                false,
+            )
+        } else {
+            return Err(ClientError::AccountRequest);
+        };
+        let device = roster
+            .devices
+            .iter()
+            .find(|device| device.device_id == device_id && device.user_id == local_user_id)
+            .ok_or(ClientError::AccountRequest)?;
+        let certificate_fingerprint: [u8; 48] = STANDARD
+            .decode(&device.certificate_fingerprint)
+            .map_err(|_| ClientError::AccountRequest)?
+            .try_into()
+            .map_err(|_| ClientError::AccountRequest)?;
+        let (root_private, root_public) = self.load_account_root_keys()?;
+        let next_revision = roster
+            .revision
+            .checked_add(1)
+            .ok_or(ClientError::AccountRequest)?;
+        let statement = SignedDeviceRevocation::sign(
+            &root_private,
+            &root_public,
+            device_id,
+            certificate_fingerprint,
+            next_revision,
+            now_ms()?,
+            roster.head_hash,
+        )
+        .map_err(|_| ClientError::AccountRequest)?;
+        client
+            .revoke_organization_device(tenant_id, device_id, &statement, &session_token)
+            .await
+            .map_err(|_| ClientError::AccountRequest)?;
+        pin.required_generation = pin
+            .minimum_generation
+            .checked_add(1)
+            .ok_or(ClientError::AccountRequest)?;
+        if is_owner {
+            pin.owner_roster_revision = statement.revision;
+            pin.owner_roster_head_hash = STANDARD.encode(
+                statement
+                    .authenticated_hash()
+                    .map_err(|_| ClientError::AccountRequest)?,
+            );
+        } else {
+            pin.member_roster_revision = statement.revision;
+            pin.member_roster_head_hash = STANDARD.encode(
+                statement
+                    .authenticated_hash()
+                    .map_err(|_| ClientError::AccountRequest)?,
+            );
+        }
+        self.store_organization_trust_pin(tenant_id, member_user_id, &pin)
+    }
+
     pub fn account_session_state(&self) -> Result<AccountSessionState, ClientError> {
         self.ensure_account_runtime_restored()?;
         Ok(self
@@ -111,8 +630,7 @@ impl TodoriClient {
             }
             None => self.sync_server_url()?,
         };
-        let device_key =
-            Zeroizing::new(load_or_create_device_key(&self.db_dir).map_err(ClientError::KeyStore)?);
+        let device_key = Zeroizing::new(*self.active_capsule()?.device_key());
         let client = AccountClient::new(&server_url).map_err(|_| ClientError::AccountRequest)?;
         let password = Zeroizing::new(password);
 
@@ -136,6 +654,16 @@ impl TodoriClient {
                     outcome.session.tenant_id.clone(),
                     outcome.session.device_id.clone(),
                 );
+                let encoded_identity = outcome
+                    .device_identity
+                    .encode()
+                    .map_err(|_| ClientError::AccountRequest)?;
+                store_account_secret(
+                    &self.db_dir,
+                    AccountSecretKind::DeviceIdentity,
+                    &encoded_identity,
+                )
+                .map_err(ClientError::KeyStore)?;
                 let crypto = self.persist_account_state(
                     &session,
                     outcome.session.expires_at_ms,
@@ -173,6 +701,16 @@ impl TodoriClient {
                     outcome.session.tenant_id.clone(),
                     outcome.session.device_id.clone(),
                 );
+                let encoded_identity = outcome
+                    .device_identity
+                    .encode()
+                    .map_err(|_| ClientError::AccountRequest)?;
+                store_account_secret(
+                    &self.db_dir,
+                    AccountSecretKind::DeviceIdentity,
+                    &encoded_identity,
+                )
+                .map_err(ClientError::KeyStore)?;
                 let crypto = self.persist_account_state(
                     &session,
                     outcome.session.expires_at_ms,
@@ -189,24 +727,29 @@ impl TodoriClient {
         }
     }
 
-    pub(super) fn ensure_account_runtime_restored(&self) -> Result<(), ClientError> {
+    pub(crate) fn ensure_account_runtime_restored(&self) -> Result<(), ClientError> {
         let restore_crypto = matches!(self.account_state()?.crypto, CryptoRuntimeState::Unloaded);
         if restore_crypto {
-            let master_key =
-                match load_account_secret(&self.db_dir, AccountSecretKind::MasterKeyWrap)
-                    .map_err(ClientError::KeyStore)?
-                {
-                    Some(local_wrapped_master_key) => {
-                        let device_key = Zeroizing::new(
-                            load_or_create_device_key(&self.db_dir)
-                                .map_err(ClientError::KeyStore)?,
-                        );
-                        unwrap_master_key_with_device_key(&local_wrapped_master_key, &device_key)
-                            .ok()
-                    }
-                    None => None,
-                };
-            let availability = load_local_crypto_context(&self.db_path, &self.db_key, master_key)?;
+            let active_capsule = self.active_capsule()?;
+            let master_key = match active_capsule.wrapped_master_key() {
+                Some(local_wrapped_master_key) => {
+                    let user_id = self
+                        .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+                        .ok_or(ClientError::IncompleteAccountState)
+                        .and_then(|value| parse_uuid(&value))?;
+                    let device_key = Zeroizing::new(*active_capsule.device_key());
+                    unwrap_master_key_with_device_key(
+                        user_id,
+                        INITIAL_KEY_GENERATION,
+                        local_wrapped_master_key,
+                        &device_key,
+                    )
+                    .ok()
+                }
+                None => None,
+            };
+            let availability =
+                load_local_crypto_context(&self.db_path, &self.db_key(), master_key)?;
             let crypto = match availability {
                 LocalCryptoAvailability::Ready(crypto) => CryptoRuntimeState::Ready(crypto),
                 LocalCryptoAvailability::AccountBoundUnavailable(reason) => {
@@ -277,25 +820,45 @@ impl TodoriClient {
         };
 
         let client = AccountClient::new(server_url).map_err(|_| ClientError::AccountRequest)?;
-        let bundles = client
-            .list_key_bundles(tenant_id, &session_token)
+        let bundle = client
+            .active_key_bundle(tenant_id, &session_token)
             .await
             .map_err(|_| ClientError::AccountRequest)?;
-        let materials = unwrap_list_dek_bundles(&bundles, &master_key)
-            .map_err(|_| ClientError::AccountBoundUnavailable)?;
-        let tenant_root_dek = {
-            let account = self.account_state()?;
-            let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
-                return Err(ClientError::AccountBoundUnavailable);
-            };
-            crypto.sync_keys().tenant_root_dek.clone()
-        };
+        let (tenant_root_dek, materials) =
+            unwrap_active_key_bundle(tenant_id, &bundle, &master_key)
+                .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let historical =
+            unwrap_historical_key_bundles(tenant_id, &bundle.migrating_generations, &master_key)
+                .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let list_generations = materials
+            .iter()
+            .map(|material| Ok((parse_uuid(&material.list_id)?, material.generation)))
+            .collect::<Result<Vec<_>, ClientError>>()?;
         let remote_keys = LocalSyncKeys {
+            tenant_id,
             list_deks: materials
                 .into_iter()
-                .map(|material| Ok((parse_uuid(&material.list_id)?, *material.dek)))
+                .map(|material| Ok((parse_uuid(&material.list_id)?, material.dek)))
                 .collect::<Result<Vec<_>, ClientError>>()?,
-            tenant_root_dek,
+            list_generations,
+            tenant_root_dek: Some(tenant_root_dek),
+            tenant_generation: bundle.generation,
+            historical_list_deks: historical
+                .iter()
+                .flat_map(|historical| {
+                    historical.list_deks.iter().map(|material| {
+                        Ok((
+                            parse_uuid(&material.list_id)?,
+                            material.generation,
+                            material.dek.clone(),
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>, ClientError>>()?,
+            historical_tenant_root_deks: historical
+                .into_iter()
+                .map(|historical| (historical.generation, historical.tenant_root_dek))
+                .collect(),
         };
         let local_keys = {
             let account = self.account_state()?;
@@ -304,13 +867,43 @@ impl TodoriClient {
             };
             crypto.sync_keys().clone()
         };
+        let previous_generation = local_keys.tenant_generation;
         let pending = self.pending_list_key_ids(tenant_id)?;
-        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
+        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
         let sync_keys =
             merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending, &retained)?;
+        if sync_keys.tenant_generation > previous_generation {
+            if !pending.is_empty() {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+            let lists = self.local_lists_including_archived()?;
+            let tasks =
+                self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
+            let timer_sessions =
+                self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
+            if lists.iter().any(|list| !sync_keys.contains_list(list.id)) {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+            let mut store = crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
+            let mut transaction = store
+                .begin_write_transaction()
+                .map_err(|_| ClientError::SyncRun)?;
+            let mut clock = || now_ms().map_err(|error| error.to_string());
+            todori_sync::enqueue_rotation_backfill(
+                &mut transaction,
+                &sync_keys,
+                &device_id.to_string(),
+                &lists,
+                &tasks,
+                &timer_sessions,
+                &mut clock,
+            )
+            .map_err(|_| ClientError::SyncRun)?;
+            transaction.commit().map_err(|_| ClientError::SyncRun)?;
+        }
         let crypto = persist_local_crypto_context(
             &self.db_path,
-            &self.db_key,
+            &self.db_key(),
             LocalCryptoIdentity {
                 tenant_id,
                 user_id,
@@ -320,7 +913,16 @@ impl TodoriClient {
             sync_keys.clone(),
             now_ms()?,
         )?;
-        self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+        let mut marker_store =
+            crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
+        marker_store
+            .set_setting(
+                todori_sync::KEY_ROTATION_PENDING_SETTING_KEY,
+                "0",
+                now_ms()?,
+            )
+            .map_err(|_| ClientError::SyncRun)?;
+        self.account_state()?.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(sync_keys)
     }
 
@@ -349,22 +951,29 @@ impl TodoriClient {
         session_token: &str,
         keys: &mut AccountKeyMaterial,
     ) -> Result<(), ClientError> {
-        match load_local_crypto_context(&self.db_path, &self.db_key, Some(*keys.master_key))? {
+        match load_local_crypto_context(&self.db_path, &self.db_key(), Some(*keys.master_key))? {
             LocalCryptoAvailability::Ready(local) => {
                 let pending = self.pending_list_key_ids(tenant_id)?;
-                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
+                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
                 let merged = merge_remote_and_pending_local_keys(
-                    LocalSyncKeys::from_account_keys(keys),
+                    LocalSyncKeys::from_account_keys(tenant_id, keys),
                     local.sync_keys().clone(),
                     &pending,
                     &retained,
                 )?;
+                keys.generation = merged.tenant_generation;
+                let list_generations = merged.list_generations;
                 keys.list_deks = merged
                     .list_deks
                     .into_iter()
                     .map(|(list_id, dek)| AccountListDekMaterial {
                         list_id: list_id.to_string(),
-                        dek: Zeroizing::new(dek),
+                        generation: list_generations
+                            .iter()
+                            .find(|(id, _)| *id == list_id)
+                            .map(|(_, generation)| *generation)
+                            .unwrap_or(INITIAL_KEY_GENERATION),
+                        dek,
                     })
                     .collect();
                 return Ok(());
@@ -398,7 +1007,7 @@ impl TodoriClient {
     }
 
     fn pending_list_key_ids(&self, tenant_id: Uuid) -> Result<HashSet<Uuid>, ClientError> {
-        pending_list_key_ids_on(&self.db_path, &self.db_key, tenant_id)
+        pending_list_key_ids_on(&self.db_path, &self.db_key(), tenant_id)
     }
 
     fn ensure_profile_is_unbound_for_registration(&self) -> Result<(), ClientError> {
@@ -413,7 +1022,7 @@ impl TodoriClient {
         tenant_id: Uuid,
         user_id: Uuid,
     ) -> Result<(), ClientError> {
-        let connection = open_encrypted(&self.db_path, &self.db_key)?;
+        let connection = open_encrypted(&self.db_path, &self.db_key())?;
         if let Some(binding) = SqliteLocalCryptoRepository::new(connection).load_binding()? {
             if binding.tenant_id != tenant_id || binding.user_id != user_id {
                 return Err(ClientError::ProfileIdentityMismatch);
@@ -432,6 +1041,117 @@ impl TodoriClient {
         Ok(())
     }
 
+    fn verify_local_safety_participant(
+        &self,
+        response: &todori_sync::organization::OrganizationSafetyResponse,
+    ) -> Result<(), ClientError> {
+        let local_user_id = parse_uuid(
+            &self
+                .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+                .ok_or(ClientError::IncompleteAccountState)?,
+        )?;
+        let local_root = self
+            .non_empty_setting(ACCOUNT_ROOT_PUBLIC_SETTING_KEY)?
+            .ok_or(ClientError::IncompleteAccountState)?;
+        let expected_local_root = if response.owner_user_id == local_user_id {
+            &response.owner_root_public
+        } else if response.member_user_id == local_user_id {
+            &response.member_root_public
+        } else {
+            return Err(ClientError::AccountRequest);
+        };
+        if expected_local_root != &local_root {
+            return Err(ClientError::AccountRequest);
+        }
+        let decoded = AccountRootPublicKeys::decode(
+            &STANDARD
+                .decode(local_root)
+                .map_err(|_| ClientError::AccountRequest)?,
+        )
+        .map_err(|_| ClientError::AccountRequest)?;
+        if decoded.user_id != local_user_id {
+            return Err(ClientError::AccountRequest);
+        }
+        Ok(())
+    }
+
+    fn organization_trust_pin_key(tenant_id: Uuid, member_user_id: Uuid) -> String {
+        format!("organization_trust:{tenant_id}:{member_user_id}")
+    }
+
+    fn load_organization_trust_pin(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+    ) -> Result<Option<OrganizationTrustPin>, ClientError> {
+        let Some(value) =
+            self.setting(&Self::organization_trust_pin_key(tenant_id, member_user_id))?
+        else {
+            return Ok(None);
+        };
+        OrganizationTrustPin::decode(&value)
+            .map(Some)
+            .ok_or(ClientError::AccountRequest)
+    }
+
+    fn store_organization_trust_pin(
+        &self,
+        tenant_id: Uuid,
+        member_user_id: Uuid,
+        pin: &OrganizationTrustPin,
+    ) -> Result<(), ClientError> {
+        self.set_setting_value(
+            &Self::organization_trust_pin_key(tenant_id, member_user_id),
+            &pin.encode(),
+        )
+    }
+
+    fn load_account_root_keys(
+        &self,
+    ) -> Result<(AccountRootPrivateKeys, AccountRootPublicKeys), ClientError> {
+        let (user_id, master_key) = {
+            let state = self.account_state()?;
+            let CryptoRuntimeState::Ready(crypto) = &state.crypto else {
+                return Err(ClientError::AccountBoundUnavailable);
+            };
+            (crypto.user_id(), Zeroizing::new(*crypto.master_key()))
+        };
+        let generation = self
+            .non_empty_setting(ACCOUNT_MK_GENERATION_SETTING_KEY)?
+            .ok_or(ClientError::IncompleteAccountState)?
+            .parse::<u64>()
+            .map_err(|_| ClientError::IncompleteAccountState)?;
+        let wrapped = load_account_secret(&self.db_dir, AccountSecretKind::WrappedAccountRoot)
+            .map_err(ClientError::KeyStore)?
+            .ok_or(ClientError::IncompleteAccountState)?;
+        let private_bytes = unwrap_account_root_private_key_with_master_key(
+            user_id,
+            generation,
+            &wrapped,
+            &master_key,
+        )
+        .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let private = AccountRootPrivateKeys::decode(&*private_bytes)
+            .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let public = AccountRootPublicKeys::decode(
+            &STANDARD
+                .decode(
+                    self.non_empty_setting(ACCOUNT_ROOT_PUBLIC_SETTING_KEY)?
+                        .ok_or(ClientError::IncompleteAccountState)?,
+                )
+                .map_err(|_| ClientError::IncompleteAccountState)?,
+        )
+        .map_err(|_| ClientError::IncompleteAccountState)?;
+        if private
+            .public_keys(user_id)
+            .map_err(|_| ClientError::AccountBoundUnavailable)?
+            != public
+        {
+            return Err(ClientError::AccountBoundUnavailable);
+        }
+        Ok((private, public))
+    }
+
     fn persist_account_state(
         &self,
         session: &AccountSessionState,
@@ -445,14 +1165,14 @@ impl TodoriClient {
             user_id: parse_session_id(session.user_id.as_deref())?,
             device_id: parse_session_id(session.device_id.as_deref())?,
         };
-        let crypto =
-            persist_account_crypto_context(&self.db_path, &self.db_key, identity, keys, now_ms()?)?;
-        store_account_secret(
-            &self.db_dir,
-            AccountSecretKind::MasterKeyWrap,
-            local_wrapped_master_key,
-        )
-        .map_err(ClientError::KeyStore)?;
+        let crypto = persist_account_crypto_context(
+            &self.db_path,
+            &self.db_key(),
+            identity,
+            keys,
+            now_ms()?,
+        )?;
+        self.store_active_wrapped_master_key(local_wrapped_master_key.to_vec())?;
         self.set_setting_value(
             ACCOUNT_EMAIL_SETTING_KEY,
             session.email.as_deref().unwrap_or_default(),
@@ -473,8 +1193,34 @@ impl TodoriClient {
             ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY,
             &expires_at_ms.to_string(),
         )?;
+        self.set_setting_value(
+            ACCOUNT_ROOT_PUBLIC_SETTING_KEY,
+            &STANDARD.encode(
+                keys.account_root_public
+                    .encode()
+                    .map_err(|_| ClientError::AccountBoundUnavailable)?,
+            ),
+        )?;
+        self.set_setting_value(
+            ACCOUNT_MK_GENERATION_SETTING_KEY,
+            &keys.generation.to_string(),
+        )?;
         store_account_secret(&self.db_dir, AccountSecretKind::SessionToken, session_token)
             .map_err(ClientError::KeyStore)?;
+        let root_private = keys.account_root_private.encode();
+        let wrapped_root = wrap_account_root_private_key_with_master_key(
+            identity.user_id,
+            keys.generation,
+            &root_private,
+            &keys.master_key,
+        )
+        .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        store_account_secret(
+            &self.db_dir,
+            AccountSecretKind::WrappedAccountRoot,
+            &wrapped_root,
+        )
+        .map_err(ClientError::KeyStore)?;
         Ok(crypto)
     }
 
@@ -486,7 +1232,7 @@ impl TodoriClient {
         let mut state = self.account_state()?;
         state.session = session;
         state.session_restored = true;
-        state.crypto = CryptoRuntimeState::Ready(crypto);
+        state.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(())
     }
 
@@ -502,18 +1248,34 @@ impl TodoriClient {
                 return Ok(true);
             }
         }
-        for kind in [
-            AccountSecretKind::MasterKeyWrap,
-            AccountSecretKind::SessionToken,
-        ] {
-            if load_account_secret(&self.db_dir, kind)
-                .map_err(ClientError::KeyStore)?
-                .is_some()
-            {
-                return Ok(true);
-            }
+        if self.active_capsule()?.wrapped_master_key().is_some() {
+            return Ok(true);
         }
         Ok(false)
+    }
+
+    fn active_capsule(&self) -> Result<todori_crypto::LocalKeyCapsule, ClientError> {
+        PlatformLocalKeyCapsuleStore::new(&self.db_dir)
+            .load(LocalKeyCapsuleSlot::Active)
+            .map_err(ClientError::KeyStore)?
+            .ok_or(ClientError::LocalKeyState)
+    }
+
+    fn store_active_wrapped_master_key(
+        &self,
+        wrapped_master_key: Vec<u8>,
+    ) -> Result<(), ClientError> {
+        let mut store = PlatformLocalKeyCapsuleStore::new(&self.db_dir);
+        let active = store
+            .load(LocalKeyCapsuleSlot::Active)
+            .map_err(ClientError::KeyStore)?
+            .ok_or(ClientError::LocalKeyState)?;
+        let updated = active
+            .with_wrapped_master_key(Some(wrapped_master_key))
+            .map_err(ClientError::KeyStore)?;
+        store
+            .store(LocalKeyCapsuleSlot::Active, &updated)
+            .map_err(ClientError::KeyStore)
     }
 }
 
@@ -594,28 +1356,54 @@ fn merge_remote_and_pending_local_keys(
     pending: &HashSet<Uuid>,
     retained_deleted: &HashSet<Uuid>,
 ) -> Result<LocalSyncKeys, ClientError> {
+    if remote.tenant_id != local.tenant_id || remote.tenant_generation < local.tenant_generation {
+        return Err(ClientError::AccountBoundUnavailable);
+    }
+    let local_generations = local.list_generations;
     for (list_id, local_dek) in local.list_deks {
         if let Some((_, remote_dek)) = remote
             .list_deks
             .iter()
             .find(|(remote_id, _)| *remote_id == list_id)
         {
-            if remote_dek != &local_dek {
+            let remote_generation = remote
+                .generation_for_list(list_id)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
+            let local_generation = local_generations
+                .iter()
+                .find(|(id, _)| *id == list_id)
+                .map(|(_, generation)| *generation)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
+            if remote_generation < local_generation
+                || (remote_generation == local_generation && remote_dek != &local_dek)
+            {
                 return Err(ClientError::AccountBoundUnavailable);
             }
         } else if pending.contains(&list_id) || retained_deleted.contains(&list_id) {
+            let local_generation = local_generations
+                .iter()
+                .find(|(id, _)| *id == list_id)
+                .map(|(_, generation)| *generation)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
             remote.list_deks.push((list_id, local_dek));
+            remote.list_generations.push((list_id, local_generation));
         } else {
             return Err(ClientError::AccountBoundUnavailable);
         }
     }
     remote.list_deks.sort_by_key(|(list_id, _)| *list_id);
     remote.list_deks.dedup_by_key(|(list_id, _)| *list_id);
+    remote.list_generations.sort_by_key(|(list_id, _)| *list_id);
+    remote
+        .list_generations
+        .dedup_by_key(|(list_id, _)| *list_id);
     Ok(remote)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use tempfile::TempDir;
     use todori_domain::new_list;
     use todori_storage::{ListRepository, SqliteListRepository};
@@ -625,16 +1413,64 @@ mod tests {
     use crate::{LocalMutationContext, SqliteMutationService, SqliteSyncStore};
 
     #[test]
+    fn organization_trust_pin_is_strict_and_root_changes_require_reconfirmation() {
+        let owner = Uuid::now_v7();
+        let member = Uuid::now_v7();
+        let response = todori_sync::organization::OrganizationSafetyResponse {
+            owner_user_id: owner,
+            member_user_id: member,
+            owner_root_public: "owner-root".to_string(),
+            member_root_public: "member-root".to_string(),
+            digest: "digest".to_string(),
+            decimal: "decimal".to_string(),
+            qr_payload: "qr".to_string(),
+            verification_state: "verified".to_string(),
+            owner_confirmed: true,
+            member_confirmed: true,
+        };
+        let mut pin = OrganizationTrustPin::candidate(&response);
+        pin.locally_confirmed = true;
+        pin.minimum_generation = 7;
+        pin.owner_roster_revision = 3;
+        pin.member_roster_revision = 4;
+        assert_eq!(
+            OrganizationTrustPin::decode(&pin.encode()),
+            Some(pin.clone())
+        );
+        assert!(pin.matches(&response));
+
+        let mut substituted = response;
+        substituted.member_root_public = "server-substituted-root".to_string();
+        assert!(!pin.matches(&substituted));
+        assert!(OrganizationTrustPin::decode("partial|pin").is_none());
+        assert!(OrganizationTrustPin::decode("a|b|c|1|0|0|0").is_none());
+    }
+
+    #[test]
     fn remote_key_refresh_preserves_only_verified_pending_local_keys() {
         let remote_id = Uuid::now_v7();
         let pending_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         let remote = LocalSyncKeys {
-            list_deks: vec![(remote_id, [0x11; 32])],
+            tenant_id,
+            list_deks: vec![(remote_id, [0x11; 32].into())],
+            list_generations: vec![(remote_id, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let local = LocalSyncKeys {
-            list_deks: vec![(remote_id, [0x11; 32]), (pending_id, [0x22; 32])],
+            tenant_id,
+            list_deks: vec![
+                (remote_id, [0x11; 32].into()),
+                (pending_id, [0x22; 32].into()),
+            ],
+            list_generations: vec![(remote_id, 1), (pending_id, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let merged = merge_remote_and_pending_local_keys(
             remote,
@@ -650,24 +1486,43 @@ mod tests {
     #[test]
     fn remote_key_refresh_rejects_mismatch_and_unqueued_local_only_keys() {
         let list_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         assert!(merge_remote_and_pending_local_keys(
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x11; 32])],
+                tenant_id,
+                list_deks: vec![(list_id, [0x11; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x22; 32])],
+                tenant_id,
+                list_deks: vec![(list_id, [0x22; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::new(),
         )
         .is_err());
         assert!(merge_remote_and_pending_local_keys(
-            LocalSyncKeys::default(),
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x22; 32])],
+                tenant_id,
+                ..LocalSyncKeys::default()
+            },
+            LocalSyncKeys {
+                tenant_id,
+                list_deks: vec![(list_id, [0x22; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::new(),
@@ -678,11 +1533,20 @@ mod tests {
     #[test]
     fn remote_key_refresh_retains_tombstoned_list_key_for_late_descendants() {
         let list_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         let merged = merge_remote_and_pending_local_keys(
-            LocalSyncKeys::default(),
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x33; 32])],
+                tenant_id,
+                ..LocalSyncKeys::default()
+            },
+            LocalSyncKeys {
+                tenant_id,
+                list_deks: vec![(list_id, [0x33; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::from([list_id]),
@@ -708,8 +1572,13 @@ mod tests {
             .insert(initial.clone())
             .unwrap();
         let initial_keys = LocalSyncKeys {
-            list_deks: vec![(initial.id, [0x93; 32])],
+            tenant_id,
+            list_deks: vec![(initial.id, [0x93; 32].into())],
+            list_generations: vec![(initial.id, 1)],
             tenant_root_dek: Some(Zeroizing::new([0x94; 32])),
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         persist_local_crypto_context(
             &db_path,
@@ -771,8 +1640,13 @@ mod tests {
             identity,
             &MASTER_KEY,
             LocalSyncKeys {
+                tenant_id: identity.tenant_id,
                 list_deks: Vec::new(),
+                list_generations: Vec::new(),
                 tenant_root_dek: Some(Zeroizing::new([0x73; 32])),
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             1,
         )
@@ -785,7 +1659,7 @@ mod tests {
         let client = TodoriClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
-            db_key: Zeroizing::new(DB_KEY),
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
             account: std::sync::Mutex::new(super::super::AccountRuntimeState {
                 session: None,
                 session_restored: false,

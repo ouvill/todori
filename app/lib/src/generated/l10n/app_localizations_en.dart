@@ -786,6 +786,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accountSyncNowTooltip => 'Sync now';
 
   @override
+  String get organizationSafetyOpenButton => 'Verify organization member';
+
+  @override
+  String get organizationSafetyTitle => 'Safety number';
+
+  @override
+  String get organizationSafetyBody =>
+      'Compare this number or QR code with the other account through a separate trusted channel. Organization keys are not delivered until both accounts confirm the same value.';
+
+  @override
+  String get organizationTenantIdLabel => 'Organization ID';
+
+  @override
+  String get organizationMemberIdLabel => 'Member account ID';
+
+  @override
+  String get organizationSafetyLoadButton => 'Show Safety number';
+
+  @override
+  String get organizationSafetyQrSemantics => 'Safety number QR code';
+
+  @override
+  String get organizationSafetyVerified => 'Verified by both accounts';
+
+  @override
+  String get organizationSafetyUnverified =>
+      'Not yet verified by both accounts';
+
+  @override
+  String get organizationSafetyComparedOutOfBand =>
+      'I compared this value through a separate trusted channel';
+
+  @override
+  String get organizationSafetyConfirmButton => 'Confirm this Safety number';
+
+  @override
+  String get organizationSafetyFailed =>
+      'Could not verify the Safety number. Reload it and compare again.';
+
+  @override
   String get onboardingWelcomeTitle => 'Make room for what matters';
 
   @override

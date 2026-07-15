@@ -36,6 +36,7 @@ class FakeBridgeService implements BridgeService {
   final List<String> updateTaskCalls = [];
   int syncNowCalls = 0;
   int realtimeTicketCalls = 0;
+  int organizationSafetyConfirmCalls = 0;
   AccountSessionStateDto _accountSession = const AccountSessionStateDto(
     loggedIn: false,
   );
@@ -78,6 +79,7 @@ class FakeBridgeService implements BridgeService {
     updateTaskCalls.clear();
     syncNowCalls = 0;
     realtimeTicketCalls = 0;
+    organizationSafetyConfirmCalls = 0;
     _settings.clear();
     _settings[onboardingCompletedSettingKey] = '1';
     _accountSession = const AccountSessionStateDto(loggedIn: false);
@@ -258,6 +260,47 @@ class FakeBridgeService implements BridgeService {
   Future<void> accountLogout() async {
     _accountSession = const AccountSessionStateDto(loggedIn: false);
     _syncStatus = _copySyncStatus(_syncStatus, loggedIn: false);
+  }
+
+  @override
+  Future<OrganizationSafetyStateDto> organizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+  }) async => OrganizationSafetyStateDto(
+    ownerUserId: _accountSession.userId ?? 'owner-user',
+    memberUserId: memberUserId,
+    digest: 'test-safety-digest',
+    decimal: '123456789012345678901234567890123456789012345678901234567890',
+    qrPayload: 'AXRvZG9yaS10ZXN0LXNhZmV0eS1udW1iZXI=',
+    verificationState: 'unverified',
+    ownerConfirmed: false,
+    memberConfirmed: false,
+  );
+
+  @override
+  Future<OrganizationSafetyStateDto> confirmOrganizationSafetyNumber({
+    required String tenantId,
+    required String memberUserId,
+    required String digest,
+  }) async {
+    organizationSafetyConfirmCalls += 1;
+    final state = await organizationSafetyNumber(
+      tenantId: tenantId,
+      memberUserId: memberUserId,
+    );
+    if (digest != state.digest) {
+      throw Exception('Safety number changed');
+    }
+    return OrganizationSafetyStateDto(
+      ownerUserId: state.ownerUserId,
+      memberUserId: state.memberUserId,
+      digest: state.digest,
+      decimal: state.decimal,
+      qrPayload: state.qrPayload,
+      verificationState: 'unverified',
+      ownerConfirmed: true,
+      memberConfirmed: false,
+    );
   }
 
   @override

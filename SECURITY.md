@@ -27,12 +27,14 @@ If GitHub private vulnerability reporting cannot be used, do not publish vulnera
 Security reports for the following areas are in scope:
 
 - E2EE design and implementation, including record encryption, associated data, and server-visible metadata.
-- Key derivation, key wrapping, Device Key storage, Recovery Key handling, Master Key handling, and X25519 key material.
+- Key derivation, versioned key wrapping, key-generation rotation, Device Key capsules, Recovery Key handling, Master Key handling, device certificates, Safety numbers, and X25519 / ML-KEM / ML-DSA key material.
 - OPAQUE registration, login, password change, account recovery, session handling, and device revocation.
 - SQLCipher local database encryption, local database key derivation, tenant database separation, and local data exposure risks.
 - Synchronization protocol behavior, authorization, tenant isolation, server-side metadata handling, tombstones, history retention, and replay or ordering issues.
 - Server-side control plane data, including wrapped keys, device metadata, organization membership, and subscription-gated synchronization access.
 - CI, build scripts, generated artifacts, release packaging, and dependency or supply-chain issues that could affect shipped binaries.
+
+Todori's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, per-device hybrid X25519 + ML-KEM-768 key delivery, supported-platform device tests, and the product-level multi-device flow have passed their release gates. The implementation has passed an independent internal review, but an internal review is not described as an external audit. Todori must not be described as "audited" until an external cryptographic review is complete and its findings are resolved. Current gate status is published in [`docs/ops/crypto-release-gate.md`](docs/ops/crypto-release-gate.md).
 
 ## Out of Scope
 

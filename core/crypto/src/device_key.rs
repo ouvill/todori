@@ -22,6 +22,15 @@ pub enum KeyStoreError {
     /// プラットフォーム固有バックエンドの失敗。
     #[error("key store backend error: {0}")]
     Backend(String),
+    /// Capsule bytes are malformed, unsupported, or violate the generation contract.
+    #[error("invalid local key capsule")]
+    InvalidCapsule,
+    /// A production process attempted to use the development plaintext store.
+    #[error("plaintext local key store is forbidden in production")]
+    PlaintextStoreForbidden,
+    /// The platform secret-store bridge was not installed before profile open.
+    #[error("platform local key store is unavailable")]
+    PlatformStoreUnavailable,
 }
 
 /// OSキーチェーンに保存する32byteのDevice Key (DK)を生成する。

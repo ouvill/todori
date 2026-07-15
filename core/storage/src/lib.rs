@@ -459,6 +459,7 @@ pub struct LocalProfileBinding {
 pub struct LocalListKeyBundle {
     pub tenant_id: Uuid,
     pub list_id: Uuid,
+    pub generation: u64,
     pub wrapped_list_dek: Vec<u8>,
     pub updated_at: i64,
 }
@@ -467,7 +468,7 @@ pub struct LocalListKeyBundle {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalTenantRootKeyBundle {
     pub tenant_id: Uuid,
-    pub key_version: i32,
+    pub generation: u64,
     pub wrapped_tenant_root_dek: Vec<u8>,
     pub updated_at: i64,
 }
@@ -477,7 +478,9 @@ pub struct LocalTenantRootKeyBundle {
 pub struct PendingListKeyBundle {
     pub tenant_id: Uuid,
     pub list_id: Uuid,
+    pub generation: u64,
     pub wrapped_list_dek: Vec<u8>,
+    pub signed_manifest: Vec<u8>,
     pub created_at: i64,
 }
 
@@ -1311,6 +1314,29 @@ pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, Storage
     Ok(connection)
 }
 
+/// Rekeys an existing SQLCipher database and returns immediately after the
+/// SQLCipher operation has completed.
+///
+/// SQLCipher performs `PRAGMA rekey` atomically at the database-file boundary.
+/// The active/pending capsule coordinator in `todori-client` deliberately
+/// performs new-key reopen verification as a separate crash boundary.
+pub fn rekey_encrypted_database(
+    path: &Path,
+    old_key: &[u8; 32],
+    new_key: &[u8; 32],
+) -> Result<(), StorageError> {
+    if old_key == new_key {
+        return Ok(());
+    }
+
+    let connection = open_encrypted(path, old_key)?;
+    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    let new_key_hex = hex::encode(new_key);
+    connection.execute_batch(&format!("PRAGMA rekey = \"x'{new_key_hex}'\";"))?;
+    drop(connection);
+    Ok(())
+}
+
 fn apply_sqlcipher_key(connection: &Connection, key: &[u8; 32]) -> Result<(), StorageError> {
     let key_hex = hex::encode(key);
     connection.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))?;
@@ -1615,7 +1641,7 @@ fn add_timer_sync_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<
     transaction.execute_batch(
         "CREATE TABLE local_tenant_root_key_cache (
              tenant_id TEXT PRIMARY KEY NOT NULL,
-             key_version INTEGER NOT NULL CHECK (key_version = 1),
+             generation INTEGER NOT NULL CHECK (generation > 0),
              wrapped_tenant_root_dek BLOB NOT NULL CHECK (length(wrapped_tenant_root_dek) > 0),
              updated_at INTEGER NOT NULL
          );
@@ -1881,6 +1907,7 @@ fn add_local_crypto_cache(transaction: &Transaction<'_>) -> rusqlite::Result<()>
          CREATE TABLE local_list_key_bundles (
              tenant_id TEXT NOT NULL,
              list_id TEXT NOT NULL,
+             generation INTEGER NOT NULL CHECK (generation > 0),
              wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
              updated_at INTEGER NOT NULL,
              PRIMARY KEY (tenant_id, list_id)
@@ -2019,7 +2046,9 @@ fn add_pending_list_key_bundles(transaction: &Transaction<'_>) -> rusqlite::Resu
         "CREATE TABLE pending_list_key_bundles (
              tenant_id TEXT NOT NULL,
              list_id TEXT NOT NULL,
+             generation INTEGER NOT NULL CHECK (generation > 0),
              wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
+             signed_manifest BLOB NOT NULL CHECK (length(signed_manifest) >= 124),
              created_at INTEGER NOT NULL,
              PRIMARY KEY (tenant_id, list_id)
          );
@@ -3623,7 +3652,7 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
                 requested_tenant_id: tenant_root.tenant_id,
             });
         }
-        if tenant_root.key_version != 1 || tenant_root.wrapped_tenant_root_dek.is_empty() {
+        if tenant_root.generation == 0 || tenant_root.wrapped_tenant_root_dek.is_empty() {
             return Err(StorageError::IncompatibleSchema(
                 "invalid local Tenant Root DEK cache entry".to_string(),
             ));
@@ -3674,11 +3703,13 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         transaction.execute("DELETE FROM local_tenant_root_key_cache", [])?;
         transaction.execute(
             "INSERT INTO local_tenant_root_key_cache (
-                 tenant_id, key_version, wrapped_tenant_root_dek, updated_at
+                tenant_id, generation, wrapped_tenant_root_dek, updated_at
              ) VALUES (?1, ?2, ?3, ?4)",
             params![
                 tenant_root.tenant_id.to_string(),
-                tenant_root.key_version,
+                i64::try_from(tenant_root.generation).map_err(|_| {
+                    StorageError::IncompatibleSchema("invalid tenant key generation".to_string())
+                })?,
                 tenant_root.wrapped_tenant_root_dek,
                 tenant_root.updated_at,
             ],
@@ -3686,11 +3717,16 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         for bundle in bundles {
             transaction.execute(
                 "INSERT INTO local_list_key_bundles (
-                     tenant_id, list_id, wrapped_list_dek, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4)",
+                     tenant_id, list_id, generation, wrapped_list_dek, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     bundle.tenant_id.to_string(),
                     bundle.list_id.to_string(),
+                    i64::try_from(bundle.generation).map_err(|_| {
+                        StorageError::IncompatibleSchema(
+                            "invalid local list key generation".to_string(),
+                        )
+                    })?,
                     bundle.wrapped_list_dek,
                     bundle.updated_at,
                 ],
@@ -3714,7 +3750,7 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         }
         self.connection
             .query_row(
-                "SELECT tenant_id, key_version, wrapped_tenant_root_dek, updated_at
+                "SELECT tenant_id, generation, wrapped_tenant_root_dek, updated_at
                  FROM local_tenant_root_key_cache WHERE tenant_id = ?1",
                 [tenant_id.to_string()],
                 |row| {
@@ -3727,7 +3763,13 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
                     })?;
                     Ok(LocalTenantRootKeyBundle {
                         tenant_id,
-                        key_version: row.get(1)?,
+                        generation: u64::try_from(row.get::<_, i64>(1)?).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                1,
+                                rusqlite::types::Type::Integer,
+                                Box::new(error),
+                            )
+                        })?,
                         wrapped_tenant_root_dek: row.get(2)?,
                         updated_at: row.get(3)?,
                     })
@@ -3813,7 +3855,7 @@ fn load_local_list_key_bundles_on(
     tenant_id: Uuid,
 ) -> Result<Vec<LocalListKeyBundle>, StorageError> {
     let mut statement = connection.prepare(
-        "SELECT list_id, wrapped_list_dek, updated_at
+        "SELECT list_id, generation, wrapped_list_dek, updated_at
          FROM local_list_key_bundles
          WHERE tenant_id = ?1
          ORDER BY list_id ASC",
@@ -3822,16 +3864,22 @@ fn load_local_list_key_bundles_on(
         .query_map([tenant_id.to_string()], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, i64>(3)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     rows.into_iter()
-        .map(|(list_id, wrapped_list_dek, updated_at)| {
+        .map(|(list_id, generation, wrapped_list_dek, updated_at)| {
             Ok(LocalListKeyBundle {
                 tenant_id,
                 list_id: Uuid::parse_str(&list_id)?,
+                generation: u64::try_from(generation).map_err(|_| {
+                    StorageError::IncompatibleSchema(
+                        "invalid local list key generation".to_string(),
+                    )
+                })?,
                 wrapped_list_dek,
                 updated_at,
             })
@@ -4117,14 +4165,16 @@ fn put_local_list_key_bundle_on(
     }
     let existing = connection
         .query_row(
-            "SELECT wrapped_list_dek FROM local_list_key_bundles
+            "SELECT generation, wrapped_list_dek FROM local_list_key_bundles
              WHERE tenant_id = ?1 AND list_id = ?2",
             params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
-            |row| row.get::<_, Vec<u8>>(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
         )
         .optional()?;
     if let Some(existing) = existing {
-        return if existing == bundle.wrapped_list_dek {
+        return if existing.0 == i64::try_from(bundle.generation).unwrap_or(0)
+            && existing.1 == bundle.wrapped_list_dek
+        {
             Ok(())
         } else {
             Err(StorageError::IncompatibleSchema(
@@ -4134,11 +4184,14 @@ fn put_local_list_key_bundle_on(
     }
     connection.execute(
         "INSERT INTO local_list_key_bundles (
-             tenant_id, list_id, wrapped_list_dek, updated_at
-         ) VALUES (?1, ?2, ?3, ?4)",
+             tenant_id, list_id, generation, wrapped_list_dek, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             bundle.tenant_id.to_string(),
             bundle.list_id.to_string(),
+            i64::try_from(bundle.generation).map_err(|_| StorageError::IncompatibleSchema(
+                "invalid local list key generation".to_string()
+            ))?,
             bundle.wrapped_list_dek,
             bundle.updated_at,
         ],
@@ -4161,14 +4214,23 @@ fn put_pending_list_key_bundle_on(
     }
     let existing = connection
         .query_row(
-            "SELECT wrapped_list_dek FROM pending_list_key_bundles
+            "SELECT generation, wrapped_list_dek, signed_manifest FROM pending_list_key_bundles
              WHERE tenant_id = ?1 AND list_id = ?2",
             params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
-            |row| row.get::<_, Vec<u8>>(0),
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                ))
+            },
         )
         .optional()?;
     if let Some(existing) = existing {
-        return if existing == bundle.wrapped_list_dek {
+        return if existing.0 == i64::try_from(bundle.generation).unwrap_or(0)
+            && existing.1 == bundle.wrapped_list_dek
+            && existing.2 == bundle.signed_manifest
+        {
             Ok(())
         } else {
             Err(StorageError::IncompatibleSchema(
@@ -4178,12 +4240,16 @@ fn put_pending_list_key_bundle_on(
     }
     connection.execute(
         "INSERT INTO pending_list_key_bundles (
-             tenant_id, list_id, wrapped_list_dek, created_at
-         ) VALUES (?1, ?2, ?3, ?4)",
+             tenant_id, list_id, generation, wrapped_list_dek, signed_manifest, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             bundle.tenant_id.to_string(),
             bundle.list_id.to_string(),
+            i64::try_from(bundle.generation).map_err(|_| StorageError::IncompatibleSchema(
+                "invalid pending list key generation".to_string()
+            ))?,
             bundle.wrapped_list_dek,
+            bundle.signed_manifest,
             bundle.created_at,
         ],
     )?;
@@ -4197,7 +4263,7 @@ fn list_pending_list_key_bundles_on(
 ) -> Result<Vec<PendingListKeyBundle>, StorageError> {
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     let mut statement = connection.prepare(
-        "SELECT list_id, wrapped_list_dek, created_at
+        "SELECT list_id, generation, wrapped_list_dek, signed_manifest, created_at
          FROM pending_list_key_bundles
          WHERE tenant_id = ?1
          ORDER BY created_at ASC, list_id ASC
@@ -4207,20 +4273,30 @@ fn list_pending_list_key_bundles_on(
         .query_map(params![tenant_id.to_string(), limit], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
-                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, Vec<u8>>(3)?,
+                row.get::<_, i64>(4)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     rows.into_iter()
-        .map(|(list_id, wrapped_list_dek, created_at)| {
-            Ok(PendingListKeyBundle {
-                tenant_id,
-                list_id: Uuid::parse_str(&list_id)?,
-                wrapped_list_dek,
-                created_at,
-            })
-        })
+        .map(
+            |(list_id, generation, wrapped_list_dek, signed_manifest, created_at)| {
+                Ok(PendingListKeyBundle {
+                    tenant_id,
+                    list_id: Uuid::parse_str(&list_id)?,
+                    generation: u64::try_from(generation).map_err(|_| {
+                        StorageError::IncompatibleSchema(
+                            "invalid pending list key generation".to_string(),
+                        )
+                    })?,
+                    wrapped_list_dek,
+                    signed_manifest,
+                    created_at,
+                })
+            },
+        )
         .collect()
 }
 
@@ -5831,7 +5907,7 @@ mod tests {
     fn local_tenant_root_bundle(tenant_id: Uuid, updated_at: i64) -> LocalTenantRootKeyBundle {
         LocalTenantRootKeyBundle {
             tenant_id,
-            key_version: 1,
+            generation: 1,
             wrapped_tenant_root_dek: vec![0x5a; 48],
             updated_at,
         }
@@ -6327,7 +6403,7 @@ mod tests {
                     let is_closed = status == "done" || status == "wont_do";
                     let completed_at = if is_closed {
                         closed_task_count += 1;
-                        if global_index % 4 == 0 {
+                        if global_index.is_multiple_of(4) {
                             Some(today_start_ms + ((global_index % 10) as i64 * 600_000))
                         } else {
                             Some(today_start_ms - 2 * 86_400_000)
@@ -6335,9 +6411,9 @@ mod tests {
                     } else {
                         None
                     };
-                    let keyword = if global_index % 17 == 0 {
+                    let keyword = if global_index.is_multiple_of(17) {
                         "alpha"
-                    } else if global_index % 19 == 0 {
+                    } else if global_index.is_multiple_of(19) {
                         "日本語"
                     } else {
                         "routine"
@@ -6433,6 +6509,28 @@ mod tests {
             Err(error) => panic!("expected invalid database key error, got {error}"),
             Ok(_) => panic!("database opened with wrong key"),
         }
+    }
+
+    #[test]
+    fn sqlcipher_rekey_preserves_data_and_rejects_the_old_key() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(task.clone())
+                .unwrap();
+        }
+
+        rekey_encrypted_database(file.path(), &KEY, &WRONG_KEY).unwrap();
+
+        assert!(matches!(
+            open_encrypted(file.path(), &KEY),
+            Err(StorageError::InvalidDatabaseKey)
+        ));
+        let repository =
+            SqliteTaskRepository::new(open_encrypted(file.path(), &WRONG_KEY).unwrap());
+        assert_eq!(repository.get(task.id).unwrap(), task);
     }
 
     #[test]
@@ -6755,7 +6853,13 @@ mod tests {
         );
         assert_eq!(
             table_columns(&connection, "local_list_key_bundles").unwrap(),
-            vec!["tenant_id", "list_id", "wrapped_list_dek", "updated_at"]
+            vec![
+                "tenant_id",
+                "list_id",
+                "generation",
+                "wrapped_list_dek",
+                "updated_at",
+            ]
         );
         assert!(index_exists(
             &connection,
@@ -6862,6 +6966,7 @@ mod tests {
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: first_list_id,
+                    generation: 1,
                     wrapped_list_dek: vec![1, 2, 3],
                     updated_at: 100,
                 }],
@@ -6874,6 +6979,7 @@ mod tests {
             vec![LocalListKeyBundle {
                 tenant_id,
                 list_id: first_list_id,
+                generation: 1,
                 wrapped_list_dek: vec![1, 2, 3],
                 updated_at: 100,
             }]
@@ -6892,6 +6998,7 @@ mod tests {
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: second_list_id,
+                    generation: 1,
                     wrapped_list_dek: vec![4, 5, 6],
                     updated_at: 200,
                 }],
@@ -6913,6 +7020,7 @@ mod tests {
             vec![LocalListKeyBundle {
                 tenant_id,
                 list_id: second_list_id,
+                generation: 1,
                 wrapped_list_dek: vec![4, 5, 6],
                 updated_at: 200,
             }]
@@ -6942,6 +7050,7 @@ mod tests {
         let original_bundle = LocalListKeyBundle {
             tenant_id,
             list_id,
+            generation: 1,
             wrapped_list_dek: vec![1, 2, 3],
             updated_at: 100,
         };
@@ -6949,7 +7058,7 @@ mod tests {
             .bind_and_replace_bundles(
                 original_binding.clone(),
                 &local_tenant_root_bundle(tenant_id, 100),
-                &[original_bundle.clone()],
+                std::slice::from_ref(&original_bundle),
             )
             .unwrap();
 
@@ -6965,6 +7074,7 @@ mod tests {
             &[LocalListKeyBundle {
                 tenant_id,
                 list_id: Uuid::now_v7(),
+                generation: 1,
                 wrapped_list_dek: Vec::new(),
                 updated_at: 200,
             }],
@@ -7065,11 +7175,12 @@ mod tests {
             .connection()
             .execute(
                 "INSERT INTO local_list_key_bundles (
-                     tenant_id, list_id, wrapped_list_dek, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4)",
+                     tenant_id, list_id, generation, wrapped_list_dek, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     Uuid::now_v7().to_string(),
                     Uuid::now_v7().to_string(),
+                    1,
                     vec![1_u8, 2, 3],
                     100,
                 ],
@@ -7100,6 +7211,7 @@ mod tests {
         let bundle = LocalListKeyBundle {
             tenant_id,
             list_id: Uuid::now_v7(),
+            generation: 1,
             wrapped_list_dek: vec![9, 8, 7],
             updated_at: 100,
         };
@@ -7110,7 +7222,7 @@ mod tests {
                 .bind_and_replace_bundles(
                     binding.clone(),
                     &local_tenant_root_bundle(tenant_id, 100),
-                    &[bundle.clone()],
+                    std::slice::from_ref(&bundle),
                 )
                 .unwrap();
         }
@@ -10136,7 +10248,9 @@ mod tests {
         let bundle = PendingListKeyBundle {
             tenant_id,
             list_id,
+            generation: 1,
             wrapped_list_dek: vec![1, 2, 3],
+            signed_manifest: vec![0; 124],
             created_at: 10,
         };
         let mut local_crypto =
@@ -10440,6 +10554,7 @@ mod tests {
             .put_local_list_key_bundle(LocalListKeyBundle {
                 tenant_id,
                 list_id: list.id,
+                generation: 1,
                 wrapped_list_dek: vec![1, 2, 3],
                 updated_at: 1,
             })
@@ -10448,7 +10563,9 @@ mod tests {
             .put_pending_list_key_bundle(PendingListKeyBundle {
                 tenant_id,
                 list_id: list.id,
+                generation: 1,
                 wrapped_list_dek: vec![1, 2, 3],
+                signed_manifest: vec![0; 124],
                 created_at: 1,
             })
             .unwrap();
@@ -10528,6 +10645,7 @@ mod tests {
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: list.id,
+                    generation: 1,
                     wrapped_list_dek: vec![1],
                     updated_at: 1,
                 }],

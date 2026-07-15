@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -79,7 +81,7 @@ jobs:
           sh app/tool/test_client_boundaries.sh
 
       - name: Rust clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Rust test
         run: cargo test --workspace
@@ -172,3 +174,74 @@ jobs:
 
       - name: UI hardcoded string check
         run: sh app/tool/check_hardcoded_strings.sh
+
+  security-quality:
+    name: Dependency and secret gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+
+      - name: Cache security tooling
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-audit-0.22.2
+
+      - name: Install cargo-audit
+        run: |
+          if ! cargo audit --version 2>/dev/null | grep -q '0.22.2'; then
+            cargo install cargo-audit --version 0.22.2 --locked --force
+          fi
+          cargo audit --version
+
+      - name: Verify fixed crypto dependencies
+        run: sh tool/check_crypto_dependency_pins.sh
+
+      - name: Scan tracked files for secret patterns
+        run: sh tool/check_secret_patterns.sh
+
+      - name: RustSec audit
+        run: cargo audit --deny warnings
+
+  crypto-fuzz:
+    name: Crypto parser fuzz smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up pinned nightly Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: nightly-2026-07-14
+
+      - name: Cache fuzz tooling and targets
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-fuzz
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            fuzz/target
+          key: ${{ runner.os }}-${{ runner.arch }}-nightly-2026-07-14-cargo-fuzz-0.13.2-${{ hashFiles('Cargo.lock', 'fuzz/Cargo.lock', 'fuzz/Cargo.toml') }}
+
+      - name: Install cargo-fuzz
+        run: |
+          if ! cargo fuzz --version 2>/dev/null | grep -q 'cargo-fuzz 0.13.2'; then
+            cargo install cargo-fuzz --version 0.13.2 --locked --force
+          fi
+          cargo fuzz --version
+
+      - name: Fuzz envelope and key parsers
+        run: cargo +nightly-2026-07-14 fuzz run crypto_parsers -- -max_total_time=60 -timeout=10 -max_len=16384 -dict=fuzz/crypto_parsers.dict
