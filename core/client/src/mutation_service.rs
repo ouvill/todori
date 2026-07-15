@@ -398,7 +398,7 @@ mod tests {
             sync: LocalMutationContext {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
-                    list_deks: vec![(list.id, [0x44; 32])],
+                    list_deks: vec![(list.id, [0x44; 32].into())],
                     tenant_root_dek: None,
                 },
             },

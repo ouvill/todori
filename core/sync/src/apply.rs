@@ -230,6 +230,7 @@ where
                     &context.session_token,
                     ListDekBundleDto {
                         list_id: bundle.list_id,
+                        generation: todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
                         wrapped_list_dek: STANDARD.encode(&bundle.wrapped_list_dek),
                     },
                 )
@@ -1298,7 +1299,7 @@ where
             Some(record.record_id),
         ));
     };
-    let incoming = decrypt_plaintext(&dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
+    let incoming = decrypt_plaintext(dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
     let incoming = match incoming {
         Ok(incoming) => incoming,
         Err(error) => {
@@ -1362,7 +1363,7 @@ where
                 record_id: record.record_id,
                 collection: SyncCollection::Lists,
                 plaintext: &merged,
-                dek: &dek,
+                dek,
                 device_id: &context.device_id,
                 base_revision_hlc: &record.revision_hlc,
             },
@@ -1573,7 +1574,7 @@ where
                 record_id: record.record_id,
                 collection: SyncCollection::Tasks,
                 plaintext: &merged,
-                dek: &dek,
+                dek,
                 device_id: &context.device_id,
                 base_revision_hlc: &record.revision_hlc,
             },
@@ -1774,7 +1775,7 @@ fn decrypt_task_plaintext(
             .iter()
             .any(|(candidate_list_id, _)| candidate_list_id == list_id)
         {
-            candidates.push((*list_id, *dek));
+            candidates.push((*list_id, &**dek));
         }
     }
     if candidates.is_empty() {
@@ -1789,7 +1790,7 @@ fn decrypt_task_plaintext(
     }
     let mut invalid_plaintext = false;
     for (candidate_list_id, dek) in candidates {
-        match decrypt_plaintext(&dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
+        match decrypt_plaintext(dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
             Ok(plaintext) => {
                 let SyncPlaintext::Task(task) = &plaintext else {
                     invalid_plaintext = true;
@@ -3124,7 +3125,7 @@ mod tests {
         let moved_plaintext = SyncPlaintext::from_task(&moved, clock.clone()).unwrap();
         let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
         let moved_keys = LocalSyncKeys {
-            list_deks: vec![(list_b, dek_b)],
+            list_deks: vec![(list_b, dek_b.into())],
             tenant_root_dek: None,
         };
         let SyncPlaintext::Task(decrypted_move) =
@@ -3140,7 +3141,7 @@ mod tests {
         let mismatched_record =
             encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
         let all_keys = LocalSyncKeys {
-            list_deks: vec![(list_a, dek_a), (list_b, dek_b)],
+            list_deks: vec![(list_a, dek_a.into()), (list_b, dek_b.into())],
             tenant_root_dek: None,
         };
         assert_eq!(
@@ -3159,7 +3160,7 @@ mod tests {
         );
 
         let no_matching_key = LocalSyncKeys {
-            list_deks: vec![(list_b, [0x62; KEY_LEN])],
+            list_deks: vec![(list_b, [0x62; KEY_LEN].into())],
             tenant_root_dek: None,
         };
         assert_eq!(
@@ -3300,7 +3301,10 @@ mod tests {
             device_id: "local".to_string(),
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
-                list_deks: keys.to_vec(),
+                list_deks: keys
+                    .iter()
+                    .map(|(id, key)| (*id, Zeroizing::new(*key)))
+                    .collect(),
                 tenant_root_dek: None,
             },
         }

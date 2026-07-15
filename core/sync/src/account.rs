@@ -8,16 +8,16 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use todori_crypto::{
     key_hierarchy::{
-        derive_kek_pw, derive_recovery_wrap_key, generate_device_public_key, generate_list_dek,
-        generate_master_key, generate_recovery_key, generate_tenant_root_dek,
-        generate_user_x25519_key_pair, unwrap_list_dek_with_master_key,
-        unwrap_master_key_with_kek_pw, unwrap_tenant_root_dek_with_master_key,
-        unwrap_user_secret_key_with_master_key, wrap_list_dek_with_master_key,
-        wrap_master_key_with_device_key, wrap_master_key_with_kek_pw,
-        wrap_master_key_with_recovery_key, wrap_tenant_root_dek_with_master_key,
-        wrap_user_secret_key_with_master_key, KeyHierarchyError, KEY_LEN,
+        derive_kek_pw, derive_recovery_wrap_key, generate_list_dek, generate_master_key,
+        generate_recovery_key, generate_tenant_root_dek, generate_user_x25519_key_pair,
+        unwrap_list_dek_with_master_key, unwrap_master_key_with_kek_pw,
+        unwrap_tenant_root_dek_with_master_key, unwrap_user_secret_key_with_master_key,
+        wrap_list_dek_with_master_key, wrap_master_key_with_device_key,
+        wrap_master_key_with_kek_pw, wrap_master_key_with_recovery_key,
+        wrap_tenant_root_dek_with_master_key, wrap_user_secret_key_with_master_key,
+        KeyHierarchyError, INITIAL_KEY_GENERATION, KEY_LEN,
     },
-    TodoriCipherSuite,
+    opaque_login_parameters, opaque_registration_parameters, TodoriCipherSuite, CRYPTO_SUITE_ID,
 };
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -28,8 +28,8 @@ pub enum AccountClientError {
     EmptyServerUrl,
     #[error("HTTP request failed")]
     Http(#[from] reqwest::Error),
-    #[error("server returned account error")]
-    Server,
+    #[error("server returned account error with HTTP status {0}")]
+    Server(u16),
     #[error("invalid base64 field")]
     Base64,
     #[error("OPAQUE protocol error")]
@@ -92,6 +92,9 @@ pub struct RealtimeTicketResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountKeyBundleDto {
+    pub suite_id: u16,
+    pub generation: u64,
+    pub wrapper_revision: u64,
     pub wrapped_master_key_by_password: String,
     pub wrapped_master_key_by_recovery: String,
     pub user_public_key: String,
@@ -103,6 +106,7 @@ pub struct AccountKeyBundleDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ListDekBundleDto {
     pub list_id: Uuid,
+    pub generation: u64,
     pub wrapped_list_dek: String,
 }
 
@@ -133,23 +137,35 @@ impl AccountClient {
                 &OpaqueStartRequest {
                     email: email.to_string(),
                     device_name: device_name.map(ToOwned::to_owned),
+                    opaque_suite_id: CRYPTO_SUITE_ID,
                     message: STANDARD.encode(client_start.message.serialize()),
                 },
                 None,
             )
             .await?;
+        validate_opaque_start(&start)?;
         let server_message =
             RegistrationResponse::<TodoriCipherSuite>::deserialize(&decode_base64(&start.message)?)
                 .map_err(|_| AccountClientError::Opaque)?;
         let client_finish = client_start
             .state
-            .finish(&mut rng, &password, server_message, Default::default())
+            .finish(
+                &mut rng,
+                &password,
+                server_message,
+                opaque_registration_parameters(),
+            )
             .map_err(|_| AccountClientError::Opaque)?;
         let mut export_key = Zeroizing::new(client_finish.export_key.to_vec());
-        let key_setup = build_registration_key_bundle(&export_key, device_key, &initial_list_ids)?;
+        let key_setup = build_registration_key_bundle(
+            start.user_id,
+            start.tenant_id,
+            &export_key,
+            device_key,
+            &initial_list_ids,
+        )?;
         export_key.zeroize();
 
-        let device_public_key = generate_device_public_key();
         let session = self
             .post_json::<SessionResponse>(
                 "/v1/auth/register/finish",
@@ -157,7 +173,6 @@ impl AccountClient {
                     state_id: start.state_id,
                     message: STANDARD.encode(client_finish.message.serialize()),
                     key_bundle: key_setup.bundle,
-                    device_public_key: STANDARD.encode(device_public_key),
                 },
                 None,
             )
@@ -188,35 +203,49 @@ impl AccountClient {
                 &OpaqueStartRequest {
                     email: email.to_string(),
                     device_name: device_name.map(ToOwned::to_owned),
+                    opaque_suite_id: CRYPTO_SUITE_ID,
                     message: STANDARD.encode(client_start.message.serialize()),
                 },
                 None,
             )
             .await?;
+        validate_opaque_start(&start)?;
         let server_message =
             CredentialResponse::<TodoriCipherSuite>::deserialize(&decode_base64(&start.message)?)
                 .map_err(|_| AccountClientError::Opaque)?;
         let client_finish = client_start
             .state
-            .finish(&password, server_message, Default::default())
+            .finish(
+                &mut rng,
+                &password,
+                server_message,
+                opaque_login_parameters(),
+            )
             .map_err(|_| AccountClientError::Opaque)?;
         let mut export_key = Zeroizing::new(client_finish.export_key.to_vec());
-        let device_public_key = generate_device_public_key();
         let response = self
             .post_json::<LoginFinishResponse>(
                 "/v1/auth/login/finish",
                 &LoginFinishRequest {
                     state_id: start.state_id,
                     message: STANDARD.encode(client_finish.message.serialize()),
-                    device_public_key: STANDARD.encode(device_public_key),
                 },
                 None,
             )
             .await?;
-        let keys = unwrap_login_key_bundle(&response.key_bundle, &export_key)?;
+        let keys = unwrap_login_key_bundle(
+            &response.key_bundle,
+            response.session.user_id,
+            response.session.tenant_id,
+            &export_key,
+        )?;
         export_key.zeroize();
-        let local_wrapped_master_key =
-            wrap_master_key_with_device_key(&keys.master_key, device_key)?;
+        let local_wrapped_master_key = wrap_master_key_with_device_key(
+            response.session.user_id,
+            response.key_bundle.generation,
+            &keys.master_key,
+            device_key,
+        )?;
 
         Ok(AccountLoginOutcome {
             session: response.session.into_account_session(email),
@@ -259,7 +288,7 @@ impl AccountClient {
             return Err(AccountClientError::KeyBundleConflict);
         }
         if !response.status().is_success() {
-            return Err(AccountClientError::Server);
+            return Err(AccountClientError::Server(response.status().as_u16()));
         }
         response
             .json::<UpsertListKeyResponse>()
@@ -303,7 +332,7 @@ impl AccountClient {
             return Ok(false);
         }
         if !response.status().is_success() {
-            return Err(AccountClientError::Server);
+            return Err(AccountClientError::Server(response.status().as_u16()));
         }
         Ok(true)
     }
@@ -334,7 +363,7 @@ impl AccountClient {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server);
+            return Err(AccountClientError::Server(response.status().as_u16()));
         }
         response.json::<T>().await.map_err(AccountClientError::Http)
     }
@@ -354,7 +383,7 @@ impl AccountClient {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server);
+            return Err(AccountClientError::Server(response.status().as_u16()));
         }
         response.json::<T>().await.map_err(AccountClientError::Http)
     }
@@ -362,24 +391,34 @@ impl AccountClient {
 
 pub fn unwrap_login_key_bundle(
     bundle: &AccountKeyBundleDto,
+    user_id: Uuid,
+    tenant_id: Uuid,
     export_key: &[u8],
 ) -> Result<AccountKeyMaterial, AccountClientError> {
+    validate_key_bundle_header(bundle)?;
     let mut kek_pw = Zeroizing::new(derive_kek_pw(export_key));
     let master_key = Zeroizing::new(unwrap_master_key_with_kek_pw(
+        user_id,
+        bundle.generation,
         &decode_base64(&bundle.wrapped_master_key_by_password)?,
         &kek_pw,
     )?);
     kek_pw.zeroize();
 
     let user_secret_key = Zeroizing::new(unwrap_user_secret_key_with_master_key(
+        user_id,
+        bundle.generation,
         &decode_base64(&bundle.wrapped_user_secret_key)?,
         &master_key,
     )?);
     let tenant_root_dek = Zeroizing::new(unwrap_tenant_root_dek_with_master_key(
+        tenant_id,
+        bundle.generation,
         &decode_base64(&bundle.wrapped_tenant_root_dek)?,
         &master_key,
     )?);
-    let list_deks = unwrap_list_dek_bundles(&bundle.list_deks, &master_key)?;
+    let list_deks =
+        unwrap_list_dek_bundles(tenant_id, bundle.generation, &bundle.list_deks, &master_key)?;
 
     Ok(AccountKeyMaterial {
         master_key,
@@ -390,14 +429,22 @@ pub fn unwrap_login_key_bundle(
 }
 
 pub fn unwrap_list_dek_bundles(
+    tenant_id: Uuid,
+    expected_generation: u64,
     bundles: &[ListDekBundleDto],
     master_key: &[u8; KEY_LEN],
 ) -> Result<Vec<AccountListDekMaterial>, AccountClientError> {
     let mut list_deks = Vec::with_capacity(bundles.len());
     for bundle in bundles {
+        if bundle.generation != expected_generation {
+            return Err(AccountClientError::KeyBundleConflict);
+        }
         list_deks.push(AccountListDekMaterial {
             list_id: bundle.list_id.to_string(),
             dek: Zeroizing::new(unwrap_list_dek_with_master_key(
+                tenant_id,
+                bundle.list_id,
+                bundle.generation,
                 &decode_base64(&bundle.wrapped_list_dek)?,
                 master_key,
             )?),
@@ -407,13 +454,17 @@ pub fn unwrap_list_dek_bundles(
 }
 
 pub fn wrap_list_dek_bundle(
+    tenant_id: Uuid,
     list_id: Uuid,
+    generation: u64,
     list_dek: &[u8; KEY_LEN],
     master_key: &[u8; KEY_LEN],
 ) -> Result<ListDekBundleDto, AccountClientError> {
-    let wrapped_list_dek = wrap_list_dek_with_master_key(list_dek, master_key)?;
+    let wrapped_list_dek =
+        wrap_list_dek_with_master_key(tenant_id, list_id, generation, list_dek, master_key)?;
     Ok(ListDekBundleDto {
         list_id,
+        generation,
         wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
     })
 }
@@ -423,6 +474,8 @@ pub fn wrap_list_dek_bundle(
 /// The conversion is all-or-nothing: an invalid list ID or wrapping failure
 /// returns an error instead of exposing a partial bundle set to the caller.
 pub fn wrap_account_list_dek_bundles(
+    tenant_id: Uuid,
+    generation: u64,
     keys: &AccountKeyMaterial,
 ) -> Result<Vec<ListDekBundleDto>, AccountClientError> {
     keys.list_deks
@@ -432,37 +485,59 @@ pub fn wrap_account_list_dek_bundles(
                 .list_id
                 .parse::<Uuid>()
                 .map_err(|_| AccountClientError::InvalidListId)?;
-            wrap_list_dek_bundle(list_id, &entry.dek, &keys.master_key)
+            wrap_list_dek_bundle(tenant_id, list_id, generation, &entry.dek, &keys.master_key)
         })
         .collect()
 }
 
 fn build_registration_key_bundle(
+    user_id: Uuid,
+    tenant_id: Uuid,
     export_key: &[u8],
     device_key: &[u8; KEY_LEN],
     initial_list_ids: &[Uuid],
 ) -> Result<RegistrationKeySetup, AccountClientError> {
     let mut kek_pw = Zeroizing::new(derive_kek_pw(export_key));
     let master_key = Zeroizing::new(generate_master_key());
-    let recovery_key = Zeroizing::new(generate_recovery_key());
-    let mut recovery_wrap_key = Zeroizing::new(derive_recovery_wrap_key(&recovery_key));
+    let recovery_key = generate_recovery_key();
+    let mut recovery_wrap_key = Zeroizing::new(derive_recovery_wrap_key(&recovery_key)?);
     let user_key_pair = generate_user_x25519_key_pair();
-    let user_secret_key = Zeroizing::new(user_key_pair.secret_key);
+    let user_secret_key = user_key_pair.secret_key;
     let tenant_root_dek = Zeroizing::new(generate_tenant_root_dek());
 
-    let wrapped_master_key_by_password = wrap_master_key_with_kek_pw(&master_key, &kek_pw)?;
-    let wrapped_master_key_by_recovery =
-        wrap_master_key_with_recovery_key(&master_key, &recovery_wrap_key)?;
-    let wrapped_user_secret_key =
-        wrap_user_secret_key_with_master_key(&user_secret_key, &master_key)?;
-    let wrapped_tenant_root_dek =
-        wrap_tenant_root_dek_with_master_key(&tenant_root_dek, &master_key)?;
-    let local_wrapped_master_key = wrap_master_key_with_device_key(&master_key, device_key)?;
+    let wrapped_master_key_by_password =
+        wrap_master_key_with_kek_pw(user_id, INITIAL_KEY_GENERATION, &master_key, &kek_pw)?;
+    let wrapped_master_key_by_recovery = wrap_master_key_with_recovery_key(
+        user_id,
+        INITIAL_KEY_GENERATION,
+        &master_key,
+        &recovery_wrap_key,
+    )?;
+    let wrapped_user_secret_key = wrap_user_secret_key_with_master_key(
+        user_id,
+        INITIAL_KEY_GENERATION,
+        &user_secret_key,
+        &master_key,
+    )?;
+    let wrapped_tenant_root_dek = wrap_tenant_root_dek_with_master_key(
+        tenant_id,
+        INITIAL_KEY_GENERATION,
+        &tenant_root_dek,
+        &master_key,
+    )?;
+    let local_wrapped_master_key =
+        wrap_master_key_with_device_key(user_id, INITIAL_KEY_GENERATION, &master_key, device_key)?;
     let mut list_dek_bundles = Vec::with_capacity(initial_list_ids.len());
     let mut list_deks = Vec::with_capacity(initial_list_ids.len());
     for list_id in initial_list_ids {
         let list_dek = Zeroizing::new(generate_list_dek());
-        list_dek_bundles.push(wrap_list_dek_bundle(*list_id, &list_dek, &master_key)?);
+        list_dek_bundles.push(wrap_list_dek_bundle(
+            tenant_id,
+            *list_id,
+            INITIAL_KEY_GENERATION,
+            &list_dek,
+            &master_key,
+        )?);
         list_deks.push(AccountListDekMaterial {
             list_id: list_id.to_string(),
             dek: list_dek,
@@ -474,6 +549,9 @@ fn build_registration_key_bundle(
 
     Ok(RegistrationKeySetup {
         bundle: AccountKeyBundleDto {
+            suite_id: CRYPTO_SUITE_ID,
+            generation: INITIAL_KEY_GENERATION,
+            wrapper_revision: 1,
             wrapped_master_key_by_password: STANDARD.encode(wrapped_master_key_by_password),
             wrapped_master_key_by_recovery: STANDARD.encode(wrapped_master_key_by_recovery),
             user_public_key: STANDARD.encode(user_key_pair.public_key),
@@ -506,6 +584,27 @@ fn decode_base64(value: &str) -> Result<Vec<u8>, AccountClientError> {
         .map_err(|_| AccountClientError::Base64)
 }
 
+fn validate_opaque_start(start: &OpaqueStartResponse) -> Result<(), AccountClientError> {
+    if start.opaque_suite_id != CRYPTO_SUITE_ID {
+        return Err(AccountClientError::Opaque);
+    }
+    Ok(())
+}
+
+fn validate_key_bundle_header(bundle: &AccountKeyBundleDto) -> Result<(), AccountClientError> {
+    if bundle.suite_id != CRYPTO_SUITE_ID
+        || bundle.generation != INITIAL_KEY_GENERATION
+        || bundle.wrapper_revision == 0
+        || bundle
+            .list_deks
+            .iter()
+            .any(|list_dek| list_dek.generation != bundle.generation)
+    {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    Ok(())
+}
+
 struct RegistrationKeySetup {
     bundle: AccountKeyBundleDto,
     recovery_key: Zeroizing<String>,
@@ -517,12 +616,16 @@ struct RegistrationKeySetup {
 struct OpaqueStartRequest {
     email: String,
     device_name: Option<String>,
+    opaque_suite_id: u16,
     message: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpaqueStartResponse {
     state_id: Uuid,
+    opaque_suite_id: u16,
+    user_id: Uuid,
+    tenant_id: Uuid,
     message: String,
     #[allow(dead_code)]
     expires_at: DateTime<Utc>,
@@ -533,14 +636,12 @@ struct RegisterFinishRequest {
     state_id: Uuid,
     message: String,
     key_bundle: AccountKeyBundleDto,
-    device_public_key: String,
 }
 
 #[derive(Debug, Serialize)]
 struct LoginFinishRequest {
     state_id: Uuid,
     message: String,
-    device_public_key: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -600,6 +701,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn client_rejects_unknown_opaque_suite_before_deserializing_protocol_state() {
+        let response = OpaqueStartResponse {
+            state_id: Uuid::now_v7(),
+            opaque_suite_id: CRYPTO_SUITE_ID - 1,
+            user_id: Uuid::now_v7(),
+            tenant_id: Uuid::now_v7(),
+            message: String::new(),
+            expires_at: Utc::now(),
+        };
+
+        assert!(matches!(
+            validate_opaque_start(&response),
+            Err(AccountClientError::Opaque)
+        ));
+    }
+
+    #[test]
+    fn client_rejects_key_bundle_generation_downgrade() {
+        let bundle = AccountKeyBundleDto {
+            suite_id: CRYPTO_SUITE_ID,
+            generation: INITIAL_KEY_GENERATION,
+            wrapper_revision: 1,
+            wrapped_master_key_by_password: String::new(),
+            wrapped_master_key_by_recovery: String::new(),
+            user_public_key: String::new(),
+            wrapped_user_secret_key: String::new(),
+            wrapped_tenant_root_dek: String::new(),
+            list_deks: vec![ListDekBundleDto {
+                list_id: Uuid::now_v7(),
+                generation: 0,
+                wrapped_list_dek: String::new(),
+            }],
+        };
+
+        assert!(matches!(
+            validate_key_bundle_header(&bundle),
+            Err(AccountClientError::KeyBundleConflict)
+        ));
+    }
+
+    #[test]
     fn realtime_ticket_wire_uses_only_frontend_authorization_fields() {
         let wire: RealtimeTicketWireResponse = serde_json::from_str(
             r#"{"websocket_url":"wss://realtime.example/v1/connect","ticket":"opaque-ticket","expires_at":"2026-07-15T00:05:00Z"}"#,
@@ -620,10 +762,15 @@ mod tests {
         let export_key = b"opaque export key";
         let wrong_export_key = b"wrong opaque export key";
         let device_key = [0x44; KEY_LEN];
+        let user_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
 
         let list_id = Uuid::now_v7();
-        let setup = build_registration_key_bundle(export_key, &device_key, &[list_id]).unwrap();
-        let unwrapped = unwrap_login_key_bundle(&setup.bundle, export_key).unwrap();
+        let setup =
+            build_registration_key_bundle(user_id, tenant_id, export_key, &device_key, &[list_id])
+                .unwrap();
+        let unwrapped =
+            unwrap_login_key_bundle(&setup.bundle, user_id, tenant_id, export_key).unwrap();
 
         assert_eq!(*unwrapped.master_key, *setup.keys.master_key);
         assert_eq!(*unwrapped.user_secret_key, *setup.keys.user_secret_key);
@@ -631,12 +778,16 @@ mod tests {
         assert_eq!(unwrapped.list_deks.len(), 1);
         assert_eq!(unwrapped.list_deks[0].list_id, list_id.to_string());
         assert_eq!(*unwrapped.list_deks[0].dek, *setup.keys.list_deks[0].dek);
-        assert!(unwrap_login_key_bundle(&setup.bundle, wrong_export_key).is_err());
+        assert!(
+            unwrap_login_key_bundle(&setup.bundle, user_id, tenant_id, wrong_export_key).is_err()
+        );
     }
 
     #[test]
     fn local_wrapped_master_key_uses_device_key_only_locally() {
         let setup = build_registration_key_bundle(
+            Uuid::now_v7(),
+            Uuid::now_v7(),
             b"opaque export key",
             &[0x44; KEY_LEN],
             &[Uuid::now_v7()],
@@ -653,17 +804,20 @@ mod tests {
     #[test]
     fn list_dek_bundle_unwrap_roundtrips_with_master_key() {
         let list_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         let list_dek = [0x31; KEY_LEN];
         let master_key = [0x62; KEY_LEN];
-        let bundle = wrap_list_dek_bundle(list_id, &list_dek, &master_key).unwrap();
+        let bundle = wrap_list_dek_bundle(tenant_id, list_id, 1, &list_dek, &master_key).unwrap();
 
-        let unwrapped = unwrap_list_dek_bundles(&[bundle], &master_key).unwrap();
+        let unwrapped = unwrap_list_dek_bundles(tenant_id, 1, &[bundle], &master_key).unwrap();
 
         assert_eq!(unwrapped.len(), 1);
         assert_eq!(unwrapped[0].list_id, list_id.to_string());
         assert_eq!(*unwrapped[0].dek, list_dek);
         assert!(unwrap_list_dek_bundles(
-            &[wrap_list_dek_bundle(list_id, &list_dek, &master_key).unwrap()],
+            tenant_id,
+            1,
+            &[wrap_list_dek_bundle(tenant_id, list_id, 1, &list_dek, &master_key).unwrap()],
             &[0xff; KEY_LEN],
         )
         .is_err());
@@ -671,6 +825,7 @@ mod tests {
 
     #[test]
     fn account_list_dek_bundles_roundtrip_all_entries() {
+        let tenant_id = Uuid::now_v7();
         let first_list_id = Uuid::now_v7();
         let second_list_id = Uuid::now_v7();
         let keys = AccountKeyMaterial {
@@ -689,8 +844,8 @@ mod tests {
             ],
         };
 
-        let bundles = wrap_account_list_dek_bundles(&keys).unwrap();
-        let unwrapped = unwrap_list_dek_bundles(&bundles, &keys.master_key).unwrap();
+        let bundles = wrap_account_list_dek_bundles(tenant_id, 1, &keys).unwrap();
+        let unwrapped = unwrap_list_dek_bundles(tenant_id, 1, &bundles, &keys.master_key).unwrap();
 
         assert_eq!(unwrapped.len(), 2);
         assert_eq!(unwrapped[0].list_id, first_list_id.to_string());
@@ -718,7 +873,7 @@ mod tests {
         };
 
         assert!(matches!(
-            wrap_account_list_dek_bundles(&keys),
+            wrap_account_list_dek_bundles(Uuid::now_v7(), 1, &keys),
             Err(AccountClientError::InvalidListId)
         ));
     }

@@ -2,7 +2,8 @@ use std::path::Path;
 
 use todori_crypto::key_hierarchy::{
     unwrap_local_list_dek_with_master_key, unwrap_local_tenant_root_dek_with_master_key,
-    wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key, KEY_LEN,
+    wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key,
+    INITIAL_KEY_GENERATION, KEY_LEN,
 };
 use todori_domain::Uuid;
 use todori_storage::{
@@ -155,18 +156,25 @@ pub fn persist_local_crypto_context(
         .list_deks
         .iter()
         .map(|(list_id, list_dek)| {
-            wrap_local_list_dek_with_master_key(&list_id.to_string(), list_dek, master_key)
-                .map(|wrapped| (*list_id, wrapped))
-                .map_err(|_| {
-                    StorageError::IncompatibleSchema("invalid local sync key material".to_string())
-                })
+            wrap_local_list_dek_with_master_key(
+                identity.tenant_id,
+                *list_id,
+                INITIAL_KEY_GENERATION,
+                list_dek,
+                master_key,
+            )
+            .map(|wrapped| (*list_id, wrapped))
+            .map_err(|_| {
+                StorageError::IncompatibleSchema("invalid local sync key material".to_string())
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let tenant_root_dek = sync_keys.tenant_root_dek.as_deref().ok_or_else(|| {
         StorageError::IncompatibleSchema("local Tenant Root DEK is missing".to_string())
     })?;
     let wrapped_tenant_root_dek = wrap_local_tenant_root_dek_with_master_key(
-        &identity.tenant_id.to_string(),
+        identity.tenant_id,
+        INITIAL_KEY_GENERATION,
         tenant_root_dek,
         master_key,
     )
@@ -202,13 +210,20 @@ fn unwrap_local_cache_entries(
     let list_deks = entries
         .iter()
         .map(|(list_id, wrapped)| {
-            unwrap_local_list_dek_with_master_key(&list_id.to_string(), wrapped, master_key)
-                .map(|list_dek| (*list_id, list_dek))
-                .map_err(|_| ())
+            unwrap_local_list_dek_with_master_key(
+                tenant_id,
+                *list_id,
+                INITIAL_KEY_GENERATION,
+                wrapped,
+                master_key,
+            )
+            .map(|list_dek| (*list_id, Zeroizing::new(list_dek)))
+            .map_err(|_| ())
         })
         .collect::<Result<Vec<_>, _>>()?;
     let tenant_root_dek = unwrap_local_tenant_root_dek_with_master_key(
-        &tenant_id.to_string(),
+        tenant_id,
+        INITIAL_KEY_GENERATION,
         wrapped_tenant_root_dek,
         master_key,
     )
@@ -467,7 +482,9 @@ mod tests {
                 (
                     list_id,
                     wrap_local_list_dek_with_master_key(
-                        &entry.list_id,
+                        tenant_id,
+                        list_id,
+                        INITIAL_KEY_GENERATION,
                         &entry.dek,
                         &account_keys.master_key,
                     )
@@ -480,7 +497,8 @@ mod tests {
             tenant_id,
             key_version: 1,
             wrapped_tenant_root_dek: wrap_local_tenant_root_dek_with_master_key(
-                &tenant_id.to_string(),
+                tenant_id,
+                INITIAL_KEY_GENERATION,
                 &account_keys.tenant_root_dek,
                 &account_keys.master_key,
             )

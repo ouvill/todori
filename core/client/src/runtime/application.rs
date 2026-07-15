@@ -1256,7 +1256,7 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
-                list_deks: vec![(list.id, [0x55; 32])],
+                list_deks: vec![(list.id, [0x55; 32].into())],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
             },
             BASE_MS,
@@ -1371,7 +1371,7 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
-                list_deks: vec![(list.id, [0x55; 32])],
+                list_deks: vec![(list.id, [0x55; 32].into())],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
             },
             BASE_MS,
@@ -1577,7 +1577,7 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
-                list_deks: vec![(ready_list.id, [0x55; 32])],
+                list_deks: vec![(ready_list.id, [0x55; 32].into())],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
             },
             BASE_MS,
@@ -1674,7 +1674,7 @@ mod tests {
         let sync = LocalMutationContext {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
-                list_deks: vec![(list.id, [0x55; 32])],
+                list_deks: vec![(list.id, [0x55; 32].into())],
                 tenant_root_dek: None,
             },
         };
@@ -1728,7 +1728,7 @@ mod tests {
         let sync = LocalMutationContext {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
-                list_deks: vec![(list.id, [0x55; 32])],
+                list_deks: vec![(list.id, [0x55; 32].into())],
                 tenant_root_dek: None,
             },
         };

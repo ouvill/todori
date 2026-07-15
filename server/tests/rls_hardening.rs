@@ -58,13 +58,16 @@ impl Fixture {
             (user_a, "rls-a@example.test"),
             (user_b, "rls-b@example.test"),
         ] {
-            query::<Postgres>("INSERT INTO users (id, email, opaque_record) VALUES ($1, $2, $3)")
-                .bind(user_id)
-                .bind(email)
-                .bind(vec![1_u8])
-                .execute(&admin_pool)
-                .await
-                .unwrap();
+            query::<Postgres>(
+                "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
+                 VALUES ($1, $2, 2, $3)",
+            )
+            .bind(user_id)
+            .bind(email)
+            .bind(vec![1_u8])
+            .execute(&admin_pool)
+            .await
+            .unwrap();
         }
         for (tenant_id, user_id, seq) in [(tenant_a, user_a, 1_i64), (tenant_b, user_b, 2)] {
             query::<Postgres>(
@@ -90,8 +93,9 @@ impl Fixture {
                 .await
                 .unwrap();
             query::<Postgres>(
-                "INSERT INTO tenant_key_bundles (tenant_id, wrapped_tenant_root_dek)
-                 VALUES ($1, $2)",
+                "INSERT INTO tenant_key_bundles
+                    (tenant_id, suite_id, generation, wrapped_tenant_root_dek)
+                 VALUES ($1, 2, 1, $2)",
             )
             .bind(tenant_id)
             .bind(vec![seq as u8])
@@ -99,8 +103,9 @@ impl Fixture {
             .await
             .unwrap();
             query::<Postgres>(
-                "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
-                 VALUES ($1, $2, $3)",
+                "INSERT INTO list_key_bundles
+                    (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
+                 VALUES ($1, $2, 2, 1, $3)",
             )
             .bind(tenant_id)
             .bind(Uuid::now_v7())

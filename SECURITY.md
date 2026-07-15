@@ -27,12 +27,14 @@ If GitHub private vulnerability reporting cannot be used, do not publish vulnera
 Security reports for the following areas are in scope:
 
 - E2EE design and implementation, including record encryption, associated data, and server-visible metadata.
-- Key derivation, key wrapping, Device Key storage, Recovery Key handling, Master Key handling, and X25519 key material.
+- Key derivation, versioned key wrapping, key-generation rotation, Device Key capsules, Recovery Key handling, Master Key handling, device certificates, Safety numbers, and X25519 / ML-KEM / ML-DSA key material.
 - OPAQUE registration, login, password change, account recovery, session handling, and device revocation.
 - SQLCipher local database encryption, local database key derivation, tenant database separation, and local data exposure risks.
 - Synchronization protocol behavior, authorization, tenant isolation, server-side metadata handling, tombstones, history retention, and replay or ordering issues.
 - Server-side control plane data, including wrapped keys, device metadata, organization membership, and subscription-gated synchronization access.
 - CI, build scripts, generated artifacts, release packaging, and dependency or supply-chain issues that could affect shipped binaries.
+
+Todori's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, and per-device hybrid X25519 + ML-KEM-768 key delivery have passed independent review. A security review performed by the implementation team is not described as an external audit.
 
 ## Out of Scope
 

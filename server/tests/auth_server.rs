@@ -67,6 +67,22 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         .await
         .unwrap();
     assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(
+        request_status(
+            &test.app,
+            Method::POST,
+            "/v1/auth/register/start".to_string(),
+            None,
+            Some(serde_json::json!({
+                "email": "downgrade@example.com",
+                "device_name": "downgrade",
+                "opaque_suite_id": 1,
+                "message": "invalid-but-suite-is-checked-first"
+            })),
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let server_url = format!("http://{}", listener.local_addr().unwrap());
@@ -102,7 +118,7 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
     let user_id = Uuid::parse_str(&registered.session.user_id).unwrap();
     let tenant_id = Uuid::parse_str(&registered.session.tenant_id).unwrap();
     let stored = stored_key_bundle(&test.pool, user_id, tenant_id).await;
-    assert!(unwrap_login_key_bundle(&stored, b"wrong export key").is_err());
+    assert!(unwrap_login_key_bundle(&stored, user_id, tenant_id, b"wrong export key").is_err());
 
     let logged_in = client
         .login(
@@ -150,8 +166,14 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
 
     let added_list_id = Uuid::now_v7();
     let added_list_dek = [0x7a; 32];
-    let added_bundle =
-        wrap_list_dek_bundle(added_list_id, &added_list_dek, &logged_in.keys.master_key).unwrap();
+    let added_bundle = wrap_list_dek_bundle(
+        tenant_id,
+        added_list_id,
+        1,
+        &added_list_dek,
+        &logged_in.keys.master_key,
+    )
+    .unwrap();
     client
         .upsert_list_key_bundle(
             tenant_id,
@@ -168,8 +190,14 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         )
         .await
         .unwrap();
-    let conflicting =
-        wrap_list_dek_bundle(added_list_id, &[0x7b; 32], &logged_in.keys.master_key).unwrap();
+    let conflicting = wrap_list_dek_bundle(
+        tenant_id,
+        added_list_id,
+        1,
+        &[0x7b; 32],
+        &logged_in.keys.master_key,
+    )
+    .unwrap();
     assert!(matches!(
         client
             .upsert_list_key_bundle(tenant_id, &logged_in.session.session_token, conflicting,)
@@ -202,16 +230,27 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         StatusCode::UNAUTHORIZED
     );
 
-    let device_count: i64 = query::<Postgres>(
-        "SELECT count(*) AS count FROM devices WHERE user_id = $1 AND public_key IS NOT NULL",
+    let device_count: i64 =
+        query::<Postgres>("SELECT count(*) AS count FROM devices WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&test.pool)
+            .await
+            .unwrap()
+            .try_get("count")
+            .unwrap();
+    assert_eq!(device_count, 2);
+    let obsolete_public_key_columns: i64 = query::<Postgres>(
+        "SELECT count(*) AS count FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'devices'
+           AND column_name = 'public_key'",
     )
-    .bind(user_id)
     .fetch_one(&test.pool)
     .await
     .unwrap()
     .try_get("count")
     .unwrap();
-    assert_eq!(device_count, 2);
+    assert_eq!(obsolete_public_key_columns, 0);
 }
 
 async fn request_status(
@@ -269,6 +308,9 @@ async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> Acc
     .await
     .unwrap();
     AccountKeyBundleDto {
+        suite_id: 2,
+        generation: 1,
+        wrapper_revision: 1,
         wrapped_master_key_by_password: STANDARD.encode(
             user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
                 .unwrap(),
@@ -291,6 +333,7 @@ async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> Acc
             .into_iter()
             .map(|row| ListDekBundleDto {
                 list_id: row.try_get("list_id").unwrap(),
+                generation: 1,
                 wrapped_list_dek: STANDARD
                     .encode(row.try_get::<Vec<u8>, _>("wrapped_list_dek").unwrap()),
             })

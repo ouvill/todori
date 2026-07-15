@@ -2,9 +2,10 @@
 //!
 //! 詳細は `docs/03_技術仕様書.md` §4 暗号設計 を参照。
 //!
-//! TODO: OPAQUE (opaque-ke) によるパスワード認証プロトコルの統合は PoC タスクで
-//! 追加予定（`docs/03_技術仕様書.md` §4.7）。本crateは現時点ではAEAD暗号化と
-//! HKDF鍵導出のみを提供する。
+//! suite IDはOPAQUE、key wrap、record envelopeで共有し、このcrate rootだけで
+//! 定義する。
+
+pub const CRYPTO_SUITE_ID: u16 = 0x0002;
 
 pub mod aead;
 pub mod dev_key_store;
@@ -23,4 +24,7 @@ pub use device_key::{
     InMemoryDeviceKeyStore, KeyStoreError, DEVICE_KEY_LEN, LOCAL_DB_KEY_INFO,
 };
 pub use kdf::derive_key;
-pub use opaque::TodoriCipherSuite;
+pub use opaque::{
+    login_parameters as opaque_login_parameters,
+    registration_parameters as opaque_registration_parameters, TodoriCipherSuite,
+};

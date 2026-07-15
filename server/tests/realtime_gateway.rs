@@ -63,13 +63,16 @@ impl Fixture {
         let tenant_id = Uuid::now_v7();
         let device_id = Uuid::now_v7();
         let token = "realtime-gateway-test-token".to_owned();
-        query("INSERT INTO users (id, email, opaque_record) VALUES ($1, $2, $3)")
-            .bind(user_id)
-            .bind(format!("{user_id}@example.test"))
-            .bind(vec![1_u8])
-            .execute(&admin_pool)
-            .await
-            .unwrap();
+        query(
+            "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
+             VALUES ($1, $2, 2, $3)",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .bind(vec![1_u8])
+        .execute(&admin_pool)
+        .await
+        .unwrap();
         query("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
             .bind(tenant_id)
             .bind(user_id)

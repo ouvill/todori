@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
+use todori_crypto::{key_hierarchy::INITIAL_KEY_GENERATION, CRYPTO_SUITE_ID};
 use todori_sync::{
     account::ListDekBundleDto,
     protocol::{
@@ -472,30 +473,42 @@ pub async fn upsert_list_key_bundle(
     if wrapped_list_dek.is_empty() {
         return Err(AppError::bad_request("invalid list key bundle"));
     }
+    if bundle.generation != INITIAL_KEY_GENERATION {
+        return Err(AppError::bad_request("invalid list key generation"));
+    }
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let inserted = query::<Postgres>(
-        "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
-         VALUES ($1, $2, $3)
+        "INSERT INTO list_key_bundles
+            (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (tenant_id, list_id) DO NOTHING",
     )
     .bind(tenant_id)
     .bind(bundle.list_id)
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
+    .bind(i64::try_from(bundle.generation).map_err(|_| AppError::internal())?)
     .bind(&wrapped_list_dek)
     .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
         let existing = query::<Postgres>(
-            "SELECT wrapped_list_dek
+            "SELECT suite_id, generation, wrapped_list_dek
              FROM list_key_bundles
              WHERE tenant_id = $1 AND list_id = $2",
         )
         .bind(tenant_id)
         .bind(bundle.list_id)
         .fetch_one(&mut *tx)
-        .await?
-        .try_get::<Vec<u8>, _>("wrapped_list_dek")?;
-        if existing != wrapped_list_dek {
+        .await?;
+        let existing_suite: i16 = existing.try_get("suite_id")?;
+        let existing_generation: i64 = existing.try_get("generation")?;
+        let existing_wrapped: Vec<u8> = existing.try_get("wrapped_list_dek")?;
+        if existing_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?
+            || existing_generation
+                != i64::try_from(bundle.generation).map_err(|_| AppError::internal())?
+            || existing_wrapped != wrapped_list_dek
+        {
             return Err(AppError::conflict("list key bundle conflict"));
         }
     }
@@ -510,7 +523,7 @@ pub async fn list_key_bundles(
 ) -> Result<Vec<ListDekBundleDto>, AppError> {
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let rows = query::<Postgres>(
-        "SELECT list_id, wrapped_list_dek
+        "SELECT list_id, generation, wrapped_list_dek
          FROM list_key_bundles
          WHERE tenant_id = $1
          ORDER BY created_at ASC, list_id ASC",
@@ -528,6 +541,11 @@ pub async fn list_key_bundles(
                 .map_err(|_| AppError::internal())?;
             Ok(ListDekBundleDto {
                 list_id,
+                generation: u64::try_from(
+                    row.try_get::<i64, _>("generation")
+                        .map_err(|_| AppError::internal())?,
+                )
+                .map_err(|_| AppError::internal())?,
                 wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
             })
         })

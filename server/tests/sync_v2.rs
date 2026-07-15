@@ -28,6 +28,7 @@ use todori_client::test_support::{
     persist_local_crypto_context, LocalCryptoIdentity, LocalMutationContext, SqliteMutationService,
     SqliteSyncStore, UpdateTaskInput,
 };
+use todori_crypto::CRYPTO_SUITE_ID;
 use todori_server::{
     auth::AuthContext,
     build_router, db,
@@ -84,13 +85,17 @@ impl Fixture {
         let tenant_id = Uuid::now_v7();
         let device_id = Uuid::now_v7();
         let token = "protocol-v2-test-token".to_string();
-        query("INSERT INTO users (id, email, opaque_record) VALUES ($1, $2, $3)")
-            .bind(user_id)
-            .bind(format!("{user_id}@example.test"))
-            .bind(vec![1_u8])
-            .execute(&pool)
-            .await
-            .unwrap();
+        query(
+            "INSERT INTO users (id, email, opaque_suite_id, opaque_record)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .bind(i16::try_from(CRYPTO_SUITE_ID).unwrap())
+        .bind(vec![1_u8])
+        .execute(&pool)
+        .await
+        .unwrap();
         query("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
             .bind(tenant_id)
             .bind(user_id)
@@ -309,7 +314,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
     let mut key_refresher = TestKeyRefresher {
         calls: 0,
         keys: LocalSyncKeys {
-            list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+            list_deks: vec![(good.id, good_dek.into()), (corrupt.id, corrupt_dek.into())],
             tenant_root_dek: Some([0xe7; 32].into()),
         },
         fail: false,
@@ -365,9 +370,9 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
 
     let all_keys = LocalSyncKeys {
         list_deks: vec![
-            (good.id, good_dek),
-            (missing.id, missing_dek),
-            (corrupt.id, corrupt_dek),
+            (good.id, good_dek.into()),
+            (missing.id, missing_dek.into()),
+            (corrupt.id, corrupt_dek.into()),
         ],
         tenant_root_dek: Some([0xe7; 32].into()),
     };
@@ -507,7 +512,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         let mut matrix_refresher = TestKeyRefresher {
             calls: 0,
             keys: LocalSyncKeys {
-                list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+                list_deks: vec![(good.id, good_dek.into()), (corrupt.id, corrupt_dek.into())],
                 tenant_root_dek: Some([0xe7; 32].into()),
             },
             fail: false,
@@ -578,7 +583,10 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             run_sync_now_with_key_refresh(
                 ActiveSyncContext {
                     keys: LocalSyncKeys {
-                        list_deks: vec![(good.id, good_dek), (corrupt.id, corrupt_dek)],
+                        list_deks: vec![
+                            (good.id, good_dek.into()),
+                            (corrupt.id, corrupt_dek.into()),
+                        ],
                         tenant_root_dek: Some([0xe7; 32].into()),
                     },
                     ..context.clone()
@@ -677,10 +685,10 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         device_id: "unknown-client".to_string(),
         keys: LocalSyncKeys {
             list_deks: vec![
-                (good.id, good_dek),
-                (missing.id, missing_dek),
-                (corrupt.id, corrupt_dek),
-                (unknown.id, unknown_dek),
+                (good.id, good_dek.into()),
+                (missing.id, missing_dek.into()),
+                (corrupt.id, corrupt_dek.into()),
+                (unknown.id, unknown_dek.into()),
             ],
             tenant_root_dek: Some([0xe7; 32].into()),
         },
@@ -782,7 +790,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
     let mut refresher = TestKeyRefresher {
         calls: 0,
         keys: LocalSyncKeys {
-            list_deks: vec![(waiting.id, waiting_dek)],
+            list_deks: vec![(waiting.id, waiting_dek.into())],
             tenant_root_dek: Some([0xe7; 32].into()),
         },
         fail: false,
@@ -1363,7 +1371,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
         .insert(initial.clone())
         .unwrap();
     let initial_keys = LocalSyncKeys {
-        list_deks: vec![(initial.id, [0xe4; 32])],
+        list_deks: vec![(initial.id, [0xe4; 32].into())],
         tenant_root_dek: Some([0xe7; 32].into()),
     };
     persist_local_crypto_context(
@@ -1519,11 +1527,11 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
         .list_key_bundles(fixture.tenant_id, &fixture.token)
         .await
         .unwrap();
-    let materials = unwrap_list_dek_bundles(&bundles, &MASTER_KEY).unwrap();
+    let materials = unwrap_list_dek_bundles(fixture.tenant_id, 1, &bundles, &MASTER_KEY).unwrap();
     let keys_b = LocalSyncKeys {
         list_deks: materials
             .into_iter()
-            .map(|material| (Uuid::parse_str(&material.list_id).unwrap(), *material.dek))
+            .map(|material| (Uuid::parse_str(&material.list_id).unwrap(), material.dek))
             .collect(),
         tenant_root_dek: Some([0xe7; 32].into()),
     };
@@ -1576,7 +1584,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
     let sync_a = LocalMutationContext {
         device_id: "production-client-a".to_string(),
         keys: LocalSyncKeys {
-            list_deks: vec![(list.id, list_dek)],
+            list_deks: vec![(list.id, list_dek.into())],
             tenant_root_dek: Some([0xe7; 32].into()),
         },
     };
@@ -1792,7 +1800,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
     let sync_a = LocalMutationContext {
         device_id: "rank-client-a".to_string(),
         keys: LocalSyncKeys {
-            list_deks: vec![(list.id, list_dek)],
+            list_deks: vec![(list.id, list_dek.into())],
             tenant_root_dek: Some([0xe7; 32].into()),
         },
     };
@@ -2037,7 +2045,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
         .insert(list.clone())
         .unwrap();
     let keys = LocalSyncKeys {
-        list_deks: vec![(list.id, [0xe2; 32])],
+        list_deks: vec![(list.id, [0xe2; 32].into())],
         tenant_root_dek: Some([0xe7; 32].into()),
     };
     let mutation = hlc(-4_000, 0, "list-live");
@@ -2522,6 +2530,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         fixture.auth.clone(),
         todori_sync::account::ListDekBundleDto {
             list_id: Uuid::now_v7(),
+            generation: 1,
             wrapped_list_dek: STANDARD.encode([7_u8; 32]),
         },
     )
@@ -2617,6 +2626,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         fixture.auth.clone(),
         todori_sync::account::ListDekBundleDto {
             list_id: Uuid::now_v7(),
+            generation: 1,
             wrapped_list_dek: STANDARD.encode([8_u8; 32]),
         },
     )
@@ -2711,6 +2721,7 @@ async fn list_key_retirement_waits_for_tombstone_gc_and_device_closure() {
         fixture.auth.clone(),
         todori_sync::account::ListDekBundleDto {
             list_id,
+            generation: 1,
             wrapped_list_dek: STANDARD.encode([9_u8; 32]),
         },
     )
@@ -2876,7 +2887,10 @@ async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_chan
         )
         .await
         .unwrap();
-    assert_eq!(old_list_key_response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        old_list_key_response.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
     assert_eq!(
         request_status(
             &fixture.app,

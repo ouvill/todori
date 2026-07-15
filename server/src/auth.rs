@@ -2,14 +2,14 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use opaque_ke::{
     CredentialFinalization, CredentialRequest, RegistrationRequest, RegistrationUpload,
-    ServerLogin, ServerLoginStartParameters, ServerRegistration, ServerSetup,
+    ServerLogin, ServerLoginParameters, ServerRegistration, ServerSetup,
 };
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::TodoriCipherSuite;
+use todori_crypto::{key_hierarchy::INITIAL_KEY_GENERATION, TodoriCipherSuite, CRYPTO_SUITE_ID};
 use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto};
 use uuid::Uuid;
 
@@ -26,12 +26,16 @@ type TodoriServerLogin = ServerLogin<TodoriCipherSuite>;
 pub struct OpaqueStartRequest {
     pub email: String,
     pub device_name: Option<String>,
+    pub opaque_suite_id: u16,
     pub message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OpaqueStartResponse {
     pub state_id: Uuid,
+    pub opaque_suite_id: u16,
+    pub user_id: Uuid,
+    pub tenant_id: Uuid,
     pub message: String,
     pub expires_at: DateTime<Utc>,
 }
@@ -47,14 +51,12 @@ pub struct RegisterFinishRequest {
     pub state_id: Uuid,
     pub message: String,
     pub key_bundle: AccountKeyBundleDto,
-    pub device_public_key: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LoginFinishRequest {
     pub state_id: Uuid,
     pub message: String,
-    pub device_public_key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +88,7 @@ pub async fn register_start(
     pool: &PgPool,
     request: OpaqueStartRequest,
 ) -> Result<OpaqueStartResponse, AppError> {
+    validate_opaque_suite(request.opaque_suite_id)?;
     let email = normalize_email(&request.email)?;
     let device_name = normalize_device_name(request.device_name);
     let client_message = decode_opaque_message(&request.message)?;
@@ -97,21 +100,30 @@ pub async fn register_start(
         ServerRegistration::start(&server_setup, registration_request, email.as_bytes())
             .map_err(|_| AppError::bad_request("invalid opaque message"))?;
     let state_id = Uuid::now_v7();
+    let user_id = Uuid::now_v7();
+    let tenant_id = Uuid::now_v7();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
 
     query::<Postgres>(
-        "INSERT INTO opaque_registration_states (id, email, device_name, expires_at)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO opaque_registration_states
+            (id, user_id, tenant_id, email, device_name, opaque_suite_id, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(state_id)
+    .bind(user_id)
+    .bind(tenant_id)
     .bind(&email)
     .bind(&device_name)
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(expires_at)
     .execute(pool)
     .await?;
 
     Ok(OpaqueStartResponse {
         state_id,
+        opaque_suite_id: CRYPTO_SUITE_ID,
+        user_id,
+        tenant_id,
         message: STANDARD.encode(server_start.message.serialize()),
         expires_at,
     })
@@ -127,21 +139,23 @@ pub async fn register_finish(
     let server_record = ServerRegistration::finish(registration_upload);
     let server_record_bytes = server_record.serialize().to_vec();
     let key_bundle = decode_account_key_bundle(&request.key_bundle)?;
-    let device_public_key = decode_fixed_key(&request.device_public_key, "invalid device key")?;
 
     let mut tx = pool.begin().await?;
     let state = consume_registration_state(&mut tx, request.state_id).await?;
-    let user_id = Uuid::now_v7();
-    let tenant_id = Uuid::now_v7();
+    let user_id = state.user_id;
+    let tenant_id = state.tenant_id;
     let device_id = Uuid::now_v7();
 
-    query::<Postgres>("INSERT INTO users (id, email, opaque_record) VALUES ($1, $2, $3)")
-        .bind(user_id)
-        .bind(&state.email)
-        .bind(&server_record_bytes)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_insert_user_error)?;
+    query::<Postgres>(
+        "INSERT INTO users (id, email, opaque_suite_id, opaque_record) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(&state.email)
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
+    .bind(&server_record_bytes)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_insert_user_error)?;
 
     db::set_user_context(&mut tx, user_id).await?;
     db::set_tenant_context(&mut tx, tenant_id).await?;
@@ -163,14 +177,7 @@ pub async fn register_finish(
         .execute(&mut *tx)
         .await?;
     insert_account_key_bundle(&mut tx, user_id, tenant_id, key_bundle).await?;
-    insert_device(
-        &mut tx,
-        device_id,
-        user_id,
-        &state.device_name,
-        Some(&device_public_key),
-    )
-    .await?;
+    insert_device(&mut tx, device_id, user_id, &state.device_name).await?;
     let session = create_session(&mut tx, user_id, device_id).await?;
     tx.commit().await?;
 
@@ -187,19 +194,40 @@ pub async fn login_start(
     pool: &PgPool,
     request: OpaqueStartRequest,
 ) -> Result<OpaqueStartResponse, AppError> {
+    validate_opaque_suite(request.opaque_suite_id)?;
     let email = normalize_email(&request.email)?;
     let device_name = normalize_device_name(request.device_name);
     let client_message = decode_opaque_message(&request.message)?;
     let credential_request = CredentialRequest::<TodoriCipherSuite>::deserialize(&client_message)
         .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
-    let row =
-        query::<Postgres>("SELECT id, opaque_record FROM users WHERE lower(email) = lower($1)")
-            .bind(&email)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(|| AppError::not_found("account not found"))?;
+    let row = query::<Postgres>(
+        "SELECT u.id, u.opaque_record, u.opaque_suite_id
+             FROM users u WHERE lower(u.email) = lower($1)",
+    )
+    .bind(&email)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("account not found"))?;
     let user_id: Uuid = row.try_get("id").map_err(|_| AppError::internal())?;
+    let stored_suite: i16 = row
+        .try_get("opaque_suite_id")
+        .map_err(|_| AppError::internal())?;
+    if stored_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
+        return Err(AppError::bad_request("unsupported opaque suite"));
+    }
+    let mut membership_tx = pool.begin().await?;
+    db::set_user_context(&mut membership_tx, user_id).await?;
+    let tenant_id: Uuid = query::<Postgres>(
+        "SELECT tenant_id FROM tenant_members
+         WHERE user_id = $1 ORDER BY joined_at ASC LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_one(&mut *membership_tx)
+    .await?
+    .try_get("tenant_id")
+    .map_err(|_| AppError::internal())?;
+    membership_tx.commit().await?;
     let record_bytes: Vec<u8> = row
         .try_get("opaque_record")
         .map_err(|_| AppError::internal())?;
@@ -213,19 +241,22 @@ pub async fn login_start(
         Some(server_record),
         credential_request,
         email.as_bytes(),
-        ServerLoginStartParameters::default(),
+        ServerLoginParameters::default(),
     )
     .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
     let state_id = Uuid::now_v7();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
     query::<Postgres>(
-        "INSERT INTO opaque_login_states (id, user_id, device_name, server_login_state, expires_at)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO opaque_login_states
+            (id, user_id, tenant_id, device_name, opaque_suite_id, server_login_state, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(state_id)
     .bind(user_id)
+    .bind(tenant_id)
     .bind(&device_name)
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(login_start.state.serialize().to_vec())
     .bind(expires_at)
     .execute(pool)
@@ -233,6 +264,9 @@ pub async fn login_start(
 
     Ok(OpaqueStartResponse {
         state_id,
+        opaque_suite_id: CRYPTO_SUITE_ID,
+        user_id,
+        tenant_id,
         message: STANDARD.encode(login_start.message.serialize()),
         expires_at,
     })
@@ -246,37 +280,22 @@ pub async fn login_finish(
     let credential_finalization =
         CredentialFinalization::<TodoriCipherSuite>::deserialize(&finalization)
             .map_err(|_| AppError::bad_request("invalid opaque message"))?;
-    let device_public_key = decode_fixed_key(&request.device_public_key, "invalid device key")?;
 
     let mut tx = pool.begin().await?;
     let state = consume_login_state(&mut tx, request.state_id).await?;
     let server_login = TodoriServerLogin::deserialize(&state.server_login_state)
         .map_err(|_| AppError::internal())?;
     server_login
-        .finish(credential_finalization)
+        .finish(credential_finalization, ServerLoginParameters::default())
         .map_err(|_| AppError::unauthorized())?;
 
     db::set_user_context(&mut tx, state.user_id).await?;
 
-    let tenant_id: Uuid = query::<Postgres>(
-        "SELECT tenant_id FROM tenant_members WHERE user_id = $1 ORDER BY joined_at ASC LIMIT 1",
-    )
-    .bind(state.user_id)
-    .fetch_one(&mut *tx)
-    .await?
-    .try_get("tenant_id")
-    .map_err(|_| AppError::internal())?;
+    let tenant_id = state.tenant_id;
     db::set_tenant_context(&mut tx, tenant_id).await?;
     let key_bundle = load_account_key_bundle(&mut tx, state.user_id, tenant_id).await?;
     let device_id = Uuid::now_v7();
-    insert_device(
-        &mut tx,
-        device_id,
-        state.user_id,
-        &state.device_name,
-        Some(&device_public_key),
-    )
-    .await?;
+    insert_device(&mut tx, device_id, state.user_id, &state.device_name).await?;
     let session = create_session(&mut tx, state.user_id, device_id).await?;
     tx.commit().await?;
 
@@ -388,6 +407,13 @@ fn normalize_device_name(device_name: Option<String>) -> String {
     }
 }
 
+fn validate_opaque_suite(suite_id: u16) -> Result<(), AppError> {
+    if suite_id != CRYPTO_SUITE_ID {
+        return Err(AppError::bad_request("unsupported opaque suite"));
+    }
+    Ok(())
+}
+
 fn decode_opaque_message(message: &str) -> Result<Vec<u8>, AppError> {
     STANDARD
         .decode(message)
@@ -412,24 +438,30 @@ async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, 
     let mut rng = OsRng;
     let generated = TodoriServerSetup::new(&mut rng).serialize().to_vec();
     query::<Postgres>(
-        "INSERT INTO opaque_server_setup (singleton, setup)
-         VALUES (TRUE, $1)
+        "INSERT INTO opaque_server_setup (singleton, opaque_suite_id, setup)
+         VALUES (TRUE, $1, $2)
          ON CONFLICT (singleton) DO NOTHING",
     )
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(&generated)
     .execute(pool)
     .await?;
 
-    let bytes: Vec<u8> =
-        query::<Postgres>("SELECT setup FROM opaque_server_setup WHERE singleton = TRUE")
-            .fetch_one(pool)
-            .await?
-            .try_get("setup")
-            .map_err(|_| AppError::internal())?;
+    let bytes: Vec<u8> = query::<Postgres>(
+        "SELECT setup FROM opaque_server_setup
+             WHERE singleton = TRUE AND opaque_suite_id = $1",
+    )
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
+    .fetch_one(pool)
+    .await?
+    .try_get("setup")
+    .map_err(|_| AppError::internal())?;
     TodoriServerSetup::deserialize(&bytes).map_err(|_| AppError::internal())
 }
 
 struct RegistrationState {
+    user_id: Uuid,
+    tenant_id: Uuid,
     email: String,
     device_name: String,
 }
@@ -441,13 +473,21 @@ async fn consume_registration_state(
     let row = query::<Postgres>(
         "DELETE FROM opaque_registration_states
          WHERE id = $1 AND expires_at > now()
-         RETURNING email, device_name",
+         RETURNING user_id, tenant_id, email, device_name, opaque_suite_id",
     )
     .bind(state_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::bad_request("invalid or expired opaque state"))?;
+    let suite_id: i16 = row
+        .try_get("opaque_suite_id")
+        .map_err(|_| AppError::internal())?;
+    if suite_id != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
+        return Err(AppError::bad_request("unsupported opaque suite"));
+    }
     Ok(RegistrationState {
+        user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
+        tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
         email: row.try_get("email").map_err(|_| AppError::internal())?,
         device_name: row
             .try_get("device_name")
@@ -457,6 +497,7 @@ async fn consume_registration_state(
 
 struct LoginState {
     user_id: Uuid,
+    tenant_id: Uuid,
     device_name: String,
     server_login_state: Vec<u8>,
 }
@@ -468,14 +509,21 @@ async fn consume_login_state(
     let row = query::<Postgres>(
         "DELETE FROM opaque_login_states
          WHERE id = $1 AND expires_at > now()
-         RETURNING user_id, device_name, server_login_state",
+         RETURNING user_id, tenant_id, device_name, opaque_suite_id, server_login_state",
     )
     .bind(state_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::bad_request("invalid or expired opaque state"))?;
+    let suite_id: i16 = row
+        .try_get("opaque_suite_id")
+        .map_err(|_| AppError::internal())?;
+    if suite_id != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
+        return Err(AppError::bad_request("unsupported opaque suite"));
+    }
     Ok(LoginState {
         user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
+        tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
         device_name: row
             .try_get("device_name")
             .map_err(|_| AppError::internal())?,
@@ -486,6 +534,9 @@ async fn consume_login_state(
 }
 
 struct DecodedAccountKeyBundle {
+    suite_id: i16,
+    generation: i64,
+    wrapper_revision: i64,
     wrapped_master_key_by_password: Vec<u8>,
     wrapped_master_key_by_recovery: Vec<u8>,
     user_public_key: Vec<u8>,
@@ -496,6 +547,7 @@ struct DecodedAccountKeyBundle {
 
 struct DecodedListDekBundle {
     list_id: Uuid,
+    generation: i64,
     wrapped_list_dek: Vec<u8>,
 }
 
@@ -505,7 +557,23 @@ fn decode_account_key_bundle(
     if bundle.list_deks.is_empty() {
         return Err(AppError::bad_request("missing list key bundle"));
     }
+    if bundle.suite_id != CRYPTO_SUITE_ID
+        || bundle.generation != INITIAL_KEY_GENERATION
+        || bundle.wrapper_revision == 0
+        || bundle
+            .list_deks
+            .iter()
+            .any(|list_dek| list_dek.generation != bundle.generation)
+    {
+        return Err(AppError::bad_request("invalid key bundle"));
+    }
     Ok(DecodedAccountKeyBundle {
+        suite_id: i16::try_from(bundle.suite_id)
+            .map_err(|_| AppError::bad_request("invalid key bundle"))?,
+        generation: i64::try_from(bundle.generation)
+            .map_err(|_| AppError::bad_request("invalid key bundle"))?,
+        wrapper_revision: i64::try_from(bundle.wrapper_revision)
+            .map_err(|_| AppError::bad_request("invalid key bundle"))?,
         wrapped_master_key_by_password: decode_bytes_field(
             &bundle.wrapped_master_key_by_password,
             "invalid key bundle",
@@ -529,6 +597,8 @@ fn decode_account_key_bundle(
             .map(|list_dek| {
                 Ok(DecodedListDekBundle {
                     list_id: list_dek.list_id,
+                    generation: i64::try_from(list_dek.generation)
+                        .map_err(|_| AppError::bad_request("invalid key bundle"))?,
                     wrapped_list_dek: decode_bytes_field(
                         &list_dek.wrapped_list_dek,
                         "invalid key bundle",
@@ -548,13 +618,19 @@ async fn insert_account_key_bundle(
     query::<Postgres>(
         "INSERT INTO user_key_bundles (
             user_id,
+            suite_id,
+            generation,
+            wrapper_revision,
             wrapped_master_key_by_password,
             wrapped_master_key_by_recovery,
             user_public_key,
             wrapped_user_secret_key
-         ) VALUES ($1, $2, $3, $4, $5)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(user_id)
+    .bind(bundle.suite_id)
+    .bind(bundle.generation)
+    .bind(bundle.wrapper_revision)
     .bind(&bundle.wrapped_master_key_by_password)
     .bind(&bundle.wrapped_master_key_by_recovery)
     .bind(&bundle.user_public_key)
@@ -563,21 +639,27 @@ async fn insert_account_key_bundle(
     .await?;
 
     query::<Postgres>(
-        "INSERT INTO tenant_key_bundles (tenant_id, wrapped_tenant_root_dek)
-         VALUES ($1, $2)",
+        "INSERT INTO tenant_key_bundles
+            (tenant_id, suite_id, generation, wrapped_tenant_root_dek)
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(tenant_id)
+    .bind(bundle.suite_id)
+    .bind(bundle.generation)
     .bind(&bundle.wrapped_tenant_root_dek)
     .execute(&mut **tx)
     .await?;
 
     for list_dek in bundle.list_deks {
         query::<Postgres>(
-            "INSERT INTO list_key_bundles (tenant_id, list_id, wrapped_list_dek)
-             VALUES ($1, $2, $3)",
+            "INSERT INTO list_key_bundles
+                (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(tenant_id)
         .bind(list_dek.list_id)
+        .bind(bundle.suite_id)
+        .bind(list_dek.generation)
         .bind(&list_dek.wrapped_list_dek)
         .execute(&mut **tx)
         .await?;
@@ -593,6 +675,9 @@ async fn load_account_key_bundle(
 ) -> Result<AccountKeyBundleDto, AppError> {
     let user = query::<Postgres>(
         "SELECT
+            suite_id,
+            generation,
+            wrapper_revision,
             wrapped_master_key_by_password,
             wrapped_master_key_by_recovery,
             user_public_key,
@@ -604,7 +689,7 @@ async fn load_account_key_bundle(
     .fetch_one(&mut **tx)
     .await?;
     let tenant = query::<Postgres>(
-        "SELECT wrapped_tenant_root_dek
+        "SELECT suite_id, generation, wrapped_tenant_root_dek
          FROM tenant_key_bundles
          WHERE tenant_id = $1",
     )
@@ -612,7 +697,7 @@ async fn load_account_key_bundle(
     .fetch_one(&mut **tx)
     .await?;
     let list_rows = query::<Postgres>(
-        "SELECT list_id, wrapped_list_dek
+        "SELECT list_id, suite_id, generation, wrapped_list_dek
          FROM list_key_bundles
          WHERE tenant_id = $1
          ORDER BY created_at ASC, list_id ASC",
@@ -621,19 +706,59 @@ async fn load_account_key_bundle(
     .fetch_all(&mut **tx)
     .await?;
 
+    let expected_suite: i16 = user.try_get("suite_id").map_err(|_| AppError::internal())?;
+    let expected_generation: i64 = user
+        .try_get("generation")
+        .map_err(|_| AppError::internal())?;
+    let tenant_suite: i16 = tenant
+        .try_get("suite_id")
+        .map_err(|_| AppError::internal())?;
+    let tenant_generation: i64 = tenant
+        .try_get("generation")
+        .map_err(|_| AppError::internal())?;
+    if expected_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?
+        || expected_suite != tenant_suite
+        || expected_generation != tenant_generation
+    {
+        return Err(AppError::internal());
+    }
+
     let mut list_deks = Vec::with_capacity(list_rows.len());
     for row in list_rows {
+        let list_suite: i16 = row.try_get("suite_id").map_err(|_| AppError::internal())?;
+        let list_generation: i64 = row
+            .try_get("generation")
+            .map_err(|_| AppError::internal())?;
+        if list_suite != expected_suite || list_generation != expected_generation {
+            return Err(AppError::internal());
+        }
         let list_id: Uuid = row.try_get("list_id").map_err(|_| AppError::internal())?;
         let wrapped_list_dek: Vec<u8> = row
             .try_get("wrapped_list_dek")
             .map_err(|_| AppError::internal())?;
         list_deks.push(ListDekBundleDto {
             list_id,
+            generation: u64::try_from(list_generation).map_err(|_| AppError::internal())?,
             wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
         });
     }
 
     Ok(AccountKeyBundleDto {
+        suite_id: u16::try_from(
+            user.try_get::<i16, _>("suite_id")
+                .map_err(|_| AppError::internal())?,
+        )
+        .map_err(|_| AppError::internal())?,
+        generation: u64::try_from(
+            user.try_get::<i64, _>("generation")
+                .map_err(|_| AppError::internal())?,
+        )
+        .map_err(|_| AppError::internal())?,
+        wrapper_revision: u64::try_from(
+            user.try_get::<i64, _>("wrapper_revision")
+                .map_err(|_| AppError::internal())?,
+        )
+        .map_err(|_| AppError::internal())?,
         wrapped_master_key_by_password: STANDARD.encode(
             user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
                 .map_err(|_| AppError::internal())?,
@@ -664,16 +789,14 @@ async fn insert_device(
     device_id: Uuid,
     user_id: Uuid,
     device_name: &str,
-    public_key: Option<&[u8]>,
 ) -> Result<(), AppError> {
     query::<Postgres>(
-        "INSERT INTO devices (id, user_id, device_name, public_key)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO devices (id, user_id, device_name)
+         VALUES ($1, $2, $3)",
     )
     .bind(device_id)
     .bind(user_id)
     .bind(device_name)
-    .bind(public_key)
     .execute(&mut **tx)
     .await?;
     Ok(())

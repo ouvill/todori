@@ -1,5 +1,6 @@
 use todori_crypto::key_hierarchy::{
-    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key, KEY_LEN,
+    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key,
+    INITIAL_KEY_GENERATION, KEY_LEN,
 };
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
@@ -77,13 +78,24 @@ impl SqliteMutationService {
         };
         let list = new_list(name, rank, now_ms)?;
         let list_dek = Zeroizing::new(generate_list_dek());
-        let local_wrapped =
-            wrap_local_list_dek_with_master_key(&list.id.to_string(), &list_dek, master_key)
-                .map_err(|_| ClientError::Sync)?;
-        let server_wrapped =
-            wrap_list_dek_with_master_key(&list_dek, master_key).map_err(|_| ClientError::Sync)?;
+        let local_wrapped = wrap_local_list_dek_with_master_key(
+            tenant_id,
+            list.id,
+            INITIAL_KEY_GENERATION,
+            &list_dek,
+            master_key,
+        )
+        .map_err(|_| ClientError::Sync)?;
+        let server_wrapped = wrap_list_dek_with_master_key(
+            tenant_id,
+            list.id,
+            INITIAL_KEY_GENERATION,
+            &list_dek,
+            master_key,
+        )
+        .map_err(|_| ClientError::Sync)?;
         let mut create_sync = sync.clone();
-        create_sync.keys.list_deks.push((list.id, *list_dek));
+        create_sync.keys.list_deks.push((list.id, list_dek.clone()));
 
         transaction.put_local_list_key_bundle(LocalListKeyBundle {
             tenant_id,
@@ -491,7 +503,7 @@ mod tests {
             sync: LocalMutationContext {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
-                    list_deks: vec![(list.id, [0x55; 32])],
+                    list_deks: vec![(list.id, [0x55; 32].into())],
                     tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 },
             },

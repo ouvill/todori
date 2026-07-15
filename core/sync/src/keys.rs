@@ -1,6 +1,6 @@
 use std::fmt;
 
-use todori_crypto::key_hierarchy::{generate_list_dek, KEY_LEN};
+use todori_crypto::key_hierarchy::{generate_list_dek, INITIAL_KEY_GENERATION, KEY_LEN};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -17,7 +17,7 @@ pub const TIMER_SESSIONS_COLLECTION: &str = "timer_sessions";
 
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct LocalSyncKeys {
-    pub list_deks: Vec<(Uuid, [u8; KEY_LEN])>,
+    pub list_deks: Vec<(Uuid, Zeroizing<[u8; KEY_LEN]>)>,
     pub tenant_root_dek: Option<Zeroizing<[u8; KEY_LEN]>>,
 }
 
@@ -50,7 +50,7 @@ impl LocalSyncKeys {
                         .list_id
                         .parse::<Uuid>()
                         .ok()
-                        .map(|id| (id, *entry.dek))
+                        .map(|id| (id, entry.dek.clone()))
                 })
                 .collect(),
             tenant_root_dek: Some(keys.tenant_root_dek.clone()),
@@ -62,11 +62,11 @@ impl LocalSyncKeys {
     }
 }
 
-pub fn dek_for_list(keys: &LocalSyncKeys, list_id: Uuid) -> Option<[u8; KEY_LEN]> {
+pub fn dek_for_list(keys: &LocalSyncKeys, list_id: Uuid) -> Option<&[u8; KEY_LEN]> {
     keys.list_deks
         .iter()
         .find(|(id, _)| *id == list_id)
-        .map(|(_, dek)| *dek)
+        .map(|(_, dek)| &**dek)
 }
 
 pub fn tenant_root_dek(keys: &LocalSyncKeys) -> Option<&[u8; KEY_LEN]> {
@@ -89,8 +89,14 @@ pub async fn ensure_list_dek_for_list(
     }
 
     let list_dek = Zeroizing::new(generate_list_dek());
-    let bundle = wrap_list_dek_bundle(list_id, &list_dek, master_key)
-        .map_err(|_| "list key registration failed".to_string())?;
+    let bundle = wrap_list_dek_bundle(
+        tenant_id,
+        list_id,
+        INITIAL_KEY_GENERATION,
+        &list_dek,
+        master_key,
+    )
+    .map_err(|_| "list key registration failed".to_string())?;
     let client =
         AccountClient::new(server_url).map_err(|_| "list key registration failed".to_string())?;
     client
@@ -100,7 +106,7 @@ pub async fn ensure_list_dek_for_list(
 
     Ok(Some(AccountListDekMaterial {
         list_id: list_id.to_string(),
-        dek: Zeroizing::new(*list_dek),
+        dek: list_dek,
     }))
 }
 
@@ -112,7 +118,7 @@ mod tests {
     fn local_sync_keys_debug_redacts_key_material() {
         let list_id = Uuid::now_v7();
         let keys = LocalSyncKeys {
-            list_deks: vec![(list_id, [0x5a; KEY_LEN])],
+            list_deks: vec![(list_id, Zeroizing::new([0x5a; KEY_LEN]))],
             tenant_root_dek: Some(Zeroizing::new([0xa5; KEY_LEN])),
         };
 

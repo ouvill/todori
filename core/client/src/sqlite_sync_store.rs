@@ -1318,7 +1318,7 @@ mod tests {
         drop(repository);
 
         let keys = LocalSyncKeys {
-            list_deks: vec![(list.id, [0x33; 32])],
+            list_deks: vec![(list.id, [0x33; 32].into())],
             tenant_root_dek: None,
         };
         let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);

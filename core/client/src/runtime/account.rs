@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use todori_crypto::{
-    delete_account_secret, key_hierarchy::unwrap_master_key_with_device_key, load_account_secret,
-    load_or_create_device_key, store_account_secret, AccountSecretKind,
+    delete_account_secret,
+    key_hierarchy::{unwrap_master_key_with_device_key, INITIAL_KEY_GENERATION},
+    load_account_secret, load_or_create_device_key, store_account_secret, AccountSecretKind,
 };
 use todori_domain::Uuid;
 use todori_storage::{
@@ -197,12 +198,21 @@ impl TodoriClient {
                     .map_err(ClientError::KeyStore)?
                 {
                     Some(local_wrapped_master_key) => {
+                        let user_id = self
+                            .non_empty_setting(ACCOUNT_USER_ID_SETTING_KEY)?
+                            .ok_or(ClientError::IncompleteAccountState)
+                            .and_then(|value| parse_uuid(&value))?;
                         let device_key = Zeroizing::new(
                             load_or_create_device_key(&self.db_dir)
                                 .map_err(ClientError::KeyStore)?,
                         );
-                        unwrap_master_key_with_device_key(&local_wrapped_master_key, &device_key)
-                            .ok()
+                        unwrap_master_key_with_device_key(
+                            user_id,
+                            INITIAL_KEY_GENERATION,
+                            &local_wrapped_master_key,
+                            &device_key,
+                        )
+                        .ok()
                     }
                     None => None,
                 };
@@ -281,8 +291,9 @@ impl TodoriClient {
             .list_key_bundles(tenant_id, &session_token)
             .await
             .map_err(|_| ClientError::AccountRequest)?;
-        let materials = unwrap_list_dek_bundles(&bundles, &master_key)
-            .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let materials =
+            unwrap_list_dek_bundles(tenant_id, INITIAL_KEY_GENERATION, &bundles, &master_key)
+                .map_err(|_| ClientError::AccountBoundUnavailable)?;
         let tenant_root_dek = {
             let account = self.account_state()?;
             let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
@@ -293,7 +304,7 @@ impl TodoriClient {
         let remote_keys = LocalSyncKeys {
             list_deks: materials
                 .into_iter()
-                .map(|material| Ok((parse_uuid(&material.list_id)?, *material.dek)))
+                .map(|material| Ok((parse_uuid(&material.list_id)?, material.dek)))
                 .collect::<Result<Vec<_>, ClientError>>()?,
             tenant_root_dek,
         };
@@ -364,7 +375,7 @@ impl TodoriClient {
                     .into_iter()
                     .map(|(list_id, dek)| AccountListDekMaterial {
                         list_id: list_id.to_string(),
-                        dek: Zeroizing::new(dek),
+                        dek,
                     })
                     .collect();
                 return Ok(());
@@ -629,11 +640,14 @@ mod tests {
         let remote_id = Uuid::now_v7();
         let pending_id = Uuid::now_v7();
         let remote = LocalSyncKeys {
-            list_deks: vec![(remote_id, [0x11; 32])],
+            list_deks: vec![(remote_id, [0x11; 32].into())],
             tenant_root_dek: None,
         };
         let local = LocalSyncKeys {
-            list_deks: vec![(remote_id, [0x11; 32]), (pending_id, [0x22; 32])],
+            list_deks: vec![
+                (remote_id, [0x11; 32].into()),
+                (pending_id, [0x22; 32].into()),
+            ],
             tenant_root_dek: None,
         };
         let merged = merge_remote_and_pending_local_keys(
@@ -652,11 +666,11 @@ mod tests {
         let list_id = Uuid::now_v7();
         assert!(merge_remote_and_pending_local_keys(
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x11; 32])],
+                list_deks: vec![(list_id, [0x11; 32].into())],
                 tenant_root_dek: None,
             },
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x22; 32])],
+                list_deks: vec![(list_id, [0x22; 32].into())],
                 tenant_root_dek: None,
             },
             &HashSet::new(),
@@ -666,7 +680,7 @@ mod tests {
         assert!(merge_remote_and_pending_local_keys(
             LocalSyncKeys::default(),
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x22; 32])],
+                list_deks: vec![(list_id, [0x22; 32].into())],
                 tenant_root_dek: None,
             },
             &HashSet::new(),
@@ -681,7 +695,7 @@ mod tests {
         let merged = merge_remote_and_pending_local_keys(
             LocalSyncKeys::default(),
             LocalSyncKeys {
-                list_deks: vec![(list_id, [0x33; 32])],
+                list_deks: vec![(list_id, [0x33; 32].into())],
                 tenant_root_dek: None,
             },
             &HashSet::new(),
@@ -708,7 +722,7 @@ mod tests {
             .insert(initial.clone())
             .unwrap();
         let initial_keys = LocalSyncKeys {
-            list_deks: vec![(initial.id, [0x93; 32])],
+            list_deks: vec![(initial.id, [0x93; 32].into())],
             tenant_root_dek: Some(Zeroizing::new([0x94; 32])),
         };
         persist_local_crypto_context(

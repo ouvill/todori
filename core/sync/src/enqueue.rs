@@ -432,7 +432,7 @@ where
             collection: SyncCollection::Tasks,
             deleted,
             plaintext: &plaintext,
-            dek: &dek,
+            dek,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -521,7 +521,7 @@ where
             collection: SyncCollection::Lists,
             deleted,
             plaintext: &plaintext,
-            dek: &dek,
+            dek,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -809,6 +809,7 @@ mod tests {
 
     use super::*;
     use todori_domain::TaskStatus;
+    use zeroize::Zeroizing;
 
     #[derive(Default)]
     struct FakeStore {
@@ -1004,7 +1005,10 @@ mod tests {
 
     fn sync_keys(list_ids: &[Uuid]) -> LocalSyncKeys {
         LocalSyncKeys {
-            list_deks: list_ids.iter().map(|id| (*id, [7; KEY_LEN])).collect(),
+            list_deks: list_ids
+                .iter()
+                .map(|id| (*id, Zeroizing::new([7; KEY_LEN])))
+                .collect(),
             tenant_root_dek: None,
         }
     }

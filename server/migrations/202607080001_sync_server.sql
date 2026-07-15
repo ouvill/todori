@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS opaque_server_setup (
     singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    opaque_suite_id SMALLINT NOT NULL CHECK (opaque_suite_id = 2),
     setup BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -7,6 +8,7 @@ CREATE TABLE IF NOT EXISTS opaque_server_setup (
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     email TEXT NOT NULL,
+    opaque_suite_id SMALLINT NOT NULL CHECK (opaque_suite_id = 2),
     opaque_record BYTEA NOT NULL,
     plan TEXT NOT NULL DEFAULT 'free',
     region TEXT NOT NULL DEFAULT 'eu-central-1',
@@ -18,7 +20,6 @@ CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     device_name TEXT NOT NULL,
-    public_key BYTEA,
     last_pull_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -57,8 +58,11 @@ CREATE INDEX IF NOT EXISTS sessions_user_device_idx ON sessions(user_id, device_
 
 CREATE TABLE IF NOT EXISTS opaque_registration_states (
     id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    tenant_id UUID NOT NULL,
     email TEXT NOT NULL,
     device_name TEXT NOT NULL,
+    opaque_suite_id SMALLINT NOT NULL CHECK (opaque_suite_id = 2),
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -67,7 +71,9 @@ CREATE INDEX IF NOT EXISTS opaque_registration_states_expires_at_idx ON opaque_r
 CREATE TABLE IF NOT EXISTS opaque_login_states (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL,
     device_name TEXT NOT NULL,
+    opaque_suite_id SMALLINT NOT NULL CHECK (opaque_suite_id = 2),
     server_login_state BYTEA NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
