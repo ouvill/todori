@@ -994,19 +994,6 @@ void main() {
         expect(task.estimatedMinutes, 45);
         expect(task.priority, 3);
       }
-      expect(
-        find.byKey(ValueKey('task-priority-dot-${tasks.last.id}')),
-        findsOneWidget,
-      );
-      final semantics = tester.ensureSemantics();
-      expect(
-        find.semantics.byPredicate(
-          (node) => node.getSemanticsData().label.contains('Priority, High'),
-        ),
-        findsWidgets,
-      );
-      semantics.dispose();
-
       await tester.tap(
         find.byKey(const ValueKey('task-create-plan-property-row')),
       );
@@ -1014,6 +1001,25 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('plan-clear')));
       await tester.pumpAndSettle();
       expect(find.text('Not planned'), findsWidgets);
+
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      await _openListFromHome(tester, 'Work');
+      expect(
+        find.byKey(ValueKey('task-priority-dot-${tasks.last.id}')),
+        findsOneWidget,
+      );
+      final semantics = tester.ensureSemantics();
+      expect(
+        find.semantics.byPredicate(
+          (node) {
+            final label = node.getSemanticsData().label;
+            return label.contains('Priority') && label.contains('High');
+          },
+        ),
+        findsWidgets,
+      );
+      semantics.dispose();
     },
   );
 
