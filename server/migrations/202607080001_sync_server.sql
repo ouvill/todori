@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS devices (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     device_name TEXT NOT NULL,
     last_pull_at TIMESTAMPTZ,
+    key_expires_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

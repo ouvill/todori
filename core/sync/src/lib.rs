@@ -11,10 +11,12 @@ pub mod enqueue;
 pub mod envelope;
 pub mod field_map;
 pub mod hlc;
+pub mod key_manifest;
 pub mod keys;
 pub mod merge;
 pub mod protocol;
 pub mod resync;
+pub mod rotation;
 
 pub use apply::{
     run_sync_now, run_sync_now_with_key_refresh, run_sync_now_with_key_refresh_and_pre_push,
@@ -25,14 +27,15 @@ pub use engine::{
     PushOpOutcome, PushStatus, StableCursor, SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
-    enqueue_backfill, enqueue_list_sync, enqueue_task_sync, enqueue_timer_session_sync,
-    BackfillSummary, LocalListAlias, LocalMutationSyncStore, LocalPendingListKeyBundle,
-    LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
-    PullFailureReason,
+    enqueue_backfill, enqueue_list_sync, enqueue_rotation_backfill, enqueue_task_sync,
+    enqueue_timer_session_sync, BackfillSummary, LocalListAlias, LocalMutationSyncStore,
+    LocalPendingListKeyBundle, LocalSyncAtomicStore, LocalSyncOutboxEntry,
+    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
 };
 pub use envelope::{
-    decrypt_plaintext, encrypt_plaintext, EnvelopeError, ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
+    decrypt_plaintext, encrypt_plaintext, parse_envelope_header, EnvelopeError, EnvelopeHeader,
+    ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
 };
 pub use field_map::{
     validate_rank, Clocked, FieldMapError, ListPlacement, ListPlaintext, SyncPlaintext,
@@ -40,14 +43,20 @@ pub use field_map::{
     TASK_FIELD_GROUPS,
 };
 pub use hlc::{Hlc, HlcError};
+pub use key_manifest::{
+    derive_personal_manifest_auth_key, KeyManifest, KeyManifestError, KeyScope, RotationStatus,
+    PERSONAL_MANIFEST_AUTH_INFO,
+};
 pub use keys::{
-    dek_for_list, ensure_list_dek_for_list, tenant_root_dek, LocalSyncKeys, LISTS_COLLECTION,
-    SYNC_CURSOR_NAME, SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-    TASKS_COLLECTION, TIMER_SESSIONS_COLLECTION,
+    dek_for_list, dek_for_list_generation, ensure_list_dek_for_list, tenant_root_dek,
+    tenant_root_dek_for_generation, LocalSyncKeys, KEY_ROTATION_PENDING_SETTING_KEY,
+    LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_LOCAL_HLC_SETTING_KEY,
+    SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION, TIMER_SESSIONS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;
 pub use resync::{delta_reached_closure, full_resync_reason, FullResyncReason};
+pub use rotation::{DeviceContinuity, RotationCoordinator, RotationError, HISTORY_RETENTION_DAYS};
 
 #[cfg(test)]
 mod convergence_tests {

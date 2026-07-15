@@ -22,6 +22,8 @@ use todori_crypto::{
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::{KeyManifest, KeyManifestError, KeyScope, RotationStatus};
+
 #[derive(Debug, Error)]
 pub enum AccountClientError {
     #[error("server URL is empty")]
@@ -36,6 +38,8 @@ pub enum AccountClientError {
     Opaque,
     #[error("key hierarchy error")]
     KeyHierarchy(#[from] KeyHierarchyError),
+    #[error("key manifest error")]
+    KeyManifest(#[from] KeyManifestError),
     #[error("invalid list ID")]
     InvalidListId,
     #[error("list key bundle conflicts with the immutable server value")]
@@ -70,6 +74,8 @@ pub struct AccountSession {
 }
 
 pub struct AccountKeyMaterial {
+    pub generation: u64,
+    pub tenant_generation: u64,
     pub master_key: Zeroizing<[u8; KEY_LEN]>,
     pub user_secret_key: Zeroizing<[u8; KEY_LEN]>,
     pub tenant_root_dek: Zeroizing<[u8; KEY_LEN]>,
@@ -78,6 +84,7 @@ pub struct AccountKeyMaterial {
 
 pub struct AccountListDekMaterial {
     pub list_id: String,
+    pub generation: u64,
     pub dek: Zeroizing<[u8; KEY_LEN]>,
 }
 
@@ -94,12 +101,14 @@ pub struct RealtimeTicketResponse {
 pub struct AccountKeyBundleDto {
     pub suite_id: u16,
     pub generation: u64,
+    pub tenant_generation: u64,
     pub wrapper_revision: u64,
     pub wrapped_master_key_by_password: String,
     pub wrapped_master_key_by_recovery: String,
     pub user_public_key: String,
     pub wrapped_user_secret_key: String,
     pub wrapped_tenant_root_dek: String,
+    pub tenant_key_manifest: String,
     pub list_deks: Vec<ListDekBundleDto>,
 }
 
@@ -108,6 +117,94 @@ pub struct ListDekBundleDto {
     pub list_id: Uuid,
     pub generation: u64,
     pub wrapped_list_dek: String,
+    pub signed_manifest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveKeyBundleDto {
+    pub suite_id: u16,
+    pub generation: u64,
+    pub wrapped_tenant_root_dek: String,
+    pub signed_manifest: String,
+    pub list_deks: Vec<ListDekBundleDto>,
+    #[serde(default)]
+    pub migrating_generations: Vec<HistoricalKeyBundleDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoricalKeyBundleDto {
+    pub generation: u64,
+    pub wrapped_tenant_root_dek: String,
+    pub signed_manifest: String,
+    pub list_deks: Vec<ListDekBundleDto>,
+}
+
+pub struct HistoricalKeyMaterial {
+    pub generation: u64,
+    pub tenant_root_dek: Zeroizing<[u8; KEY_LEN]>,
+    pub list_deks: Vec<AccountListDekMaterial>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateKeyWrappersRequest {
+    pub suite_id: u16,
+    pub generation: u64,
+    pub expected_wrapper_revision: u64,
+    pub wrapper_revision: u64,
+    pub wrapped_master_key_by_password: String,
+    pub wrapped_master_key_by_recovery: String,
+}
+
+pub fn password_wrapper_update(
+    user_id: Uuid,
+    generation: u64,
+    current_revision: u64,
+    master_key: &[u8; KEY_LEN],
+    new_opaque_export_key: &[u8],
+    existing_recovery_wrapper: String,
+) -> Result<UpdateKeyWrappersRequest, AccountClientError> {
+    let next_revision = current_revision
+        .checked_add(1)
+        .ok_or(AccountClientError::KeyBundleConflict)?;
+    let kek = Zeroizing::new(derive_kek_pw(new_opaque_export_key));
+    Ok(UpdateKeyWrappersRequest {
+        suite_id: CRYPTO_SUITE_ID,
+        generation,
+        expected_wrapper_revision: current_revision,
+        wrapper_revision: next_revision,
+        wrapped_master_key_by_password: STANDARD.encode(wrap_master_key_with_kek_pw(
+            user_id, generation, master_key, &kek,
+        )?),
+        wrapped_master_key_by_recovery: existing_recovery_wrapper,
+    })
+}
+
+pub fn recovery_wrapper_reissue(
+    user_id: Uuid,
+    generation: u64,
+    current_revision: u64,
+    master_key: &[u8; KEY_LEN],
+    existing_password_wrapper: String,
+) -> Result<(UpdateKeyWrappersRequest, Zeroizing<String>), AccountClientError> {
+    let next_revision = current_revision
+        .checked_add(1)
+        .ok_or(AccountClientError::KeyBundleConflict)?;
+    let recovery_key = generate_recovery_key();
+    let recovery_wrap_key = Zeroizing::new(derive_recovery_wrap_key(&recovery_key)?);
+    let request = UpdateKeyWrappersRequest {
+        suite_id: CRYPTO_SUITE_ID,
+        generation,
+        expected_wrapper_revision: current_revision,
+        wrapper_revision: next_revision,
+        wrapped_master_key_by_password: existing_password_wrapper,
+        wrapped_master_key_by_recovery: STANDARD.encode(wrap_master_key_with_recovery_key(
+            user_id,
+            generation,
+            master_key,
+            &recovery_wrap_key,
+        )?),
+    };
+    Ok((request, recovery_key))
 }
 
 impl AccountClient {
@@ -309,6 +406,66 @@ impl AccountClient {
         .await
     }
 
+    pub async fn active_key_bundle(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+    ) -> Result<ActiveKeyBundleDto, AccountClientError> {
+        let response = self
+            .http
+            .get(format!(
+                "{}/v2/tenants/{tenant_id}/key-rotation/bundle",
+                self.base_url
+            ))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server(response.status().as_u16()));
+        }
+        response.json().await.map_err(AccountClientError::Http)
+    }
+
+    pub async fn acknowledge_key_generation(
+        &self,
+        tenant_id: Uuid,
+        generation: u64,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        let response = self
+            .http
+            .post(format!(
+                "{}/v2/tenants/{tenant_id}/key-rotation/ack",
+                self.base_url
+            ))
+            .bearer_auth(session_token)
+            .header(
+                crate::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+                crate::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+            )
+            .json(&serde_json::json!({ "generation": generation }))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(AccountClientError::Server(response.status().as_u16()));
+        }
+        Ok(())
+    }
+
+    pub async fn update_key_wrappers(
+        &self,
+        request: &UpdateKeyWrappersRequest,
+        session_token: &str,
+    ) -> Result<(), AccountClientError> {
+        self.post_json::<serde_json::Value>("/v1/auth/key-wrappers", request, Some(session_token))
+            .await?;
+        Ok(())
+    }
+
     pub async fn retire_list_key_bundle(
         &self,
         tenant_id: Uuid,
@@ -413,14 +570,29 @@ pub fn unwrap_login_key_bundle(
     )?);
     let tenant_root_dek = Zeroizing::new(unwrap_tenant_root_dek_with_master_key(
         tenant_id,
-        bundle.generation,
+        bundle.tenant_generation,
         &decode_base64(&bundle.wrapped_tenant_root_dek)?,
         &master_key,
     )?);
-    let list_deks =
-        unwrap_list_dek_bundles(tenant_id, bundle.generation, &bundle.list_deks, &master_key)?;
+    let tenant_manifest =
+        KeyManifest::from_authenticated_bytes(&decode_base64(&bundle.tenant_key_manifest)?)?;
+    tenant_manifest.verify_personal(&master_key)?;
+    if tenant_manifest.scope != KeyScope::Tenant
+        || tenant_manifest.tenant_id != tenant_id
+        || tenant_manifest.generation != bundle.tenant_generation
+        || tenant_manifest.minimum_write_generation != bundle.tenant_generation
+        || !matches!(
+            tenant_manifest.status,
+            RotationStatus::Active | RotationStatus::Migrating
+        )
+    {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    let list_deks = unwrap_list_dek_bundles(tenant_id, &bundle.list_deks, &master_key)?;
 
     Ok(AccountKeyMaterial {
+        generation: bundle.generation,
+        tenant_generation: bundle.tenant_generation,
         master_key,
         user_secret_key,
         tenant_root_dek,
@@ -430,17 +602,29 @@ pub fn unwrap_login_key_bundle(
 
 pub fn unwrap_list_dek_bundles(
     tenant_id: Uuid,
-    expected_generation: u64,
     bundles: &[ListDekBundleDto],
     master_key: &[u8; KEY_LEN],
 ) -> Result<Vec<AccountListDekMaterial>, AccountClientError> {
     let mut list_deks = Vec::with_capacity(bundles.len());
     for bundle in bundles {
-        if bundle.generation != expected_generation {
+        let manifest =
+            KeyManifest::from_authenticated_bytes(&decode_base64(&bundle.signed_manifest)?)?;
+        manifest.verify_personal(master_key)?;
+        if manifest.scope != KeyScope::List
+            || manifest.tenant_id != tenant_id
+            || manifest.list_id != Some(bundle.list_id)
+            || manifest.generation != bundle.generation
+            || manifest.minimum_write_generation != bundle.generation
+            || !matches!(
+                manifest.status,
+                RotationStatus::Active | RotationStatus::Migrating
+            )
+        {
             return Err(AccountClientError::KeyBundleConflict);
         }
         list_deks.push(AccountListDekMaterial {
             list_id: bundle.list_id.to_string(),
+            generation: bundle.generation,
             dek: Zeroizing::new(unwrap_list_dek_with_master_key(
                 tenant_id,
                 bundle.list_id,
@@ -451,6 +635,87 @@ pub fn unwrap_list_dek_bundles(
         });
     }
     Ok(list_deks)
+}
+
+pub fn unwrap_active_key_bundle(
+    tenant_id: Uuid,
+    bundle: &ActiveKeyBundleDto,
+    master_key: &[u8; KEY_LEN],
+) -> Result<(Zeroizing<[u8; KEY_LEN]>, Vec<AccountListDekMaterial>), AccountClientError> {
+    if bundle.suite_id != CRYPTO_SUITE_ID || bundle.generation == 0 {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    let manifest = KeyManifest::from_authenticated_bytes(&decode_base64(&bundle.signed_manifest)?)?;
+    manifest.verify_personal(master_key)?;
+    if manifest.scope != KeyScope::Tenant
+        || manifest.tenant_id != tenant_id
+        || manifest.list_id.is_some()
+        || manifest.generation != bundle.generation
+        || manifest.minimum_write_generation != bundle.generation
+        || manifest.status != RotationStatus::Active
+    {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    let tenant_root_dek = Zeroizing::new(unwrap_tenant_root_dek_with_master_key(
+        tenant_id,
+        bundle.generation,
+        &decode_base64(&bundle.wrapped_tenant_root_dek)?,
+        master_key,
+    )?);
+    let list_deks = unwrap_list_dek_bundles(tenant_id, &bundle.list_deks, master_key)?;
+    if list_deks
+        .iter()
+        .any(|material| material.generation != bundle.generation)
+    {
+        return Err(AccountClientError::KeyBundleConflict);
+    }
+    Ok((tenant_root_dek, list_deks))
+}
+
+pub fn unwrap_historical_key_bundles(
+    tenant_id: Uuid,
+    bundles: &[HistoricalKeyBundleDto],
+    master_key: &[u8; KEY_LEN],
+) -> Result<Vec<HistoricalKeyMaterial>, AccountClientError> {
+    let mut result = Vec::with_capacity(bundles.len());
+    for bundle in bundles {
+        if bundle.generation == 0 {
+            return Err(AccountClientError::KeyBundleConflict);
+        }
+        let manifest =
+            KeyManifest::from_authenticated_bytes(&decode_base64(&bundle.signed_manifest)?)?;
+        manifest.verify_personal(master_key)?;
+        if manifest.scope != KeyScope::Tenant
+            || manifest.tenant_id != tenant_id
+            || manifest.list_id.is_some()
+            || manifest.generation != bundle.generation
+            || !matches!(
+                manifest.status,
+                RotationStatus::Active | RotationStatus::Migrating
+            )
+        {
+            return Err(AccountClientError::KeyBundleConflict);
+        }
+        let tenant_root_dek = Zeroizing::new(unwrap_tenant_root_dek_with_master_key(
+            tenant_id,
+            bundle.generation,
+            &decode_base64(&bundle.wrapped_tenant_root_dek)?,
+            master_key,
+        )?);
+        let list_deks = unwrap_list_dek_bundles(tenant_id, &bundle.list_deks, master_key)?;
+        if list_deks
+            .iter()
+            .any(|material| material.generation != bundle.generation)
+        {
+            return Err(AccountClientError::KeyBundleConflict);
+        }
+        result.push(HistoricalKeyMaterial {
+            generation: bundle.generation,
+            tenant_root_dek,
+            list_deks,
+        });
+    }
+    Ok(result)
 }
 
 pub fn wrap_list_dek_bundle(
@@ -466,6 +731,20 @@ pub fn wrap_list_dek_bundle(
         list_id,
         generation,
         wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+        signed_manifest: STANDARD.encode(
+            KeyManifest::authenticate_personal(
+                KeyScope::List,
+                tenant_id,
+                Some(list_id),
+                generation,
+                RotationStatus::Active,
+                generation,
+                [0; 32],
+                Vec::new(),
+                master_key,
+            )?
+            .authenticated_bytes()?,
+        ),
     })
 }
 
@@ -527,6 +806,18 @@ fn build_registration_key_bundle(
     )?;
     let local_wrapped_master_key =
         wrap_master_key_with_device_key(user_id, INITIAL_KEY_GENERATION, &master_key, device_key)?;
+    let tenant_key_manifest = KeyManifest::authenticate_personal(
+        KeyScope::Tenant,
+        tenant_id,
+        None,
+        INITIAL_KEY_GENERATION,
+        RotationStatus::Active,
+        INITIAL_KEY_GENERATION,
+        [0; 32],
+        Vec::new(),
+        &master_key,
+    )?
+    .authenticated_bytes()?;
     let mut list_dek_bundles = Vec::with_capacity(initial_list_ids.len());
     let mut list_deks = Vec::with_capacity(initial_list_ids.len());
     for list_id in initial_list_ids {
@@ -540,6 +831,7 @@ fn build_registration_key_bundle(
         )?);
         list_deks.push(AccountListDekMaterial {
             list_id: list_id.to_string(),
+            generation: INITIAL_KEY_GENERATION,
             dek: list_dek,
         });
     }
@@ -551,17 +843,21 @@ fn build_registration_key_bundle(
         bundle: AccountKeyBundleDto {
             suite_id: CRYPTO_SUITE_ID,
             generation: INITIAL_KEY_GENERATION,
+            tenant_generation: INITIAL_KEY_GENERATION,
             wrapper_revision: 1,
             wrapped_master_key_by_password: STANDARD.encode(wrapped_master_key_by_password),
             wrapped_master_key_by_recovery: STANDARD.encode(wrapped_master_key_by_recovery),
             user_public_key: STANDARD.encode(user_key_pair.public_key),
             wrapped_user_secret_key: STANDARD.encode(wrapped_user_secret_key),
             wrapped_tenant_root_dek: STANDARD.encode(wrapped_tenant_root_dek),
+            tenant_key_manifest: STANDARD.encode(tenant_key_manifest),
             list_deks: list_dek_bundles,
         },
         recovery_key,
         local_wrapped_master_key,
         keys: AccountKeyMaterial {
+            generation: INITIAL_KEY_GENERATION,
+            tenant_generation: INITIAL_KEY_GENERATION,
             master_key,
             user_secret_key,
             tenant_root_dek,
@@ -593,12 +889,13 @@ fn validate_opaque_start(start: &OpaqueStartResponse) -> Result<(), AccountClien
 
 fn validate_key_bundle_header(bundle: &AccountKeyBundleDto) -> Result<(), AccountClientError> {
     if bundle.suite_id != CRYPTO_SUITE_ID
-        || bundle.generation != INITIAL_KEY_GENERATION
+        || bundle.generation == 0
+        || bundle.tenant_generation == 0
         || bundle.wrapper_revision == 0
         || bundle
             .list_deks
             .iter()
-            .any(|list_dek| list_dek.generation != bundle.generation)
+            .any(|list_dek| list_dek.generation == 0)
     {
         return Err(AccountClientError::KeyBundleConflict);
     }
@@ -722,16 +1019,19 @@ mod tests {
         let bundle = AccountKeyBundleDto {
             suite_id: CRYPTO_SUITE_ID,
             generation: INITIAL_KEY_GENERATION,
+            tenant_generation: INITIAL_KEY_GENERATION,
             wrapper_revision: 1,
             wrapped_master_key_by_password: String::new(),
             wrapped_master_key_by_recovery: String::new(),
             user_public_key: String::new(),
             wrapped_user_secret_key: String::new(),
             wrapped_tenant_root_dek: String::new(),
+            tenant_key_manifest: String::new(),
             list_deks: vec![ListDekBundleDto {
                 list_id: Uuid::now_v7(),
                 generation: 0,
                 wrapped_list_dek: String::new(),
+                signed_manifest: String::new(),
             }],
         };
 
@@ -809,14 +1109,13 @@ mod tests {
         let master_key = [0x62; KEY_LEN];
         let bundle = wrap_list_dek_bundle(tenant_id, list_id, 1, &list_dek, &master_key).unwrap();
 
-        let unwrapped = unwrap_list_dek_bundles(tenant_id, 1, &[bundle], &master_key).unwrap();
+        let unwrapped = unwrap_list_dek_bundles(tenant_id, &[bundle], &master_key).unwrap();
 
         assert_eq!(unwrapped.len(), 1);
         assert_eq!(unwrapped[0].list_id, list_id.to_string());
         assert_eq!(*unwrapped[0].dek, list_dek);
         assert!(unwrap_list_dek_bundles(
             tenant_id,
-            1,
             &[wrap_list_dek_bundle(tenant_id, list_id, 1, &list_dek, &master_key).unwrap()],
             &[0xff; KEY_LEN],
         )
@@ -829,23 +1128,27 @@ mod tests {
         let first_list_id = Uuid::now_v7();
         let second_list_id = Uuid::now_v7();
         let keys = AccountKeyMaterial {
+            generation: 1,
+            tenant_generation: 1,
             master_key: Zeroizing::new([0x62; KEY_LEN]),
             user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
             tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
             list_deks: vec![
                 AccountListDekMaterial {
                     list_id: first_list_id.to_string(),
+                    generation: 1,
                     dek: Zeroizing::new([0x31; KEY_LEN]),
                 },
                 AccountListDekMaterial {
                     list_id: second_list_id.to_string(),
+                    generation: 1,
                     dek: Zeroizing::new([0x42; KEY_LEN]),
                 },
             ],
         };
 
         let bundles = wrap_account_list_dek_bundles(tenant_id, 1, &keys).unwrap();
-        let unwrapped = unwrap_list_dek_bundles(tenant_id, 1, &bundles, &keys.master_key).unwrap();
+        let unwrapped = unwrap_list_dek_bundles(tenant_id, &bundles, &keys.master_key).unwrap();
 
         assert_eq!(unwrapped.len(), 2);
         assert_eq!(unwrapped[0].list_id, first_list_id.to_string());
@@ -857,16 +1160,20 @@ mod tests {
     #[test]
     fn account_list_dek_bundle_conversion_rejects_invalid_id_without_partial_result() {
         let keys = AccountKeyMaterial {
+            generation: 1,
+            tenant_generation: 1,
             master_key: Zeroizing::new([0x62; KEY_LEN]),
             user_secret_key: Zeroizing::new([0x13; KEY_LEN]),
             tenant_root_dek: Zeroizing::new([0x24; KEY_LEN]),
             list_deks: vec![
                 AccountListDekMaterial {
                     list_id: Uuid::now_v7().to_string(),
+                    generation: 1,
                     dek: Zeroizing::new([0x31; KEY_LEN]),
                 },
                 AccountListDekMaterial {
                     list_id: "not-a-uuid".to_string(),
+                    generation: 1,
                     dek: Zeroizing::new([0x42; KEY_LEN]),
                 },
             ],

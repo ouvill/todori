@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
 use todori_crypto::{key_hierarchy::INITIAL_KEY_GENERATION, TodoriCipherSuite, CRYPTO_SUITE_ID};
-use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto};
+use todori_sync::account::{AccountKeyBundleDto, ListDekBundleDto, UpdateKeyWrappersRequest};
 use uuid::Uuid;
 
 use crate::{db, AppError};
@@ -328,6 +328,75 @@ pub async fn logout(pool: &PgPool, bearer_token: &str) -> Result<LogoutResponse,
     Ok(LogoutResponse {})
 }
 
+pub async fn update_key_wrappers(
+    pool: &PgPool,
+    bearer_token: &str,
+    request: UpdateKeyWrappersRequest,
+) -> Result<LogoutResponse, AppError> {
+    if request.suite_id != CRYPTO_SUITE_ID
+        || request.generation == 0
+        || request.expected_wrapper_revision == 0
+        || request.wrapper_revision != request.expected_wrapper_revision + 1
+    {
+        return Err(AppError::bad_request("invalid wrapper revision"));
+    }
+    let wrapped_password = STANDARD
+        .decode(&request.wrapped_master_key_by_password)
+        .map_err(|_| AppError::bad_request("invalid key wrapper"))?;
+    let wrapped_recovery = STANDARD
+        .decode(&request.wrapped_master_key_by_recovery)
+        .map_err(|_| AppError::bad_request("invalid key wrapper"))?;
+    if wrapped_password.is_empty() || wrapped_recovery.is_empty() {
+        return Err(AppError::bad_request("invalid key wrapper"));
+    }
+    let token_hash = hash_token(bearer_token);
+    let mut tx = pool.begin().await?;
+    let session = query::<Postgres>(
+        "SELECT s.user_id
+         FROM sessions s
+         JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
+         WHERE s.token_hash = $1 AND s.expires_at > now()
+           AND s.revoked_at IS NULL AND d.revoked_at IS NULL
+           AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::unauthorized)?;
+    let user_id: Uuid = session.try_get("user_id")?;
+    db::set_user_context(&mut tx, user_id).await?;
+    let updated = query::<Postgres>(
+        "UPDATE user_key_generations
+         SET wrapper_revision = $4, wrapped_mk_by_password = $5,
+             wrapped_mk_by_recovery = $6, updated_at = now()
+         WHERE user_id = $1 AND generation = $2 AND suite_id = $3
+           AND status = 'active' AND wrapper_revision = $7",
+    )
+    .bind(user_id)
+    .bind(
+        i64::try_from(request.generation)
+            .map_err(|_| AppError::bad_request("invalid generation"))?,
+    )
+    .bind(i16::try_from(request.suite_id).map_err(|_| AppError::bad_request("invalid suite"))?)
+    .bind(
+        i64::try_from(request.wrapper_revision)
+            .map_err(|_| AppError::bad_request("invalid wrapper revision"))?,
+    )
+    .bind(wrapped_password)
+    .bind(wrapped_recovery)
+    .bind(
+        i64::try_from(request.expected_wrapper_revision)
+            .map_err(|_| AppError::bad_request("invalid wrapper revision"))?,
+    )
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::conflict("stale wrapper revision"));
+    }
+    tx.commit().await?;
+    Ok(LogoutResponse {})
+}
+
 pub async fn authenticate(
     pool: &PgPool,
     bearer_token: &str,
@@ -342,7 +411,8 @@ pub async fn authenticate(
          WHERE s.token_hash = $1
            AND s.expires_at > now()
            AND s.revoked_at IS NULL
-           AND d.revoked_at IS NULL",
+           AND d.revoked_at IS NULL
+           AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
     )
     .bind(token_hash.as_slice())
     .fetch_optional(&mut *tx)
@@ -536,12 +606,14 @@ async fn consume_login_state(
 struct DecodedAccountKeyBundle {
     suite_id: i16,
     generation: i64,
+    tenant_generation: i64,
     wrapper_revision: i64,
     wrapped_master_key_by_password: Vec<u8>,
     wrapped_master_key_by_recovery: Vec<u8>,
     user_public_key: Vec<u8>,
     wrapped_user_secret_key: Vec<u8>,
     wrapped_tenant_root_dek: Vec<u8>,
+    tenant_key_manifest: Vec<u8>,
     list_deks: Vec<DecodedListDekBundle>,
 }
 
@@ -549,6 +621,7 @@ struct DecodedListDekBundle {
     list_id: Uuid,
     generation: i64,
     wrapped_list_dek: Vec<u8>,
+    signed_manifest: Vec<u8>,
 }
 
 fn decode_account_key_bundle(
@@ -559,6 +632,7 @@ fn decode_account_key_bundle(
     }
     if bundle.suite_id != CRYPTO_SUITE_ID
         || bundle.generation != INITIAL_KEY_GENERATION
+        || bundle.tenant_generation != INITIAL_KEY_GENERATION
         || bundle.wrapper_revision == 0
         || bundle
             .list_deks
@@ -571,6 +645,8 @@ fn decode_account_key_bundle(
         suite_id: i16::try_from(bundle.suite_id)
             .map_err(|_| AppError::bad_request("invalid key bundle"))?,
         generation: i64::try_from(bundle.generation)
+            .map_err(|_| AppError::bad_request("invalid key bundle"))?,
+        tenant_generation: i64::try_from(bundle.tenant_generation)
             .map_err(|_| AppError::bad_request("invalid key bundle"))?,
         wrapper_revision: i64::try_from(bundle.wrapper_revision)
             .map_err(|_| AppError::bad_request("invalid key bundle"))?,
@@ -591,6 +667,7 @@ fn decode_account_key_bundle(
             &bundle.wrapped_tenant_root_dek,
             "invalid key bundle",
         )?,
+        tenant_key_manifest: decode_bytes_field(&bundle.tenant_key_manifest, "invalid key bundle")?,
         list_deks: bundle
             .list_deks
             .iter()
@@ -601,6 +678,10 @@ fn decode_account_key_bundle(
                         .map_err(|_| AppError::bad_request("invalid key bundle"))?,
                     wrapped_list_dek: decode_bytes_field(
                         &list_dek.wrapped_list_dek,
+                        "invalid key bundle",
+                    )?,
+                    signed_manifest: decode_bytes_field(
+                        &list_dek.signed_manifest,
                         "invalid key bundle",
                     )?,
                 })
@@ -616,16 +697,17 @@ async fn insert_account_key_bundle(
     bundle: DecodedAccountKeyBundle,
 ) -> Result<(), AppError> {
     query::<Postgres>(
-        "INSERT INTO user_key_bundles (
+        "INSERT INTO user_key_generations (
             user_id,
+            status,
             suite_id,
             generation,
             wrapper_revision,
-            wrapped_master_key_by_password,
-            wrapped_master_key_by_recovery,
+            wrapped_mk_by_password,
+            wrapped_mk_by_recovery,
             user_public_key,
             wrapped_user_secret_key
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+         ) VALUES ($1, 'active', $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(user_id)
     .bind(bundle.suite_id)
@@ -639,27 +721,31 @@ async fn insert_account_key_bundle(
     .await?;
 
     query::<Postgres>(
-        "INSERT INTO tenant_key_bundles
-            (tenant_id, suite_id, generation, wrapped_tenant_root_dek)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO tenant_key_generations
+            (tenant_id, suite_id, generation, status, minimum_write_generation,
+             signed_manifest, wrapped_tenant_root_dek, activated_at)
+         VALUES ($1, $2, $3, 'active', $3, $4, $5, now())",
     )
     .bind(tenant_id)
     .bind(bundle.suite_id)
-    .bind(bundle.generation)
+    .bind(bundle.tenant_generation)
+    .bind(&bundle.tenant_key_manifest)
     .bind(&bundle.wrapped_tenant_root_dek)
     .execute(&mut **tx)
     .await?;
 
     for list_dek in bundle.list_deks {
         query::<Postgres>(
-            "INSERT INTO list_key_bundles
-                (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO list_key_generations
+                (tenant_id, list_id, suite_id, generation, status,
+                 minimum_write_generation, signed_manifest, wrapped_list_dek, activated_at)
+             VALUES ($1, $2, $3, $4, 'active', $4, $5, $6, now())",
         )
         .bind(tenant_id)
         .bind(list_dek.list_id)
         .bind(bundle.suite_id)
         .bind(list_dek.generation)
+        .bind(&list_dek.signed_manifest)
         .bind(&list_dek.wrapped_list_dek)
         .execute(&mut **tx)
         .await?;
@@ -678,28 +764,28 @@ async fn load_account_key_bundle(
             suite_id,
             generation,
             wrapper_revision,
-            wrapped_master_key_by_password,
-            wrapped_master_key_by_recovery,
+            wrapped_mk_by_password AS wrapped_master_key_by_password,
+            wrapped_mk_by_recovery AS wrapped_master_key_by_recovery,
             user_public_key,
             wrapped_user_secret_key
-         FROM user_key_bundles
-         WHERE user_id = $1",
+         FROM user_key_generations
+         WHERE user_id = $1 AND status = 'active'",
     )
     .bind(user_id)
     .fetch_one(&mut **tx)
     .await?;
     let tenant = query::<Postgres>(
-        "SELECT suite_id, generation, wrapped_tenant_root_dek
-         FROM tenant_key_bundles
-         WHERE tenant_id = $1",
+        "SELECT suite_id, generation, signed_manifest, wrapped_tenant_root_dek
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
     )
     .bind(tenant_id)
     .fetch_one(&mut **tx)
     .await?;
     let list_rows = query::<Postgres>(
-        "SELECT list_id, suite_id, generation, wrapped_list_dek
-         FROM list_key_bundles
-         WHERE tenant_id = $1
+        "SELECT list_id, suite_id, generation, signed_manifest, wrapped_list_dek
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active'
          ORDER BY created_at ASC, list_id ASC",
     )
     .bind(tenant_id)
@@ -707,9 +793,6 @@ async fn load_account_key_bundle(
     .await?;
 
     let expected_suite: i16 = user.try_get("suite_id").map_err(|_| AppError::internal())?;
-    let expected_generation: i64 = user
-        .try_get("generation")
-        .map_err(|_| AppError::internal())?;
     let tenant_suite: i16 = tenant
         .try_get("suite_id")
         .map_err(|_| AppError::internal())?;
@@ -718,7 +801,6 @@ async fn load_account_key_bundle(
         .map_err(|_| AppError::internal())?;
     if expected_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?
         || expected_suite != tenant_suite
-        || expected_generation != tenant_generation
     {
         return Err(AppError::internal());
     }
@@ -729,7 +811,7 @@ async fn load_account_key_bundle(
         let list_generation: i64 = row
             .try_get("generation")
             .map_err(|_| AppError::internal())?;
-        if list_suite != expected_suite || list_generation != expected_generation {
+        if list_suite != expected_suite {
             return Err(AppError::internal());
         }
         let list_id: Uuid = row.try_get("list_id").map_err(|_| AppError::internal())?;
@@ -740,6 +822,10 @@ async fn load_account_key_bundle(
             list_id,
             generation: u64::try_from(list_generation).map_err(|_| AppError::internal())?,
             wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+            signed_manifest: STANDARD.encode(
+                row.try_get::<Vec<u8>, _>("signed_manifest")
+                    .map_err(|_| AppError::internal())?,
+            ),
         });
     }
 
@@ -754,6 +840,7 @@ async fn load_account_key_bundle(
                 .map_err(|_| AppError::internal())?,
         )
         .map_err(|_| AppError::internal())?,
+        tenant_generation: u64::try_from(tenant_generation).map_err(|_| AppError::internal())?,
         wrapper_revision: u64::try_from(
             user.try_get::<i64, _>("wrapper_revision")
                 .map_err(|_| AppError::internal())?,
@@ -778,6 +865,11 @@ async fn load_account_key_bundle(
         wrapped_tenant_root_dek: STANDARD.encode(
             tenant
                 .try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")
+                .map_err(|_| AppError::internal())?,
+        ),
+        tenant_key_manifest: STANDARD.encode(
+            tenant
+                .try_get::<Vec<u8>, _>("signed_manifest")
                 .map_err(|_| AppError::internal())?,
         ),
         list_deks,

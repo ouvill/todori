@@ -15,6 +15,18 @@ pub fn router() -> Router<SharedState> {
         .route("/login/start", post(login_start))
         .route("/login/finish", post(login_finish))
         .route("/logout", post(logout))
+        .route("/key-wrappers", post(update_key_wrappers))
+}
+
+async fn update_key_wrappers(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(request): Json<todori_sync::account::UpdateKeyWrappersRequest>,
+) -> Result<Json<LogoutResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    auth::update_key_wrappers(&state.pool, token, request)
+        .await
+        .map(Json)
 }
 
 async fn register_start(

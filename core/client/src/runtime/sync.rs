@@ -162,7 +162,7 @@ impl TodoriClient {
             keys,
             now_ms()?,
         )?;
-        self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+        self.account_state()?.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(())
     }
 
@@ -228,6 +228,8 @@ impl TodoriClient {
         let tenant_id = crypto.tenant_id();
         let device_id = crypto.device_id().to_string();
         let keys = crypto.sync_keys().clone();
+        let manifest_auth_key =
+            todori_sync::derive_personal_manifest_auth_key(crypto.master_key()).ok()?;
         drop(account);
         let token = load_account_secret(&self.db_dir, AccountSecretKind::SessionToken).ok()??;
         let token = Zeroizing::new(String::from_utf8(token).ok()?);
@@ -240,6 +242,7 @@ impl TodoriClient {
             device_id,
             session_token: token.to_string(),
             keys,
+            manifest_auth_key,
         })
     }
 

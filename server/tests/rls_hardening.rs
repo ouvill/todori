@@ -93,22 +93,26 @@ impl Fixture {
                 .await
                 .unwrap();
             query::<Postgres>(
-                "INSERT INTO tenant_key_bundles
-                    (tenant_id, suite_id, generation, wrapped_tenant_root_dek)
-                 VALUES ($1, 2, 1, $2)",
+                "INSERT INTO tenant_key_generations
+                    (tenant_id, suite_id, generation, status, minimum_write_generation,
+                     signed_manifest, wrapped_tenant_root_dek)
+                 VALUES ($1, 2, 1, 'active', 1, $2, $3)",
             )
             .bind(tenant_id)
+            .bind(vec![0_u8; 124])
             .bind(vec![seq as u8])
             .execute(&admin_pool)
             .await
             .unwrap();
             query::<Postgres>(
-                "INSERT INTO list_key_bundles
-                    (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
-                 VALUES ($1, $2, 2, 1, $3)",
+                "INSERT INTO list_key_generations
+                    (tenant_id, list_id, suite_id, generation, status,
+                     minimum_write_generation, signed_manifest, wrapped_list_dek)
+                 VALUES ($1, $2, 2, 1, 'active', 1, $3, $4)",
             )
             .bind(tenant_id)
             .bind(Uuid::now_v7())
+            .bind(vec![0_u8; 124])
             .bind(vec![seq as u8])
             .execute(&admin_pool)
             .await
@@ -117,8 +121,8 @@ impl Fixture {
             query::<Postgres>(
                 "INSERT INTO sync_records
                  (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
-                  encrypted_blob)
-                 VALUES ($1, $2, 'lists', $3, 'z', 'a', $4)",
+                  encrypted_blob, suite_id, key_generation)
+                 VALUES ($1, $2, 'lists', $3, 'z', 'a', $4, 2, 1)",
             )
             .bind(tenant_id)
             .bind(record_id)
@@ -130,8 +134,8 @@ impl Fixture {
             query::<Postgres>(
                 "INSERT INTO sync_records_history
                  (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
-                  encrypted_blob, author_user_id)
-                 VALUES ($1, $2, 'lists', $3, 'z', 'a', $4, $5)",
+                  encrypted_blob, suite_id, key_generation, author_user_id)
+                 VALUES ($1, $2, 'lists', $3, 'z', 'a', $4, 2, 1, $5)",
             )
             .bind(tenant_id)
             .bind(record_id)
@@ -234,8 +238,11 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
         "tenants",
         "tenant_members",
         "tenant_seq",
-        "tenant_key_bundles",
-        "list_key_bundles",
+        "user_key_generations",
+        "tenant_key_generations",
+        "list_key_generations",
+        "key_recipients",
+        "key_generation_acks",
         "sync_records",
         "sync_records_history",
         "tenant_device_continuity",
@@ -245,7 +252,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
     .fetch_all(&fixture.admin_pool)
     .await
     .unwrap();
-    assert_eq!(protected_tables.len(), 10);
+    assert_eq!(protected_tables.len(), 13);
     assert!(protected_tables.iter().all(|row| {
         row.try_get::<bool, _>("relrowsecurity").unwrap()
             && row.try_get::<bool, _>("relforcerowsecurity").unwrap()
@@ -301,12 +308,12 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
         ),
         ("tenant_seq", "SELECT count(*) AS count FROM tenant_seq"),
         (
-            "tenant_key_bundles",
-            "SELECT count(*) AS count FROM tenant_key_bundles",
+            "tenant_key_generations",
+            "SELECT count(*) AS count FROM tenant_key_generations",
         ),
         (
-            "list_key_bundles",
-            "SELECT count(*) AS count FROM list_key_bundles",
+            "list_key_generations",
+            "SELECT count(*) AS count FROM list_key_generations",
         ),
         ("sync_records", "SELECT count(*) AS count FROM sync_records"),
         (
@@ -329,7 +336,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
             .await
             .unwrap();
     assert_eq!(wrong_update.rows_affected(), 0);
-    let wrong_delete = query::<Postgres>("DELETE FROM list_key_bundles WHERE tenant_id = $1")
+    let wrong_delete = query::<Postgres>("DELETE FROM list_key_generations WHERE tenant_id = $1")
         .bind(fixture.tenant_b)
         .execute(&mut *tx)
         .await

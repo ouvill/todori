@@ -151,7 +151,7 @@ enum CreateListMode {
     Ready {
         tenant_id: Uuid,
         master_key: Zeroizing<[u8; 32]>,
-        mutation: LocalMutationContext,
+        mutation: Box<LocalMutationContext>,
     },
 }
 
@@ -623,7 +623,7 @@ impl TodoriClient {
             CryptoRuntimeState::Ready(crypto) => Ok(CreateListMode::Ready {
                 tenant_id: crypto.tenant_id(),
                 master_key: Zeroizing::new(*crypto.master_key()),
-                mutation: crypto.mutation_context(),
+                mutation: Box::new(crypto.mutation_context()),
             }),
             CryptoRuntimeState::Unavailable(_) | CryptoRuntimeState::Unloaded => {
                 Err(ClientError::AccountBoundUnavailable)
@@ -1256,8 +1256,13 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
+                tenant_id: Uuid::from_u128(100),
                 list_deks: vec![(list.id, [0x55; 32].into())],
+                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
         )
@@ -1277,7 +1282,7 @@ mod tests {
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
-                crypto: CryptoRuntimeState::Ready(ready_crypto),
+                crypto: CryptoRuntimeState::Ready(Box::new(ready_crypto)),
             }),
             sync: Mutex::new(SyncRuntimeState::default()),
             operation_busy: std::sync::atomic::AtomicBool::new(false),
@@ -1371,8 +1376,13 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
+                tenant_id: Uuid::from_u128(100),
                 list_deks: vec![(list.id, [0x55; 32].into())],
+                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
         )
@@ -1384,7 +1394,7 @@ mod tests {
             account: Mutex::new(AccountRuntimeState {
                 session: None,
                 session_restored: true,
-                crypto: CryptoRuntimeState::Ready(ready_crypto),
+                crypto: CryptoRuntimeState::Ready(Box::new(ready_crypto)),
             }),
             sync: Mutex::new(SyncRuntimeState::default()),
             operation_busy: std::sync::atomic::AtomicBool::new(false),
@@ -1577,8 +1587,13 @@ mod tests {
             },
             &[0x44; 32],
             LocalSyncKeys {
+                tenant_id: Uuid::from_u128(100),
                 list_deks: vec![(ready_list.id, [0x55; 32].into())],
+                list_generations: vec![(ready_list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
         )
@@ -1596,7 +1611,7 @@ mod tests {
                     device_id: Some("device".into()),
                 }),
                 session_restored: true,
-                crypto: CryptoRuntimeState::Ready(ready_crypto),
+                crypto: CryptoRuntimeState::Ready(Box::new(ready_crypto)),
             }),
             sync: Mutex::new(SyncRuntimeState::default()),
             operation_busy: std::sync::atomic::AtomicBool::new(false),
@@ -1674,8 +1689,13 @@ mod tests {
         let sync = LocalMutationContext {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
+                tenant_id: Uuid::from_u128(100),
                 list_deks: vec![(list.id, [0x55; 32].into())],
+                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
         };
         assert!(client
@@ -1728,8 +1748,13 @@ mod tests {
         let sync = LocalMutationContext {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
+                tenant_id: Uuid::from_u128(100),
                 list_deks: vec![(list.id, [0x55; 32].into())],
+                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
         };
         assert!(client

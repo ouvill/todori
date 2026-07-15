@@ -15,6 +15,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO todori_ap
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO todori_app;
 
+ALTER TABLE user_key_generations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_key_generations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_key_generations_isolation ON user_key_generations;
+CREATE POLICY user_key_generations_isolation ON user_key_generations
+    USING (user_id = NULLIF(current_setting('todori.user_id', true), '')::UUID)
+    WITH CHECK (user_id = NULLIF(current_setting('todori.user_id', true), '')::UUID);
+
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenants FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenants_isolation ON tenants;
@@ -56,17 +63,31 @@ CREATE POLICY tenant_seq_isolation ON tenant_seq
     USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
     WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
 
-ALTER TABLE tenant_key_bundles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tenant_key_bundles FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_key_bundles_isolation ON tenant_key_bundles;
-CREATE POLICY tenant_key_bundles_isolation ON tenant_key_bundles
+ALTER TABLE tenant_key_generations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_key_generations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_key_generations_isolation ON tenant_key_generations;
+CREATE POLICY tenant_key_generations_isolation ON tenant_key_generations
     USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
     WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
 
-ALTER TABLE list_key_bundles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE list_key_bundles FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS list_key_bundles_isolation ON list_key_bundles;
-CREATE POLICY list_key_bundles_isolation ON list_key_bundles
+ALTER TABLE list_key_generations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE list_key_generations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS list_key_generations_isolation ON list_key_generations;
+CREATE POLICY list_key_generations_isolation ON list_key_generations
+    USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
+    WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
+
+ALTER TABLE key_recipients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE key_recipients FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS key_recipients_isolation ON key_recipients;
+CREATE POLICY key_recipients_isolation ON key_recipients
+    USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
+    WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
+
+ALTER TABLE key_generation_acks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE key_generation_acks FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS key_generation_acks_isolation ON key_generation_acks;
+CREATE POLICY key_generation_acks_isolation ON key_generation_acks
     USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
     WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
 

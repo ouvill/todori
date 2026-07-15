@@ -10,7 +10,11 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    sync::{self, RetireListKeyResponse, UpsertListKeyResponse},
+    sync::{
+        self, ActivateRotationRequest, DeviceKeyExpiryRequest, DeviceKeyExpiryResponse,
+        PrepareRotationRequest, RetireListKeyResponse, RotationGenerationRequest,
+        RotationStateResponse, UpsertListKeyResponse,
+    },
     AppError, SharedState,
 };
 use todori_sync::{
@@ -30,6 +34,19 @@ pub fn router() -> Router<SharedState> {
         .route("/{tenant_id}/resync/start", post(begin_full_resync))
         .route("/{tenant_id}/resync/base", get(scan_base))
         .route("/{tenant_id}/continuity/ack", post(ack_continuity))
+        .route("/{tenant_id}/key-rotation", get(rotation_state))
+        .route("/{tenant_id}/key-rotation/bundle", get(active_key_bundle))
+        .route("/{tenant_id}/key-rotation/prepare", post(prepare_rotation))
+        .route(
+            "/{tenant_id}/key-rotation/activate",
+            post(activate_rotation),
+        )
+        .route("/{tenant_id}/key-rotation/ack", post(ack_key_generation))
+        .route("/{tenant_id}/key-rotation/retire", post(retire_rotation))
+        .route(
+            "/{tenant_id}/devices/{device_id}/key-expiry",
+            post(set_device_key_expiry),
+        )
         .route(
             "/{tenant_id}/list-keys",
             get(list_key_bundles).post(upsert_list_key_bundle),
@@ -38,6 +55,102 @@ pub fn router() -> Router<SharedState> {
             "/{tenant_id}/list-keys/{list_id}",
             delete(retire_list_key_bundle),
         )
+}
+
+async fn set_device_key_expiry(
+    State(state): State<SharedState>,
+    Path((tenant_id, device_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(request): Json<DeviceKeyExpiryRequest>,
+) -> Result<Json<DeviceKeyExpiryResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::set_device_key_expiry(&state.pool, tenant_id, auth_context, device_id, request)
+        .await
+        .map(Json)
+}
+
+async fn prepare_rotation(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<PrepareRotationRequest>,
+) -> Result<Json<RotationStateResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::prepare_rotation(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
+}
+
+async fn activate_rotation(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<ActivateRotationRequest>,
+) -> Result<Json<RotationStateResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::activate_rotation(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
+}
+
+async fn ack_key_generation(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<RotationGenerationRequest>,
+) -> Result<Json<RotationStateResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::acknowledge_key_generation(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
+}
+
+async fn retire_rotation(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<RotationGenerationRequest>,
+) -> Result<Json<RotationStateResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::retire_rotation(&state.pool, tenant_id, auth_context, request)
+        .await
+        .map(Json)
+}
+
+async fn rotation_state(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<RotationStateResponse>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::rotation_state_for_tenant(&state.pool, tenant_id, auth_context)
+        .await
+        .map(Json)
+}
+
+async fn active_key_bundle(
+    State(state): State<SharedState>,
+    Path(tenant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<todori_sync::account::ActiveKeyBundleDto>, AppError> {
+    let token = bearer_token(&headers)?;
+    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    require_current_protocol(&headers)?;
+    sync::active_key_bundle(&state.pool, tenant_id, auth_context)
+        .await
+        .map(Json)
 }
 
 async fn preflight(

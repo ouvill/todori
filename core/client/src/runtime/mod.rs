@@ -83,7 +83,7 @@ pub(super) struct AccountRuntimeState {
 pub(super) enum CryptoRuntimeState {
     Unloaded,
     Anonymous,
-    Ready(LocalCryptoContext),
+    Ready(Box<LocalCryptoContext>),
     Unavailable(LocalCryptoUnavailable),
 }
 

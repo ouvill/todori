@@ -2,8 +2,7 @@ use std::path::Path;
 
 use todori_crypto::key_hierarchy::{
     unwrap_local_list_dek_with_master_key, unwrap_local_tenant_root_dek_with_master_key,
-    wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key,
-    INITIAL_KEY_GENERATION, KEY_LEN,
+    wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key, KEY_LEN,
 };
 use todori_domain::Uuid;
 use todori_storage::{
@@ -17,7 +16,7 @@ use crate::LocalMutationContext;
 
 pub enum LocalCryptoAvailability {
     Anonymous,
-    Ready(LocalCryptoContext),
+    Ready(Box<LocalCryptoContext>),
     AccountBoundUnavailable(LocalCryptoUnavailable),
 }
 
@@ -91,7 +90,7 @@ pub fn load_local_crypto_context(
     let bundles = repository.load_bundles(binding.tenant_id)?;
     let entries = bundles
         .into_iter()
-        .map(|bundle| (bundle.list_id, bundle.wrapped_list_dek))
+        .map(|bundle| (bundle.list_id, bundle.generation, bundle.wrapped_list_dek))
         .collect::<Vec<_>>();
     let Some(tenant_root) = repository.load_tenant_root(binding.tenant_id)? else {
         return Ok(LocalCryptoAvailability::AccountBoundUnavailable(
@@ -100,6 +99,7 @@ pub fn load_local_crypto_context(
     };
     let sync_keys = match unwrap_local_cache_entries(
         binding.tenant_id,
+        tenant_root.generation,
         &tenant_root.wrapped_tenant_root_dek,
         &entries,
         &master_key,
@@ -118,13 +118,15 @@ pub fn load_local_crypto_context(
         ));
     }
 
-    Ok(LocalCryptoAvailability::Ready(LocalCryptoContext {
-        tenant_id: binding.tenant_id,
-        user_id: binding.user_id,
-        device_id: binding.device_id,
-        master_key: Zeroizing::new(master_key),
-        sync_keys,
-    }))
+    Ok(LocalCryptoAvailability::Ready(Box::new(
+        LocalCryptoContext {
+            tenant_id: binding.tenant_id,
+            user_id: binding.user_id,
+            device_id: binding.device_id,
+            master_key: Zeroizing::new(master_key),
+            sync_keys,
+        },
+    )))
 }
 
 pub fn persist_account_crypto_context(
@@ -139,7 +141,7 @@ pub fn persist_account_crypto_context(
         db_key,
         identity,
         &keys.master_key,
-        LocalSyncKeys::from_account_keys(keys),
+        LocalSyncKeys::from_account_keys(identity.tenant_id, keys),
         now_ms,
     )
 }
@@ -156,14 +158,17 @@ pub fn persist_local_crypto_context(
         .list_deks
         .iter()
         .map(|(list_id, list_dek)| {
+            let generation = sync_keys.generation_for_list(*list_id).ok_or_else(|| {
+                StorageError::IncompatibleSchema("missing list key generation".to_string())
+            })?;
             wrap_local_list_dek_with_master_key(
                 identity.tenant_id,
                 *list_id,
-                INITIAL_KEY_GENERATION,
+                generation,
                 list_dek,
                 master_key,
             )
-            .map(|wrapped| (*list_id, wrapped))
+            .map(|wrapped| (*list_id, generation, wrapped))
             .map_err(|_| {
                 StorageError::IncompatibleSchema("invalid local sync key material".to_string())
             })
@@ -174,7 +179,7 @@ pub fn persist_local_crypto_context(
     })?;
     let wrapped_tenant_root_dek = wrap_local_tenant_root_dek_with_master_key(
         identity.tenant_id,
-        INITIAL_KEY_GENERATION,
+        sync_keys.tenant_generation,
         tenant_root_dek,
         master_key,
     )
@@ -183,7 +188,7 @@ pub fn persist_local_crypto_context(
     })?;
     let tenant_root = LocalTenantRootKeyBundle {
         tenant_id: identity.tenant_id,
-        key_version: 1,
+        generation: sync_keys.tenant_generation,
         wrapped_tenant_root_dek,
         updated_at: now_ms,
     };
@@ -203,17 +208,18 @@ pub fn persist_local_crypto_context(
 
 fn unwrap_local_cache_entries(
     tenant_id: Uuid,
+    tenant_generation: u64,
     wrapped_tenant_root_dek: &[u8],
-    entries: &[(Uuid, Vec<u8>)],
+    entries: &[(Uuid, u64, Vec<u8>)],
     master_key: &[u8; KEY_LEN],
 ) -> Result<LocalSyncKeys, ()> {
     let list_deks = entries
         .iter()
-        .map(|(list_id, wrapped)| {
+        .map(|(list_id, generation, wrapped)| {
             unwrap_local_list_dek_with_master_key(
                 tenant_id,
                 *list_id,
-                INITIAL_KEY_GENERATION,
+                *generation,
                 wrapped,
                 master_key,
             )
@@ -223,19 +229,27 @@ fn unwrap_local_cache_entries(
         .collect::<Result<Vec<_>, _>>()?;
     let tenant_root_dek = unwrap_local_tenant_root_dek_with_master_key(
         tenant_id,
-        INITIAL_KEY_GENERATION,
+        tenant_generation,
         wrapped_tenant_root_dek,
         master_key,
     )
     .map_err(|_| ())?;
     Ok(LocalSyncKeys {
+        tenant_id,
         list_deks,
+        list_generations: entries
+            .iter()
+            .map(|(list_id, generation, _)| (*list_id, *generation))
+            .collect(),
         tenant_root_dek: Some(Zeroizing::new(tenant_root_dek)),
+        tenant_generation,
+        historical_list_deks: Vec::new(),
+        historical_tenant_root_deks: Vec::new(),
     })
 }
 
 struct WrappedLocalKeyCache {
-    list_entries: Vec<(Uuid, Vec<u8>)>,
+    list_entries: Vec<(Uuid, u64, Vec<u8>)>,
     tenant_root: LocalTenantRootKeyBundle,
 }
 
@@ -272,12 +286,15 @@ fn persist_wrapped_context(
     let bundles = wrapped_cache
         .list_entries
         .into_iter()
-        .map(|(list_id, wrapped_list_dek)| LocalListKeyBundle {
-            tenant_id,
-            list_id,
-            wrapped_list_dek,
-            updated_at: now_ms,
-        })
+        .map(
+            |(list_id, generation, wrapped_list_dek)| LocalListKeyBundle {
+                tenant_id,
+                list_id,
+                generation,
+                wrapped_list_dek,
+                updated_at: now_ms,
+            },
+        )
         .collect::<Vec<_>>();
     repository.bind_and_replace_bundles(binding, &wrapped_cache.tenant_root, &bundles)?;
 
@@ -323,11 +340,14 @@ mod tests {
 
     fn account_keys(list_id: Uuid) -> AccountKeyMaterial {
         AccountKeyMaterial {
+            generation: 1,
+            tenant_generation: 1,
             master_key: Zeroizing::new(MASTER_KEY),
             user_secret_key: Zeroizing::new([0x11; KEY_LEN]),
             tenant_root_dek: Zeroizing::new([0x22; KEY_LEN]),
             list_deks: vec![AccountListDekMaterial {
                 list_id: list_id.to_string(),
+                generation: 1,
                 dek: Zeroizing::new([0x33; KEY_LEN]),
             }],
         }
@@ -484,7 +504,7 @@ mod tests {
                     wrap_local_list_dek_with_master_key(
                         tenant_id,
                         list_id,
-                        INITIAL_KEY_GENERATION,
+                        1,
                         &entry.dek,
                         &account_keys.master_key,
                     )
@@ -495,10 +515,10 @@ mod tests {
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         let tenant_root = LocalTenantRootKeyBundle {
             tenant_id,
-            key_version: 1,
+            generation: 1,
             wrapped_tenant_root_dek: wrap_local_tenant_root_dek_with_master_key(
                 tenant_id,
-                INITIAL_KEY_GENERATION,
+                1,
                 &account_keys.tenant_root_dek,
                 &account_keys.master_key,
             )
@@ -518,6 +538,7 @@ mod tests {
                 &[LocalListKeyBundle {
                     tenant_id,
                     list_id: entries[0].0,
+                    generation: 1,
                     wrapped_list_dek: entries[0].1.clone(),
                     updated_at: NOW,
                 }],

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::{KeyScope, RotationStatus};
+
 pub const SYNC_PROTOCOL_VERSION: u16 = 5;
 pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-todori-protocol-version";
 
@@ -17,6 +19,25 @@ pub struct SyncCapabilities {
     pub continuity_generation: i64,
     pub required_generation: i64,
     pub full_resync_required: bool,
+    pub suite_id: u16,
+    pub active_key_generation: u64,
+    pub minimum_write_generation: u64,
+    pub migrating_key_generation: Option<u64>,
+    pub key_manifests: Vec<KeyManifestDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyManifestDescriptor {
+    pub scope: KeyScope,
+    pub list_id: Option<Uuid>,
+    pub suite_id: u16,
+    pub generation: u64,
+    pub status: RotationStatus,
+    pub minimum_write_generation: u64,
+    pub signed_manifest: String,
+    #[serde(default)]
+    pub predecessor_manifests: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

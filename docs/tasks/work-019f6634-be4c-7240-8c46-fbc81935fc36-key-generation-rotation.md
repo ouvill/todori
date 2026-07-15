@@ -1,7 +1,7 @@
 ---
 id: 019f6634-be4c-7240-8c46-fbc81935fc36
 title: Versioned key generation and rotation
-status: backlog
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -69,3 +69,14 @@ versioned key schema、signed manifest、envelope v4、`prepared -> active -> mi
 - failure injectionと3端末test結果
 - history / retirement / fail-closedの証拠
 - migrationと互換層がないこと
+
+## 9. 完了報告
+
+- 結果: envelope v4（suite / generation / tenant / collection / record AAD）、versioned user / tenant / list schema、MK由来HMAC manifest、`prepared -> active -> migrating -> retired` coordinatorを実装した。serverはminimum write generation未満のlive pushと重複rotationを拒否し、tombstoneは暗号blobを持たない。
+- migration: clientはactive bundleとmigrating中の旧Tenant / List DEKを認証・保持し、envelope headerのgenerationで復号鍵を選ぶ。旧generationのremote live headもpull後にactive generationへ再暗号化してCAS repushする。local backfill、record state、outbox、pending rotation markerは同一SQLite transactionで確定し、key cache切替完了まで通常mutationをfail closedにする。
+- manifest / replay: serverは旧active hashを指すpreparedと、そのhashを指す新activeをactivation transactionで検証・保存する。clientはscope別の最終認証済みmanifestをSQLCipher settingsへ永続化し、HMACとsuccessor chainの両方を検証してreplay / fork / downgradeを拒否する。
+- retirement: 全live head移行、全非expired device ACK、migration完了から30日経過まで旧bundleを保持する。device expiryはowner APIで明示し、offlineやsession expiryだけでは除外しない。password変更 / Recovery再発行はMKを変えずwrapper revision CASだけを進める。
+- scope: serverへtask-to-list linkageを開示しないためwire write generationはtenant同期epochとし、List単独rotationでは対象List DEKだけを変更、他List DEKは同素材を新epochへrewrapする。
+- breaking境界: envelope v3、generation 0、旧key schemaのreader / writer / fallbackは追加していない。既存開発DBは再作成する。
+- test: `cargo fmt --all -- --check` PASS、`cargo clippy --workspace -- -D warnings` PASS、`cargo test --workspace` PASS（sync 74件、storage 89件、server PostgreSQL統合testを含む。手動platform test 2件は既定どおりignored）。初回に検出したmanifest認証鍵fixtureとgeneration列fixtureの不一致をproduction契約へ修正し、全体を再実行した。
+- 独立検証: 別agentがhistorical remote migration、manifest anchor / chain、pending marker、rotation overlap、ACK / retention / expiry、wrapper CAS、互換fallback不在を再検証し、P0 / P1 / P2なしでPASSと判定した。

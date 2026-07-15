@@ -3514,6 +3514,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -3537,12 +3538,15 @@ dependencies = [
  "argon2",
  "base64",
  "chrono",
+ "hkdf 0.12.4",
+ "hmac 0.12.1",
  "opaque-ke",
  "proptest",
  "rand 0.8.6",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror",
  "todori-crypto",
  "todori-domain",

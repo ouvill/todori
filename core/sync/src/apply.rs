@@ -15,10 +15,11 @@ use crate::{
 };
 
 use crate::enqueue::{
-    enqueue_merged_plaintext, enqueue_rebased_tombstone, enqueue_task_sync, list_plaintext,
-    observe_remote_hlc, task_plaintext, LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore,
-    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
+    enqueue_merged_plaintext, enqueue_rebased_tombstone, enqueue_task_sync,
+    enqueue_timer_session_sync, list_plaintext, observe_remote_hlc, task_plaintext,
+    LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore, LocalSyncQuarantineEntry,
+    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
+    PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
 use crate::keys::{dek_for_list, LocalSyncKeys};
 
@@ -66,6 +67,7 @@ pub struct ActiveSyncContext {
     pub device_id: String,
     pub session_token: String,
     pub keys: LocalSyncKeys,
+    pub manifest_auth_key: zeroize::Zeroizing<[u8; 32]>,
 }
 
 pub async fn run_sync_now<S, N>(
@@ -151,6 +153,10 @@ where
         }
         Err(_) => return Err("sync failed".to_string()),
     };
+    if validate_preflight_key_state(&context, &preflight, store, now_ms).is_err() {
+        context.keys = key_refresher.refresh().await?;
+        validate_preflight_key_state(&context, &preflight, store, now_ms)?;
+    }
     // Initial local rows must have durable outbox protection before any remote
     // absence sweep. This hook is intentionally before key-bundle/entity push.
     pre_push(store)?;
@@ -230,8 +236,9 @@ where
                     &context.session_token,
                     ListDekBundleDto {
                         list_id: bundle.list_id,
-                        generation: todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
+                        generation: bundle.generation,
                         wrapped_list_dek: STANDARD.encode(&bundle.wrapped_list_dek),
+                        signed_manifest: STANDARD.encode(&bundle.signed_manifest),
                     },
                 )
                 .await
@@ -330,7 +337,166 @@ where
         }
     }
 
+    if !store.list_outbox_heads(1)?.is_empty() {
+        return Err("sync failed".to_string());
+    }
+    if preflight.active_key_generation > 1 {
+        AccountClient::new(context.server_url.clone())
+            .map_err(|_| "sync failed".to_string())?
+            .acknowledge_key_generation(
+                context.tenant_id,
+                preflight.active_key_generation,
+                &context.session_token,
+            )
+            .await
+            .map_err(|_| "sync failed".to_string())?;
+    }
+
     Ok(summary)
+}
+
+fn validate_preflight_key_state<S, N>(
+    context: &ActiveSyncContext,
+    preflight: &crate::PreflightResult,
+    store: &mut S,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    if preflight.suite_id != todori_crypto::CRYPTO_SUITE_ID
+        || context.keys.tenant_id != context.tenant_id
+        || context.keys.tenant_generation != preflight.active_key_generation
+        || context.keys.tenant_generation < preflight.minimum_write_generation
+        || preflight
+            .migrating_key_generation
+            .is_some_and(|generation| {
+                context
+                    .keys
+                    .historical_tenant_root_deks
+                    .iter()
+                    .all(|(candidate, _)| *candidate != generation)
+            })
+    {
+        return Err("active key generation required".to_string());
+    }
+    let tenant_manifest = preflight
+        .key_manifests
+        .iter()
+        .find(|manifest| manifest.scope == crate::KeyScope::Tenant && manifest.list_id.is_none())
+        .ok_or_else(|| "authenticated key manifest required".to_string())?;
+    let tenant = verify_preflight_manifest(tenant_manifest, context)?;
+    verify_manifest_anchor(tenant_manifest, &tenant, context, store)?;
+    if tenant_manifest.generation != context.keys.tenant_generation {
+        return Err("active key generation required".to_string());
+    }
+    let mut accepted = vec![(
+        manifest_anchor_key(crate::KeyScope::Tenant, None),
+        tenant_manifest.signed_manifest.clone(),
+    )];
+    for (list_id, _) in &context.keys.list_deks {
+        let manifest = preflight.key_manifests.iter().find(|manifest| {
+            manifest.scope == crate::KeyScope::List && manifest.list_id == Some(*list_id)
+        });
+        if let Some(manifest) = manifest {
+            let verified = verify_preflight_manifest(manifest, context)?;
+            verify_manifest_anchor(manifest, &verified, context, store)?;
+            if context.keys.generation_for_list(*list_id) != Some(manifest.generation)
+                || manifest.generation < manifest.minimum_write_generation
+            {
+                return Err("active key generation required".to_string());
+            }
+            accepted.push((
+                manifest_anchor_key(crate::KeyScope::List, Some(*list_id)),
+                manifest.signed_manifest.clone(),
+            ));
+        }
+    }
+    let updated_at = now_ms()?;
+    for (key, value) in accepted {
+        store.set_setting(&key, &value, updated_at)?;
+    }
+    Ok(())
+}
+
+fn verify_preflight_manifest(
+    descriptor: &crate::protocol::KeyManifestDescriptor,
+    context: &ActiveSyncContext,
+) -> Result<crate::KeyManifest, String> {
+    let bytes = STANDARD
+        .decode(&descriptor.signed_manifest)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    let manifest = crate::KeyManifest::from_authenticated_bytes(&bytes)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    if manifest.scope != descriptor.scope
+        || manifest.tenant_id != context.tenant_id
+        || manifest.list_id != descriptor.list_id
+        || manifest.suite_id != descriptor.suite_id
+        || manifest.generation != descriptor.generation
+        || manifest.status != descriptor.status
+        || manifest.minimum_write_generation != descriptor.minimum_write_generation
+        || manifest.status != crate::RotationStatus::Active
+    {
+        return Err("authenticated key manifest required".to_string());
+    }
+    manifest
+        .verify_personal_with_auth_key(&context.manifest_auth_key)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    Ok(manifest)
+}
+
+fn manifest_anchor_key(scope: crate::KeyScope, list_id: Option<Uuid>) -> String {
+    match scope {
+        crate::KeyScope::Tenant => "key_manifest_anchor:tenant".to_string(),
+        crate::KeyScope::List => format!(
+            "key_manifest_anchor:list:{}",
+            list_id.expect("list manifest has list id")
+        ),
+    }
+}
+
+fn verify_manifest_anchor<S: LocalSyncStore>(
+    descriptor: &crate::protocol::KeyManifestDescriptor,
+    current: &crate::KeyManifest,
+    context: &ActiveSyncContext,
+    store: &mut S,
+) -> Result<(), String> {
+    let key = manifest_anchor_key(descriptor.scope, descriptor.list_id);
+    let Some(encoded_anchor) = store.get_setting(&key)? else {
+        return Ok(());
+    };
+    let anchor_bytes = STANDARD
+        .decode(encoded_anchor)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    let mut anchor = crate::KeyManifest::from_authenticated_bytes(&anchor_bytes)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    anchor
+        .verify_personal_with_auth_key(&context.manifest_auth_key)
+        .map_err(|_| "authenticated key manifest required".to_string())?;
+    if anchor
+        .authenticated_hash()
+        .map_err(|_| "sync failed".to_string())?
+        == current
+            .authenticated_hash()
+            .map_err(|_| "sync failed".to_string())?
+    {
+        return Ok(());
+    }
+    for encoded in &descriptor.predecessor_manifests {
+        let bytes = STANDARD
+            .decode(encoded)
+            .map_err(|_| "authenticated key manifest required".to_string())?;
+        let next = crate::KeyManifest::from_authenticated_bytes(&bytes)
+            .map_err(|_| "authenticated key manifest required".to_string())?;
+        anchor
+            .verify_successor_with_auth_key(&next, &context.manifest_auth_key)
+            .map_err(|_| "authenticated key manifest required".to_string())?;
+        anchor = next;
+    }
+    anchor
+        .verify_successor_with_auth_key(current, &context.manifest_auth_key)
+        .map_err(|_| "authenticated key manifest required".to_string())
 }
 
 fn reconcile_canonical_inbox<S, N>(
@@ -1131,7 +1297,19 @@ where
             Ok(ApplyDisposition::AppliedCurrent)
         }
         EncryptedSyncState::Live { mutation_hlc, blob } => {
-            let Some(dek) = crate::tenant_root_dek(&context.keys) else {
+            let header = match crate::parse_envelope_header(blob) {
+                Ok(header) => header,
+                Err(error) => {
+                    return Ok(classify_envelope_error(
+                        error,
+                        None,
+                        blob.first().copied().unwrap_or(0),
+                    ))
+                }
+            };
+            let Some(dek) =
+                crate::tenant_root_dek_for_generation(&context.keys, header.key_generation)
+            else {
                 return Ok(ApplyDisposition::Deferred(
                     PullFailureReason::MissingDek,
                     None,
@@ -1139,8 +1317,10 @@ where
             };
             let plaintext = decrypt_plaintext(
                 dek,
+                context.tenant_id,
+                header.key_generation,
                 crate::TIMER_SESSIONS_COLLECTION,
-                &record.record_id.to_string(),
+                record.record_id,
                 blob,
             )
             .map_err(|error| {
@@ -1207,7 +1387,20 @@ where
                 now_ms()?,
             )?;
             summary.applied_count += 1;
-            Ok(ApplyDisposition::AppliedCurrent)
+            if header.key_generation < context.keys.tenant_generation {
+                enqueue_timer_session_sync(
+                    store,
+                    &context.keys,
+                    &context.device_id,
+                    &incoming.value,
+                    false,
+                    now_ms,
+                )?;
+                summary.repush_count += 1;
+                Ok(ApplyDisposition::Rebased)
+            } else {
+                Ok(ApplyDisposition::AppliedCurrent)
+            }
         }
     }
 }
@@ -1293,13 +1486,32 @@ where
             (mutation_hlc, blob)
         }
     };
-    let Some(dek) = dek_for_list(&context.keys, record.record_id) else {
+    let header = match crate::parse_envelope_header(blob) {
+        Ok(header) => header,
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                Some(record.record_id),
+                blob.first().copied().unwrap_or(0),
+            ))
+        }
+    };
+    let Some(dek) =
+        crate::dek_for_list_generation(&context.keys, record.record_id, header.key_generation)
+    else {
         return Ok(ApplyDisposition::Deferred(
             PullFailureReason::MissingDek,
             Some(record.record_id),
         ));
     };
-    let incoming = decrypt_plaintext(dek, LISTS_COLLECTION, &record.record_id.to_string(), blob);
+    let incoming = decrypt_plaintext(
+        dek,
+        context.tenant_id,
+        header.key_generation,
+        LISTS_COLLECTION,
+        record.record_id,
+        blob,
+    );
     let incoming = match incoming {
         Ok(incoming) => incoming,
         Err(error) => {
@@ -1326,6 +1538,7 @@ where
         }
         (None, None) => (incoming, false),
     };
+    let needs_repush = needs_repush || header.key_generation < context.keys.tenant_generation;
     let mut list = list_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
     if list.is_default {
         if let Some(default_list_id) = store.default_list_id()? {
@@ -1357,13 +1570,21 @@ where
     )?;
     summary.applied_count += 1;
     if needs_repush {
+        let active_dek = dek_for_list(&context.keys, record.record_id)
+            .ok_or_else(|| "sync failed".to_string())?;
+        let active_generation = context
+            .keys
+            .generation_for_list(record.record_id)
+            .ok_or_else(|| "sync failed".to_string())?;
         enqueue_merged_plaintext(
             store,
             RebasePlaintextRequest {
                 record_id: record.record_id,
                 collection: SyncCollection::Lists,
                 plaintext: &merged,
-                dek,
+                dek: active_dek,
+                tenant_id: context.tenant_id,
+                generation: active_generation,
                 device_id: &context.device_id,
                 base_revision_hlc: &record.revision_hlc,
             },
@@ -1443,6 +1664,14 @@ where
             (mutation_hlc, blob)
         }
     };
+    let incoming_generation = match &record.state {
+        EncryptedSyncState::Live { blob, .. } => {
+            crate::parse_envelope_header(blob)
+                .map_err(|_| "sync failed".to_string())?
+                .key_generation
+        }
+        EncryptedSyncState::Tombstone { .. } => return Err("sync failed".to_string()),
+    };
     let incoming = match decrypt_task_plaintext(record, existing.as_ref(), &context.keys) {
         Ok(incoming) => incoming,
         Err(disposition) => return Ok(disposition),
@@ -1476,6 +1705,12 @@ where
         }
         (None, None) => (incoming, false),
     };
+    let needs_repush = needs_repush
+        || incoming_generation
+            < context
+                .keys
+                .generation_for_list(incoming_list_id)
+                .ok_or_else(|| "sync failed".to_string())?;
     let mut task = task_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
     let authenticated_list_id = task.list_id;
     let resolved_list_id = store.resolve_list_alias(authenticated_list_id)?;
@@ -1575,6 +1810,11 @@ where
                 collection: SyncCollection::Tasks,
                 plaintext: &merged,
                 dek,
+                tenant_id: context.tenant_id,
+                generation: context
+                    .keys
+                    .generation_for_list(incoming_list_id)
+                    .ok_or_else(|| "sync failed".to_string())?,
                 device_id: &context.device_id,
                 base_revision_hlc: &record.revision_hlc,
             },
@@ -1751,32 +1991,46 @@ fn decrypt_task_plaintext(
             None,
         ));
     };
-    if blob.is_empty() || blob.len() > crate::MAX_ENCRYPTED_BLOB_LEN {
-        return Err(ApplyDisposition::Deferred(
-            PullFailureReason::CorruptEnvelope,
-            None,
-        ));
-    }
-    if blob[0] != crate::ENVELOPE_VERSION {
-        return Err(ApplyDisposition::UpgradeRequired(blob[0]));
-    }
+    let header = crate::parse_envelope_header(blob)
+        .map_err(|error| classify_envelope_error(error, None, 0))?;
     let mut candidates = Vec::new();
     let mut expected_list_id = None;
     let mut expected_dek_available = false;
     if let Some(task) = existing {
         expected_list_id = Some(task.list_id);
         if let Some(dek) = dek_for_list(keys, task.list_id) {
-            expected_dek_available = true;
-            candidates.push((task.list_id, dek));
+            if let Some(generation) = keys.generation_for_list(task.list_id) {
+                if generation == header.key_generation {
+                    candidates.push((task.list_id, dek, generation));
+                }
+            }
         }
     }
     for (list_id, dek) in &keys.list_deks {
         if !candidates
             .iter()
-            .any(|(candidate_list_id, _)| candidate_list_id == list_id)
+            .any(|(candidate_list_id, _, _)| candidate_list_id == list_id)
         {
-            candidates.push((*list_id, &**dek));
+            if let Some(generation) = keys.generation_for_list(*list_id) {
+                if generation == header.key_generation {
+                    candidates.push((*list_id, &**dek, generation));
+                }
+            }
         }
+    }
+    for (list_id, generation, dek) in &keys.historical_list_deks {
+        if *generation == header.key_generation
+            && !candidates
+                .iter()
+                .any(|(candidate_list_id, _, _)| candidate_list_id == list_id)
+        {
+            candidates.push((*list_id, &**dek, *generation));
+        }
+    }
+    if let Some(expected_list_id) = expected_list_id {
+        expected_dek_available = candidates
+            .iter()
+            .any(|(candidate_list_id, _, _)| *candidate_list_id == expected_list_id);
     }
     if candidates.is_empty() {
         return Err(ApplyDisposition::Deferred(
@@ -1789,8 +2043,15 @@ fn decrypt_task_plaintext(
         ));
     }
     let mut invalid_plaintext = false;
-    for (candidate_list_id, dek) in candidates {
-        match decrypt_plaintext(dek, TASKS_COLLECTION, &record.record_id.to_string(), blob) {
+    for (candidate_list_id, dek, generation) in candidates {
+        match decrypt_plaintext(
+            dek,
+            keys.tenant_id,
+            generation,
+            TASKS_COLLECTION,
+            record.record_id,
+            blob,
+        ) {
             Ok(plaintext) => {
                 let SyncPlaintext::Task(task) = &plaintext else {
                     invalid_plaintext = true;
@@ -1845,7 +2106,12 @@ fn classify_envelope_error(
         EnvelopeError::Deserialization | EnvelopeError::Serialization => {
             ApplyDisposition::Deferred(PullFailureReason::InvalidPlaintext, required_list_id)
         }
-        EnvelopeError::EmptyBlob | EnvelopeError::BlobTooLarge => {
+        EnvelopeError::BlobTooShort
+        | EnvelopeError::BlobTooLarge
+        | EnvelopeError::UnsupportedSuite
+        | EnvelopeError::InvalidGeneration
+        | EnvelopeError::InvalidIdentity
+        | EnvelopeError::CollectionTooLong => {
             ApplyDisposition::Deferred(PullFailureReason::CorruptEnvelope, required_list_id)
         }
     }
@@ -1950,9 +2216,45 @@ mod tests {
 
     use super::*;
     use crate::{
-        encrypt_plaintext, LocalMutationSyncStore, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry,
+        LocalMutationSyncStore, LocalSyncOutboxEntry, NewLocalSyncOutboxEntry,
         TimerSessionPlaintext, TIMER_SESSIONS_COLLECTION,
     };
+
+    fn test_tenant_id() -> Uuid {
+        Uuid::from_u128(100)
+    }
+
+    fn encrypt_plaintext(
+        dek: &[u8; 32],
+        collection: &str,
+        record_id: &str,
+        plaintext: &SyncPlaintext,
+    ) -> Result<Vec<u8>, EnvelopeError> {
+        crate::envelope::encrypt_plaintext(
+            dek,
+            test_tenant_id(),
+            1,
+            collection,
+            Uuid::parse_str(record_id).map_err(|_| EnvelopeError::InvalidIdentity)?,
+            plaintext,
+        )
+    }
+
+    fn decrypt_plaintext(
+        dek: &[u8; 32],
+        collection: &str,
+        record_id: &str,
+        blob: &[u8],
+    ) -> Result<SyncPlaintext, EnvelopeError> {
+        crate::envelope::decrypt_plaintext(
+            dek,
+            test_tenant_id(),
+            1,
+            collection,
+            Uuid::parse_str(record_id).map_err(|_| EnvelopeError::InvalidIdentity)?,
+            blob,
+        )
+    }
 
     #[derive(Default)]
     struct FakeStore {
@@ -1964,6 +2266,7 @@ mod tests {
         outbox: Vec<LocalSyncOutboxEntry>,
         aliases: Vec<LocalListAlias>,
         live_list_quarantine: bool,
+        settings: HashMap<String, String>,
     }
 
     impl LocalMutationSyncStore for FakeStore {
@@ -1978,16 +2281,12 @@ mod tests {
                 .any(|entry| entry.collection == collection && entry.record_id == record_id))
         }
 
-        fn get_setting(&mut self, _key: &str) -> Result<Option<String>, String> {
-            Ok(None)
+        fn get_setting(&mut self, key: &str) -> Result<Option<String>, String> {
+            Ok(self.settings.get(key).cloned())
         }
 
-        fn set_setting(
-            &mut self,
-            _key: &str,
-            _value: &str,
-            _updated_at: i64,
-        ) -> Result<(), String> {
+        fn set_setting(&mut self, key: &str, value: &str, _updated_at: i64) -> Result<(), String> {
+            self.settings.insert(key.to_string(), value.to_string());
             Ok(())
         }
 
@@ -2574,6 +2873,45 @@ mod tests {
     }
 
     #[test]
+    fn pulled_old_generation_live_head_uses_history_key_and_repushed_active_generation() {
+        let list = sample_list(uuid(77), false);
+        let old_dek = [0x31; KEY_LEN];
+        let active_dek = [0x32; KEY_LEN];
+        let record = encrypted_list_record(&list, &old_dek);
+        let mut context = context_with_keys(&[(list.id, active_dek)]);
+        context.keys.list_generations = vec![(list.id, 2)];
+        context.keys.tenant_generation = 2;
+        context
+            .keys
+            .historical_list_deks
+            .push((list.id, 1, Zeroizing::new(old_dek)));
+        let mut store = FakeStore::default();
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        assert_eq!(
+            apply_pull_list(&record, &context, &mut store, &mut now, &mut summary).unwrap(),
+            ApplyDisposition::Rebased
+        );
+        let EncryptedSyncState::Live { blob, .. } = &store.outbox[0].state else {
+            panic!("live")
+        };
+        assert_eq!(
+            crate::parse_envelope_header(blob).unwrap().key_generation,
+            2
+        );
+        assert!(crate::envelope::decrypt_plaintext(
+            &active_dek,
+            test_tenant_id(),
+            2,
+            LISTS_COLLECTION,
+            list.id,
+            blob,
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn missing_canonical_dek_fails_before_materialization() {
         let canonical = sample_list(uuid(1), true);
         let loser = sample_list(uuid(2), true);
@@ -3021,7 +3359,7 @@ mod tests {
                 }
                 .encode()
                 .unwrap(),
-                blob: vec![0xff; 8],
+                blob: vec![0xff; crate::envelope::ENVELOPE_MIN_LEN],
             },
         };
         let context = context_for(list_id, dek);
@@ -3062,11 +3400,19 @@ mod tests {
         };
         fields.note.hlc.device_id.clear();
         let plaintext_json = serde_json::to_vec(&plaintext).unwrap();
-        let aad = format!("todori-sync-envelope/v2\ncollection:tasks\nrecord_id:{record_id}");
-        let mut blob = vec![crate::ENVELOPE_VERSION];
-        blob.extend_from_slice(
-            &todori_crypto::encrypt(&dek, &plaintext_json, aad.as_bytes()).unwrap(),
-        );
+        let mut aad = Vec::new();
+        aad.extend_from_slice(b"TDA4");
+        aad.extend_from_slice(&todori_crypto::CRYPTO_SUITE_ID.to_be_bytes());
+        aad.extend_from_slice(&1_u64.to_be_bytes());
+        aad.extend_from_slice(test_tenant_id().as_bytes());
+        aad.extend_from_slice(&(TASKS_COLLECTION.len() as u16).to_be_bytes());
+        aad.extend_from_slice(TASKS_COLLECTION.as_bytes());
+        aad.extend_from_slice(record_id.as_bytes());
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"TDE4");
+        blob.extend_from_slice(&todori_crypto::CRYPTO_SUITE_ID.to_be_bytes());
+        blob.extend_from_slice(&1_u64.to_be_bytes());
+        blob.extend_from_slice(&todori_crypto::encrypt(&dek, &plaintext_json, &aad).unwrap());
         let record = PullRecord {
             record_id,
             collection: SyncCollection::Tasks,
@@ -3125,8 +3471,13 @@ mod tests {
         let moved_plaintext = SyncPlaintext::from_task(&moved, clock.clone()).unwrap();
         let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
         let moved_keys = LocalSyncKeys {
+            tenant_id: test_tenant_id(),
             list_deks: vec![(list_b, dek_b.into())],
+            list_generations: vec![(list_b, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let SyncPlaintext::Task(decrypted_move) =
             decrypt_task_plaintext(&moved_record, Some(&existing), &moved_keys).unwrap()
@@ -3141,8 +3492,13 @@ mod tests {
         let mismatched_record =
             encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
         let all_keys = LocalSyncKeys {
+            tenant_id: test_tenant_id(),
             list_deks: vec![(list_a, dek_a.into()), (list_b, dek_b.into())],
+            list_generations: vec![(list_a, 1), (list_b, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         assert_eq!(
             decrypt_task_plaintext(&mismatched_record, Some(&existing), &all_keys),
@@ -3160,8 +3516,13 @@ mod tests {
         );
 
         let no_matching_key = LocalSyncKeys {
+            tenant_id: test_tenant_id(),
             list_deks: vec![(list_b, [0x62; KEY_LEN].into())],
+            list_generations: vec![(list_b, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         assert_eq!(
             decrypt_task_plaintext(&moved_record, Some(&existing), &no_matching_key),
@@ -3294,6 +3655,70 @@ mod tests {
         context_with_keys(&[(list_id, dek)])
     }
 
+    #[test]
+    fn persisted_manifest_anchor_requires_complete_authenticated_successor_chain() {
+        let tenant_id = test_tenant_id();
+        let first = crate::KeyManifest::authenticate_personal(
+            crate::KeyScope::Tenant,
+            tenant_id,
+            None,
+            1,
+            crate::RotationStatus::Active,
+            1,
+            [0; 32],
+            Vec::new(),
+            &[0x41; 32],
+        )
+        .unwrap();
+        let prepared = crate::KeyManifest::authenticate_personal(
+            crate::KeyScope::Tenant,
+            tenant_id,
+            None,
+            2,
+            crate::RotationStatus::Prepared,
+            1,
+            first.authenticated_hash().unwrap(),
+            Vec::new(),
+            &[0x41; 32],
+        )
+        .unwrap();
+        let active = crate::KeyManifest::authenticate_personal(
+            crate::KeyScope::Tenant,
+            tenant_id,
+            None,
+            2,
+            crate::RotationStatus::Active,
+            2,
+            prepared.authenticated_hash().unwrap(),
+            Vec::new(),
+            &[0x41; 32],
+        )
+        .unwrap();
+        let mut store = FakeStore::default();
+        store.settings.insert(
+            manifest_anchor_key(crate::KeyScope::Tenant, None),
+            STANDARD.encode(first.authenticated_bytes().unwrap()),
+        );
+        let context = context_with_keys(&[]);
+        let descriptor = crate::protocol::KeyManifestDescriptor {
+            scope: crate::KeyScope::Tenant,
+            list_id: None,
+            suite_id: todori_crypto::CRYPTO_SUITE_ID,
+            generation: 2,
+            status: crate::RotationStatus::Active,
+            minimum_write_generation: 2,
+            signed_manifest: STANDARD.encode(active.authenticated_bytes().unwrap()),
+            predecessor_manifests: vec![STANDARD.encode(prepared.authenticated_bytes().unwrap())],
+        };
+
+        verify_manifest_anchor(&descriptor, &active, &context, &mut store).unwrap();
+        let mut missing_predecessor = descriptor;
+        missing_predecessor.predecessor_manifests.clear();
+        assert!(
+            verify_manifest_anchor(&missing_predecessor, &active, &context, &mut store).is_err()
+        );
+    }
+
     fn context_with_keys(keys: &[(Uuid, [u8; KEY_LEN])]) -> ActiveSyncContext {
         ActiveSyncContext {
             server_url: "http://localhost".to_string(),
@@ -3301,12 +3726,18 @@ mod tests {
             device_id: "local".to_string(),
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
+                tenant_id: test_tenant_id(),
                 list_deks: keys
                     .iter()
                     .map(|(id, key)| (*id, Zeroizing::new(*key)))
                     .collect(),
+                list_generations: keys.iter().map(|(id, _)| (*id, 1)).collect(),
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
+            manifest_auth_key: crate::derive_personal_manifest_auth_key(&[0x41; 32]).unwrap(),
         }
     }
 
@@ -3348,7 +3779,8 @@ mod tests {
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
     assert!(upgrade_block_is_active("6:3"));
-    assert!(upgrade_block_is_active("4:4"));
+    assert!(upgrade_block_is_active("5:5"));
+    assert!(!upgrade_block_is_active("4:4"));
     assert!(!upgrade_block_is_active("5:3"));
     assert!(!upgrade_block_is_active("0:0"));
     assert!(upgrade_block_is_active("invalid"));

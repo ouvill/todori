@@ -279,28 +279,30 @@ async fn request_status(
 
 async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> AccountKeyBundleDto {
     let user = query::<Postgres>(
-        "SELECT wrapped_master_key_by_password, wrapped_master_key_by_recovery,
+        "SELECT generation, wrapper_revision,
+                wrapped_mk_by_password AS wrapped_master_key_by_password,
+                wrapped_mk_by_recovery AS wrapped_master_key_by_recovery,
                 user_public_key, wrapped_user_secret_key
-         FROM user_key_bundles
-         WHERE user_id = $1",
+         FROM user_key_generations
+         WHERE user_id = $1 AND status = 'active'",
     )
     .bind(user_id)
     .fetch_one(pool)
     .await
     .unwrap();
     let tenant = query::<Postgres>(
-        "SELECT wrapped_tenant_root_dek
-         FROM tenant_key_bundles
-         WHERE tenant_id = $1",
+        "SELECT generation, signed_manifest, wrapped_tenant_root_dek
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
     )
     .bind(tenant_id)
     .fetch_one(pool)
     .await
     .unwrap();
     let list_rows = query::<Postgres>(
-        "SELECT list_id, wrapped_list_dek
-         FROM list_key_bundles
-         WHERE tenant_id = $1
+        "SELECT list_id, generation, signed_manifest, wrapped_list_dek
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active'
          ORDER BY created_at ASC, list_id ASC",
     )
     .bind(tenant_id)
@@ -309,8 +311,10 @@ async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> Acc
     .unwrap();
     AccountKeyBundleDto {
         suite_id: 2,
-        generation: 1,
-        wrapper_revision: 1,
+        generation: u64::try_from(user.try_get::<i64, _>("generation").unwrap()).unwrap(),
+        tenant_generation: u64::try_from(tenant.try_get::<i64, _>("generation").unwrap()).unwrap(),
+        wrapper_revision: u64::try_from(user.try_get::<i64, _>("wrapper_revision").unwrap())
+            .unwrap(),
         wrapped_master_key_by_password: STANDARD.encode(
             user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
                 .unwrap(),
@@ -329,13 +333,17 @@ async fn stored_key_bundle(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) -> Acc
                 .try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")
                 .unwrap(),
         ),
+        tenant_key_manifest: STANDARD
+            .encode(tenant.try_get::<Vec<u8>, _>("signed_manifest").unwrap()),
         list_deks: list_rows
             .into_iter()
             .map(|row| ListDekBundleDto {
                 list_id: row.try_get("list_id").unwrap(),
-                generation: 1,
+                generation: u64::try_from(row.try_get::<i64, _>("generation").unwrap()).unwrap(),
                 wrapped_list_dek: STANDARD
                     .encode(row.try_get::<Vec<u8>, _>("wrapped_list_dek").unwrap()),
+                signed_manifest: STANDARD
+                    .encode(row.try_get::<Vec<u8>, _>("signed_manifest").unwrap()),
             })
             .collect(),
     }

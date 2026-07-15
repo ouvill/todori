@@ -8,11 +8,14 @@ use todori_crypto::{
 use todori_domain::Uuid;
 use todori_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SqliteLocalCryptoRepository,
-    SqliteSyncStateRepository, StorageError,
+    SqliteSyncStateRepository, StorageError, TaskRepository, TimerSessionRepository,
 };
 use todori_sync::{
-    account::{unwrap_list_dek_bundles, AccountClient, AccountKeyMaterial, AccountListDekMaterial},
-    LocalSyncKeys,
+    account::{
+        unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountKeyMaterial,
+        AccountListDekMaterial,
+    },
+    LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncWriteTransaction,
 };
 use zeroize::Zeroizing;
 
@@ -287,26 +290,45 @@ impl TodoriClient {
         };
 
         let client = AccountClient::new(server_url).map_err(|_| ClientError::AccountRequest)?;
-        let bundles = client
-            .list_key_bundles(tenant_id, &session_token)
+        let bundle = client
+            .active_key_bundle(tenant_id, &session_token)
             .await
             .map_err(|_| ClientError::AccountRequest)?;
-        let materials =
-            unwrap_list_dek_bundles(tenant_id, INITIAL_KEY_GENERATION, &bundles, &master_key)
+        let (tenant_root_dek, materials) =
+            unwrap_active_key_bundle(tenant_id, &bundle, &master_key)
                 .map_err(|_| ClientError::AccountBoundUnavailable)?;
-        let tenant_root_dek = {
-            let account = self.account_state()?;
-            let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
-                return Err(ClientError::AccountBoundUnavailable);
-            };
-            crypto.sync_keys().tenant_root_dek.clone()
-        };
+        let historical =
+            unwrap_historical_key_bundles(tenant_id, &bundle.migrating_generations, &master_key)
+                .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let list_generations = materials
+            .iter()
+            .map(|material| Ok((parse_uuid(&material.list_id)?, material.generation)))
+            .collect::<Result<Vec<_>, ClientError>>()?;
         let remote_keys = LocalSyncKeys {
+            tenant_id,
             list_deks: materials
                 .into_iter()
                 .map(|material| Ok((parse_uuid(&material.list_id)?, material.dek)))
                 .collect::<Result<Vec<_>, ClientError>>()?,
-            tenant_root_dek,
+            list_generations,
+            tenant_root_dek: Some(tenant_root_dek),
+            tenant_generation: bundle.generation,
+            historical_list_deks: historical
+                .iter()
+                .flat_map(|historical| {
+                    historical.list_deks.iter().map(|material| {
+                        Ok((
+                            parse_uuid(&material.list_id)?,
+                            material.generation,
+                            material.dek.clone(),
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>, ClientError>>()?,
+            historical_tenant_root_deks: historical
+                .into_iter()
+                .map(|historical| (historical.generation, historical.tenant_root_dek))
+                .collect(),
         };
         let local_keys = {
             let account = self.account_state()?;
@@ -315,10 +337,40 @@ impl TodoriClient {
             };
             crypto.sync_keys().clone()
         };
+        let previous_generation = local_keys.tenant_generation;
         let pending = self.pending_list_key_ids(tenant_id)?;
         let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
         let sync_keys =
             merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending, &retained)?;
+        if sync_keys.tenant_generation > previous_generation {
+            if !pending.is_empty() {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+            let lists = self.local_lists_including_archived()?;
+            let tasks =
+                self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
+            let timer_sessions =
+                self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
+            if lists.iter().any(|list| !sync_keys.contains_list(list.id)) {
+                return Err(ClientError::AccountBoundUnavailable);
+            }
+            let mut store = crate::SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+            let mut transaction = store
+                .begin_write_transaction()
+                .map_err(|_| ClientError::SyncRun)?;
+            let mut clock = || now_ms().map_err(|error| error.to_string());
+            todori_sync::enqueue_rotation_backfill(
+                &mut transaction,
+                &sync_keys,
+                &device_id.to_string(),
+                &lists,
+                &tasks,
+                &timer_sessions,
+                &mut clock,
+            )
+            .map_err(|_| ClientError::SyncRun)?;
+            transaction.commit().map_err(|_| ClientError::SyncRun)?;
+        }
         let crypto = persist_local_crypto_context(
             &self.db_path,
             &self.db_key,
@@ -331,7 +383,15 @@ impl TodoriClient {
             sync_keys.clone(),
             now_ms()?,
         )?;
-        self.account_state()?.crypto = CryptoRuntimeState::Ready(crypto);
+        let mut marker_store = crate::SqliteSyncStore::new(self.db_path.clone(), self.db_key());
+        marker_store
+            .set_setting(
+                todori_sync::KEY_ROTATION_PENDING_SETTING_KEY,
+                "0",
+                now_ms()?,
+            )
+            .map_err(|_| ClientError::SyncRun)?;
+        self.account_state()?.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(sync_keys)
     }
 
@@ -365,16 +425,23 @@ impl TodoriClient {
                 let pending = self.pending_list_key_ids(tenant_id)?;
                 let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key)?;
                 let merged = merge_remote_and_pending_local_keys(
-                    LocalSyncKeys::from_account_keys(keys),
+                    LocalSyncKeys::from_account_keys(tenant_id, keys),
                     local.sync_keys().clone(),
                     &pending,
                     &retained,
                 )?;
+                keys.generation = merged.tenant_generation;
+                let list_generations = merged.list_generations;
                 keys.list_deks = merged
                     .list_deks
                     .into_iter()
                     .map(|(list_id, dek)| AccountListDekMaterial {
                         list_id: list_id.to_string(),
+                        generation: list_generations
+                            .iter()
+                            .find(|(id, _)| *id == list_id)
+                            .map(|(_, generation)| *generation)
+                            .unwrap_or(INITIAL_KEY_GENERATION),
                         dek,
                     })
                     .collect();
@@ -497,7 +564,7 @@ impl TodoriClient {
         let mut state = self.account_state()?;
         state.session = session;
         state.session_restored = true;
-        state.crypto = CryptoRuntimeState::Ready(crypto);
+        state.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
         Ok(())
     }
 
@@ -605,23 +672,47 @@ fn merge_remote_and_pending_local_keys(
     pending: &HashSet<Uuid>,
     retained_deleted: &HashSet<Uuid>,
 ) -> Result<LocalSyncKeys, ClientError> {
+    if remote.tenant_id != local.tenant_id || remote.tenant_generation < local.tenant_generation {
+        return Err(ClientError::AccountBoundUnavailable);
+    }
+    let local_generations = local.list_generations;
     for (list_id, local_dek) in local.list_deks {
         if let Some((_, remote_dek)) = remote
             .list_deks
             .iter()
             .find(|(remote_id, _)| *remote_id == list_id)
         {
-            if remote_dek != &local_dek {
+            let remote_generation = remote
+                .generation_for_list(list_id)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
+            let local_generation = local_generations
+                .iter()
+                .find(|(id, _)| *id == list_id)
+                .map(|(_, generation)| *generation)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
+            if remote_generation < local_generation
+                || (remote_generation == local_generation && remote_dek != &local_dek)
+            {
                 return Err(ClientError::AccountBoundUnavailable);
             }
         } else if pending.contains(&list_id) || retained_deleted.contains(&list_id) {
+            let local_generation = local_generations
+                .iter()
+                .find(|(id, _)| *id == list_id)
+                .map(|(_, generation)| *generation)
+                .ok_or(ClientError::AccountBoundUnavailable)?;
             remote.list_deks.push((list_id, local_dek));
+            remote.list_generations.push((list_id, local_generation));
         } else {
             return Err(ClientError::AccountBoundUnavailable);
         }
     }
     remote.list_deks.sort_by_key(|(list_id, _)| *list_id);
     remote.list_deks.dedup_by_key(|(list_id, _)| *list_id);
+    remote.list_generations.sort_by_key(|(list_id, _)| *list_id);
+    remote
+        .list_generations
+        .dedup_by_key(|(list_id, _)| *list_id);
     Ok(remote)
 }
 
@@ -639,16 +730,27 @@ mod tests {
     fn remote_key_refresh_preserves_only_verified_pending_local_keys() {
         let remote_id = Uuid::now_v7();
         let pending_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         let remote = LocalSyncKeys {
+            tenant_id,
             list_deks: vec![(remote_id, [0x11; 32].into())],
+            list_generations: vec![(remote_id, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let local = LocalSyncKeys {
+            tenant_id,
             list_deks: vec![
                 (remote_id, [0x11; 32].into()),
                 (pending_id, [0x22; 32].into()),
             ],
+            list_generations: vec![(remote_id, 1), (pending_id, 1)],
             tenant_root_dek: None,
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         let merged = merge_remote_and_pending_local_keys(
             remote,
@@ -664,24 +766,43 @@ mod tests {
     #[test]
     fn remote_key_refresh_rejects_mismatch_and_unqueued_local_only_keys() {
         let list_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         assert!(merge_remote_and_pending_local_keys(
             LocalSyncKeys {
+                tenant_id,
                 list_deks: vec![(list_id, [0x11; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             LocalSyncKeys {
+                tenant_id,
                 list_deks: vec![(list_id, [0x22; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::new(),
         )
         .is_err());
         assert!(merge_remote_and_pending_local_keys(
-            LocalSyncKeys::default(),
             LocalSyncKeys {
+                tenant_id,
+                ..LocalSyncKeys::default()
+            },
+            LocalSyncKeys {
+                tenant_id,
                 list_deks: vec![(list_id, [0x22; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::new(),
@@ -692,11 +813,20 @@ mod tests {
     #[test]
     fn remote_key_refresh_retains_tombstoned_list_key_for_late_descendants() {
         let list_id = Uuid::now_v7();
+        let tenant_id = Uuid::now_v7();
         let merged = merge_remote_and_pending_local_keys(
-            LocalSyncKeys::default(),
             LocalSyncKeys {
+                tenant_id,
+                ..LocalSyncKeys::default()
+            },
+            LocalSyncKeys {
+                tenant_id,
                 list_deks: vec![(list_id, [0x33; 32].into())],
+                list_generations: vec![(list_id, 1)],
                 tenant_root_dek: None,
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             &HashSet::new(),
             &HashSet::from([list_id]),
@@ -722,8 +852,13 @@ mod tests {
             .insert(initial.clone())
             .unwrap();
         let initial_keys = LocalSyncKeys {
+            tenant_id,
             list_deks: vec![(initial.id, [0x93; 32].into())],
+            list_generations: vec![(initial.id, 1)],
             tenant_root_dek: Some(Zeroizing::new([0x94; 32])),
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
         };
         persist_local_crypto_context(
             &db_path,
@@ -782,11 +917,16 @@ mod tests {
         let crypto = persist_local_crypto_context(
             &db_path,
             &DB_KEY,
-            identity,
+            identity.clone(),
             &MASTER_KEY,
             LocalSyncKeys {
+                tenant_id: identity.tenant_id,
                 list_deks: Vec::new(),
+                list_generations: Vec::new(),
                 tenant_root_dek: Some(Zeroizing::new([0x73; 32])),
+                tenant_generation: 1,
+                historical_list_deks: Vec::new(),
+                historical_tenant_root_deks: Vec::new(),
             },
             1,
         )

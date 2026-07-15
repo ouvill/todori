@@ -4,15 +4,17 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::{key_hierarchy::INITIAL_KEY_GENERATION, CRYPTO_SUITE_ID};
+use todori_crypto::CRYPTO_SUITE_ID;
 use todori_sync::{
-    account::ListDekBundleDto,
+    account::{ActiveKeyBundleDto, HistoricalKeyBundleDto, ListDekBundleDto},
+    parse_envelope_header,
     protocol::{
-        BaseScanResponse, ClosureProof, ContinuityAckRequest, ContinuityAckResponse, PullResponse,
-        PushOp, PushRequest, PushResponse, PushResult, PushStatus, ResyncStartResponse,
-        StableRecordCursor, SyncCapabilities, SyncCollection, SyncRecord, SyncRecordState,
+        BaseScanResponse, ClosureProof, ContinuityAckRequest, ContinuityAckResponse,
+        KeyManifestDescriptor, PullResponse, PushOp, PushRequest, PushResponse, PushResult,
+        PushStatus, ResyncStartResponse, StableRecordCursor, SyncCapabilities, SyncCollection,
+        SyncRecord, SyncRecordState,
     },
-    Hlc, MAX_ENCRYPTED_BLOB_LEN,
+    Hlc, KeyManifest, KeyScope, RotationStatus, MAX_ENCRYPTED_BLOB_LEN,
 };
 use uuid::Uuid;
 
@@ -22,6 +24,7 @@ pub const MAX_PUSH_OPS: usize = 100;
 pub const MAX_PULL_LIMIT: i64 = 100;
 pub const DEFAULT_PULL_LIMIT: i64 = 100;
 pub const TOMBSTONE_RETENTION_DAYS: i64 = 180;
+pub const KEY_HISTORY_RETENTION_DAYS: i64 = 30;
 const ALLOWED_FUTURE_SKEW_MS: i64 = 5 * 60 * 1000;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -29,6 +32,67 @@ pub struct UpsertListKeyResponse {}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RetireListKeyResponse {}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrepareRotationListKey {
+    pub list_id: Uuid,
+    pub generation: u64,
+    pub signed_manifest: String,
+    pub wrapped_list_dek: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrepareRotationRequest {
+    pub suite_id: u16,
+    pub generation: u64,
+    pub signed_manifest: String,
+    pub wrapped_tenant_root_dek: String,
+    pub list_keys: Vec<PrepareRotationListKey>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivateRotationListManifest {
+    pub list_id: Uuid,
+    pub signed_manifest: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivateRotationRequest {
+    pub generation: u64,
+    pub signed_manifest: String,
+    pub list_manifests: Vec<ActivateRotationListManifest>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationGenerationRequest {
+    pub generation: u64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationStateResponse {
+    pub active_generation: u64,
+    pub minimum_write_generation: u64,
+    pub migrating_generation: Option<u64>,
+    pub live_heads_remaining: u64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceKeyExpiryRequest {
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct DeviceKeyExpiryResponse {
+    pub device_id: Uuid,
+    pub expires_at: Option<DateTime<Utc>>,
+}
 
 struct ValidatedPushOp {
     op_id: Uuid,
@@ -44,11 +108,21 @@ enum StoredState {
     Live {
         mutation_hlc: String,
         encrypted_blob: Vec<u8>,
+        suite_id: u16,
+        key_generation: u64,
     },
     Tombstone {
         delete_hlc: String,
     },
 }
+
+type StoredStateColumns<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a [u8]>,
+    Option<i16>,
+    Option<i64>,
+);
 
 struct StoredRecord {
     record_id: Uuid,
@@ -103,6 +177,76 @@ pub async fn preflight(
     let full_resync_required = (!initialized && last_seq > 0)
         || continuity_seq < gc_horizon_seq
         || continuity_generation != required_generation;
+    let tenant_key = query::<Postgres>(
+        "SELECT suite_id, generation, minimum_write_generation, signed_manifest, prepared_manifest
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let suite_id = u16::try_from(tenant_key.try_get::<i16, _>("suite_id")?)
+        .map_err(|_| AppError::internal())?;
+    let active_key_generation = u64::try_from(tenant_key.try_get::<i64, _>("generation")?)
+        .map_err(|_| AppError::internal())?;
+    let minimum_write_generation =
+        u64::try_from(tenant_key.try_get::<i64, _>("minimum_write_generation")?)
+            .map_err(|_| AppError::internal())?;
+    let migrating_key_generation = query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'migrating'
+         ORDER BY generation DESC LIMIT 1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|row| {
+        u64::try_from(row.try_get::<i64, _>("generation")?).map_err(|_| AppError::internal())
+    })
+    .transpose()?;
+    let mut key_manifests = vec![KeyManifestDescriptor {
+        scope: KeyScope::Tenant,
+        list_id: None,
+        suite_id,
+        generation: active_key_generation,
+        status: RotationStatus::Active,
+        minimum_write_generation,
+        signed_manifest: STANDARD.encode(tenant_key.try_get::<Vec<u8>, _>("signed_manifest")?),
+        predecessor_manifests: tenant_key
+            .try_get::<Option<Vec<u8>>, _>("prepared_manifest")?
+            .into_iter()
+            .map(|bytes| STANDARD.encode(bytes))
+            .collect(),
+    }];
+    let list_keys = query::<Postgres>(
+        "SELECT list_id, suite_id, generation, minimum_write_generation, signed_manifest, prepared_manifest
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active' ORDER BY list_id",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for list_key in list_keys {
+        key_manifests.push(KeyManifestDescriptor {
+            scope: KeyScope::List,
+            list_id: Some(list_key.try_get("list_id")?),
+            suite_id: u16::try_from(list_key.try_get::<i16, _>("suite_id")?)
+                .map_err(|_| AppError::internal())?,
+            generation: u64::try_from(list_key.try_get::<i64, _>("generation")?)
+                .map_err(|_| AppError::internal())?,
+            status: RotationStatus::Active,
+            minimum_write_generation: u64::try_from(
+                list_key.try_get::<i64, _>("minimum_write_generation")?,
+            )
+            .map_err(|_| AppError::internal())?,
+            signed_manifest: STANDARD.encode(list_key.try_get::<Vec<u8>, _>("signed_manifest")?),
+            predecessor_manifests: list_key
+                .try_get::<Option<Vec<u8>>, _>("prepared_manifest")?
+                .into_iter()
+                .map(|bytes| STANDARD.encode(bytes))
+                .collect(),
+        });
+    }
     tx.commit().await?;
     Ok(SyncCapabilities {
         protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
@@ -112,6 +256,11 @@ pub async fn preflight(
         continuity_generation,
         required_generation,
         full_resync_required,
+        suite_id,
+        active_key_generation,
+        minimum_write_generation,
+        migrating_key_generation,
+        key_manifests,
     })
 }
 
@@ -225,7 +374,7 @@ pub async fn scan_base(
     let rows = if let Some(cursor) = cursor {
         query::<Postgres>(
             "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
-                    delete_hlc, encrypted_blob
+                    delete_hlc, encrypted_blob, suite_id, key_generation
              FROM sync_records
              WHERE tenant_id = $1
                AND (collection, record_id) > ($2, $3)
@@ -241,7 +390,7 @@ pub async fn scan_base(
     } else {
         query::<Postgres>(
             "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
-                    delete_hlc, encrypted_blob
+                    delete_hlc, encrypted_blob, suite_id, key_generation
              FROM sync_records
              WHERE tenant_id = $1
              ORDER BY collection ASC, record_id ASC
@@ -310,6 +459,7 @@ pub async fn push(
 
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    require_live_write_generation(&mut tx, tenant_id, &ops).await?;
     let mut results = Vec::with_capacity(ops.len());
     for op in ops {
         results.push(apply_push_op(&mut tx, tenant_id, auth.user_id, op).await?);
@@ -385,7 +535,7 @@ pub async fn pull(
 
     let rows = query::<Postgres>(
         "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
-                delete_hlc, encrypted_blob
+                delete_hlc, encrypted_blob, suite_id, key_generation
          FROM sync_records
          WHERE tenant_id = $1 AND seq > $2 AND seq <= $3
          ORDER BY seq ASC
@@ -397,7 +547,6 @@ pub async fn pull(
     .bind(limit + 1)
     .fetch_all(&mut *tx)
     .await?;
-
     let has_more = rows.len() as i64 > limit;
     let records = rows
         .into_iter()
@@ -473,47 +622,763 @@ pub async fn upsert_list_key_bundle(
     if wrapped_list_dek.is_empty() {
         return Err(AppError::bad_request("invalid list key bundle"));
     }
-    if bundle.generation != INITIAL_KEY_GENERATION {
-        return Err(AppError::bad_request("invalid list key generation"));
+    let signed_manifest = STANDARD
+        .decode(&bundle.signed_manifest)
+        .map_err(|_| AppError::bad_request("invalid list key manifest"))?;
+    if signed_manifest.len() < 124 || bundle.generation == 0 {
+        return Err(AppError::bad_request("invalid list key manifest"));
     }
+    validate_rotation_manifest(
+        &signed_manifest,
+        KeyScope::List,
+        tenant_id,
+        Some(bundle.list_id),
+        bundle.generation,
+        RotationStatus::Active,
+        bundle.generation,
+    )?;
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
+    let active_generation: i64 = query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("generation")?;
+    if active_generation != i64::try_from(bundle.generation).map_err(|_| AppError::internal())? {
+        return Err(AppError::conflict("stale list key generation"));
+    }
     let inserted = query::<Postgres>(
-        "INSERT INTO list_key_bundles
-            (tenant_id, list_id, suite_id, generation, wrapped_list_dek)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (tenant_id, list_id) DO NOTHING",
+        "INSERT INTO list_key_generations
+            (tenant_id, list_id, suite_id, generation, status,
+             minimum_write_generation, signed_manifest, wrapped_list_dek, activated_at)
+         VALUES ($1, $2, $3, $4, 'active', $4, $5, $6, now())
+         ON CONFLICT (tenant_id, list_id, generation) DO NOTHING",
     )
     .bind(tenant_id)
     .bind(bundle.list_id)
     .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .bind(i64::try_from(bundle.generation).map_err(|_| AppError::internal())?)
+    .bind(&signed_manifest)
     .bind(&wrapped_list_dek)
     .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
         let existing = query::<Postgres>(
-            "SELECT suite_id, generation, wrapped_list_dek
-             FROM list_key_bundles
-             WHERE tenant_id = $1 AND list_id = $2",
+            "SELECT suite_id, generation, signed_manifest, wrapped_list_dek
+             FROM list_key_generations
+             WHERE tenant_id = $1 AND list_id = $2 AND generation = $3",
         )
         .bind(tenant_id)
         .bind(bundle.list_id)
+        .bind(i64::try_from(bundle.generation).map_err(|_| AppError::internal())?)
         .fetch_one(&mut *tx)
         .await?;
         let existing_suite: i16 = existing.try_get("suite_id")?;
         let existing_generation: i64 = existing.try_get("generation")?;
         let existing_wrapped: Vec<u8> = existing.try_get("wrapped_list_dek")?;
+        let existing_manifest: Vec<u8> = existing.try_get("signed_manifest")?;
         if existing_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?
             || existing_generation
                 != i64::try_from(bundle.generation).map_err(|_| AppError::internal())?
             || existing_wrapped != wrapped_list_dek
+            || existing_manifest != signed_manifest
         {
             return Err(AppError::conflict("list key bundle conflict"));
         }
     }
     tx.commit().await?;
     Ok(UpsertListKeyResponse {})
+}
+
+pub async fn prepare_rotation(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    request: PrepareRotationRequest,
+) -> Result<RotationStateResponse, AppError> {
+    if request.suite_id != CRYPTO_SUITE_ID || request.generation == 0 {
+        return Err(AppError::bad_request("invalid rotation generation"));
+    }
+    let generation = i64::try_from(request.generation)
+        .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
+    let tenant_manifest_bytes = decode_rotation_bytes(&request.signed_manifest, true)?;
+    let tenant_manifest = validate_rotation_manifest(
+        &tenant_manifest_bytes,
+        KeyScope::Tenant,
+        tenant_id,
+        None,
+        request.generation,
+        RotationStatus::Prepared,
+        request.generation - 1,
+    )?;
+    let wrapped_tenant_root_dek = decode_rotation_bytes(&request.wrapped_tenant_root_dek, false)?;
+    let mut seen_lists = HashSet::with_capacity(request.list_keys.len());
+    let mut lists = Vec::with_capacity(request.list_keys.len());
+    for list in request.list_keys {
+        if list.generation != request.generation || !seen_lists.insert(list.list_id) {
+            return Err(AppError::bad_request("invalid rotation list set"));
+        }
+        let signed_manifest = decode_rotation_bytes(&list.signed_manifest, true)?;
+        let manifest = validate_rotation_manifest(
+            &signed_manifest,
+            KeyScope::List,
+            tenant_id,
+            Some(list.list_id),
+            list.generation,
+            RotationStatus::Prepared,
+            list.generation - 1,
+        )?;
+        lists.push((
+            list.list_id,
+            signed_manifest,
+            manifest,
+            decode_rotation_bytes(&list.wrapped_list_dek, false)?,
+        ));
+    }
+
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let active_generation: i64 = query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active' FOR UPDATE",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("generation")?;
+    if generation != active_generation + 1 {
+        return Err(AppError::conflict("rotation generation is not monotonic"));
+    }
+    let rotation_in_progress: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM tenant_key_generations
+             WHERE tenant_id = $1 AND status IN ('prepared', 'migrating')
+         ) AS in_progress",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("in_progress")?;
+    if rotation_in_progress {
+        return Err(AppError::conflict("key rotation is already in progress"));
+    }
+    let active_tenant_manifest: Vec<u8> = query::<Postgres>(
+        "SELECT signed_manifest FROM tenant_key_generations
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .bind(active_generation)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("signed_manifest")?;
+    let active_tenant_manifest = KeyManifest::from_authenticated_bytes(&active_tenant_manifest)
+        .map_err(|_| AppError::internal())?;
+    if tenant_manifest.previous_manifest_hash
+        != active_tenant_manifest
+            .authenticated_hash()
+            .map_err(|_| AppError::internal())?
+    {
+        return Err(AppError::conflict("rotation manifest chain mismatch"));
+    }
+    let active_list_ids = query::<Postgres>(
+        "SELECT list_id FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active' ORDER BY list_id",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|row| row.try_get::<Uuid, _>("list_id"))
+    .collect::<Result<HashSet<_>, _>>()?;
+    if active_list_ids != seen_lists {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    query::<Postgres>(
+        "INSERT INTO tenant_key_generations
+         (tenant_id, generation, suite_id, status, minimum_write_generation,
+          signed_manifest, wrapped_tenant_root_dek)
+         VALUES ($1, $2, $3, 'prepared', $4, $5, $6)",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
+    .bind(active_generation)
+    .bind(tenant_manifest_bytes)
+    .bind(wrapped_tenant_root_dek)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| AppError::conflict("rotation is already prepared"))?;
+    for (list_id, signed_manifest, manifest, wrapped_list_dek) in lists {
+        let active_manifest: Vec<u8> = query::<Postgres>(
+            "SELECT signed_manifest FROM list_key_generations
+             WHERE tenant_id = $1 AND list_id = $2 AND status = 'active'",
+        )
+        .bind(tenant_id)
+        .bind(list_id)
+        .fetch_one(&mut *tx)
+        .await?
+        .try_get("signed_manifest")?;
+        let active_manifest = KeyManifest::from_authenticated_bytes(&active_manifest)
+            .map_err(|_| AppError::internal())?;
+        if manifest.previous_manifest_hash
+            != active_manifest
+                .authenticated_hash()
+                .map_err(|_| AppError::internal())?
+        {
+            return Err(AppError::conflict("rotation manifest chain mismatch"));
+        }
+        query::<Postgres>(
+            "INSERT INTO list_key_generations
+             (tenant_id, list_id, generation, suite_id, status,
+              minimum_write_generation, signed_manifest, wrapped_list_dek)
+             VALUES ($1, $2, $3, $4, 'prepared', $5, $6, $7)",
+        )
+        .bind(tenant_id)
+        .bind(list_id)
+        .bind(generation)
+        .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
+        .bind(active_generation)
+        .bind(signed_manifest)
+        .bind(wrapped_list_dek)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(RotationStateResponse {
+        active_generation: u64::try_from(active_generation).map_err(|_| AppError::internal())?,
+        minimum_write_generation: u64::try_from(active_generation)
+            .map_err(|_| AppError::internal())?,
+        migrating_generation: None,
+        live_heads_remaining: 0,
+    })
+}
+
+pub async fn activate_rotation(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    request: ActivateRotationRequest,
+) -> Result<RotationStateResponse, AppError> {
+    let generation = i64::try_from(request.generation)
+        .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let active_generation: i64 = query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active' FOR UPDATE",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("generation")?;
+    if generation != active_generation + 1 {
+        return Err(AppError::conflict("rotation generation is not prepared"));
+    }
+    let prepared_tenant_bytes: Vec<u8> = query::<Postgres>(
+        "SELECT signed_manifest FROM tenant_key_generations
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared' FOR UPDATE",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::conflict("rotation generation is not prepared"))?
+    .try_get("signed_manifest")?;
+    let prepared_tenant = KeyManifest::from_authenticated_bytes(&prepared_tenant_bytes)
+        .map_err(|_| AppError::internal())?;
+    let active_tenant_bytes = decode_rotation_bytes(&request.signed_manifest, true)?;
+    let active_tenant = validate_rotation_manifest(
+        &active_tenant_bytes,
+        KeyScope::Tenant,
+        tenant_id,
+        None,
+        request.generation,
+        RotationStatus::Active,
+        request.generation,
+    )?;
+    if active_tenant.previous_manifest_hash
+        != prepared_tenant
+            .authenticated_hash()
+            .map_err(|_| AppError::internal())?
+    {
+        return Err(AppError::conflict("rotation manifest chain mismatch"));
+    }
+    let mut active_list_manifests = std::collections::HashMap::new();
+    for list in request.list_manifests {
+        if active_list_manifests
+            .insert(
+                list.list_id,
+                decode_rotation_bytes(&list.signed_manifest, true)?,
+            )
+            .is_some()
+        {
+            return Err(AppError::bad_request("invalid rotation list set"));
+        }
+    }
+    let prepared_lists: i64 = query::<Postgres>(
+        "SELECT count(*)::BIGINT AS count FROM list_key_generations
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared'",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("count")?;
+    let active_lists: i64 = query::<Postgres>(
+        "SELECT count(*)::BIGINT AS count FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("count")?;
+    let prepared_tenant: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM tenant_key_generations
+             WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared'
+         ) AS exists",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("exists")?;
+    if !prepared_tenant || prepared_lists != active_lists {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    if usize::try_from(prepared_lists).map_err(|_| AppError::internal())?
+        != active_list_manifests.len()
+    {
+        return Err(AppError::conflict(
+            "rotation recipient coverage is incomplete",
+        ));
+    }
+    for (list_id, active_bytes) in &active_list_manifests {
+        let prepared_bytes: Vec<u8> = query::<Postgres>(
+            "SELECT signed_manifest FROM list_key_generations
+             WHERE tenant_id = $1 AND list_id = $2 AND generation = $3 AND status = 'prepared'",
+        )
+        .bind(tenant_id)
+        .bind(list_id)
+        .bind(generation)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::conflict("rotation recipient coverage is incomplete"))?
+        .try_get("signed_manifest")?;
+        let prepared = KeyManifest::from_authenticated_bytes(&prepared_bytes)
+            .map_err(|_| AppError::internal())?;
+        let active = validate_rotation_manifest(
+            active_bytes,
+            KeyScope::List,
+            tenant_id,
+            Some(*list_id),
+            request.generation,
+            RotationStatus::Active,
+            request.generation,
+        )?;
+        if active.previous_manifest_hash
+            != prepared
+                .authenticated_hash()
+                .map_err(|_| AppError::internal())?
+        {
+            return Err(AppError::conflict("rotation manifest chain mismatch"));
+        }
+    }
+    let live_heads: i64 = query::<Postgres>(
+        "SELECT count(*)::BIGINT AS count FROM sync_records
+         WHERE tenant_id = $1 AND key_generation = $2",
+    )
+    .bind(tenant_id)
+    .bind(active_generation)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("count")?;
+    query::<Postgres>(
+        "UPDATE tenant_key_generations
+         SET status = 'migrating', live_heads_remaining = $3,
+             history_retain_until = NULL, migration_completed_at = NULL, updated_at = now()
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .bind(active_generation)
+    .bind(live_heads)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "UPDATE list_key_generations
+         SET status = 'migrating', history_retain_until = NULL,
+             migration_completed_at = NULL, updated_at = now()
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .bind(active_generation)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "UPDATE tenant_key_generations
+         SET status = 'active', minimum_write_generation = $2,
+             prepared_manifest = signed_manifest, signed_manifest = $3,
+             activated_at = now(), updated_at = now()
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared'",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .bind(active_tenant_bytes)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "UPDATE list_key_generations
+         SET status = 'active', minimum_write_generation = $2,
+             prepared_manifest = list_key_generations.signed_manifest,
+             signed_manifest = manifests.signed_manifest,
+             activated_at = now(), updated_at = now()
+         FROM (SELECT * FROM unnest($3::uuid[], $4::bytea[]))
+              AS manifests(list_id, signed_manifest)
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared'",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .bind(active_list_manifests.keys().copied().collect::<Vec<_>>())
+    .bind(active_list_manifests.values().cloned().collect::<Vec<_>>())
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(RotationStateResponse {
+        active_generation: request.generation,
+        minimum_write_generation: request.generation,
+        migrating_generation: Some(
+            u64::try_from(active_generation).map_err(|_| AppError::internal())?,
+        ),
+        live_heads_remaining: u64::try_from(live_heads).map_err(|_| AppError::internal())?,
+    })
+}
+
+pub async fn acknowledge_key_generation(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    request: RotationGenerationRequest,
+) -> Result<RotationStateResponse, AppError> {
+    let generation = i64::try_from(request.generation)
+        .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    let active = load_active_key_generation(&mut tx, tenant_id).await?;
+    if generation != active {
+        return Err(AppError::conflict("stale key generation acknowledgement"));
+    }
+    query::<Postgres>(
+        "INSERT INTO key_generation_acks (tenant_id, generation, device_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, generation, device_id)
+         DO UPDATE SET acknowledged_at = now()",
+    )
+    .bind(tenant_id)
+    .bind(generation)
+    .bind(auth.device_id)
+    .execute(&mut *tx)
+    .await?;
+    let state = rotation_state(&mut tx, tenant_id, active).await?;
+    tx.commit().await?;
+    Ok(state)
+}
+
+pub async fn set_device_key_expiry(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    device_id: Uuid,
+    request: DeviceKeyExpiryRequest,
+) -> Result<DeviceKeyExpiryResponse, AppError> {
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let updated = query::<Postgres>(
+        "UPDATE devices d
+         SET key_expires_at = $3
+         WHERE d.id = $2
+           AND EXISTS (
+               SELECT 1 FROM tenant_members m
+               WHERE m.tenant_id = $1 AND m.user_id = d.user_id
+           )",
+    )
+    .bind(tenant_id)
+    .bind(device_id)
+    .bind(request.expires_at)
+    .execute(&mut *tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::not_found("device not found"));
+    }
+    if request
+        .expires_at
+        .is_some_and(|expiry| expiry <= Utc::now())
+    {
+        query::<Postgres>(
+            "UPDATE sessions SET revoked_at = coalesce(revoked_at, now()) WHERE device_id = $1",
+        )
+        .bind(device_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(DeviceKeyExpiryResponse {
+        device_id,
+        expires_at: request.expires_at,
+    })
+}
+
+pub async fn rotation_state_for_tenant(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    _auth: AuthContext,
+) -> Result<RotationStateResponse, AppError> {
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    let active = load_active_key_generation(&mut tx, tenant_id).await?;
+    let state = rotation_state(&mut tx, tenant_id, active).await?;
+    tx.commit().await?;
+    Ok(state)
+}
+
+pub async fn retire_rotation(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    auth: AuthContext,
+    request: RotationGenerationRequest,
+) -> Result<RotationStateResponse, AppError> {
+    let generation = i64::try_from(request.generation)
+        .map_err(|_| AppError::bad_request("invalid rotation generation"))?;
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    require_rotation_owner(&mut tx, tenant_id, auth.user_id).await?;
+    let active = load_active_key_generation(&mut tx, tenant_id).await?;
+    if active != generation || active <= 1 {
+        return Err(AppError::conflict("rotation is not active"));
+    }
+    // Establish the migration-completion timestamp before evaluating the
+    // retention gate. The 30-day window starts when the final live head has
+    // moved, never when the new generation was activated.
+    let _ = rotation_state(&mut tx, tenant_id, active).await?;
+    let old_generation = active - 1;
+    let unsafe_live: i64 = query::<Postgres>(
+        "SELECT count(*)::BIGINT AS count FROM sync_records
+         WHERE tenant_id = $1 AND key_generation < $2",
+    )
+    .bind(tenant_id)
+    .bind(active)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("count")?;
+    let missing_ack: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM devices d
+             JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1
+             WHERE d.revoked_at IS NULL
+               AND (d.key_expires_at IS NULL OR d.key_expires_at > now())
+               AND NOT EXISTS (
+                   SELECT 1 FROM key_generation_acks a
+                   WHERE a.tenant_id = $1 AND a.generation = $2 AND a.device_id = d.id
+               )
+         ) AS missing",
+    )
+    .bind(tenant_id)
+    .bind(active)
+    .fetch_one(&mut *tx)
+    .await?
+    .try_get("missing")?;
+    let retention_pending: bool = query::<Postgres>(
+        "SELECT history_retain_until IS NULL OR history_retain_until > now() AS pending
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'migrating'
+         FOR UPDATE",
+    )
+    .bind(tenant_id)
+    .bind(old_generation)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::conflict("rotation is not migrating"))?
+    .try_get("pending")?;
+    if unsafe_live != 0 || missing_ack || retention_pending {
+        return Err(AppError::conflict("rotation retirement is not safe"));
+    }
+    query::<Postgres>(
+        "UPDATE tenant_key_generations
+         SET status = 'retired', wrapped_tenant_root_dek = ''::bytea,
+             live_heads_remaining = 0, migration_completed_at = coalesce(migration_completed_at, now()),
+             retired_at = now(), updated_at = now()
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'migrating'",
+    )
+    .bind(tenant_id)
+    .bind(old_generation)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>(
+        "UPDATE list_key_generations
+         SET status = 'retired', wrapped_list_dek = ''::bytea,
+             live_heads_remaining = 0, migration_completed_at = coalesce(migration_completed_at, now()),
+             retired_at = now(), updated_at = now()
+         WHERE tenant_id = $1 AND generation = $2 AND status = 'migrating'",
+    )
+    .bind(tenant_id)
+    .bind(old_generation)
+    .execute(&mut *tx)
+    .await?;
+    query::<Postgres>("DELETE FROM key_recipients WHERE tenant_id = $1 AND generation = $2")
+        .bind(tenant_id)
+        .bind(old_generation)
+        .execute(&mut *tx)
+        .await?;
+    let state = rotation_state(&mut tx, tenant_id, active).await?;
+    tx.commit().await?;
+    Ok(state)
+}
+
+fn decode_rotation_bytes(value: &str, manifest: bool) -> Result<Vec<u8>, AppError> {
+    let bytes = STANDARD
+        .decode(value)
+        .map_err(|_| AppError::bad_request("invalid rotation payload"))?;
+    if bytes.is_empty() || (manifest && bytes.len() < 124) {
+        return Err(AppError::bad_request("invalid rotation payload"));
+    }
+    Ok(bytes)
+}
+
+fn validate_rotation_manifest(
+    bytes: &[u8],
+    scope: KeyScope,
+    tenant_id: Uuid,
+    list_id: Option<Uuid>,
+    generation: u64,
+    status: RotationStatus,
+    minimum_write_generation: u64,
+) -> Result<KeyManifest, AppError> {
+    let manifest = KeyManifest::from_authenticated_bytes(bytes)
+        .map_err(|_| AppError::bad_request("invalid rotation manifest"))?;
+    if manifest.scope != scope
+        || manifest.tenant_id != tenant_id
+        || manifest.list_id != list_id
+        || manifest.suite_id != CRYPTO_SUITE_ID
+        || manifest.generation != generation
+        || manifest.status != status
+        || manifest.minimum_write_generation != minimum_write_generation
+    {
+        return Err(AppError::bad_request("invalid rotation manifest"));
+    }
+    Ok(manifest)
+}
+
+async fn require_rotation_owner(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let allowed: bool = query::<Postgres>(
+        "SELECT EXISTS (
+             SELECT 1 FROM tenant_members
+             WHERE tenant_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')
+         ) AS allowed",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await?
+    .try_get("allowed")?;
+    if !allowed {
+        return Err(AppError::forbidden());
+    }
+    Ok(())
+}
+
+async fn load_active_key_generation(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+) -> Result<i64, AppError> {
+    query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut **tx)
+    .await?
+    .try_get("generation")
+    .map_err(|_| AppError::internal())
+}
+
+async fn rotation_state(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    active: i64,
+) -> Result<RotationStateResponse, AppError> {
+    let migrating = query::<Postgres>(
+        "SELECT generation FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'migrating' ORDER BY generation DESC LIMIT 1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .map(|row| row.try_get::<i64, _>("generation"))
+    .transpose()?;
+    let live_heads: i64 = if let Some(generation) = migrating {
+        query::<Postgres>(
+            "SELECT count(*)::BIGINT AS count FROM sync_records
+             WHERE tenant_id = $1 AND key_generation = $2",
+        )
+        .bind(tenant_id)
+        .bind(generation)
+        .fetch_one(&mut **tx)
+        .await?
+        .try_get("count")?
+    } else {
+        0
+    };
+    if let Some(generation) = migrating {
+        query::<Postgres>(
+            "UPDATE tenant_key_generations
+             SET live_heads_remaining = $3,
+                 migration_completed_at = CASE WHEN $3 = 0 THEN coalesce(migration_completed_at, now()) ELSE NULL END,
+                 history_retain_until = CASE
+                     WHEN $3 = 0 THEN coalesce(history_retain_until, now() + ($4 * interval '1 day'))
+                     ELSE NULL
+                 END,
+                 updated_at = now()
+             WHERE tenant_id = $1 AND generation = $2",
+        )
+        .bind(tenant_id)
+        .bind(generation)
+        .bind(live_heads)
+        .bind(KEY_HISTORY_RETENTION_DAYS)
+        .execute(&mut **tx)
+        .await?;
+        query::<Postgres>(
+            "UPDATE list_key_generations
+             SET live_heads_remaining = $3,
+                 migration_completed_at = CASE WHEN $3 = 0 THEN coalesce(migration_completed_at, now()) ELSE NULL END,
+                 history_retain_until = CASE
+                     WHEN $3 = 0 THEN coalesce(history_retain_until, now() + ($4 * interval '1 day'))
+                     ELSE NULL
+                 END,
+                 updated_at = now()
+             WHERE tenant_id = $1 AND generation = $2 AND status = 'migrating'",
+        )
+        .bind(tenant_id)
+        .bind(generation)
+        .bind(live_heads)
+        .bind(KEY_HISTORY_RETENTION_DAYS)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(RotationStateResponse {
+        active_generation: u64::try_from(active).map_err(|_| AppError::internal())?,
+        minimum_write_generation: u64::try_from(active).map_err(|_| AppError::internal())?,
+        migrating_generation: migrating
+            .map(|generation| u64::try_from(generation).map_err(|_| AppError::internal()))
+            .transpose()?,
+        live_heads_remaining: u64::try_from(live_heads).map_err(|_| AppError::internal())?,
+    })
 }
 
 pub async fn list_key_bundles(
@@ -523,9 +1388,9 @@ pub async fn list_key_bundles(
 ) -> Result<Vec<ListDekBundleDto>, AppError> {
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let rows = query::<Postgres>(
-        "SELECT list_id, generation, wrapped_list_dek
-         FROM list_key_bundles
-         WHERE tenant_id = $1
+        "SELECT list_id, generation, signed_manifest, wrapped_list_dek
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active'
          ORDER BY created_at ASC, list_id ASC",
     )
     .bind(tenant_id)
@@ -547,9 +1412,118 @@ pub async fn list_key_bundles(
                 )
                 .map_err(|_| AppError::internal())?,
                 wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
+                signed_manifest: STANDARD.encode(
+                    row.try_get::<Vec<u8>, _>("signed_manifest")
+                        .map_err(|_| AppError::internal())?,
+                ),
             })
         })
         .collect()
+}
+
+pub async fn active_key_bundle(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    _auth: AuthContext,
+) -> Result<ActiveKeyBundleDto, AppError> {
+    let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
+    let tenant = query::<Postgres>(
+        "SELECT suite_id, generation, signed_manifest, wrapped_tenant_root_dek
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let rows = query::<Postgres>(
+        "SELECT list_id, suite_id, generation, signed_manifest, wrapped_list_dek
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'active'
+         ORDER BY created_at ASC, list_id ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let historical_tenants = query::<Postgres>(
+        "SELECT generation, signed_manifest, wrapped_tenant_root_dek
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'migrating'
+         ORDER BY generation ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let historical_lists = query::<Postgres>(
+        "SELECT list_id, generation, signed_manifest, wrapped_list_dek
+         FROM list_key_generations
+         WHERE tenant_id = $1 AND status = 'migrating'
+         ORDER BY generation ASC, list_id ASC",
+    )
+    .bind(tenant_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let suite_id =
+        u16::try_from(tenant.try_get::<i16, _>("suite_id")?).map_err(|_| AppError::internal())?;
+    let generation =
+        u64::try_from(tenant.try_get::<i64, _>("generation")?).map_err(|_| AppError::internal())?;
+    let list_deks = rows
+        .into_iter()
+        .map(|row| {
+            let list_suite = u16::try_from(row.try_get::<i16, _>("suite_id")?)
+                .map_err(|_| AppError::internal())?;
+            let list_generation = u64::try_from(row.try_get::<i64, _>("generation")?)
+                .map_err(|_| AppError::internal())?;
+            if list_suite != suite_id || list_generation != generation {
+                return Err(AppError::internal());
+            }
+            Ok(ListDekBundleDto {
+                list_id: row.try_get("list_id")?,
+                generation: list_generation,
+                wrapped_list_dek: STANDARD.encode(row.try_get::<Vec<u8>, _>("wrapped_list_dek")?),
+                signed_manifest: STANDARD.encode(row.try_get::<Vec<u8>, _>("signed_manifest")?),
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let mut migrating_generations = Vec::with_capacity(historical_tenants.len());
+    for historical in historical_tenants {
+        let historical_generation = u64::try_from(historical.try_get::<i64, _>("generation")?)
+            .map_err(|_| AppError::internal())?;
+        let generation_lists = historical_lists
+            .iter()
+            .filter_map(|row| {
+                let row_generation =
+                    u64::try_from(row.try_get::<i64, _>("generation").ok()?).ok()?;
+                (row_generation == historical_generation).then(|| {
+                    Ok(ListDekBundleDto {
+                        list_id: row.try_get("list_id")?,
+                        generation: row_generation,
+                        wrapped_list_dek: STANDARD
+                            .encode(row.try_get::<Vec<u8>, _>("wrapped_list_dek")?),
+                        signed_manifest: STANDARD
+                            .encode(row.try_get::<Vec<u8>, _>("signed_manifest")?),
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        migrating_generations.push(HistoricalKeyBundleDto {
+            generation: historical_generation,
+            wrapped_tenant_root_dek: STANDARD
+                .encode(historical.try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")?),
+            signed_manifest: STANDARD.encode(historical.try_get::<Vec<u8>, _>("signed_manifest")?),
+            list_deks: generation_lists,
+        });
+    }
+    Ok(ActiveKeyBundleDto {
+        suite_id,
+        generation,
+        wrapped_tenant_root_dek: STANDARD
+            .encode(tenant.try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")?),
+        signed_manifest: STANDARD.encode(tenant.try_get::<Vec<u8>, _>("signed_manifest")?),
+        list_deks,
+        migrating_generations,
+    })
 }
 
 pub async fn retire_list_key_bundle(
@@ -562,7 +1536,7 @@ pub async fn retire_list_key_bundle(
     require_push_continuity(&mut tx, tenant_id, auth.device_id).await?;
     let row = query::<Postgres>(
         "SELECT bundle.deletion_seq, seq.gc_horizon_seq
-         FROM list_key_bundles AS bundle
+         FROM list_key_generations AS bundle
          JOIN tenant_seq AS seq ON seq.tenant_id = bundle.tenant_id
          WHERE bundle.tenant_id = $1 AND bundle.list_id = $2
          FOR UPDATE OF bundle, seq",
@@ -629,7 +1603,7 @@ pub async fn retire_list_key_bundle(
         return Err(AppError::conflict("list key retirement is not safe"));
     }
     query::<Postgres>(
-        "DELETE FROM list_key_bundles
+        "DELETE FROM list_key_generations
          WHERE tenant_id = $1 AND list_id = $2 AND deletion_seq = $3",
     )
     .bind(tenant_id)
@@ -832,6 +1806,60 @@ async fn require_push_continuity(
     Ok(())
 }
 
+async fn require_live_write_generation(
+    tx: &mut PgTransaction<'_>,
+    tenant_id: Uuid,
+    ops: &[ValidatedPushOp],
+) -> Result<(), AppError> {
+    if !ops
+        .iter()
+        .any(|op| matches!(op.state, StoredState::Live { .. }))
+    {
+        return Ok(());
+    }
+    let row = query::<Postgres>(
+        "SELECT suite_id, generation, minimum_write_generation
+         FROM tenant_key_generations
+         WHERE tenant_id = $1 AND status = 'active'
+         FOR SHARE",
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::conflict("active key generation required"))?;
+    let suite_id: u16 = u16::try_from(
+        row.try_get::<i16, _>("suite_id")
+            .map_err(|_| AppError::internal())?,
+    )
+    .map_err(|_| AppError::internal())?;
+    let active_generation: u64 = u64::try_from(
+        row.try_get::<i64, _>("generation")
+            .map_err(|_| AppError::internal())?,
+    )
+    .map_err(|_| AppError::internal())?;
+    let minimum_write_generation: u64 = u64::try_from(
+        row.try_get::<i64, _>("minimum_write_generation")
+            .map_err(|_| AppError::internal())?,
+    )
+    .map_err(|_| AppError::internal())?;
+    for op in ops {
+        if let StoredState::Live {
+            suite_id: envelope_suite,
+            key_generation,
+            ..
+        } = op.state
+        {
+            if envelope_suite != suite_id
+                || key_generation != active_generation
+                || key_generation < minimum_write_generation
+            {
+                return Err(AppError::conflict("stale key generation"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_push_op(op: PushOp) -> Result<ValidatedPushOp, AppError> {
     validate_hlc(&op.revision_hlc)?;
     if let Some(base) = &op.base_revision_hlc {
@@ -854,9 +1882,13 @@ fn validate_push_op(op: PushOp) -> Result<ValidatedPushOp, AppError> {
             if encrypted_blob.len() > MAX_ENCRYPTED_BLOB_LEN {
                 return Err(AppError::bad_request("blob too large"));
             }
+            let header = parse_envelope_header(&encrypted_blob)
+                .map_err(|_| AppError::bad_request("invalid live blob"))?;
             StoredState::Live {
                 mutation_hlc,
                 encrypted_blob,
+                suite_id: header.suite_id,
+                key_generation: header.key_generation,
             }
         }
         SyncRecordState::Tombstone { delete_hlc } => {
@@ -917,6 +1949,19 @@ async fn apply_push_op(
     if op.collection == SyncCollection::TimerSessions
         && matches!(stored.state, StoredState::Live { .. })
         && matches!(op.state, StoredState::Live { .. })
+        && !matches!(
+            (&stored.state, &op.state),
+            (
+                StoredState::Live {
+                    key_generation: old_generation,
+                    ..
+                },
+                StoredState::Live {
+                    key_generation: new_generation,
+                    ..
+                }
+            ) if new_generation > old_generation
+        )
     {
         let seq = stored.seq;
         return Ok(op.result(PushStatus::Conflict, Some((seq, Some(stored)))));
@@ -1015,6 +2060,7 @@ impl StoredState {
             Self::Live {
                 mutation_hlc,
                 encrypted_blob,
+                ..
             } => SyncRecordState::Live {
                 mutation_hlc,
                 blob: STANDARD.encode(encrypted_blob),
@@ -1023,13 +2069,21 @@ impl StoredState {
         }
     }
 
-    fn columns(&self) -> (Option<&str>, Option<&str>, Option<&[u8]>) {
+    fn columns(&self) -> StoredStateColumns<'_> {
         match self {
             Self::Live {
                 mutation_hlc,
                 encrypted_blob,
-            } => (Some(mutation_hlc), None, Some(encrypted_blob)),
-            Self::Tombstone { delete_hlc } => (None, Some(delete_hlc), None),
+                suite_id,
+                key_generation,
+            } => (
+                Some(mutation_hlc),
+                None,
+                Some(encrypted_blob),
+                i16::try_from(*suite_id).ok(),
+                i64::try_from(*key_generation).ok(),
+            ),
+            Self::Tombstone { delete_hlc } => (None, Some(delete_hlc), None, None, None),
         }
     }
 }
@@ -1050,7 +2104,7 @@ async fn fetch_stored_record(
 ) -> Result<Option<StoredRecord>, AppError> {
     query::<Postgres>(
         "SELECT record_id, collection, seq, revision_hlc, mutation_hlc,
-                delete_hlc, encrypted_blob
+                delete_hlc, encrypted_blob, suite_id, key_generation
          FROM sync_records
          WHERE tenant_id = $1 AND record_id = $2
          FOR UPDATE",
@@ -1082,12 +2136,26 @@ fn stored_record_from_row(row: sqlx_postgres::PgRow) -> Result<StoredRecord, App
     let encrypted_blob: Option<Vec<u8>> = row
         .try_get("encrypted_blob")
         .map_err(|_| AppError::internal())?;
-    let state = match (mutation_hlc, delete_hlc, encrypted_blob) {
-        (Some(mutation_hlc), None, Some(encrypted_blob)) => StoredState::Live {
-            mutation_hlc,
-            encrypted_blob,
-        },
-        (None, Some(delete_hlc), None) => StoredState::Tombstone { delete_hlc },
+    let suite_id: Option<i16> = row.try_get("suite_id").map_err(|_| AppError::internal())?;
+    let key_generation: Option<i64> = row
+        .try_get("key_generation")
+        .map_err(|_| AppError::internal())?;
+    let state = match (
+        mutation_hlc,
+        delete_hlc,
+        encrypted_blob,
+        suite_id,
+        key_generation,
+    ) {
+        (Some(mutation_hlc), None, Some(encrypted_blob), Some(suite_id), Some(key_generation)) => {
+            StoredState::Live {
+                mutation_hlc,
+                encrypted_blob,
+                suite_id: u16::try_from(suite_id).map_err(|_| AppError::internal())?,
+                key_generation: u64::try_from(key_generation).map_err(|_| AppError::internal())?,
+            }
+        }
+        (None, Some(delete_hlc), None, None, None) => StoredState::Tombstone { delete_hlc },
         _ => return Err(AppError::internal()),
     };
     Ok(StoredRecord {
@@ -1105,12 +2173,12 @@ async fn insert_record(
     op: &ValidatedPushOp,
     seq: i64,
 ) -> Result<(), AppError> {
-    let (mutation_hlc, delete_hlc, encrypted_blob) = op.state.columns();
+    let (mutation_hlc, delete_hlc, encrypted_blob, suite_id, key_generation) = op.state.columns();
     query::<Postgres>(
         "INSERT INTO sync_records
          (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
-          delete_hlc, encrypted_blob)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+          delete_hlc, encrypted_blob, suite_id, key_generation)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(tenant_id)
     .bind(op.record_id)
@@ -1120,6 +2188,8 @@ async fn insert_record(
     .bind(mutation_hlc)
     .bind(delete_hlc)
     .bind(encrypted_blob)
+    .bind(suite_id)
+    .bind(key_generation)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1131,11 +2201,12 @@ async fn update_record(
     op: &ValidatedPushOp,
     seq: i64,
 ) -> Result<(), AppError> {
-    let (mutation_hlc, delete_hlc, encrypted_blob) = op.state.columns();
+    let (mutation_hlc, delete_hlc, encrypted_blob, suite_id, key_generation) = op.state.columns();
     query::<Postgres>(
         "UPDATE sync_records
          SET seq = $3, revision_hlc = $4, mutation_hlc = $5,
-             delete_hlc = $6, encrypted_blob = $7, updated_at = now()
+             delete_hlc = $6, encrypted_blob = $7, suite_id = $8,
+             key_generation = $9, updated_at = now()
          WHERE tenant_id = $1 AND record_id = $2",
     )
     .bind(tenant_id)
@@ -1145,6 +2216,8 @@ async fn update_record(
     .bind(mutation_hlc)
     .bind(delete_hlc)
     .bind(encrypted_blob)
+    .bind(suite_id)
+    .bind(key_generation)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1170,12 +2243,13 @@ async fn insert_history(
     author_user_id: Uuid,
     stored: &StoredRecord,
 ) -> Result<(), AppError> {
-    let (mutation_hlc, delete_hlc, encrypted_blob) = stored.state.columns();
+    let (mutation_hlc, delete_hlc, encrypted_blob, suite_id, key_generation) =
+        stored.state.columns();
     query::<Postgres>(
         "INSERT INTO sync_records_history
          (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,
-          delete_hlc, encrypted_blob, author_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+          delete_hlc, encrypted_blob, suite_id, key_generation, author_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
     )
     .bind(tenant_id)
     .bind(stored.record_id)
@@ -1185,6 +2259,8 @@ async fn insert_history(
     .bind(mutation_hlc)
     .bind(delete_hlc)
     .bind(encrypted_blob)
+    .bind(suite_id)
+    .bind(key_generation)
     .bind(author_user_id)
     .execute(&mut **tx)
     .await?;
@@ -1215,7 +2291,7 @@ async fn mark_list_key_deletion(
 ) -> Result<(), AppError> {
     if op.collection == SyncCollection::Lists && matches!(op.state, StoredState::Tombstone { .. }) {
         query::<Postgres>(
-            "UPDATE list_key_bundles
+            "UPDATE list_key_generations
              SET deletion_seq = $3
              WHERE tenant_id = $1 AND list_id = $2",
         )

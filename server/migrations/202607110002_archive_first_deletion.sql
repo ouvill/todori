@@ -69,6 +69,3 @@ CREATE POLICY continuity_closure_proofs_isolation ON continuity_closure_proofs
 GRANT SELECT, INSERT, UPDATE, DELETE ON tenant_device_continuity TO todori_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON device_resync_sessions TO todori_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON continuity_closure_proofs TO todori_app;
-
-ALTER TABLE list_key_bundles
-    ADD COLUMN IF NOT EXISTS deletion_seq BIGINT CHECK (deletion_seq > 0);

@@ -1,6 +1,5 @@
 use todori_crypto::key_hierarchy::{
-    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key,
-    INITIAL_KEY_GENERATION, KEY_LEN,
+    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key, KEY_LEN,
 };
 use todori_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
@@ -13,6 +12,7 @@ use todori_storage::{
     open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
     TaskUndoOperation,
 };
+use todori_sync::{KeyManifest, KeyScope, RotationStatus};
 use zeroize::Zeroizing;
 
 use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
@@ -77,29 +77,42 @@ impl SqliteMutationService {
             Err(error) => return Err(error.into()),
         };
         let list = new_list(name, rank, now_ms)?;
+        let generation = sync.keys.tenant_generation;
+        if sync.keys.tenant_id != tenant_id || generation == 0 {
+            return Err(ClientError::Sync);
+        }
         let list_dek = Zeroizing::new(generate_list_dek());
         let local_wrapped = wrap_local_list_dek_with_master_key(
-            tenant_id,
-            list.id,
-            INITIAL_KEY_GENERATION,
-            &list_dek,
-            master_key,
+            tenant_id, list.id, generation, &list_dek, master_key,
         )
         .map_err(|_| ClientError::Sync)?;
-        let server_wrapped = wrap_list_dek_with_master_key(
-            tenant_id,
-            list.id,
-            INITIAL_KEY_GENERATION,
-            &list_dek,
-            master_key,
-        )
-        .map_err(|_| ClientError::Sync)?;
+        let server_wrapped =
+            wrap_list_dek_with_master_key(tenant_id, list.id, generation, &list_dek, master_key)
+                .map_err(|_| ClientError::Sync)?;
         let mut create_sync = sync.clone();
         create_sync.keys.list_deks.push((list.id, list_dek.clone()));
+        create_sync
+            .keys
+            .list_generations
+            .push((list.id, generation));
+        let signed_manifest = KeyManifest::authenticate_personal(
+            KeyScope::List,
+            tenant_id,
+            Some(list.id),
+            generation,
+            RotationStatus::Active,
+            generation,
+            [0; 32],
+            Vec::new(),
+            master_key,
+        )
+        .and_then(|manifest| manifest.authenticated_bytes())
+        .map_err(|_| ClientError::Sync)?;
 
         transaction.put_local_list_key_bundle(LocalListKeyBundle {
             tenant_id,
             list_id: list.id,
+            generation,
             wrapped_list_dek: local_wrapped,
             updated_at: now_ms,
         })?;
@@ -108,7 +121,9 @@ impl SqliteMutationService {
         transaction.put_pending_list_key_bundle(PendingListKeyBundle {
             tenant_id,
             list_id: list.id,
+            generation,
             wrapped_list_dek: server_wrapped,
+            signed_manifest,
             created_at: now_ms,
         })?;
         transaction.commit()?;
@@ -503,8 +518,13 @@ mod tests {
             sync: LocalMutationContext {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
+                    tenant_id: Uuid::from_u128(100),
                     list_deks: vec![(list.id, [0x55; 32].into())],
+                    list_generations: vec![(list.id, 1)],
                     tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
+                    tenant_generation: 1,
+                    historical_list_deks: Vec::new(),
+                    historical_tenant_root_deks: Vec::new(),
                 },
             },
         }
@@ -1114,7 +1134,7 @@ mod tests {
     #[test]
     fn account_bound_list_create_commits_key_cache_domain_sync_and_queue_atomically() {
         let fixture = fixture();
-        let tenant_id = Uuid::now_v7();
+        let tenant_id = fixture.sync.keys.tenant_id;
         let identity = LocalCryptoIdentity {
             tenant_id,
             user_id: Uuid::now_v7(),
@@ -1175,7 +1195,7 @@ mod tests {
             "CREATE TRIGGER fail_pending BEFORE INSERT ON pending_list_key_bundles BEGIN SELECT RAISE(ABORT, 'fail'); END;",
         ] {
             let fixture = fixture();
-            let tenant_id = Uuid::now_v7();
+            let tenant_id = fixture.sync.keys.tenant_id;
             persist_local_crypto_context(
                 fixture.mutation_service.db_path(),
                 &DB_KEY,

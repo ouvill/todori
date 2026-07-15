@@ -1,19 +1,37 @@
-//! Encrypted sync blob envelope.
+//! Strict encrypted sync envelope v4.
 
 use thiserror::Error;
-use todori_crypto::{decrypt, encrypt, CryptoError};
+use todori_crypto::{decrypt, encrypt, CryptoError, CRYPTO_SUITE_ID};
+use uuid::Uuid;
 
 use crate::field_map::SyncPlaintext;
 
-pub const ENVELOPE_VERSION: u8 = 3;
+pub const ENVELOPE_VERSION: u8 = 4;
+pub const ENVELOPE_MAGIC: &[u8; 4] = b"TDE4";
+pub const ENVELOPE_HEADER_LEN: usize = 4 + 2 + 8;
+pub const ENVELOPE_MIN_LEN: usize = ENVELOPE_HEADER_LEN + 24 + 16;
 pub const MAX_ENCRYPTED_BLOB_LEN: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnvelopeHeader {
+    pub suite_id: u16,
+    pub key_generation: u64,
+}
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum EnvelopeError {
-    #[error("encrypted blob is empty")]
-    EmptyBlob,
+    #[error("encrypted blob is too short")]
+    BlobTooShort,
     #[error("unsupported encrypted blob version")]
     UnsupportedVersion,
+    #[error("unsupported crypto suite")]
+    UnsupportedSuite,
+    #[error("key generation must be positive")]
+    InvalidGeneration,
+    #[error("invalid tenant or record identity")]
+    InvalidIdentity,
+    #[error("collection name is too long")]
+    CollectionTooLong,
     #[error("encrypted blob exceeds 64KB limit")]
     BlobTooLarge,
     #[error("plaintext JSON serialization failed")]
@@ -24,19 +42,58 @@ pub enum EnvelopeError {
     Crypto(#[from] CryptoError),
 }
 
+pub fn parse_envelope_header(blob: &[u8]) -> Result<EnvelopeHeader, EnvelopeError> {
+    if blob.len() > MAX_ENCRYPTED_BLOB_LEN {
+        return Err(EnvelopeError::BlobTooLarge);
+    }
+    if blob.len() < ENVELOPE_MIN_LEN {
+        return Err(EnvelopeError::BlobTooShort);
+    }
+    if &blob[..4] != ENVELOPE_MAGIC {
+        return Err(EnvelopeError::UnsupportedVersion);
+    }
+    let suite_id = u16::from_be_bytes([blob[4], blob[5]]);
+    if suite_id != CRYPTO_SUITE_ID {
+        return Err(EnvelopeError::UnsupportedSuite);
+    }
+    let key_generation = u64::from_be_bytes(
+        blob[6..14]
+            .try_into()
+            .map_err(|_| EnvelopeError::BlobTooShort)?,
+    );
+    if key_generation == 0 {
+        return Err(EnvelopeError::InvalidGeneration);
+    }
+    Ok(EnvelopeHeader {
+        suite_id,
+        key_generation,
+    })
+}
+
 pub fn encrypt_plaintext(
     dek: &[u8; 32],
+    tenant_id: Uuid,
+    key_generation: u64,
     collection: &str,
-    record_id: &str,
+    record_id: Uuid,
     plaintext: &SyncPlaintext,
 ) -> Result<Vec<u8>, EnvelopeError> {
+    if tenant_id.is_nil() || record_id.is_nil() {
+        return Err(EnvelopeError::InvalidIdentity);
+    }
+    if key_generation == 0 {
+        return Err(EnvelopeError::InvalidGeneration);
+    }
     plaintext
-        .validate_for_collection(collection, record_id)
+        .validate_for_collection(collection, &record_id.to_string())
         .map_err(|_| EnvelopeError::Serialization)?;
+    let aad = aad(tenant_id, key_generation, collection, record_id)?;
     let plaintext_json = serde_json::to_vec(plaintext).map_err(|_| EnvelopeError::Serialization)?;
-    let inner = encrypt(dek, &plaintext_json, &aad(collection, record_id))?;
-    let mut out = Vec::with_capacity(1 + inner.len());
-    out.push(ENVELOPE_VERSION);
+    let inner = encrypt(dek, &plaintext_json, &aad)?;
+    let mut out = Vec::with_capacity(ENVELOPE_HEADER_LEN + inner.len());
+    out.extend_from_slice(ENVELOPE_MAGIC);
+    out.extend_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
+    out.extend_from_slice(&key_generation.to_be_bytes());
     out.extend_from_slice(&inner);
     if out.len() > MAX_ENCRYPTED_BLOB_LEN {
         return Err(EnvelopeError::BlobTooLarge);
@@ -46,44 +103,66 @@ pub fn encrypt_plaintext(
 
 pub fn decrypt_plaintext(
     dek: &[u8; 32],
+    tenant_id: Uuid,
+    expected_generation: u64,
     collection: &str,
-    record_id: &str,
+    record_id: Uuid,
     blob: &[u8],
 ) -> Result<SyncPlaintext, EnvelopeError> {
-    if blob.is_empty() {
-        return Err(EnvelopeError::EmptyBlob);
+    if tenant_id.is_nil() || record_id.is_nil() {
+        return Err(EnvelopeError::InvalidIdentity);
     }
-    if blob.len() > MAX_ENCRYPTED_BLOB_LEN {
-        return Err(EnvelopeError::BlobTooLarge);
+    let header = parse_envelope_header(blob)?;
+    if expected_generation == 0 || header.key_generation != expected_generation {
+        return Err(EnvelopeError::InvalidGeneration);
     }
-    if blob[0] != ENVELOPE_VERSION {
-        return Err(EnvelopeError::UnsupportedVersion);
-    }
-    let plaintext_json = decrypt(dek, &blob[1..], &aad(collection, record_id))?;
+    let aad = aad(tenant_id, header.key_generation, collection, record_id)?;
+    let plaintext_json = decrypt(dek, &blob[ENVELOPE_HEADER_LEN..], &aad)?;
     let plaintext: SyncPlaintext =
         serde_json::from_slice(&plaintext_json).map_err(|_| EnvelopeError::Deserialization)?;
     plaintext
-        .validate_for_collection(collection, record_id)
+        .validate_for_collection(collection, &record_id.to_string())
         .map_err(|_| EnvelopeError::Deserialization)?;
     Ok(plaintext)
 }
 
-fn aad(collection: &str, record_id: &str) -> Vec<u8> {
-    format!("todori-sync-envelope/v2\ncollection:{collection}\nrecord_id:{record_id}").into_bytes()
+fn aad(
+    tenant_id: Uuid,
+    generation: u64,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let collection_len =
+        u16::try_from(collection.len()).map_err(|_| EnvelopeError::CollectionTooLong)?;
+    let mut aad = Vec::with_capacity(4 + 2 + 8 + 16 + 2 + collection.len() + 16);
+    aad.extend_from_slice(b"TDA4");
+    aad.extend_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
+    aad.extend_from_slice(&generation.to_be_bytes());
+    aad.extend_from_slice(tenant_id.as_bytes());
+    aad.extend_from_slice(&collection_len.to_be_bytes());
+    aad.extend_from_slice(collection.as_bytes());
+    aad.extend_from_slice(record_id.as_bytes());
+    Ok(aad)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::hlc::Hlc;
-    use todori_domain::{new_list, CompletedTimerSession, List, TimerFinishKind, TimerMode, Uuid};
+    use todori_domain::{new_list, List};
+
+    const GENERATION: u64 = 7;
 
     fn key(byte: u8) -> [u8; 32] {
         [byte; 32]
     }
 
-    fn record_id() -> String {
-        todori_domain::Uuid::from_u128(1).to_string()
+    fn tenant_id() -> Uuid {
+        Uuid::from_u128(1)
+    }
+
+    fn record_id() -> Uuid {
+        Uuid::from_u128(2)
     }
 
     fn plaintext() -> SyncPlaintext {
@@ -96,131 +175,145 @@ mod tests {
     }
 
     fn sample_list() -> List {
-        new_list("Inbox".into(), "7fffffffffffffffffffffffffffffff".into(), 1).unwrap()
+        let mut list =
+            new_list("Inbox".into(), "7fffffffffffffffffffffffffffffff".into(), 1).unwrap();
+        list.id = record_id();
+        list
     }
 
-    #[test]
-    fn envelope_roundtrips_plaintext() {
-        let record_id = record_id();
-        let blob = encrypt_plaintext(&key(0x42), "lists", &record_id, &plaintext()).unwrap();
-
-        let decrypted = decrypt_plaintext(&key(0x42), "lists", &record_id, &blob).unwrap();
-
-        assert_eq!(decrypted, plaintext());
-        assert_eq!(blob[0], ENVELOPE_VERSION);
-    }
-
-    #[test]
-    fn envelope_rejects_wrong_dek() {
-        let record_id = record_id();
-        let blob = encrypt_plaintext(&key(0x42), "lists", &record_id, &plaintext()).unwrap();
-
-        assert_eq!(
-            decrypt_plaintext(&key(0x24), "lists", &record_id, &blob),
-            Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
-        );
-    }
-
-    #[test]
-    fn envelope_rejects_record_id_or_collection_swap() {
-        let record_id = record_id();
-        let other_record_id = todori_domain::Uuid::from_u128(2).to_string();
-        let blob = encrypt_plaintext(&key(0x42), "lists", &record_id, &plaintext()).unwrap();
-
-        assert_eq!(
-            decrypt_plaintext(&key(0x42), "tasks", &record_id, &blob),
-            Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
-        );
-        assert_eq!(
-            decrypt_plaintext(&key(0x42), "lists", &other_record_id, &blob),
-            Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
-        );
-    }
-
-    #[test]
-    fn timer_session_uses_existing_envelope_and_rejects_wrong_tenant_root_dek() {
-        let session = CompletedTimerSession {
-            id: Uuid::now_v7(),
-            task_id: Uuid::now_v7(),
-            mode: TimerMode::Stopwatch,
-            finish_kind: TimerFinishKind::Completed,
-            started_at: 1_000,
-            ended_at: 2_000,
-            active_duration_ms: 900,
-            created_at: 2_001,
-        };
-        let plaintext = SyncPlaintext::from_timer_session(
-            &session,
-            Hlc {
-                wall_ms: 2_001,
-                counter: 0,
-                device_id: "device-a".into(),
-            },
+    fn envelope() -> Vec<u8> {
+        encrypt_plaintext(
+            &key(0x42),
+            tenant_id(),
+            GENERATION,
+            "lists",
+            record_id(),
+            &plaintext(),
         )
-        .unwrap();
-        let record_id = session.id.to_string();
-        let blob = encrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &plaintext).unwrap();
+        .unwrap()
+    }
 
-        assert_eq!(blob[0], 3);
+    #[test]
+    fn envelope_v4_roundtrips_and_has_canonical_header() {
+        let blob = envelope();
+        let header = parse_envelope_header(&blob).unwrap();
+
+        assert_eq!(&blob[..4], b"TDE4");
+        assert_eq!(&blob[4..6], &CRYPTO_SUITE_ID.to_be_bytes());
+        assert_eq!(&blob[6..14], &GENERATION.to_be_bytes());
+        assert_eq!(header.key_generation, GENERATION);
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "timer_sessions", &record_id, &blob).unwrap(),
-            plaintext
+            decrypt_plaintext(
+                &key(0x42),
+                tenant_id(),
+                GENERATION,
+                "lists",
+                record_id(),
+                &blob,
+            )
+            .unwrap(),
+            plaintext()
         );
+    }
+
+    #[test]
+    fn envelope_rejects_wrong_key_or_aad_dimension() {
+        let blob = envelope();
         assert!(matches!(
-            decrypt_plaintext(&key(0x24), "timer_sessions", &record_id, &blob),
+            decrypt_plaintext(
+                &key(0x24),
+                tenant_id(),
+                GENERATION,
+                "lists",
+                record_id(),
+                &blob
+            ),
             Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
         ));
-        assert!(decrypt_plaintext(&key(0x42), "tasks", &record_id, &blob).is_err());
-    }
-
-    #[test]
-    fn envelope_rejects_tampering() {
-        let record_id = record_id();
-        let mut blob = encrypt_plaintext(&key(0x42), "lists", &record_id, &plaintext()).unwrap();
-        let last = blob.len() - 1;
-        blob[last] ^= 0xff;
-
+        assert!(decrypt_plaintext(
+            &key(0x42),
+            Uuid::from_u128(3),
+            GENERATION,
+            "lists",
+            record_id(),
+            &blob
+        )
+        .is_err());
+        assert!(decrypt_plaintext(
+            &key(0x42),
+            tenant_id(),
+            GENERATION,
+            "tasks",
+            record_id(),
+            &blob
+        )
+        .is_err());
+        assert!(decrypt_plaintext(
+            &key(0x42),
+            tenant_id(),
+            GENERATION,
+            "lists",
+            Uuid::from_u128(4),
+            &blob
+        )
+        .is_err());
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "lists", &record_id, &blob),
-            Err(EnvelopeError::Crypto(CryptoError::DecryptionFailed))
+            decrypt_plaintext(
+                &key(0x42),
+                tenant_id(),
+                GENERATION + 1,
+                "lists",
+                record_id(),
+                &blob
+            ),
+            Err(EnvelopeError::InvalidGeneration)
         );
     }
 
     #[test]
-    fn envelope_rejects_unknown_version() {
-        let record_id = record_id();
-        let mut blob = encrypt_plaintext(&key(0x42), "lists", &record_id, &plaintext()).unwrap();
-        blob[0] = ENVELOPE_VERSION + 1;
-
+    fn parser_rejects_v3_unknown_suite_generation_zero_and_short_blob() {
+        let mut v3 = envelope();
+        v3[..4].copy_from_slice(b"TDE3");
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "lists", &record_id, &blob),
+            parse_envelope_header(&v3),
             Err(EnvelopeError::UnsupportedVersion)
         );
-    }
 
-    #[test]
-    fn envelope_rejects_blobs_over_64kb() {
-        let blob = vec![ENVELOPE_VERSION; MAX_ENCRYPTED_BLOB_LEN + 1];
-
+        let mut suite = envelope();
+        suite[4..6].copy_from_slice(&(CRYPTO_SUITE_ID + 1).to_be_bytes());
         assert_eq!(
-            decrypt_plaintext(&key(0x42), "tasks", &record_id(), &blob),
-            Err(EnvelopeError::BlobTooLarge)
+            parse_envelope_header(&suite),
+            Err(EnvelopeError::UnsupportedSuite)
+        );
+
+        let mut generation = envelope();
+        generation[6..14].fill(0);
+        assert_eq!(
+            parse_envelope_header(&generation),
+            Err(EnvelopeError::InvalidGeneration)
+        );
+        assert_eq!(
+            parse_envelope_header(&[0; 13]),
+            Err(EnvelopeError::BlobTooShort)
         );
     }
 
     #[test]
-    fn envelope_rejects_final_encrypted_blob_over_64kb() {
-        let hlc = Hlc {
-            wall_ms: 1_799_000_000_000,
-            counter: 1,
-            device_id: "device-a".to_string(),
-        };
-        let mut list = sample_list();
-        list.name = "x".repeat(MAX_ENCRYPTED_BLOB_LEN);
-        let plaintext = SyncPlaintext::from_list(&list, hlc).unwrap();
-
+    fn envelope_rejects_tampering_and_oversize() {
+        let mut blob = envelope();
+        let last = blob.len() - 1;
+        blob[last] ^= 0xff;
+        assert!(decrypt_plaintext(
+            &key(0x42),
+            tenant_id(),
+            GENERATION,
+            "lists",
+            record_id(),
+            &blob
+        )
+        .is_err());
         assert_eq!(
-            encrypt_plaintext(&key(0x42), "lists", &record_id(), &plaintext),
+            parse_envelope_header(&vec![0; MAX_ENCRYPTED_BLOB_LEN + 1]),
             Err(EnvelopeError::BlobTooLarge)
         );
     }

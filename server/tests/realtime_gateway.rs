@@ -90,6 +90,18 @@ impl Fixture {
             .execute(&admin_pool)
             .await
             .unwrap();
+        query(
+            "INSERT INTO tenant_key_generations
+                (tenant_id, generation, suite_id, status, minimum_write_generation,
+                 signed_manifest, wrapped_tenant_root_dek)
+             VALUES ($1, 1, 2, 'active', 1, $2, $3)",
+        )
+        .bind(tenant_id)
+        .bind(vec![0_u8; 124])
+        .bind(vec![1_u8; 48])
+        .execute(&admin_pool)
+        .await
+        .unwrap();
         query("INSERT INTO devices (id, user_id, device_name) VALUES ($1, $2, 'test')")
             .bind(device_id)
             .bind(user_id)
@@ -240,7 +252,7 @@ async fn accepted_push_survives_provider_failure_and_no_op_keeps_wire_shape() {
             revision_hlc: revision.clone(),
             state: SyncRecordState::Live {
                 mutation_hlc: revision,
-                blob: STANDARD.encode([1_u8, 2, 3]),
+                blob: STANDARD.encode(structural_envelope()),
             },
         }],
     };
@@ -294,6 +306,16 @@ async fn accepted_push_survives_provider_failure_and_no_op_keeps_wire_shape() {
     let body = to_bytes(no_op.into_body(), 16 * 1024).await.unwrap();
     let response: PushResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(response.results[0].status, PushStatus::NoOp);
+}
+
+fn structural_envelope() -> Vec<u8> {
+    let mut envelope = Vec::new();
+    envelope.extend_from_slice(b"TDE4");
+    envelope.extend_from_slice(&2_u16.to_be_bytes());
+    envelope.extend_from_slice(&1_u64.to_be_bytes());
+    envelope.extend_from_slice(&[0_u8; 24]);
+    envelope.extend_from_slice(&[0_u8; 16]);
+    envelope
 }
 
 fn settings() -> RealtimeSettings {

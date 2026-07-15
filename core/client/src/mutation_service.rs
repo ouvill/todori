@@ -398,8 +398,13 @@ mod tests {
             sync: LocalMutationContext {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
+                    tenant_id: Uuid::from_u128(100),
                     list_deks: vec![(list.id, [0x44; 32].into())],
+                    list_generations: vec![(list.id, 1)],
                     tenant_root_dek: None,
+                    tenant_generation: 1,
+                    historical_list_deks: Vec::new(),
+                    historical_tenant_root_deks: Vec::new(),
                 },
             },
         }
