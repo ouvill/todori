@@ -7,6 +7,7 @@ use crate::{
     ensure_device_key, DeviceKeyStore, KeyStoreError, LocalKeyCapsule, LocalKeyCapsuleSlot,
     LocalKeyCapsuleStore, DEVICE_KEY_LEN,
 };
+#[cfg(any(test, target_os = "ios", target_os = "macos", target_os = "android"))]
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -169,6 +170,7 @@ impl PlatformLocalKeyCapsuleStore {
     }
 }
 
+#[cfg(any(test, target_os = "ios", target_os = "macos", target_os = "android"))]
 fn profile_store_namespace(db_dir: &Path) -> String {
     let canonical = fs::canonicalize(db_dir).unwrap_or_else(|_| db_dir.to_path_buf());
     let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
