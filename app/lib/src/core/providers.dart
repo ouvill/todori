@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:todori/src/billing/billing_store.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/realtime_sync.dart';
 import 'package:todori/src/core/task_tree.dart';
@@ -13,6 +14,7 @@ import 'package:todori/src/rust/api.dart'
     show
         AccountAuthResultDto,
         AccountSessionStateDto,
+        BillingStateDto,
         CalendarOccurrenceDto,
         CalendarOccurrenceKindDto_Completed,
         CalendarOccurrenceKindDto_DateDue,
@@ -24,6 +26,8 @@ import 'package:todori/src/rust/api.dart'
         ListDto,
         ReminderDto,
         SyncStatusDto,
+        SyncNowOutcomeDto_BillingRequired,
+        SyncNowOutcomeDto_Synced,
         TaskDto,
         TaskDueDto,
         TaskUndoDto,
@@ -38,6 +42,10 @@ import 'package:todori/src/rust/api.dart'
 /// so no test depends on the native Rust library or `initCore`.
 final bridgeServiceProvider = Provider<BridgeService>(
   (ref) => const FrbBridgeService(),
+);
+
+final billingStoreProvider = Provider<BillingStore>(
+  (ref) => RevenueCatBillingStore(),
 );
 
 final realtimeTimerFactoryProvider = Provider<RealtimeTimerFactory>(
@@ -319,6 +327,7 @@ class AccountNotifier extends AsyncNotifier<AccountSessionStateDto> {
   Future<void> logout() async {
     final bridge = ref.read(bridgeServiceProvider);
     await bridge.accountLogout();
+    await ref.read(billingStoreProvider).accountLoggedOut();
     state = AsyncData(await bridge.getAccountSessionState());
   }
 }
@@ -327,6 +336,114 @@ final accountProvider =
     AsyncNotifierProvider<AccountNotifier, AccountSessionStateDto>(
       AccountNotifier.new,
     );
+
+class BillingUiState {
+  const BillingUiState({
+    required this.entitlement,
+    required this.products,
+    this.busy = false,
+    this.lastOutcome,
+  });
+
+  final BillingStateDto entitlement;
+  final List<BillingProduct> products;
+  final bool busy;
+  final BillingPurchaseOutcome? lastOutcome;
+
+  BillingUiState copyWith({
+    BillingStateDto? entitlement,
+    List<BillingProduct>? products,
+    bool? busy,
+    BillingPurchaseOutcome? lastOutcome,
+  }) => BillingUiState(
+    entitlement: entitlement ?? this.entitlement,
+    products: products ?? this.products,
+    busy: busy ?? this.busy,
+    lastOutcome: lastOutcome ?? this.lastOutcome,
+  );
+}
+
+class BillingNotifier extends AsyncNotifier<BillingUiState?> {
+  @override
+  Future<BillingUiState?> build() async {
+    final account = await ref.watch(accountProvider.future);
+    if (!account.loggedIn) return null;
+    final bridge = ref.watch(bridgeServiceProvider);
+    final cached = await bridge.getCachedBilling();
+    try {
+      return await _load(await bridge.billingBootstrap());
+    } catch (_) {
+      if (cached == null) rethrow;
+      return BillingUiState(entitlement: cached, products: const []);
+    }
+  }
+
+  Future<BillingUiState> _load(BillingStateDto entitlement) async {
+    final store = ref.read(billingStoreProvider);
+    await store.configure(
+      appUserId: entitlement.providerAppUserId,
+      environment: entitlement.environment,
+    );
+    return BillingUiState(
+      entitlement: entitlement,
+      products: await store.products(),
+    );
+  }
+
+  Future<void> refreshFromServer() async {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(current.copyWith(busy: true));
+    try {
+      state = AsyncData(
+        await _load(await ref.read(bridgeServiceProvider).refreshBilling()),
+      );
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+    }
+  }
+
+  Future<void> purchase(String productIdentifier) async {
+    await _runStoreAction(
+      () => ref.read(billingStoreProvider).purchase(productIdentifier),
+    );
+  }
+
+  Future<void> restore() async {
+    await _runStoreAction(() => ref.read(billingStoreProvider).restore());
+  }
+
+  Future<void> _runStoreAction(
+    Future<BillingPurchaseOutcome> Function() action,
+  ) async {
+    final current = state.value;
+    if (current == null || current.busy) return;
+    state = AsyncData(current.copyWith(busy: true));
+    try {
+      final outcome = await action();
+      if (outcome == BillingPurchaseOutcome.purchased) {
+        final entitlement = await ref
+            .read(bridgeServiceProvider)
+            .refreshBilling();
+        final refreshed = await _load(entitlement);
+        state = AsyncData(refreshed.copyWith(lastOutcome: outcome));
+      } else {
+        state = AsyncData(current.copyWith(busy: false, lastOutcome: outcome));
+      }
+    } catch (_) {
+      state = AsyncData(
+        current.copyWith(
+          busy: false,
+          lastOutcome: BillingPurchaseOutcome.failed,
+        ),
+      );
+    }
+  }
+}
+
+final billingProvider = AsyncNotifierProvider<BillingNotifier, BillingUiState?>(
+  BillingNotifier.new,
+);
 
 class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
   RealtimeSyncScheduler? _scheduler;
@@ -340,6 +457,11 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     final account = await ref.watch(accountProvider.future);
     final bridge = ref.watch(bridgeServiceProvider);
     final status = await bridge.getSyncStatus();
+    if (account.loggedIn) {
+      // Bootstrap the server snapshot and provider identity at startup/login,
+      // even when the Account screen has not been opened yet.
+      unawaited(ref.read(billingProvider.future).catchError((_) => null));
+    }
     final scheduler = RealtimeSyncScheduler(
       runSync: _performSync,
       timerFactory: ref.watch(realtimeTimerFactoryProvider),
@@ -384,8 +506,18 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
       state = AsyncData(_copySyncStatus(current, running: true));
     }
     try {
-      final status = await ref.read(bridgeServiceProvider).syncNow();
-      state = AsyncData(status);
+      final outcome = await ref.read(bridgeServiceProvider).syncNowOutcome();
+      switch (outcome) {
+        case SyncNowOutcomeDto_Synced(:final status):
+          state = AsyncData(status);
+        case SyncNowOutcomeDto_BillingRequired():
+          final recovered = await ref
+              .read(bridgeServiceProvider)
+              .getSyncStatus();
+          state = AsyncData(_copySyncStatus(recovered, running: false));
+          ref.invalidate(billingProvider);
+          return;
+      }
       ref.invalidate(listsProvider);
       ref.invalidate(archivedListsProvider);
       ref.invalidate(tasksProvider);
@@ -418,6 +550,7 @@ class SyncStatusNotifier extends AsyncNotifier<SyncStatusDto> {
     if (status == null || !status.loggedIn) {
       return;
     }
+    await ref.read(billingProvider.notifier).refreshFromServer();
     await syncNow();
   }
 }

@@ -35,6 +35,8 @@ pub enum ClientError {
     KeyStore(#[source] todori_crypto::KeyStoreError),
     #[error("account request failed")]
     AccountRequest,
+    #[error("a Pro entitlement is required")]
+    EntitlementRequired,
     #[error("account-bound local sync keys are unavailable")]
     AccountBoundUnavailable,
     #[error("local profile is already account-bound")]

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod billing;
 pub mod db;
 pub mod organization;
 pub mod realtime;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub billing: billing::BillingService,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -92,6 +94,13 @@ impl AppError {
     pub fn service_unavailable(message: &'static str) -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
+            message,
+        }
+    }
+
+    pub fn payment_required(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::PAYMENT_REQUIRED,
             message,
         }
     }

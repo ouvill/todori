@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:todori/src/billing/billing_store.dart';
 import 'package:todori/src/core/bridge_service.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
@@ -11,6 +12,7 @@ import 'package:todori/src/rust/api.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/header_actions.dart';
 import 'package:todori/src/ui/theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -42,6 +44,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final accountAsync = ref.watch(accountProvider);
     final serverUrlAsync = ref.watch(syncServerUrlProvider);
     final syncStatusAsync = ref.watch(syncStatusProvider);
+    final billingAsync = ref.watch(billingProvider);
 
     serverUrlAsync.whenData((serverUrl) {
       if (_serverUrlController.text.isEmpty) {
@@ -88,6 +91,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     _SignedInSection(
                       account: account,
                       syncStatusAsync: syncStatusAsync,
+                      billingAsync: billingAsync,
                       busy: _busy,
                       onLogout: _logout,
                       onSyncNow: _syncNow,
@@ -417,6 +421,7 @@ class _SignedInSection extends StatelessWidget {
   const _SignedInSection({
     required this.account,
     required this.syncStatusAsync,
+    required this.billingAsync,
     required this.busy,
     required this.onLogout,
     required this.onSyncNow,
@@ -425,6 +430,7 @@ class _SignedInSection extends StatelessWidget {
 
   final AccountSessionStateDto account;
   final AsyncValue<SyncStatusDto> syncStatusAsync;
+  final AsyncValue<BillingUiState?> billingAsync;
   final bool busy;
   final VoidCallback onLogout;
   final VoidCallback onSyncNow;
@@ -446,6 +452,8 @@ class _SignedInSection extends StatelessWidget {
           busy: busy,
           onSyncNow: onSyncNow,
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _BillingSection(billingAsync: billingAsync),
         const SizedBox(height: AppSpacing.lg),
         OutlinedButton.icon(
           key: const ValueKey('organization-safety-open'),
@@ -471,6 +479,180 @@ class _SignedInSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BillingSection extends ConsumerWidget {
+  const _BillingSection({required this.billingAsync});
+
+  final AsyncValue<BillingUiState?> billingAsync;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(l10n.billingTitle, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: AppSpacing.sm),
+        billingAsync.when(
+          loading: () => const LinearProgressIndicator(minHeight: 2),
+          error: (_, _) => Text(l10n.billingUnavailable),
+          data: (value) {
+            if (value == null) return Text(l10n.billingStatusFree);
+            final entitlement = value.entitlement;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      entitlement.syncAllowed
+                          ? LucideIcons.badgeCheck300
+                          : LucideIcons.badge300,
+                      size: 18,
+                      semanticLabel: _billingStatus(l10n, entitlement.status),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(_billingStatus(l10n, entitlement.status)),
+                    ),
+                  ],
+                ),
+                if (!entitlement.syncAllowed) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    l10n.billingTrialBody,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  for (final product in value.products) ...[
+                    _BillingProductTile(
+                      product: product,
+                      busy: value.busy,
+                      onPurchase: () => ref
+                          .read(billingProvider.notifier)
+                          .purchase(product.identifier),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
+                ],
+                if (value.lastOutcome case final outcome?) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(_billingOutcome(l10n, outcome)),
+                ],
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    TextButton.icon(
+                      onPressed: value.busy
+                          ? null
+                          : () => ref.read(billingProvider.notifier).restore(),
+                      icon: const Icon(LucideIcons.refreshCcw300),
+                      label: Text(l10n.billingRestoreButton),
+                    ),
+                    if (entitlement.syncAllowed)
+                      TextButton.icon(
+                        onPressed: value.busy
+                            ? null
+                            : () async {
+                                final url = await ref
+                                    .read(billingStoreProvider)
+                                    .managementUrl();
+                                if (url != null) {
+                                  await launchUrl(
+                                    url,
+                                    mode: LaunchMode.externalApplication,
+                                  );
+                                }
+                              },
+                        icon: const Icon(LucideIcons.externalLink300),
+                        label: Text(l10n.billingManageButton),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  static String _billingStatus(AppLocalizations l10n, String status) =>
+      switch (status) {
+        'trial' => l10n.billingStatusTrial,
+        'active' => l10n.billingStatusActive,
+        'grace' => l10n.billingStatusGrace,
+        'expired' => l10n.billingStatusExpired,
+        'revoked' => l10n.billingStatusRevoked,
+        _ => l10n.billingStatusFree,
+      };
+
+  static String _billingOutcome(
+    AppLocalizations l10n,
+    BillingPurchaseOutcome outcome,
+  ) => switch (outcome) {
+    BillingPurchaseOutcome.purchased => l10n.billingRestored,
+    BillingPurchaseOutcome.cancelled => l10n.billingCancelled,
+    BillingPurchaseOutcome.pending => l10n.billingPending,
+    BillingPurchaseOutcome.failed => l10n.billingFailed,
+  };
+}
+
+class _BillingProductTile extends StatelessWidget {
+  const _BillingProductTile({
+    required this.product,
+    required this.busy,
+    required this.onPurchase,
+  });
+
+  final BillingProduct product;
+  final bool busy;
+  final VoidCallback onPurchase;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final period = product.isAnnual
+        ? l10n.billingYearlyLabel
+        : l10n.billingMonthlyLabel;
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: l10n.billingPriceSemantics(period, product.price),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(period, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(product.price),
+                  ],
+                ),
+              ),
+              FilledButton(
+                onPressed: busy ? null : onPurchase,
+                child: Text(l10n.billingPurchaseButton),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -331,6 +331,21 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
+  Future<SyncNowOutcomeDto> syncNowOutcome() async =>
+      SyncNowOutcomeDto.synced(status: await syncNow());
+
+  @override
+  Future<BillingStateDto> billingBootstrap() =>
+      Future.error(UnimplementedError('fake billing'));
+
+  @override
+  Future<BillingStateDto> refreshBilling() =>
+      Future.error(UnimplementedError('fake billing'));
+
+  @override
+  Future<BillingStateDto?> getCachedBilling() async => null;
+
+  @override
   Future<RealtimeTicketDto> getRealtimeTicket() async {
     if (!_accountSession.loggedIn) {
       throw Exception('account request failed');

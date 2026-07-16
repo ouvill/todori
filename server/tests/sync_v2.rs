@@ -34,6 +34,7 @@ use todori_crypto::{
 };
 use todori_server::{
     auth::AuthContext,
+    billing::{BillingEnvironment, BillingService},
     build_router, db,
     sync::{self, gc_tombstones},
     AppState,
@@ -190,6 +191,39 @@ impl Fixture {
         .execute(&pool)
         .await
         .unwrap();
+        query("INSERT INTO billing_customers (user_id) VALUES ($1)")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        query(
+            "INSERT INTO billing_subscriptions
+                (user_id, provider, environment, provider_subscription_id,
+                 store_product_identifier, provider_product_id, status, gives_access,
+                 current_period_ends_at, access_expires_at, will_renew,
+                 provider_observed_at, last_seen_at)
+             VALUES ($1, 'revenuecat', 'sandbox', $2,
+                     'dev.todori.todori.pro.monthly', 'test-product', 'active', TRUE,
+                     now() + interval '1 day', now() + interval '1 day', TRUE, now(), now())",
+        )
+        .bind(user_id)
+        .bind(format!("test-{user_id}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        query(
+            "INSERT INTO account_entitlements
+                (user_id, environment, lookup_key, status, gives_access,
+                 source_subscription_id, store_product_identifier, expires_at,
+                 will_renew, provider_observed_at)
+             SELECT $1, 'sandbox', 'pro', 'active', TRUE, id,
+                    store_product_identifier, access_expires_at, TRUE, now()
+             FROM billing_subscriptions WHERE user_id = $1 AND environment = 'sandbox'",
+        )
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
         query("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
             .bind(tenant_id)
             .bind(user_id)
@@ -248,6 +282,7 @@ impl Fixture {
         let application_pool = db::connect_application(&application_url).await.unwrap();
         let app = build_router(AppState {
             pool: application_pool.clone(),
+            billing: BillingService::unavailable_for_tests(BillingEnvironment::Sandbox),
         });
         Self {
             app,

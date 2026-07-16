@@ -44,7 +44,7 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
 - `cli` ── CLI雛形。共通client/profile層への実接続はバックログ
 - `mcp-server` ── MCPサーバー雛形。共通client/profile層への実接続はバックログ
-- `server` ── OPAQUE認証、E2EE同期、device continuityを提供するRust APIサーバー。課金routeは未実装
+- `server` ── OPAQUE認証、E2EE同期、device continuity、RevenueCat課金集約とrequest-time entitlement認可を提供するRust APIサーバー
 
 ## 品質ゲート（コミット前に全て通すこと）
 

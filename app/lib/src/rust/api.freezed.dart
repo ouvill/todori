@@ -450,6 +450,264 @@ as DateTime,
 }
 
 /// @nodoc
+mixin _$SyncNowOutcomeDto {
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncNowOutcomeDto);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'SyncNowOutcomeDto()';
+}
+
+
+}
+
+/// @nodoc
+class $SyncNowOutcomeDtoCopyWith<$Res>  {
+$SyncNowOutcomeDtoCopyWith(SyncNowOutcomeDto _, $Res Function(SyncNowOutcomeDto) __);
+}
+
+
+/// Adds pattern-matching-related methods to [SyncNowOutcomeDto].
+extension SyncNowOutcomeDtoPatterns on SyncNowOutcomeDto {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( SyncNowOutcomeDto_Synced value)?  synced,TResult Function( SyncNowOutcomeDto_BillingRequired value)?  billingRequired,required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced() when synced != null:
+return synced(_that);case SyncNowOutcomeDto_BillingRequired() when billingRequired != null:
+return billingRequired(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( SyncNowOutcomeDto_Synced value)  synced,required TResult Function( SyncNowOutcomeDto_BillingRequired value)  billingRequired,}){
+final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced():
+return synced(_that);case SyncNowOutcomeDto_BillingRequired():
+return billingRequired(_that);}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( SyncNowOutcomeDto_Synced value)?  synced,TResult? Function( SyncNowOutcomeDto_BillingRequired value)?  billingRequired,}){
+final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced() when synced != null:
+return synced(_that);case SyncNowOutcomeDto_BillingRequired() when billingRequired != null:
+return billingRequired(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( SyncStatusDto status)?  synced,TResult Function()?  billingRequired,required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced() when synced != null:
+return synced(_that.status);case SyncNowOutcomeDto_BillingRequired() when billingRequired != null:
+return billingRequired();case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( SyncStatusDto status)  synced,required TResult Function()  billingRequired,}) {final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced():
+return synced(_that.status);case SyncNowOutcomeDto_BillingRequired():
+return billingRequired();}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( SyncStatusDto status)?  synced,TResult? Function()?  billingRequired,}) {final _that = this;
+switch (_that) {
+case SyncNowOutcomeDto_Synced() when synced != null:
+return synced(_that.status);case SyncNowOutcomeDto_BillingRequired() when billingRequired != null:
+return billingRequired();case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class SyncNowOutcomeDto_Synced extends SyncNowOutcomeDto {
+  const SyncNowOutcomeDto_Synced({required this.status}): super._();
+
+
+ final  SyncStatusDto status;
+
+/// Create a copy of SyncNowOutcomeDto
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$SyncNowOutcomeDto_SyncedCopyWith<SyncNowOutcomeDto_Synced> get copyWith => _$SyncNowOutcomeDto_SyncedCopyWithImpl<SyncNowOutcomeDto_Synced>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncNowOutcomeDto_Synced&&(identical(other.status, status) || other.status == status));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,status);
+
+@override
+String toString() {
+  return 'SyncNowOutcomeDto.synced(status: $status)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $SyncNowOutcomeDto_SyncedCopyWith<$Res> implements $SyncNowOutcomeDtoCopyWith<$Res> {
+  factory $SyncNowOutcomeDto_SyncedCopyWith(SyncNowOutcomeDto_Synced value, $Res Function(SyncNowOutcomeDto_Synced) _then) = _$SyncNowOutcomeDto_SyncedCopyWithImpl;
+@useResult
+$Res call({
+ SyncStatusDto status
+});
+
+
+
+
+}
+/// @nodoc
+class _$SyncNowOutcomeDto_SyncedCopyWithImpl<$Res>
+    implements $SyncNowOutcomeDto_SyncedCopyWith<$Res> {
+  _$SyncNowOutcomeDto_SyncedCopyWithImpl(this._self, this._then);
+
+  final SyncNowOutcomeDto_Synced _self;
+  final $Res Function(SyncNowOutcomeDto_Synced) _then;
+
+/// Create a copy of SyncNowOutcomeDto
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? status = null,}) {
+  return _then(SyncNowOutcomeDto_Synced(
+status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
+as SyncStatusDto,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class SyncNowOutcomeDto_BillingRequired extends SyncNowOutcomeDto {
+  const SyncNowOutcomeDto_BillingRequired(): super._();
+
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SyncNowOutcomeDto_BillingRequired);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+  return 'SyncNowOutcomeDto.billingRequired()';
+}
+
+
+}
+
+
+
+
+/// @nodoc
 mixin _$TaskDueDto {
 
 

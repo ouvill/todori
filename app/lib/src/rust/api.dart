@@ -8,8 +8,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `billing_state_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
 Future<String> greet({required String name}) =>
     RustLib.instance.api.crateApiGreet(name: name);
@@ -96,6 +96,18 @@ Future<SyncStatusDto> getSyncStatus() =>
     RustLib.instance.api.crateApiGetSyncStatus();
 
 Future<SyncStatusDto> syncNow() => RustLib.instance.api.crateApiSyncNow();
+
+Future<SyncNowOutcomeDto> syncNowOutcome() =>
+    RustLib.instance.api.crateApiSyncNowOutcome();
+
+Future<BillingStateDto> billingBootstrap() =>
+    RustLib.instance.api.crateApiBillingBootstrap();
+
+Future<BillingStateDto> refreshBilling() =>
+    RustLib.instance.api.crateApiRefreshBilling();
+
+Future<BillingStateDto?> getCachedBilling() =>
+    RustLib.instance.api.crateApiGetCachedBilling();
 
 Future<RealtimeTicketDto> getRealtimeTicket() =>
     RustLib.instance.api.crateApiGetRealtimeTicket();
@@ -388,6 +400,65 @@ class ActiveTimerSessionDto {
 }
 
 enum ActiveTimerStartOutcomeDto { started, conflict }
+
+class BillingStateDto {
+  final String provider;
+  final String providerAppUserId;
+  final String lookupKey;
+  final String status;
+  final bool syncAllowed;
+  final String? storeProductIdentifier;
+  final PlatformInt64? expiresAt;
+  final PlatformInt64? graceExpiresAt;
+  final bool? willRenew;
+  final String environment;
+  final PlatformInt64? updatedAt;
+
+  const BillingStateDto({
+    required this.provider,
+    required this.providerAppUserId,
+    required this.lookupKey,
+    required this.status,
+    required this.syncAllowed,
+    this.storeProductIdentifier,
+    this.expiresAt,
+    this.graceExpiresAt,
+    this.willRenew,
+    required this.environment,
+    this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      provider.hashCode ^
+      providerAppUserId.hashCode ^
+      lookupKey.hashCode ^
+      status.hashCode ^
+      syncAllowed.hashCode ^
+      storeProductIdentifier.hashCode ^
+      expiresAt.hashCode ^
+      graceExpiresAt.hashCode ^
+      willRenew.hashCode ^
+      environment.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is BillingStateDto &&
+          runtimeType == other.runtimeType &&
+          provider == other.provider &&
+          providerAppUserId == other.providerAppUserId &&
+          lookupKey == other.lookupKey &&
+          status == other.status &&
+          syncAllowed == other.syncAllowed &&
+          storeProductIdentifier == other.storeProductIdentifier &&
+          expiresAt == other.expiresAt &&
+          graceExpiresAt == other.graceExpiresAt &&
+          willRenew == other.willRenew &&
+          environment == other.environment &&
+          updatedAt == other.updatedAt;
+}
 
 class CalendarOccurrenceDto {
   final TaskDto task;
@@ -694,6 +765,16 @@ class ReminderDto {
           remindAt == other.remindAt &&
           snoozedUntil == other.snoozedUntil &&
           createdAt == other.createdAt;
+}
+
+@freezed
+sealed class SyncNowOutcomeDto with _$SyncNowOutcomeDto {
+  const SyncNowOutcomeDto._();
+
+  const factory SyncNowOutcomeDto.synced({required SyncStatusDto status}) =
+      SyncNowOutcomeDto_Synced;
+  const factory SyncNowOutcomeDto.billingRequired() =
+      SyncNowOutcomeDto_BillingRequired;
 }
 
 class SyncStatusDto {

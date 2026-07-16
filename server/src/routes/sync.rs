@@ -9,7 +9,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    auth,
+    billing,
     sync::{
         self, ActivateRotationRequest, DeviceKeyExpiryRequest, DeviceKeyExpiryResponse,
         PrepareRotationRequest, RetireListKeyResponse, RotationGenerationRequest,
@@ -64,7 +64,8 @@ async fn set_device_key_expiry(
     Json(request): Json<DeviceKeyExpiryRequest>,
 ) -> Result<Json<DeviceKeyExpiryResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::set_device_key_expiry(&state.pool, tenant_id, auth_context, device_id, request)
         .await
@@ -78,7 +79,8 @@ async fn prepare_rotation(
     Json(request): Json<PrepareRotationRequest>,
 ) -> Result<Json<RotationStateResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::prepare_rotation(&state.pool, tenant_id, auth_context, request)
         .await
@@ -92,7 +94,8 @@ async fn activate_rotation(
     Json(request): Json<ActivateRotationRequest>,
 ) -> Result<Json<RotationStateResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::activate_rotation(&state.pool, tenant_id, auth_context, request)
         .await
@@ -106,7 +109,8 @@ async fn ack_key_generation(
     Json(request): Json<RotationGenerationRequest>,
 ) -> Result<Json<RotationStateResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::acknowledge_key_generation(&state.pool, tenant_id, auth_context, request)
         .await
@@ -120,7 +124,8 @@ async fn retire_rotation(
     Json(request): Json<RotationGenerationRequest>,
 ) -> Result<Json<RotationStateResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::retire_rotation(&state.pool, tenant_id, auth_context, request)
         .await
@@ -133,7 +138,8 @@ async fn rotation_state(
     headers: HeaderMap,
 ) -> Result<Json<RotationStateResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::rotation_state_for_tenant(&state.pool, tenant_id, auth_context)
         .await
@@ -146,7 +152,8 @@ async fn active_key_bundle(
     headers: HeaderMap,
 ) -> Result<Json<todori_sync::account::ActiveKeyBundleDto>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::active_key_bundle(&state.pool, tenant_id, auth_context)
         .await
@@ -160,7 +167,8 @@ async fn preflight(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     let capabilities = sync::preflight(&state.pool, tenant_id, auth_context, query.since).await?;
     let status = if capabilities.full_resync_required {
@@ -197,7 +205,8 @@ async fn begin_full_resync(
     headers: HeaderMap,
 ) -> Result<Json<ResyncStartResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::begin_full_resync(&state.pool, tenant_id, auth_context)
         .await
@@ -211,7 +220,8 @@ async fn scan_base(
     headers: HeaderMap,
 ) -> Result<Json<BaseScanResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     let cursor = match (query.after_collection, query.after_record_id) {
         (None, None) => None,
@@ -241,7 +251,8 @@ async fn push(
     Json(request): Json<PushRequest>,
 ) -> Result<Json<PushResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     let device_id = auth_context.device_id;
     let response = sync::push(&state.pool, tenant_id, auth_context, request).await?;
@@ -265,7 +276,8 @@ async fn pull(
     headers: HeaderMap,
 ) -> Result<Json<PullResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::pull(
         &state.pool,
@@ -286,7 +298,8 @@ async fn upsert_list_key_bundle(
     Json(request): Json<ListDekBundleDto>,
 ) -> Result<Json<UpsertListKeyResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::upsert_list_key_bundle(&state.pool, tenant_id, auth_context, request)
         .await
@@ -300,7 +313,8 @@ async fn ack_continuity(
     Json(request): Json<ContinuityAckRequest>,
 ) -> Result<Json<ContinuityAckResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::ack_continuity(&state.pool, tenant_id, auth_context, request)
         .await
@@ -313,7 +327,8 @@ async fn retire_list_key_bundle(
     headers: HeaderMap,
 ) -> Result<Json<RetireListKeyResponse>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::retire_list_key_bundle(&state.pool, tenant_id, auth_context, list_id)
         .await
@@ -326,7 +341,8 @@ async fn list_key_bundles(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ListDekBundleDto>>, AppError> {
     let token = bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     sync::list_key_bundles(&state.pool, tenant_id, auth_context)
         .await
         .map(Json)

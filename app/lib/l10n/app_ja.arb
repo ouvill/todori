@@ -344,5 +344,30 @@
   "focusNoActualValue": "作業時間はまだありません",
   "timerNotificationTitle": "集中時間が終わりました",
   "timerNotificationBody": "Todoriを開いて、次のリズムへ進みましょう。",
+  "billingTitle": "Pro",
+  "billingTrialBody": "14日間の無料トライアル付き。Appleのサブスクリプション画面からいつでも解約できます。",
+  "billingStatusFree": "Free",
+  "billingStatusTrial": "トライアル中",
+  "billingStatusActive": "利用中",
+  "billingStatusGrace": "支払い猶予期間中",
+  "billingStatusExpired": "期限切れ",
+  "billingStatusRevoked": "失効",
+  "billingMonthlyLabel": "月額",
+  "billingYearlyLabel": "年額",
+  "billingPurchaseButton": "Proを始める",
+  "billingRestoreButton": "購入を復元",
+  "billingManageButton": "サブスクリプションを管理",
+  "billingUnavailable": "現在、課金情報を取得できません。",
+  "billingCancelled": "購入をキャンセルしました。",
+  "billingPending": "購入を処理中です。Appleで支払いが確認されるとProが有効になります。",
+  "billingFailed": "購入を完了できませんでした。",
+  "billingRestored": "購入状態を更新しました。",
+  "billingPriceSemantics": "{period}、{price}、14日間無料トライアル",
+  "@billingPriceSemantics": {
+    "placeholders": {
+      "period": {"type": "String"},
+      "price": {"type": "String"}
+    }
+  },
   "failedToStartTodori": "Todoriの起動に失敗しました: {error}"
 }

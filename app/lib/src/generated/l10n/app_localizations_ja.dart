@@ -1044,6 +1044,66 @@ class AppLocalizationsJa extends AppLocalizations {
   String get timerNotificationBody => 'Todoriを開いて、次のリズムへ進みましょう。';
 
   @override
+  String get billingTitle => 'Pro';
+
+  @override
+  String get billingTrialBody =>
+      '14日間の無料トライアル付き。Appleのサブスクリプション画面からいつでも解約できます。';
+
+  @override
+  String get billingStatusFree => 'Free';
+
+  @override
+  String get billingStatusTrial => 'トライアル中';
+
+  @override
+  String get billingStatusActive => '利用中';
+
+  @override
+  String get billingStatusGrace => '支払い猶予期間中';
+
+  @override
+  String get billingStatusExpired => '期限切れ';
+
+  @override
+  String get billingStatusRevoked => '失効';
+
+  @override
+  String get billingMonthlyLabel => '月額';
+
+  @override
+  String get billingYearlyLabel => '年額';
+
+  @override
+  String get billingPurchaseButton => 'Proを始める';
+
+  @override
+  String get billingRestoreButton => '購入を復元';
+
+  @override
+  String get billingManageButton => 'サブスクリプションを管理';
+
+  @override
+  String get billingUnavailable => '現在、課金情報を取得できません。';
+
+  @override
+  String get billingCancelled => '購入をキャンセルしました。';
+
+  @override
+  String get billingPending => '購入を処理中です。Appleで支払いが確認されるとProが有効になります。';
+
+  @override
+  String get billingFailed => '購入を完了できませんでした。';
+
+  @override
+  String get billingRestored => '購入状態を更新しました。';
+
+  @override
+  String billingPriceSemantics(String period, String price) {
+    return '$period、$price、14日間無料トライアル';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }

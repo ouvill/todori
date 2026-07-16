@@ -41,7 +41,8 @@ pub(crate) use local_crypto::{
     LocalCryptoAvailability, LocalCryptoContext, LocalCryptoIdentity, LocalCryptoUnavailable,
 };
 pub use model::{
-    AccountAuthResult, AccountSessionState, OrganizationSafetyState, RealtimeTicket, SyncStatus,
+    AccountAuthResult, AccountSessionState, BillingState, OrganizationSafetyState, RealtimeTicket,
+    SyncStatus,
 };
 pub use mutation_service::ClientError;
 pub(crate) use mutation_service::{LocalMutationContext, SqliteMutationService, UpdateTaskInput};

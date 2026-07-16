@@ -25,12 +25,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:todori/main.dart';
+import 'package:todori/src/billing/billing_store.dart';
 import 'package:todori/src/core/providers.dart';
 import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/router.dart';
 import 'package:todori/src/rust/api.dart'
     show
         ActiveTimerSessionDto,
+        BillingStateDto,
         CalendarOccurrenceDto,
         CalendarRangeInput,
         HomeTaskDto,
@@ -40,6 +42,7 @@ import 'package:todori/src/rust/api.dart'
         TimerPhaseDto,
         TimerRunStateDto;
 import 'package:todori/src/screens/calendar_screen.dart';
+import 'package:todori/src/screens/account_screen.dart';
 import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/timer/timer_engine.dart' show TimerClock;
@@ -132,6 +135,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Make room for what matters'), findsOneWidget);
     await _screenshot(tester, 'onboarding_text_scale_2');
+  });
+
+  testWidgets('billing_free_en: quiet Pro purchase section', (tester) async {
+    _setMobileViewport(tester);
+    await _pumpBillingVisual(tester, status: 'free', syncAllowed: false);
+    await _ensureVisible(tester, find.text('Start Pro'));
+    expect(find.text('Start Pro'), findsWidgets);
+    await _screenshot(tester, 'billing_free_en');
+  });
+
+  testWidgets('billing_grace_ja_scale_2: accessible grace state', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    _useTextScale(tester, 2);
+    await _pumpBillingVisual(tester, status: 'grace', syncAllowed: true);
+    await _ensureVisible(tester, find.text('支払い猶予期間中'));
+    expect(find.text('支払い猶予期間中'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'billing_grace_ja_scale_2');
   });
 
   testWidgets('focus_setup: warm immersive setup', (tester) async {
@@ -2517,6 +2541,104 @@ void _setMobileViewport(WidgetTester tester) {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
   });
+}
+
+Future<void> _pumpBillingVisual(
+  WidgetTester tester, {
+  required String status,
+  required bool syncAllowed,
+}) async {
+  final bridge = _BillingVisualBridge(status, syncAllowed);
+  await bridge.accountLogin(
+    email: 'alex@example.com',
+    password: 'visual-qa-only',
+  );
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        bridgeServiceProvider.overrideWithValue(bridge),
+        billingStoreProvider.overrideWithValue(const _BillingVisualStore()),
+      ],
+      child: MaterialApp(
+        locale: status == 'grace' ? const Locale('ja') : const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const AccountScreen(),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+class _BillingVisualBridge extends FakeBridgeService {
+  _BillingVisualBridge(this.status, this.syncAllowed);
+
+  final String status;
+  final bool syncAllowed;
+
+  BillingStateDto get _state => BillingStateDto(
+    provider: 'revenuecat',
+    providerAppUserId: '00000000-0000-4000-8000-000000000001',
+    lookupKey: 'pro',
+    status: status,
+    syncAllowed: syncAllowed,
+    storeProductIdentifier: syncAllowed
+        ? 'dev.todori.todori.pro.monthly'
+        : null,
+    willRenew: syncAllowed,
+    environment: 'sandbox',
+  );
+
+  @override
+  Future<BillingStateDto> billingBootstrap() async => _state;
+
+  @override
+  Future<BillingStateDto?> getCachedBilling() async => _state;
+
+  @override
+  Future<BillingStateDto> refreshBilling() async => _state;
+}
+
+class _BillingVisualStore implements BillingStore {
+  const _BillingVisualStore();
+
+  @override
+  Future<void> configure({
+    required String appUserId,
+    required String environment,
+  }) async {}
+
+  @override
+  Future<List<BillingProduct>> products() async => const [
+    BillingProduct(
+      identifier: 'dev.todori.todori.pro.monthly',
+      title: 'Todori Pro Monthly',
+      description: 'Monthly Pro',
+      price: 'Localized monthly price',
+      isAnnual: false,
+    ),
+    BillingProduct(
+      identifier: 'dev.todori.todori.pro.yearly',
+      title: 'Todori Pro Yearly',
+      description: 'Yearly Pro',
+      price: 'Localized yearly price',
+      isAnnual: true,
+    ),
+  ];
+
+  @override
+  Future<BillingPurchaseOutcome> purchase(String productIdentifier) async =>
+      BillingPurchaseOutcome.purchased;
+
+  @override
+  Future<BillingPurchaseOutcome> restore() async =>
+      BillingPurchaseOutcome.purchased;
+
+  @override
+  Future<Uri?> managementUrl() async => null;
+
+  @override
+  Future<void> accountLoggedOut() async {}
 }
 
 void _setNarrowViewport(WidgetTester tester) {
