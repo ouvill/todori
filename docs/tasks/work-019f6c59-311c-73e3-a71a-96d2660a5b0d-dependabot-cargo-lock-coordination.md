@@ -83,7 +83,7 @@ rootとfuzzのCargo更新を同一Dependabot定義へ統合し、通常の破壊
 - 作業日: 2026-07-17
 - 結果: Cargoのroot / fuzz更新を単一設定へ統合し、version updateをdependency-name単位、security updateを全依存group、protected dependencyの通常更新をpatch限定にした。両lockfileの`--locked`検証とrelease gateは維持し、失敗対象を診断できるようにした。
 - 証拠: YAML構造検証、pin check、root / fuzz locked metadata、`cargo fmt`、`cargo clippy`、`cargo test`、`cargo audit --deny warnings`、bridge release build、Flutter analyze / 253 tests、client boundary gatesが成功した。parser fuzzは61秒で384,932 runs、crashなしだった。
-- Commit: 未コミット
+- Commit: `064044b`
 - 未解決: merge後に実生成されるDependabot PRの両lockfile更新を確認する。成立しなければversion update停止fallbackを適用する。確認後にPR #17 / #18を説明付きでcloseし、本work itemを`done`へ更新する。
 
 ### 独立検証
