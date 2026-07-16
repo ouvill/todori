@@ -140,6 +140,9 @@ pub struct LocalFullResyncSweepSummary {
     pub scanned_records: usize,
     pub swept_lists: usize,
     pub swept_tasks: usize,
+    pub swept_templates: usize,
+    pub swept_schedules: usize,
+    pub swept_timer_sessions: usize,
     pub swept_record_states: usize,
 }
 
@@ -1126,7 +1129,10 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use todori_domain::TaskStatus;
+    use todori_domain::{
+        ScheduleCursor, TaskStatus, TemplateNode, TemplateSnapshot, MAX_TEMPLATE_SNAPSHOT_BYTES,
+        TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+    };
     use zeroize::Zeroizing;
 
     #[derive(Default)]
@@ -1220,6 +1226,119 @@ mod tests {
         assert_eq!(store.outbox[0].record_id, list.id);
         assert_eq!(store.outbox[1].collection, SyncCollection::Tasks);
         assert_eq!(store.outbox[1].record_id, task.id);
+    }
+
+    #[test]
+    fn backfill_encrypts_template_and_schedule_with_tenant_root_dek() {
+        let template = sample_template(uuid(20));
+        let schedule = sample_schedule(uuid(21), template.id);
+        let mut store = FakeStore::default();
+        let keys = tenant_sync_keys();
+        let mut now = ticking_now();
+
+        let summary = enqueue_backfill(
+            &mut store,
+            &keys,
+            "device-a",
+            BackfillRecords {
+                lists: &[],
+                templates: std::slice::from_ref(&template),
+                schedules: std::slice::from_ref(&schedule),
+                tasks: &[],
+                timer_sessions: &[],
+            },
+            &mut now,
+        )
+        .unwrap();
+
+        assert_eq!(summary.enqueued_templates, 1);
+        assert_eq!(summary.enqueued_schedules, 1);
+        assert_eq!(store.outbox[0].collection, SyncCollection::Templates);
+        assert_eq!(store.outbox[1].collection, SyncCollection::Schedules);
+        for (entry, expected_collection) in [
+            (&store.outbox[0], "templates"),
+            (&store.outbox[1], "schedules"),
+        ] {
+            let EncryptedSyncState::Live { blob, .. } = &entry.state else {
+                panic!("backfill emitted a tombstone")
+            };
+            let decoded = crate::decrypt_plaintext(
+                &[8; KEY_LEN],
+                keys.tenant_id,
+                keys.tenant_generation,
+                expected_collection,
+                entry.record_id,
+                blob,
+            )
+            .unwrap();
+            decoded
+                .validate_for_collection(expected_collection, &entry.record_id.to_string())
+                .unwrap();
+            assert!(crate::decrypt_plaintext(
+                &[9; KEY_LEN],
+                keys.tenant_id,
+                keys.tenant_generation,
+                expected_collection,
+                entry.record_id,
+                blob,
+            )
+            .is_err());
+            let other_collection = if expected_collection == "templates" {
+                "schedules"
+            } else {
+                "templates"
+            };
+            assert!(crate::decrypt_plaintext(
+                &[8; KEY_LEN],
+                keys.tenant_id,
+                keys.tenant_generation,
+                other_collection,
+                entry.record_id,
+                blob,
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn near_limit_escape_heavy_snapshot_envelope_stays_below_transport_cap() {
+        let mut low = 0usize;
+        let mut high = 600usize;
+        while low < high {
+            let candidate = (low + high + 1) / 2;
+            if template_with_escape_note_size(uuid(22), candidate)
+                .snapshot
+                .validate()
+                .is_ok()
+            {
+                low = candidate;
+            } else {
+                high = candidate - 1;
+            }
+        }
+        let template = template_with_escape_note_size(uuid(22), low);
+        let snapshot_bytes = template.snapshot.validate().unwrap();
+        assert!(snapshot_bytes > 47 * 1024);
+        assert!(snapshot_bytes <= MAX_TEMPLATE_SNAPSHOT_BYTES);
+        let keys = tenant_sync_keys();
+        let mut store = FakeStore::default();
+        let mut now = ticking_now();
+
+        enqueue_template_sync(&mut store, &keys, "device-a", &template, false, &mut now).unwrap();
+
+        let EncryptedSyncState::Live { blob, .. } = &store.outbox[0].state else {
+            panic!("template enqueue emitted a tombstone")
+        };
+        assert!(blob.len() <= crate::MAX_ENCRYPTED_BLOB_LEN);
+        assert!(crate::decrypt_plaintext(
+            &[8; KEY_LEN],
+            keys.tenant_id,
+            keys.tenant_generation,
+            "templates",
+            template.id,
+            blob,
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1418,6 +1537,18 @@ mod tests {
         }
     }
 
+    fn tenant_sync_keys() -> LocalSyncKeys {
+        LocalSyncKeys {
+            tenant_id: Uuid::from_u128(100),
+            list_deks: Vec::new(),
+            list_generations: Vec::new(),
+            tenant_root_dek: Some(Zeroizing::new([8; KEY_LEN])),
+            tenant_generation: 1,
+            historical_list_deks: Vec::new(),
+            historical_tenant_root_deks: Vec::new(),
+        }
+    }
+
     fn ticking_now() -> impl FnMut() -> Result<i64, String> {
         let mut now = 1_799_000_000_000;
         move || {
@@ -1462,6 +1593,66 @@ mod tests {
             created_at,
             updated_at: created_at,
         }
+    }
+
+    fn sample_template(id: Uuid) -> TaskTemplate {
+        TaskTemplate {
+            id,
+            name: "Template".to_string(),
+            default_list_id: None,
+            snapshot: TemplateSnapshot {
+                schema_revision: TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+                nodes: vec![TemplateNode {
+                    node_key: "root".to_string(),
+                    parent_node_key: None,
+                    sibling_order: 0,
+                    title: "Generated".to_string(),
+                    note: String::new(),
+                    priority: 0,
+                    estimated_minutes: None,
+                }],
+            },
+            snapshot_revision: "template-r1".to_string(),
+            snapshot_parent_revision: None,
+            snapshot_effective_from: 1,
+            lineage: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn sample_schedule(id: Uuid, template_id: Uuid) -> RecurrenceSchedule {
+        RecurrenceSchedule {
+            id,
+            template_id,
+            rrule: "FREQ=DAILY".to_string(),
+            starts_at: 1_800_000_000_000,
+            time_zone: "UTC".to_string(),
+            cursor: ScheduleCursor::Pending(1_800_000_000_000),
+            enabled: true,
+            config_revision: "schedule-r1".to_string(),
+            config_parent_revision: None,
+            config_effective_from: 1,
+            lineage: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn template_with_escape_note_size(id: Uuid, note_size: usize) -> TaskTemplate {
+        let mut template = sample_template(id);
+        template.snapshot.nodes = (0..100)
+            .map(|index| TemplateNode {
+                node_key: format!("node-{index}"),
+                parent_node_key: (index != 0).then(|| "node-0".to_string()),
+                sibling_order: u32::try_from(index).unwrap(),
+                title: format!("Task {index}"),
+                note: "\"".repeat(note_size),
+                priority: 0,
+                estimated_minutes: None,
+            })
+            .collect();
+        template
     }
 
     fn existing_outbox(collection: SyncCollection, record_id: Uuid) -> LocalSyncOutboxEntry {

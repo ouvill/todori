@@ -433,6 +433,9 @@ pub struct FullResyncSweepSummary {
     pub scanned_records: usize,
     pub swept_lists: usize,
     pub swept_tasks: usize,
+    pub swept_templates: usize,
+    pub swept_schedules: usize,
+    pub swept_timer_sessions: usize,
     pub swept_record_states: usize,
 }
 
@@ -5323,12 +5326,31 @@ fn sweep_full_resync_batch_on(
         "SELECT collection, record_id
          FROM sync_record_states
          WHERE ?1 IS NULL
-            OR CASE collection WHEN 'tasks' THEN 0 ELSE 1 END > ?1
+            OR CASE collection
+                   WHEN 'timer_sessions' THEN 0
+                   WHEN 'tasks' THEN 1
+                   WHEN 'schedules' THEN 2
+                   WHEN 'templates' THEN 3
+                   WHEN 'lists' THEN 4
+               END > ?1
             OR (
-                CASE collection WHEN 'tasks' THEN 0 ELSE 1 END = ?1
+                CASE collection
+                    WHEN 'timer_sessions' THEN 0
+                    WHEN 'tasks' THEN 1
+                    WHEN 'schedules' THEN 2
+                    WHEN 'templates' THEN 3
+                    WHEN 'lists' THEN 4
+                END = ?1
                 AND record_id > ?2
             )
-         ORDER BY CASE collection WHEN 'tasks' THEN 0 ELSE 1 END ASC, record_id ASC
+         ORDER BY CASE collection
+                      WHEN 'timer_sessions' THEN 0
+                      WHEN 'tasks' THEN 1
+                      WHEN 'schedules' THEN 2
+                      WHEN 'templates' THEN 3
+                      WHEN 'lists' THEN 4
+                  END ASC,
+                  record_id ASC
          LIMIT ?3",
     )?;
     let records = statement
@@ -5394,6 +5416,18 @@ fn sweep_full_resync_batch_on(
                 )?;
                 summary.swept_tasks += delete_list_with_tasks_for_sync_on(connection, record_uuid)?;
                 summary.swept_lists += usize::from(list_existed);
+            }
+            "templates" => {
+                summary.swept_templates +=
+                    connection.execute("DELETE FROM templates WHERE id = ?1", [record_id])?;
+            }
+            "schedules" => {
+                summary.swept_schedules +=
+                    connection.execute("DELETE FROM schedules WHERE id = ?1", [record_id])?;
+            }
+            "timer_sessions" => {
+                summary.swept_timer_sessions +=
+                    connection.execute("DELETE FROM timer_sessions WHERE id = ?1", [record_id])?;
             }
             other => return Err(StorageError::InvalidSyncCollection(other.to_string())),
         }
@@ -5510,14 +5544,102 @@ fn never_synced_record_is_valid(
                 |row| row.get(0),
             )
             .map_err(StorageError::from),
+        "templates" => never_synced_record_has_outbox(connection, collection, record_id),
+        "schedules" => connection
+            .query_row(
+                "SELECT EXISTS (
+                     SELECT 1 FROM schedules schedule
+                     JOIN sync_record_origins origin
+                       ON origin.record_id = schedule.id
+                      AND origin.collection = 'schedules'
+                      AND origin.origin_kind = 'never_synced'
+                     JOIN sync_outbox outbox
+                       ON outbox.record_id = schedule.id
+                      AND outbox.collection = 'schedules'
+                     WHERE schedule.id = ?1
+                       AND EXISTS (
+                           SELECT 1 FROM sync_record_origins template_origin
+                           JOIN sync_outbox template_outbox
+                             ON template_outbox.record_id = template_origin.record_id
+                            AND template_outbox.collection = 'templates'
+                           WHERE template_origin.record_id = schedule.template_id
+                             AND template_origin.collection = 'templates'
+                             AND template_origin.origin_kind = 'never_synced'
+                           UNION ALL
+                           SELECT 1 FROM sync_full_resync_marks template_mark
+                           WHERE template_mark.generation_id = ?2
+                             AND template_mark.collection = 'templates'
+                             AND template_mark.record_id = schedule.template_id
+                       )
+                 )",
+                params![record_id, generation_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(StorageError::from),
+        "timer_sessions" => connection
+            .query_row(
+                "SELECT EXISTS (
+                     SELECT 1 FROM timer_sessions timer
+                     JOIN sync_record_origins origin
+                       ON origin.record_id = timer.id
+                      AND origin.collection = 'timer_sessions'
+                      AND origin.origin_kind = 'never_synced'
+                     JOIN sync_outbox outbox
+                       ON outbox.record_id = timer.id
+                      AND outbox.collection = 'timer_sessions'
+                     WHERE timer.id = ?1
+                       AND EXISTS (
+                           SELECT 1 FROM sync_record_origins task_origin
+                           JOIN sync_outbox task_outbox
+                             ON task_outbox.record_id = task_origin.record_id
+                            AND task_outbox.collection = 'tasks'
+                           WHERE task_origin.record_id = timer.task_id
+                             AND task_origin.collection = 'tasks'
+                             AND task_origin.origin_kind = 'never_synced'
+                           UNION ALL
+                           SELECT 1 FROM sync_full_resync_marks task_mark
+                           WHERE task_mark.generation_id = ?2
+                             AND task_mark.collection = 'tasks'
+                             AND task_mark.record_id = timer.task_id
+                       )
+                 )",
+                params![record_id, generation_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(StorageError::from),
         other => Err(StorageError::InvalidSyncCollection(other.to_string())),
     }
 }
 
+fn never_synced_record_has_outbox(
+    connection: &Connection,
+    collection: &str,
+    record_id: &str,
+) -> Result<bool, StorageError> {
+    connection
+        .query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM sync_record_origins origin
+                 JOIN sync_outbox outbox
+                   ON outbox.record_id = origin.record_id
+                  AND outbox.collection = origin.collection
+                 WHERE origin.record_id = ?1
+                   AND origin.collection = ?2
+                   AND origin.origin_kind = 'never_synced'
+             )",
+            params![record_id, collection],
+            |row| row.get(0),
+        )
+        .map_err(StorageError::from)
+}
+
 fn local_sweep_collection_order(collection: &str) -> Result<i64, StorageError> {
     match collection {
-        "tasks" => Ok(0),
-        "lists" => Ok(1),
+        "timer_sessions" => Ok(0),
+        "tasks" => Ok(1),
+        "schedules" => Ok(2),
+        "templates" => Ok(3),
+        "lists" => Ok(4),
         other => Err(StorageError::InvalidSyncCollection(other.to_string())),
     }
 }
@@ -5546,9 +5668,21 @@ fn finalize_full_resync_on(
     let has_more: bool = connection.query_row(
         "SELECT EXISTS (
              SELECT 1 FROM sync_record_states
-             WHERE CASE collection WHEN 'tasks' THEN 0 ELSE 1 END > ?1
+             WHERE CASE collection
+                       WHEN 'timer_sessions' THEN 0
+                       WHEN 'tasks' THEN 1
+                       WHEN 'schedules' THEN 2
+                       WHEN 'templates' THEN 3
+                       WHEN 'lists' THEN 4
+                   END > ?1
                 OR (
-                    CASE collection WHEN 'tasks' THEN 0 ELSE 1 END = ?1
+                    CASE collection
+                        WHEN 'timer_sessions' THEN 0
+                        WHEN 'tasks' THEN 1
+                        WHEN 'schedules' THEN 2
+                        WHEN 'templates' THEN 3
+                        WHEN 'lists' THEN 4
+                    END = ?1
                     AND record_id > ?2
                 )
          )",
@@ -6178,7 +6312,7 @@ fn delete_outbox_head_on(
 
 fn validate_sync_collection(collection: &str) -> Result<(), StorageError> {
     match collection {
-        "lists" | "tasks" | "timer_sessions" => Ok(()),
+        "lists" | "tasks" | "templates" | "schedules" | "timer_sessions" => Ok(()),
         other => Err(StorageError::InvalidSyncCollection(other.to_string())),
     }
 }
@@ -6602,7 +6736,10 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
     use todori_crypto::{derive_local_db_key, ensure_device_key, InMemoryDeviceKeyStore};
-    use todori_domain::{new_list, new_task, transition_task, update_title};
+    use todori_domain::{
+        new_list, new_task, transition_task, update_title, TemplateNode, TemplateSnapshot,
+        TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+    };
 
     const KEY: [u8; 32] = [0x11; 32];
     const WRONG_KEY: [u8; 32] = [0x22; 32];
@@ -6690,6 +6827,50 @@ mod tests {
             archived_at: None,
             created_at: 1_799_000_000_000,
             updated_at: 1_799_000_000_000,
+        }
+    }
+
+    fn sample_template() -> TaskTemplate {
+        TaskTemplate {
+            id: Uuid::now_v7(),
+            name: "Template".to_string(),
+            default_list_id: None,
+            snapshot: TemplateSnapshot {
+                schema_revision: TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+                nodes: vec![TemplateNode {
+                    node_key: "root".to_string(),
+                    parent_node_key: None,
+                    sibling_order: 0,
+                    title: "Generated task".to_string(),
+                    note: String::new(),
+                    priority: 0,
+                    estimated_minutes: None,
+                }],
+            },
+            snapshot_revision: "template-r1".to_string(),
+            snapshot_parent_revision: None,
+            snapshot_effective_from: 1,
+            lineage: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn sample_schedule(template_id: Uuid) -> RecurrenceSchedule {
+        RecurrenceSchedule {
+            id: Uuid::now_v7(),
+            template_id,
+            rrule: "FREQ=DAILY".to_string(),
+            starts_at: 1_800_000_000_000,
+            time_zone: "UTC".to_string(),
+            cursor: ScheduleCursor::Pending(1_800_000_000_000),
+            enabled: true,
+            config_revision: "schedule-r1".to_string(),
+            config_parent_revision: None,
+            config_effective_from: 1,
+            lineage: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
         }
     }
 
@@ -11259,6 +11440,148 @@ mod tests {
             5
         );
         assert_eq!(load_full_resync_on(&connection).unwrap(), None);
+    }
+
+    #[test]
+    fn full_resync_sweeps_absent_schedule_then_template_across_stable_batches() {
+        let file = NamedTempFile::new().unwrap();
+        let template = sample_template();
+        let schedule = sample_schedule(template.id);
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction.upsert_template(template.clone()).unwrap();
+        transaction.upsert_schedule(schedule.clone()).unwrap();
+        for (id, collection) in [(template.id, "templates"), (schedule.id, "schedules")] {
+            transaction
+                .put_record_state(live_record_state(
+                    id,
+                    collection,
+                    Some("server-r1"),
+                    "m1",
+                    "{}",
+                    1,
+                ))
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+
+        let generation_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 0, 10)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 11)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 0, 12)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        let mut total = FullResyncSweepSummary::default();
+        for now in 20..24 {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            let batch = transaction
+                .sweep_full_resync_batch(generation_id, 1, now)
+                .unwrap();
+            transaction.commit().unwrap();
+            total.scanned_records += batch.scanned_records;
+            total.swept_templates += batch.swept_templates;
+            total.swept_schedules += batch.swept_schedules;
+            total.swept_record_states += batch.swept_record_states;
+            if batch.scanned_records == 0 {
+                break;
+            }
+        }
+
+        assert_eq!(total.scanned_records, 2);
+        assert_eq!(total.swept_schedules, 1);
+        assert_eq!(total.swept_templates, 1);
+        assert_eq!(total.swept_record_states, 2);
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert!(matches!(
+            get_schedule_on(&connection, schedule.id),
+            Err(StorageError::NotFound(_))
+        ));
+        assert!(matches!(
+            get_template_on(&connection, template.id),
+            Err(StorageError::NotFound(_))
+        ));
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        assert_eq!(
+            transaction
+                .finalize_full_resync(generation_id, "default", 30)
+                .unwrap(),
+            0
+        );
+        transaction.commit().unwrap();
+    }
+
+    #[test]
+    fn full_resync_preserves_never_synced_schedule_with_never_synced_template() {
+        let file = NamedTempFile::new().unwrap();
+        let template = sample_template();
+        let schedule = sample_schedule(template.id);
+        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        transaction.upsert_template(template.clone()).unwrap();
+        transaction.upsert_schedule(schedule.clone()).unwrap();
+        for (id, collection) in [(template.id, "templates"), (schedule.id, "schedules")] {
+            transaction
+                .put_record_state(live_record_state(id, collection, None, "m1", "{}", 1))
+                .unwrap();
+            transaction
+                .put_outbox_head(new_live_outbox(
+                    id,
+                    collection,
+                    Uuid::now_v7(),
+                    None,
+                    "r1",
+                    "m1",
+                    vec![1],
+                ))
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+
+        let generation_id = Uuid::now_v7();
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .start_full_resync(generation_id, 1, 0, 10)
+            .unwrap();
+        transaction
+            .advance_full_resync_base(generation_id, None, true, 11)
+            .unwrap();
+        transaction
+            .enter_full_resync_sweep(generation_id, 0, 12)
+            .unwrap();
+        transaction.commit().unwrap();
+
+        loop {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+            let batch = transaction
+                .sweep_full_resync_batch(generation_id, 1, 20)
+                .unwrap();
+            transaction.commit().unwrap();
+            if batch.scanned_records == 0 {
+                break;
+            }
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(get_schedule_on(&connection, schedule.id).unwrap(), schedule);
+        assert_eq!(get_template_on(&connection, template.id).unwrap(), template);
+        assert!(has_outbox_head_on(&connection, "schedules", schedule.id).unwrap());
+        assert!(has_outbox_head_on(&connection, "templates", template.id).unwrap());
+        let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();
+        transaction
+            .finalize_full_resync(generation_id, "default", 30)
+            .unwrap();
+        transaction.commit().unwrap();
     }
 
     #[test]

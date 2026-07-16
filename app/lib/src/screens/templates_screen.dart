@@ -540,10 +540,14 @@ Future<_ScheduleInput?> _showScheduleDialog(
   String defaultTimeZone,
 ) async {
   final l10n = AppLocalizations.of(context)!;
-  final now = DateTime.now();
   var startsAt =
       schedule?.startsAt ??
-      now.add(const Duration(hours: 1)).millisecondsSinceEpoch;
+      DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch;
+  final initialStart = DateTime.fromMillisecondsSinceEpoch(startsAt);
+  var selectedWeekdays = <int>{initialStart.weekday};
+  var selectedMonthDay = initialStart.day;
+  var weeklyCustomized = false;
+  var monthlyCustomized = false;
   final zoneController = TextEditingController(
     text: schedule?.timeZone ?? defaultTimeZone,
   );
@@ -564,6 +568,7 @@ Future<_ScheduleInput?> _showScheduleDialog(
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
+                key: const Key('schedule-preset'),
                 initialValue: preset,
                 isExpanded: true,
                 decoration: InputDecoration(
@@ -603,17 +608,92 @@ Future<_ScheduleInput?> _showScheduleDialog(
                   if (value == null) return;
                   setState(() {
                     preset = value;
-                    controller.text = switch (value) {
-                      'daily' => 'FREQ=DAILY',
-                      'weekly' =>
-                        'FREQ=WEEKLY;BYDAY=${_weekdayCode(now.weekday)}',
-                      'monthly' => 'FREQ=MONTHLY;BYMONTHDAY=${now.day}',
-                      _ => controller.text,
-                    };
+                    controller.text = _presetRule(
+                      value,
+                      selectedWeekdays,
+                      selectedMonthDay,
+                      controller.text,
+                    );
                   });
                 },
               ),
               const SizedBox(height: AppSpacing.md),
+              if (preset == 'weekly') ...[
+                Wrap(
+                  key: const Key('schedule-weekdays'),
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    for (
+                      var weekday = DateTime.monday;
+                      weekday <= DateTime.sunday;
+                      weekday++
+                    )
+                      FilterChip(
+                        key: Key('schedule-weekday-$weekday'),
+                        label: Text(
+                          DateFormat.E(
+                            Localizations.localeOf(context).toLanguageTag(),
+                          ).format(DateTime(2024, 1, weekday)),
+                        ),
+                        selected: selectedWeekdays.contains(weekday),
+                        onSelected: (selected) {
+                          if (!selected && selectedWeekdays.length == 1) {
+                            return;
+                          }
+                          setState(() {
+                            weeklyCustomized = true;
+                            if (selected) {
+                              selectedWeekdays.add(weekday);
+                            } else {
+                              selectedWeekdays.remove(weekday);
+                            }
+                            controller.text = _presetRule(
+                              preset,
+                              selectedWeekdays,
+                              selectedMonthDay,
+                              controller.text,
+                            );
+                          });
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              if (preset == 'monthly') ...[
+                DropdownButtonFormField<int>(
+                  key: const Key('schedule-month-day'),
+                  initialValue: selectedMonthDay,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: l10n.monthlyPreset),
+                  items: [
+                    for (var day = 1; day <= 31; day++)
+                      DropdownMenuItem(
+                        value: day,
+                        child: Text(
+                          NumberFormat.decimalPattern(
+                            Localizations.localeOf(context).toLanguageTag(),
+                          ).format(day),
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      monthlyCustomized = true;
+                      selectedMonthDay = value;
+                      controller.text = _presetRule(
+                        preset,
+                        selectedWeekdays,
+                        selectedMonthDay,
+                        controller.text,
+                      );
+                    });
+                  },
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               TextField(
                 controller: controller,
                 enabled: preset == 'advanced',
@@ -644,13 +724,26 @@ Future<_ScheduleInput?> _showScheduleDialog(
                   );
                   if (time == null) return;
                   setState(() {
-                    startsAt = DateTime(
+                    final selectedStart = DateTime(
                       date.year,
                       date.month,
                       date.day,
                       time.hour,
                       time.minute,
-                    ).millisecondsSinceEpoch;
+                    );
+                    startsAt = selectedStart.millisecondsSinceEpoch;
+                    if (!weeklyCustomized) {
+                      selectedWeekdays = {selectedStart.weekday};
+                    }
+                    if (!monthlyCustomized) {
+                      selectedMonthDay = selectedStart.day;
+                    }
+                    controller.text = _presetRule(
+                      preset,
+                      selectedWeekdays,
+                      selectedMonthDay,
+                      controller.text,
+                    );
                   });
                 },
               ),
@@ -687,6 +780,19 @@ Future<_ScheduleInput?> _showScheduleDialog(
     ),
   );
 }
+
+String _presetRule(
+  String preset,
+  Set<int> selectedWeekdays,
+  int selectedMonthDay,
+  String advancedRule,
+) => switch (preset) {
+  'daily' => 'FREQ=DAILY',
+  'weekly' =>
+    'FREQ=WEEKLY;BYDAY=${(selectedWeekdays.toList()..sort()).map(_weekdayCode).join(',')}',
+  'monthly' => 'FREQ=MONTHLY;BYMONTHDAY=$selectedMonthDay',
+  _ => advancedRule,
+};
 
 String _weekdayCode(int weekday) => const {
   DateTime.monday: 'MO',

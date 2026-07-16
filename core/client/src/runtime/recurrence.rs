@@ -812,7 +812,53 @@ fn revision_accepts_occurrence(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{atomic::AtomicBool, Mutex};
+
+    use tempfile::TempDir;
+    use todori_domain::{new_list, new_task};
+    use todori_storage::{
+        ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
+    };
+    use zeroize::Zeroizing;
+
     use super::*;
+    use crate::runtime::{AccountRuntimeState, CryptoRuntimeState, SyncRuntimeState};
+
+    const DB_KEY: [u8; 32] = [0xb7; 32];
+
+    fn anonymous_client_fixture() -> (TempDir, TodoriClient, todori_domain::List, Task) {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("recurrence.sqlite3");
+        let mut inbox = new_list("Inbox".into(), "a0".into(), 1_700_000_000_000).unwrap();
+        inbox.is_default = true;
+        let task = new_task(
+            inbox.id,
+            None,
+            "Repeat me".into(),
+            "a0".into(),
+            1_700_000_000_000,
+        )
+        .unwrap();
+        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(inbox.clone())
+            .unwrap();
+        SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
+            .insert(task.clone())
+            .unwrap();
+        let client = TodoriClient {
+            db_dir: temp.path().to_path_buf(),
+            db_path,
+            db_key: Mutex::new(Zeroizing::new(DB_KEY)),
+            account: Mutex::new(AccountRuntimeState {
+                session: None,
+                session_restored: true,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(SyncRuntimeState::default()),
+            operation_busy: AtomicBool::new(false),
+        };
+        (temp, client, inbox, task)
+    }
 
     #[test]
     fn revision_windows_reject_losing_and_post_cutover_old_instances() {
@@ -931,5 +977,90 @@ mod tests {
         assert_eq!(first[1].scheduled_at, None);
         assert!(first.iter().all(|task| task.due.is_none()));
         assert!(first.iter().all(|task| task.status == TaskStatus::Todo));
+    }
+
+    #[test]
+    fn client_settlement_batches_long_offline_catchup_and_is_idempotent() {
+        let (_temp, client, inbox, source) = anonymous_client_fixture();
+        let template = client
+            .save_task_as_template(SaveTemplateCommand {
+                task_id: source.id,
+                name: "Daily review".into(),
+                default_list_id: Some(inbox.id),
+            })
+            .unwrap();
+        let day_ms = 24 * 60 * 60 * 1000;
+        let at_ms = 1_800_000_000_000;
+        let starts_at = at_ms - 104 * day_ms;
+        let schedule = client
+            .create_schedule(CreateScheduleCommand {
+                template_id: template.id,
+                rrule: "FREQ=DAILY;COUNT=105".into(),
+                starts_at,
+                time_zone: "UTC".into(),
+            })
+            .unwrap();
+
+        let first = client.settle_due_schedules(at_ms).unwrap();
+        assert_eq!(first.generated_occurrences, 100);
+        assert_eq!(first.generated_tasks, 100);
+        assert!(first.has_more);
+        let second = client.settle_due_schedules(at_ms).unwrap();
+        assert_eq!(second.generated_occurrences, 5);
+        assert_eq!(second.generated_tasks, 5);
+        assert!(!second.has_more);
+        let replay = client.settle_due_schedules(at_ms).unwrap();
+        assert_eq!(replay.generated_occurrences, 0);
+        assert_eq!(replay.generated_tasks, 0);
+
+        let tasks = client.get_tasks(inbox.id).unwrap();
+        let generated = tasks
+            .iter()
+            .filter(|task| {
+                task.recurrence
+                    .as_ref()
+                    .is_some_and(|value| value.schedule_id == schedule.id)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(generated.len(), 105);
+        assert_eq!(
+            generated
+                .iter()
+                .map(|task| task.id)
+                .collect::<HashSet<_>>()
+                .len(),
+            105
+        );
+        assert!(generated.iter().all(|task| task.due.is_none()));
+        assert!(generated
+            .iter()
+            .all(|task| task.scheduled_at
+                == task.recurrence.as_ref().map(|value| value.occurrence_at)));
+        let schedules = client.get_template_schedules(template.id).unwrap();
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].cursor, ScheduleCursor::Exhausted);
+    }
+
+    #[test]
+    fn manual_instantiation_falls_back_from_archived_default_to_inbox() {
+        let (_temp, client, inbox, source) = anonymous_client_fixture();
+        let mut archived = new_list("Archived".into(), "a1".into(), source.created_at).unwrap();
+        archived.archived_at = Some(source.created_at + 1);
+        SqliteListRepository::new(open_encrypted(client.db_path(), &DB_KEY).unwrap())
+            .insert(archived.clone())
+            .unwrap();
+        let template = client
+            .save_task_as_template(SaveTemplateCommand {
+                task_id: source.id,
+                name: "Fallback".into(),
+                default_list_id: Some(archived.id),
+            })
+            .unwrap();
+
+        let tasks = client.instantiate_template(template.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].list_id, inbox.id);
+        assert!(tasks[0].recurrence.is_none());
+        assert_eq!(tasks[0].id.get_version_num(), 7);
     }
 }

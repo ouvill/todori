@@ -880,7 +880,11 @@ where
                 transaction
                     .commit()
                     .map_err(|_| "sync failed".to_string())?;
-                summary.deleted_count += swept.swept_lists + swept.swept_tasks;
+                summary.deleted_count += swept.swept_lists
+                    + swept.swept_tasks
+                    + swept.swept_templates
+                    + swept.swept_schedules
+                    + swept.swept_timer_sessions;
                 if swept.scanned_records == 0 {
                     let mut transaction = store
                         .begin_write_transaction()

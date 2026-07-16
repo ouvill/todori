@@ -592,6 +592,65 @@ mod tests {
     }
 
     #[test]
+    fn supported_frequencies_intervals_and_endings_are_accepted() {
+        let starts_at = Utc
+            .with_ymd_and_hms(2026, 1, 1, 9, 0, 0)
+            .unwrap()
+            .timestamp_millis();
+        for rule in [
+            "FREQ=DAILY;INTERVAL=2",
+            "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=4",
+            "FREQ=MONTHLY;BYMONTHDAY=15;COUNT=3",
+            "FREQ=YEARLY;COUNT=2",
+            "FREQ=DAILY;UNTIL=20260105T090000Z",
+        ] {
+            assert!(validate_and_normalize_rrule(rule, starts_at, "UTC").is_ok());
+        }
+        let (yearly, has_more) =
+            occurrences_after("FREQ=YEARLY;COUNT=2", starts_at, "UTC", starts_at - 1, 10).unwrap();
+        assert_eq!(yearly.len(), 2);
+        assert!(!has_more);
+        let (until, has_more) = occurrences_after(
+            "FREQ=DAILY;UNTIL=20260105T090000Z",
+            starts_at,
+            "UTC",
+            starts_at - 1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(until.len(), 5);
+        assert!(!has_more);
+    }
+
+    #[test]
+    fn stored_timezone_keeps_occurrences_stable_after_device_zone_move() {
+        let starts_at = Utc
+            .with_ymd_and_hms(2026, 10, 31, 13, 0, 0)
+            .unwrap()
+            .timestamp_millis(); // 09:00 America/New_York before fall-back.
+        let before_move = occurrences_after(
+            "FREQ=DAILY;COUNT=3",
+            starts_at,
+            "America/New_York",
+            starts_at - 1,
+            10,
+        )
+        .unwrap();
+        // Device-local timezone is intentionally not an input. Reopening the same
+        // persisted schedule after travel must therefore produce identical instants.
+        let after_move = occurrences_after(
+            "FREQ=DAILY;COUNT=3",
+            starts_at,
+            "America/New_York",
+            starts_at - 1,
+            10,
+        )
+        .unwrap();
+        assert_eq!(before_move, after_move);
+        assert_eq!(before_move.0[1] - before_move.0[0], 25 * 60 * 60 * 1000);
+    }
+
+    #[test]
     fn exhausted_cursor_is_terminal_maximum() {
         assert_eq!(
             ScheduleCursor::Pending(200).merge(ScheduleCursor::Pending(100)),

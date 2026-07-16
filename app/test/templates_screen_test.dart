@@ -124,6 +124,61 @@ void main() {
     },
   );
 
+  testWidgets('weekly and monthly presets expose explicit selectors', (
+    tester,
+  ) async {
+    _useMobileView(tester, textScale: 2);
+    final seed = await _seedTemplate(FakeBridgeService());
+    await _pumpTemplates(tester, seed.fake);
+
+    await tester.tap(find.byTooltip('Add schedule'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every day'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every week on this weekday').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('schedule-weekdays')), findsOneWidget);
+    expect(find.byType(FilterChip), findsNWidgets(7));
+    final initiallySelected = tester
+        .widgetList<FilterChip>(find.byType(FilterChip))
+        .toList()
+        .indexWhere((chip) => chip.selected);
+    final additionalWeekday = initiallySelected == 0 ? 1 : 0;
+    await tester.tap(find.byType(FilterChip).at(additionalWeekday));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    var schedules = await seed.fake.getTemplateSchedules(
+      templateId: seed.templateId,
+    );
+    expect(schedules.single.rrule, startsWith('FREQ=WEEKLY;BYDAY='));
+    expect(schedules.single.rrule.split(',').length, 2);
+
+    await tester.tap(find.byTooltip('Add schedule'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every day'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every month on this date').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('schedule-month-day')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('schedule-month-day')));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('31').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    schedules = await seed.fake.getTemplateSchedules(
+      templateId: seed.templateId,
+    );
+    expect(
+      schedules.map((schedule) => schedule.rrule),
+      contains('FREQ=MONTHLY;BYMONTHDAY=31'),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Japanese task detail saves a subtree as a template', (
     tester,
   ) async {

@@ -1045,6 +1045,9 @@ fn storage_sweep_to_local(summary: FullResyncSweepSummary) -> LocalFullResyncSwe
         scanned_records: summary.scanned_records,
         swept_lists: summary.swept_lists,
         swept_tasks: summary.swept_tasks,
+        swept_templates: summary.swept_templates,
+        swept_schedules: summary.swept_schedules,
+        swept_timer_sessions: summary.swept_timer_sessions,
         swept_record_states: summary.swept_record_states,
     }
 }
