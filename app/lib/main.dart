@@ -162,6 +162,8 @@ class _TodoriAppShell extends ConsumerStatefulWidget {
 
 class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
     with WidgetsBindingObserver {
+  bool _startupSettlementRequested = false;
+
   @override
   void initState() {
     super.initState();
@@ -179,7 +181,7 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
     final onboardingCompleted = ref.read(onboardingStatusProvider).value;
     if (state == AppLifecycleState.resumed && onboardingCompleted == true) {
       ref.read(appForegroundProvider.notifier).setForeground(true);
-      unawaited(ref.read(syncStatusProvider.notifier).syncOnResume());
+      unawaited(_settleRecurrenceAndSync());
       unawaited(_settleTimerOnResume());
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
@@ -200,6 +202,29 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
       // unhandled lifecycle exception.
       ref.invalidate(timerEngineProvider);
     }
+  }
+
+  Future<void> _settleRecurrenceAndSync() async {
+    try {
+      var hasMore = false;
+      do {
+        final summary = await ref
+            .read(bridgeServiceProvider)
+            .settleDueSchedules(atMs: DateTime.now().millisecondsSinceEpoch);
+        hasMore = summary.hasMore;
+        if (hasMore) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      } while (hasMore);
+      ref.invalidate(listsProvider);
+      ref.invalidate(tasksProvider);
+      ref.invalidate(homeTasksProvider);
+      ref.invalidate(calendarOccurrencesProvider);
+    } catch (_) {
+      // Each batch is transactional and is retried on the next lifecycle or
+      // sync event.
+    }
+    await ref.read(syncStatusProvider.notifier).syncOnResume();
   }
 
   @override
@@ -225,6 +250,10 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
         ref.watch(syncStatusProvider);
         ref.watch(realtimeConnectionControllerProvider);
         ref.watch(timerEngineProvider);
+        if (!_startupSettlementRequested) {
+          _startupSettlementRequested = true;
+          scheduleMicrotask(_settleRecurrenceAndSync);
+        }
         return MaterialApp.router(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,

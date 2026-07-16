@@ -17,8 +17,9 @@ use todori_crypto::{
 };
 use todori_domain::Uuid;
 use todori_storage::{
-    open_encrypted, ListRepository, LocalCryptoRepository, SqliteLocalCryptoRepository,
-    SqliteSyncStateRepository, StorageError, TaskRepository, TimerSessionRepository,
+    open_encrypted, ListRepository, LocalCryptoRepository, RecurrenceRepository,
+    SqliteLocalCryptoRepository, SqliteSyncStateRepository, StorageError, TaskRepository,
+    TimerSessionRepository,
 };
 use todori_sync::{
     account::{
@@ -927,6 +928,10 @@ impl TodoriClient {
                 return Err(ClientError::AccountBoundUnavailable);
             }
             let lists = self.local_lists_including_archived()?;
+            let templates =
+                self.with_recurrence_repository(|repository| Ok(repository.list_templates()?))?;
+            let schedules =
+                self.with_recurrence_repository(|repository| Ok(repository.list_schedules()?))?;
             let tasks =
                 self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
             let timer_sessions =
@@ -943,9 +948,13 @@ impl TodoriClient {
                 &mut transaction,
                 &sync_keys,
                 &device_id.to_string(),
-                &lists,
-                &tasks,
-                &timer_sessions,
+                todori_sync::BackfillRecords {
+                    lists: &lists,
+                    templates: &templates,
+                    schedules: &schedules,
+                    tasks: &tasks,
+                    timer_sessions: &timer_sessions,
+                },
                 &mut clock,
             )
             .map_err(|_| ClientError::SyncRun)?;

@@ -143,6 +143,12 @@ class _ListsManagementViewState extends State<_ListsManagementView> {
                     ),
                 const SizedBox(height: AppSpacing.sm),
                 _ListManagementRow(
+                  icon: LucideIcons.copyPlus300,
+                  color: colorScheme.secondary,
+                  title: l10n.templatesTitle,
+                  onTap: () => context.push('/templates'),
+                ),
+                _ListManagementRow(
                   icon: LucideIcons.plus300,
                   color: colorScheme.primary,
                   title: l10n.homeNewListButton,

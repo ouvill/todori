@@ -5,10 +5,12 @@ use todori_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
     AccountSessionState, ActiveTimerSession, BillingState, CalendarOccurrenceKind,
     CalendarOccurrenceView, CalendarRange, CivilDate, ClientError, CompletedTimerSession,
-    CreateTaskCommand, HomeTaskView, List, OrganizationSafetyState, RealtimeTicket, ReminderView,
-    ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind,
-    TaskUndoView, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateTaskCommand,
-    UtcInstant, Uuid,
+    CreateScheduleCommand, CreateTaskCommand, HomeTaskView, List, OrganizationSafetyState,
+    RealtimeTicket, RecurrenceSchedule, ReminderView, ReorderTaskCommand,
+    ReplaceTemplateSnapshotCommand, SaveTemplateCommand, SetTaskStatusCommand, SettlementSummary,
+    Streak, SyncStatus, Task, TaskDue, TaskStatus, TaskTemplate, TaskUndoKind, TaskUndoView,
+    TemplateNode, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateScheduleCommand,
+    UpdateTaskCommand, UpdateTemplateCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -44,6 +46,51 @@ pub struct TaskDto {
     pub assignee: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+pub struct TemplateNodeDto {
+    pub node_key: String,
+    pub parent_node_key: Option<String>,
+    pub sibling_order: u32,
+    pub title: String,
+    pub note: String,
+    pub priority: i32,
+    pub estimated_minutes: Option<i32>,
+}
+
+pub struct TemplateDto {
+    pub id: String,
+    pub name: String,
+    pub default_list_id: Option<String>,
+    pub snapshot_revision: String,
+    pub nodes: Vec<TemplateNodeDto>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+pub struct ScheduleDto {
+    pub id: String,
+    pub template_id: String,
+    pub rrule: String,
+    pub starts_at: i64,
+    pub time_zone: String,
+    pub next_run_at: Option<i64>,
+    pub enabled: bool,
+    pub config_revision: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+pub struct StreakDto {
+    pub current: u32,
+    pub finalized: bool,
+}
+
+pub struct SettlementSummaryDto {
+    pub generated_occurrences: u32,
+    pub generated_tasks: u32,
+    pub has_more: bool,
+    pub outbox_changed: bool,
 }
 
 pub enum TaskDueInput {
@@ -420,6 +467,116 @@ pub fn get_archived_lists() -> Result<Vec<ListDto>, String> {
         .map(|lists| lists.into_iter().map(list_to_dto).collect())
 }
 
+pub fn get_templates() -> Result<Vec<TemplateDto>, String> {
+    client_result(client()?.get_templates())
+        .map(|templates| templates.into_iter().map(template_to_dto).collect())
+}
+
+pub fn get_template_schedules(template_id: String) -> Result<Vec<ScheduleDto>, String> {
+    client_result(client()?.get_template_schedules(parse_uuid(&template_id)?))
+        .map(|schedules| schedules.into_iter().map(schedule_to_dto).collect())
+}
+
+pub fn validate_recurrence_rule(
+    rrule: String,
+    starts_at: i64,
+    time_zone: String,
+) -> Result<String, String> {
+    client_result(client()?.validate_recurrence_rule(rrule, starts_at, time_zone))
+}
+
+pub fn save_task_as_template(
+    task_id: String,
+    name: String,
+    default_list_id: Option<String>,
+) -> Result<TemplateDto, String> {
+    let command = SaveTemplateCommand {
+        task_id: parse_uuid(&task_id)?,
+        name,
+        default_list_id: default_list_id.as_deref().map(parse_uuid).transpose()?,
+    };
+    client_result(client()?.save_task_as_template(command)).map(template_to_dto)
+}
+
+pub fn update_template(
+    template_id: String,
+    name: String,
+    default_list_id: Option<String>,
+) -> Result<TemplateDto, String> {
+    let command = UpdateTemplateCommand {
+        template_id: parse_uuid(&template_id)?,
+        name,
+        default_list_id: default_list_id.as_deref().map(parse_uuid).transpose()?,
+    };
+    client_result(client()?.update_template(command)).map(template_to_dto)
+}
+
+pub fn replace_template_snapshot(
+    template_id: String,
+    task_id: String,
+) -> Result<TemplateDto, String> {
+    let command = ReplaceTemplateSnapshotCommand {
+        template_id: parse_uuid(&template_id)?,
+        task_id: parse_uuid(&task_id)?,
+    };
+    client_result(client()?.replace_template_snapshot(command)).map(template_to_dto)
+}
+
+pub fn instantiate_template(template_id: String) -> Result<Vec<TaskDto>, String> {
+    client_result(client()?.instantiate_template(parse_uuid(&template_id)?))
+        .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
+}
+
+pub fn create_schedule(
+    template_id: String,
+    rrule: String,
+    starts_at: i64,
+    time_zone: String,
+) -> Result<ScheduleDto, String> {
+    let command = CreateScheduleCommand {
+        template_id: parse_uuid(&template_id)?,
+        rrule,
+        starts_at,
+        time_zone,
+    };
+    client_result(client()?.create_schedule(command)).map(schedule_to_dto)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn update_schedule(
+    schedule_id: String,
+    rrule: String,
+    starts_at: i64,
+    time_zone: String,
+    enabled: bool,
+) -> Result<ScheduleDto, String> {
+    let command = UpdateScheduleCommand {
+        schedule_id: parse_uuid(&schedule_id)?,
+        rrule,
+        starts_at,
+        time_zone,
+        enabled,
+    };
+    client_result(client()?.update_schedule(command)).map(schedule_to_dto)
+}
+
+pub fn delete_schedule(schedule_id: String) -> Result<(), String> {
+    client_result(client()?.delete_schedule(parse_uuid(&schedule_id)?))
+}
+
+pub fn delete_template(template_id: String) -> Result<(), String> {
+    client_result(client()?.delete_template(parse_uuid(&template_id)?))
+}
+
+pub fn settle_due_schedules(at_ms: i64) -> Result<SettlementSummaryDto, String> {
+    client_result(client()?.settle_due_schedules(at_ms)).map(settlement_to_dto)
+}
+
+pub fn get_schedule_streak(schedule_id: String, at_ms: i64) -> Result<StreakDto, String> {
+    client_result(client()?.get_schedule_streak(parse_uuid(&schedule_id)?, at_ms))
+        .map(streak_to_dto)
+}
+
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
     let list_id = parse_uuid(&list_id)?;
     client_result(client()?.rename_list(list_id, name)).map(list_to_dto)
@@ -742,6 +899,66 @@ fn task_to_dto(task: Task) -> TaskDto {
         assignee: task.assignee.map(|id| id.to_string()),
         created_at: task.created_at,
         updated_at: task.updated_at,
+    }
+}
+
+fn template_to_dto(template: TaskTemplate) -> TemplateDto {
+    TemplateDto {
+        id: template.id.to_string(),
+        name: template.name,
+        default_list_id: template.default_list_id.map(|id| id.to_string()),
+        snapshot_revision: template.snapshot_revision,
+        nodes: template
+            .snapshot
+            .nodes
+            .into_iter()
+            .map(template_node_to_dto)
+            .collect(),
+        created_at: template.created_at,
+        updated_at: template.updated_at,
+    }
+}
+
+fn template_node_to_dto(node: TemplateNode) -> TemplateNodeDto {
+    TemplateNodeDto {
+        node_key: node.node_key,
+        parent_node_key: node.parent_node_key,
+        sibling_order: node.sibling_order,
+        title: node.title,
+        note: node.note,
+        priority: node.priority,
+        estimated_minutes: node.estimated_minutes,
+    }
+}
+
+fn schedule_to_dto(schedule: RecurrenceSchedule) -> ScheduleDto {
+    ScheduleDto {
+        id: schedule.id.to_string(),
+        template_id: schedule.template_id.to_string(),
+        rrule: schedule.rrule,
+        starts_at: schedule.starts_at,
+        time_zone: schedule.time_zone,
+        next_run_at: schedule.cursor.next_run_at(),
+        enabled: schedule.enabled,
+        config_revision: schedule.config_revision,
+        created_at: schedule.created_at,
+        updated_at: schedule.updated_at,
+    }
+}
+
+fn streak_to_dto(streak: Streak) -> StreakDto {
+    StreakDto {
+        current: streak.current,
+        finalized: streak.finalized,
+    }
+}
+
+fn settlement_to_dto(summary: SettlementSummary) -> SettlementSummaryDto {
+    SettlementSummaryDto {
+        generated_occurrences: summary.generated_occurrences,
+        generated_tasks: summary.generated_tasks,
+        has_more: summary.has_more,
+        outbox_changed: summary.outbox_changed,
     }
 }
 

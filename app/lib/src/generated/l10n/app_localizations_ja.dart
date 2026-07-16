@@ -1104,6 +1104,145 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get backButtonTooltip => '戻る';
+
+  @override
+  String get templatesTitle => 'テンプレート';
+
+  @override
+  String templatesLoadFailed(String error) {
+    return 'テンプレートを読み込めませんでした: $error';
+  }
+
+  @override
+  String get templatesEmptyTitle => 'テンプレートはまだありません';
+
+  @override
+  String get templatesEmptyBody => 'タスクを開き、「テンプレートとして保存」を選んでください。';
+
+  @override
+  String get templateActionsTooltip => 'テンプレートの操作';
+
+  @override
+  String get editButton => '編集';
+
+  @override
+  String get replaceTemplateSnapshotMenuItem => '内容を置き換える';
+
+  @override
+  String templateTaskCount(int count) {
+    return '$count件のタスク';
+  }
+
+  @override
+  String get createFromTemplateButton => 'タスクを作成';
+
+  @override
+  String get addScheduleTooltip => 'スケジュールを追加';
+
+  @override
+  String get templateCreatedMessage => 'テンプレートからタスクを作成しました。';
+
+  @override
+  String get replaceTemplateSnapshotTitle => 'テンプレート内容を置き換える';
+
+  @override
+  String get sourceTaskIdLabel => '元タスクID';
+
+  @override
+  String get replaceButton => '置き換える';
+
+  @override
+  String deleteTemplateDialogTitle(String name) {
+    return '$nameを削除しますか？';
+  }
+
+  @override
+  String get deleteTemplateDialogBody => '参照するスケジュールも削除されます。作成済みタスクは変更されません。';
+
+  @override
+  String get deleteScheduleDialogTitle => 'スケジュールを削除しますか？';
+
+  @override
+  String get deleteScheduleDialogBody => '作成済みタスクは変更されません。';
+
+  @override
+  String get scheduleEndedLabel => '終了済み';
+
+  @override
+  String scheduleSemantics(String rule, String next) {
+    return 'スケジュール $rule、次回 $next';
+  }
+
+  @override
+  String scheduleStreak(int count) {
+    return '連続$count回';
+  }
+
+  @override
+  String get scheduleActionsTooltip => 'スケジュールの操作';
+
+  @override
+  String get pauseScheduleMenuItem => '停止';
+
+  @override
+  String get resumeScheduleMenuItem => '再開';
+
+  @override
+  String get editTemplateTitle => 'テンプレートを編集';
+
+  @override
+  String get defaultListLabel => '既定のリスト';
+
+  @override
+  String get inboxFallbackLabel => 'Inboxへフォールバック';
+
+  @override
+  String get newScheduleTitle => '新しいスケジュール';
+
+  @override
+  String get editScheduleTitle => 'スケジュールを編集';
+
+  @override
+  String get schedulePresetLabel => '繰り返し';
+
+  @override
+  String get dailyPreset => '毎日';
+
+  @override
+  String get weeklyPreset => '毎週この曜日';
+
+  @override
+  String get monthlyPreset => '毎月この日';
+
+  @override
+  String get advancedPreset => '詳細RRULE';
+
+  @override
+  String get rruleLabel => 'RRULE';
+
+  @override
+  String get scheduleStartsAtLabel => '開始日時';
+
+  @override
+  String get timeZoneLabel => 'タイムゾーン';
+
+  @override
+  String get scheduleEnabledLabel => 'スケジュールを有効にする';
+
+  @override
+  String get scheduleValidationFailed => '繰り返しルール、開始日時、タイムゾーンを確認してください。';
+
+  @override
+  String get saveAsTemplateMenuItem => 'テンプレートとして保存';
+
+  @override
+  String get saveAsTemplateTitle => 'テンプレートとして保存';
+
+  @override
+  String get templateSavedMessage => 'テンプレートを保存しました。';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Todoriの起動に失敗しました: $error';
   }

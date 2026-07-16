@@ -8,6 +8,7 @@ import 'package:todori/src/screens/lists_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
+import 'package:todori/src/screens/templates_screen.dart';
 import 'package:todori/src/ui/app_navigation_shell.dart';
 
 /// Centralizes all route definitions for the app in one place.
@@ -86,6 +87,12 @@ GoRouter buildAppRouter() {
                 ],
               ),
             ],
+          ),
+          GoRoute(
+            path: '/templates',
+            name: 'templates',
+            pageBuilder: (context, state) =>
+                _listPage(state: state, child: const TemplatesScreen()),
           ),
         ],
       ),

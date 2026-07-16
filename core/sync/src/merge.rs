@@ -1,6 +1,9 @@
 //! Typed field-group Last-Write-Wins merge.
 
-use crate::field_map::{Clocked, FieldMapError, ListPlaintext, SyncPlaintext, TaskPlaintext};
+use crate::field_map::{
+    Clocked, FieldMapError, ListPlaintext, ScheduleCursorValue, SchedulePlaintext, SyncPlaintext,
+    TaskPlaintext, TemplatePlaintext,
+};
 use serde::Serialize;
 use std::collections::BTreeSet;
 
@@ -59,6 +62,13 @@ pub fn merge_lww(
                 "assignee",
                 &a.assignee,
                 &b.assignee,
+                &mut local_won,
+                &mut incoming_won,
+            ),
+            recurrence: choose(
+                "recurrence",
+                &a.recurrence,
+                &b.recurrence,
                 &mut local_won,
                 &mut incoming_won,
             ),
@@ -144,6 +154,84 @@ pub fn merge_lww(
                 &mut incoming_won,
             ),
         }),
+        (SyncPlaintext::Template(a), SyncPlaintext::Template(b)) => {
+            SyncPlaintext::Template(TemplatePlaintext {
+                name: choose("name", &a.name, &b.name, &mut local_won, &mut incoming_won),
+                default_list_id: choose(
+                    "default_list_id",
+                    &a.default_list_id,
+                    &b.default_list_id,
+                    &mut local_won,
+                    &mut incoming_won,
+                ),
+                snapshot: choose(
+                    "snapshot",
+                    &a.snapshot,
+                    &b.snapshot,
+                    &mut local_won,
+                    &mut incoming_won,
+                ),
+                created_at: choose(
+                    "created_at",
+                    &a.created_at,
+                    &b.created_at,
+                    &mut local_won,
+                    &mut incoming_won,
+                ),
+                updated_at: choose(
+                    "updated_at",
+                    &a.updated_at,
+                    &b.updated_at,
+                    &mut local_won,
+                    &mut incoming_won,
+                ),
+            })
+        }
+        (SyncPlaintext::Schedule(a), SyncPlaintext::Schedule(b)) => {
+            let config = choose(
+                "config",
+                &a.config,
+                &b.config,
+                &mut local_won,
+                &mut incoming_won,
+            );
+            let cursor = if a.config.value.revision == b.config.value.revision {
+                let merged = a.cursor.value.cursor.merge(b.cursor.value.cursor);
+                let (hlc, local_selected) = if a.cursor.hlc >= b.cursor.hlc {
+                    (a.cursor.hlc.clone(), true)
+                } else {
+                    (b.cursor.hlc.clone(), false)
+                };
+                if a.cursor != b.cursor {
+                    if local_selected && merged == a.cursor.value.cursor {
+                        local_won.insert("cursor".to_string());
+                    } else if !local_selected && merged == b.cursor.value.cursor {
+                        incoming_won.insert("cursor".to_string());
+                    } else {
+                        local_won.insert("cursor".to_string());
+                        incoming_won.insert("cursor".to_string());
+                    }
+                }
+                Clocked::new(
+                    ScheduleCursorValue {
+                        config_revision: config.value.revision.clone(),
+                        cursor: merged,
+                    },
+                    hlc,
+                )
+            } else if config.value.revision == a.config.value.revision {
+                if a.cursor != b.cursor {
+                    local_won.insert("cursor".to_string());
+                }
+                a.cursor.clone()
+            } else {
+                if a.cursor != b.cursor {
+                    incoming_won.insert("cursor".to_string());
+                }
+                b.cursor.clone()
+            };
+            SyncPlaintext::Schedule(SchedulePlaintext { config, cursor })
+        }
         (SyncPlaintext::TimerSession(a), SyncPlaintext::TimerSession(b)) => {
             if a.value != b.value {
                 return Err(FieldMapError::ImmutableConflict);
@@ -189,7 +277,7 @@ fn canonical<T: Serialize>(value: &T) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::Hlc;
-    use todori_domain::{new_task, TaskDue, TaskStatus, Uuid};
+    use todori_domain::{new_task, RecurrenceSchedule, ScheduleCursor, TaskDue, TaskStatus, Uuid};
     fn h(counter: u32, device: &str) -> Hlc {
         Hlc {
             wall_ms: 1,
@@ -332,6 +420,63 @@ mod tests {
         assert_eq!(
             merge_lww(&local, &conflicting),
             Err(FieldMapError::ImmutableConflict)
+        );
+    }
+
+    #[test]
+    fn schedule_cursor_is_monotonic_within_revision_and_follows_new_config() {
+        let template_id = Uuid::now_v7();
+        let mut schedule = RecurrenceSchedule {
+            id: Uuid::now_v7(),
+            template_id,
+            rrule: "FREQ=DAILY".to_string(),
+            starts_at: 1_800_000_000_000,
+            time_zone: "UTC".to_string(),
+            cursor: ScheduleCursor::Pending(1_800_000_000_000),
+            enabled: true,
+            config_revision: "revision-a".to_string(),
+            config_parent_revision: None,
+            config_effective_from: 1,
+            lineage: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+        };
+        let base = SyncPlaintext::from_schedule(&schedule, h(0, "base")).unwrap();
+        schedule.cursor = ScheduleCursor::Pending(1_800_172_800_000);
+        let ahead = base
+            .stamp_schedule_changes(&schedule, h(1, "ahead"))
+            .unwrap();
+        schedule.cursor = ScheduleCursor::Pending(1_800_086_400_000);
+        let behind = base
+            .stamp_schedule_changes(&schedule, h(2, "behind"))
+            .unwrap();
+        let merged = merge_lww(&ahead, &behind).unwrap().plaintext;
+        let reverse = merge_lww(&behind, &ahead).unwrap().plaintext;
+        assert_eq!(merged, reverse);
+        let SyncPlaintext::Schedule(value) = merged else {
+            unreachable!()
+        };
+        assert_eq!(
+            value.cursor.value.cursor,
+            ScheduleCursor::Pending(1_800_172_800_000)
+        );
+
+        schedule.config_revision = "revision-b".to_string();
+        schedule.config_parent_revision = Some("revision-a".to_string());
+        schedule.config_effective_from = 2;
+        schedule.cursor = ScheduleCursor::Pending(1_800_100_000_000);
+        let new_config = base
+            .stamp_schedule_changes(&schedule, h(3, "config"))
+            .unwrap();
+        let merged = merge_lww(&ahead, &new_config).unwrap().plaintext;
+        let SyncPlaintext::Schedule(value) = merged else {
+            unreachable!()
+        };
+        assert_eq!(value.config.value.revision, "revision-b");
+        assert_eq!(value.cursor.value.config_revision, "revision-b");
+        assert_eq!(
+            value.cursor.value.cursor,
+            ScheduleCursor::Pending(1_800_100_000_000)
         );
     }
 }

@@ -2954,7 +2954,7 @@ async fn timer_session_live_is_immutable_and_tombstone_is_terminal_and_pullable(
 }
 
 #[tokio::test]
-async fn timer_migration_expands_every_server_collection_check() {
+async fn template_recurrence_migration_expands_every_server_collection_check() {
     let fixture = Fixture::setup().await;
     let constraints = query(
         "SELECT conname, pg_get_constraintdef(oid) AS definition
@@ -2975,6 +2975,8 @@ async fn timer_migration_expands_every_server_collection_check() {
     for row in constraints {
         let definition: String = row.try_get("definition").unwrap();
         assert!(definition.contains("timer_sessions"), "{definition}");
+        assert!(definition.contains("templates"), "{definition}");
+        assert!(definition.contains("schedules"), "{definition}");
     }
 }
 

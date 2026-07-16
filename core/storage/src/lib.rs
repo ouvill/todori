@@ -10,13 +10,15 @@ use thiserror::Error;
 use todori_domain::{
     fractional_index_after, new_default_list, restored_active_duration_ms,
     validate_active_timer_session, validate_active_timer_update, validate_completed_timer_session,
-    ActiveTimerSession, CivilDate, CompletedTimerSession, DomainError, IanaTimeZone, List, Task,
-    TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
+    ActiveTimerSession, CivilDate, CompletedTimerSession, DomainError, IanaTimeZone, List,
+    RecurrenceError, RecurrenceProvenance, RecurrenceSchedule, ScheduleCursor, Task, TaskDue,
+    TaskStatus, TaskTemplate, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant,
+    Uuid,
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 19;
+pub const LATEST_SCHEMA_VERSION: i32 = 20;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -110,6 +112,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_list_aliases",
         apply: add_list_aliases,
     },
+    Migration {
+        target_version: 20,
+        name: "add_template_recurrence_foundation",
+        apply: add_template_recurrence_foundation,
+    },
 ];
 
 #[derive(Debug, Error)]
@@ -144,6 +151,8 @@ pub enum StorageError {
     InvalidUuid(#[from] uuid::Error),
     #[error("invalid task snapshot in database: {0}")]
     InvalidTaskSnapshot(#[from] serde_json::Error),
+    #[error("invalid template or recurrence data: {0}")]
+    InvalidRecurrence(#[from] RecurrenceError),
     #[error("undo entry already used: {0}")]
     UndoConsumed(Uuid),
     #[error("task changed after undo was created: {0}")]
@@ -524,6 +533,23 @@ pub trait TaskRepository {
     fn delete_subtree(&mut self, task_id: Uuid) -> Result<usize, StorageError>;
 }
 
+/// Tenant-scoped templates and their local recurrence schedules.
+pub trait RecurrenceRepository {
+    fn get_template(&self, id: Uuid) -> Result<TaskTemplate, StorageError>;
+    fn list_templates(&self) -> Result<Vec<TaskTemplate>, StorageError>;
+    fn upsert_template(&mut self, template: TaskTemplate) -> Result<(), StorageError>;
+    fn delete_template(&mut self, id: Uuid) -> Result<bool, StorageError>;
+    fn get_schedule(&self, id: Uuid) -> Result<RecurrenceSchedule, StorageError>;
+    fn list_schedules(&self) -> Result<Vec<RecurrenceSchedule>, StorageError>;
+    fn list_schedules_for_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, StorageError>;
+    fn list_due_schedules(&self, now_ms: i64) -> Result<Vec<RecurrenceSchedule>, StorageError>;
+    fn upsert_schedule(&mut self, schedule: RecurrenceSchedule) -> Result<(), StorageError>;
+    fn delete_schedule(&mut self, id: Uuid) -> Result<bool, StorageError>;
+}
+
 /// Device-local active Timer and immutable completed work sessions.
 pub trait TimerSessionRepository {
     fn load_active(&self) -> Result<Option<ActiveTimerSession>, StorageError>;
@@ -653,6 +679,10 @@ impl<'connection> SqliteWriteTx<'connection> {
         get_list_on(&self.transaction, self.resolve_list_alias(id)?)
     }
 
+    pub fn default_list_id(&self) -> Result<Option<Uuid>, StorageError> {
+        get_default_list_on(&self.transaction).map(|list| list.map(|list| list.id))
+    }
+
     pub fn resolve_list_alias(&self, list_id: Uuid) -> Result<Uuid, StorageError> {
         resolve_list_alias_on(&self.transaction, list_id)
     }
@@ -675,6 +705,10 @@ impl<'connection> SqliteWriteTx<'connection> {
     /// physical list deletion must account for every persisted task record.
     pub fn list_tasks_by_list(&self, list_id: Uuid) -> Result<Vec<Task>, StorageError> {
         list_active_tasks_by_list_on(&self.transaction, self.resolve_list_alias(list_id)?)
+    }
+
+    pub fn list_all_tasks_for_sync(&self) -> Result<Vec<Task>, StorageError> {
+        list_all_tasks_for_sync_on(&self.transaction)
     }
 
     pub fn get_timer_session(&self, id: Uuid) -> Result<CompletedTimerSession, StorageError> {
@@ -796,6 +830,49 @@ impl<'connection> SqliteWriteTx<'connection> {
 
     pub fn insert_list(&mut self, list: List) -> Result<(), StorageError> {
         insert_list_on(&self.transaction, &list)
+    }
+
+    pub fn get_template(&self, id: Uuid) -> Result<TaskTemplate, StorageError> {
+        get_template_on(&self.transaction, id)
+    }
+
+    pub fn list_templates(&self) -> Result<Vec<TaskTemplate>, StorageError> {
+        list_templates_on(&self.transaction)
+    }
+
+    pub fn upsert_template(&mut self, template: TaskTemplate) -> Result<(), StorageError> {
+        upsert_template_on(&self.transaction, &template)
+    }
+
+    pub fn delete_template(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_template_on(&self.transaction, id)
+    }
+
+    pub fn get_schedule(&self, id: Uuid) -> Result<RecurrenceSchedule, StorageError> {
+        get_schedule_on(&self.transaction, id)
+    }
+
+    pub fn list_schedules(&self) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_on(&self.transaction)
+    }
+
+    pub fn list_schedules_for_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_for_template_on(&self.transaction, template_id)
+    }
+
+    pub fn list_due_schedules(&self, now_ms: i64) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_due_schedules_on(&self.transaction, now_ms)
+    }
+
+    pub fn upsert_schedule(&mut self, schedule: RecurrenceSchedule) -> Result<(), StorageError> {
+        upsert_schedule_on(&self.transaction, &schedule)
+    }
+
+    pub fn delete_schedule(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_schedule_on(&self.transaction, id)
     }
 
     pub fn put_local_list_key_bundle(
@@ -1229,6 +1306,49 @@ impl OwnedSqliteWriteTx {
 
     pub fn list_task_subtree_for_sync(&self, task_id: Uuid) -> Result<Vec<Task>, StorageError> {
         list_task_subtree_on(self.connection(), task_id)
+    }
+
+    pub fn get_template(&self, id: Uuid) -> Result<TaskTemplate, StorageError> {
+        get_template_on(self.connection(), id)
+    }
+
+    pub fn list_templates(&self) -> Result<Vec<TaskTemplate>, StorageError> {
+        list_templates_on(self.connection())
+    }
+
+    pub fn upsert_template(&mut self, template: TaskTemplate) -> Result<(), StorageError> {
+        upsert_template_on(self.connection(), &template)
+    }
+
+    pub fn delete_template(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_template_on(self.connection(), id)
+    }
+
+    pub fn get_schedule(&self, id: Uuid) -> Result<RecurrenceSchedule, StorageError> {
+        get_schedule_on(self.connection(), id)
+    }
+
+    pub fn list_schedules(&self) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_on(self.connection())
+    }
+
+    pub fn list_schedules_for_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_for_template_on(self.connection(), template_id)
+    }
+
+    pub fn list_due_schedules(&self, now_ms: i64) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_due_schedules_on(self.connection(), now_ms)
+    }
+
+    pub fn upsert_schedule(&mut self, schedule: RecurrenceSchedule) -> Result<(), StorageError> {
+        upsert_schedule_on(self.connection(), &schedule)
+    }
+
+    pub fn delete_schedule(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_schedule_on(self.connection(), id)
     }
 
     pub fn list_timer_sessions_by_task_for_sync(
@@ -1808,6 +1928,184 @@ fn add_list_aliases(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     )
 }
 
+/// Protocol v6 adds tenant-scoped template and schedule records while keeping
+/// every v5 transport head, tombstone, cursor, quarantine row, and resync mark.
+fn add_template_recurrence_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    let task_columns = table_columns_raw(transaction, "tasks")?;
+    if !task_columns
+        .iter()
+        .any(|column| column == "recurrence_schedule_id")
+    {
+        transaction.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN recurrence_schedule_id TEXT;
+             ALTER TABLE tasks ADD COLUMN recurrence_schedule_revision TEXT;
+             ALTER TABLE tasks ADD COLUMN recurrence_template_revision TEXT;
+             ALTER TABLE tasks ADD COLUMN recurrence_occurrence_at INTEGER
+                 CHECK (
+                     (recurrence_schedule_id IS NULL
+                      AND recurrence_schedule_revision IS NULL
+                      AND recurrence_template_revision IS NULL
+                      AND recurrence_occurrence_at IS NULL)
+                     OR
+                     (recurrence_schedule_id IS NOT NULL
+                      AND recurrence_schedule_revision IS NOT NULL
+                      AND recurrence_template_revision IS NOT NULL
+                      AND recurrence_occurrence_at IS NOT NULL)
+                 );",
+        )?;
+    }
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_recurrence_occurrence
+             ON tasks(recurrence_schedule_id, recurrence_occurrence_at)
+             WHERE recurrence_schedule_id IS NOT NULL;
+
+         CREATE TABLE templates (
+             id TEXT PRIMARY KEY NOT NULL,
+             name TEXT NOT NULL,
+             default_list_id TEXT,
+             snapshot_json TEXT NOT NULL,
+             snapshot_revision TEXT NOT NULL,
+             snapshot_parent_revision TEXT,
+             snapshot_effective_from INTEGER NOT NULL,
+             lineage_json TEXT NOT NULL,
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );
+         CREATE INDEX idx_templates_updated ON templates(updated_at, id);
+
+         CREATE TABLE schedules (
+             id TEXT PRIMARY KEY NOT NULL,
+             template_id TEXT NOT NULL,
+             rrule TEXT NOT NULL,
+             starts_at INTEGER NOT NULL,
+             time_zone TEXT NOT NULL,
+             next_run_at INTEGER,
+             enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+             config_revision TEXT NOT NULL,
+             config_parent_revision TEXT,
+             config_effective_from INTEGER NOT NULL,
+             lineage_json TEXT NOT NULL,
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );
+         CREATE INDEX idx_schedules_template ON schedules(template_id, updated_at, id);
+         CREATE INDEX idx_schedules_due
+             ON schedules(enabled, next_run_at, id)
+             WHERE enabled = 1 AND next_run_at IS NOT NULL;
+
+         DROP INDEX IF EXISTS idx_sync_outbox_stable_order;
+         DROP INDEX IF EXISTS idx_sync_quarantine_seq;
+         DROP INDEX IF EXISTS idx_sync_full_resync_marks_record;
+         ALTER TABLE sync_outbox RENAME TO sync_outbox_v19;
+         ALTER TABLE sync_record_states RENAME TO sync_record_states_v19;
+         ALTER TABLE sync_cursors RENAME TO sync_cursors_v19;
+         ALTER TABLE sync_quarantine RENAME TO sync_quarantine_v19;
+         ALTER TABLE sync_full_resync_marks RENAME TO sync_full_resync_marks_v19;
+         ALTER TABLE sync_full_resync_state RENAME TO sync_full_resync_state_v19;
+         ALTER TABLE sync_record_origins RENAME TO sync_record_origins_v19;
+
+         CREATE TABLE sync_outbox (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             op_id TEXT NOT NULL UNIQUE,
+             base_revision_hlc TEXT,
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             created_at INTEGER NOT NULL,
+             CHECK ((state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                    OR (state_kind = 'tombstone' AND blob IS NULL))
+         );
+         CREATE INDEX idx_sync_outbox_stable_order ON sync_outbox(created_at, record_id);
+         CREATE TABLE sync_record_states (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             current_revision_hlc TEXT,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             plaintext_json TEXT,
+             updated_at INTEGER NOT NULL,
+             CHECK ((state_kind = 'live' AND plaintext_json IS NOT NULL)
+                    OR (state_kind = 'tombstone' AND plaintext_json IS NULL))
+         );
+         CREATE TABLE sync_cursors (
+             name TEXT PRIMARY KEY NOT NULL,
+             seq INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+         );
+         CREATE TABLE sync_quarantine (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             seq INTEGER NOT NULL CHECK (seq > 0),
+             revision_hlc TEXT NOT NULL,
+             state_kind TEXT NOT NULL CHECK (state_kind IN ('live', 'tombstone')),
+             semantic_hlc TEXT NOT NULL,
+             blob BLOB,
+             reason TEXT NOT NULL CHECK (reason IN (
+                 'missing_dek', 'no_matching_dek', 'authentication_failed',
+                 'corrupt_envelope', 'invalid_plaintext', 'missing_dependency'
+             )),
+             required_list_id TEXT,
+             first_failed_at INTEGER NOT NULL,
+             last_failed_at INTEGER NOT NULL,
+             attempt_count INTEGER NOT NULL CHECK (attempt_count > 0),
+             CHECK ((state_kind = 'live' AND blob IS NOT NULL AND length(blob) > 0)
+                    OR (state_kind = 'tombstone' AND blob IS NULL))
+         );
+         CREATE INDEX idx_sync_quarantine_seq ON sync_quarantine(seq, record_id);
+         CREATE TABLE sync_full_resync_state (
+             singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+             generation_id TEXT NOT NULL,
+             phase TEXT NOT NULL CHECK (phase IN ('base', 'delta', 'sweep')),
+             base_seq INTEGER NOT NULL CHECK (base_seq >= 0),
+             base_cursor_collection TEXT CHECK (base_cursor_collection IS NULL OR base_cursor_collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             base_cursor_record_id TEXT,
+             delta_cursor INTEGER NOT NULL CHECK (delta_cursor >= 0),
+             closure_high_water INTEGER CHECK (closure_high_water >= 0),
+             sweep_cursor_collection TEXT CHECK (sweep_cursor_collection IS NULL OR sweep_cursor_collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             sweep_cursor_record_id TEXT,
+             started_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL,
+             continuity_generation INTEGER NOT NULL DEFAULT 0 CHECK (continuity_generation >= 0),
+             CHECK ((base_cursor_collection IS NULL AND base_cursor_record_id IS NULL)
+                    OR (base_cursor_collection IS NOT NULL AND base_cursor_record_id IS NOT NULL)),
+             CHECK ((sweep_cursor_collection IS NULL AND sweep_cursor_record_id IS NULL)
+                    OR (sweep_cursor_collection IS NOT NULL AND sweep_cursor_record_id IS NOT NULL)),
+             CHECK ((phase = 'sweep' AND closure_high_water IS NOT NULL)
+                    OR (phase <> 'sweep' AND closure_high_water IS NULL))
+         );
+         CREATE TABLE sync_full_resync_marks (
+             generation_id TEXT NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             record_id TEXT NOT NULL,
+             PRIMARY KEY (generation_id, collection, record_id)
+         );
+         CREATE INDEX idx_sync_full_resync_marks_record ON sync_full_resync_marks(generation_id, collection, record_id);
+         CREATE TABLE sync_record_origins (
+             record_id TEXT PRIMARY KEY NOT NULL,
+             collection TEXT NOT NULL CHECK (collection IN ('lists', 'tasks', 'templates', 'schedules', 'timer_sessions')),
+             origin_kind TEXT NOT NULL CHECK (origin_kind IN ('never_synced', 'server_seen')),
+             updated_at INTEGER NOT NULL
+         );
+
+         INSERT INTO sync_outbox SELECT * FROM sync_outbox_v19;
+         INSERT INTO sync_record_states SELECT * FROM sync_record_states_v19;
+         INSERT INTO sync_cursors SELECT * FROM sync_cursors_v19;
+         INSERT INTO sync_quarantine SELECT * FROM sync_quarantine_v19;
+         INSERT INTO sync_full_resync_state SELECT * FROM sync_full_resync_state_v19;
+         INSERT INTO sync_full_resync_marks SELECT * FROM sync_full_resync_marks_v19;
+         INSERT INTO sync_record_origins SELECT * FROM sync_record_origins_v19;
+         DROP TABLE sync_outbox_v19;
+         DROP TABLE sync_record_states_v19;
+         DROP TABLE sync_cursors_v19;
+         DROP TABLE sync_quarantine_v19;
+         DROP TABLE sync_full_resync_marks_v19;
+         DROP TABLE sync_full_resync_state_v19;
+         DROP TABLE sync_record_origins_v19;",
+    )
+}
+
 fn table_columns_raw(connection: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = statement
@@ -2372,7 +2670,9 @@ impl TaskRepository for SqliteTaskRepository {
                     tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
-                    tasks.assignee, tasks.created_at, tasks.updated_at,
+                    tasks.assignee, tasks.recurrence_schedule_id,
+                    tasks.recurrence_schedule_revision, tasks.recurrence_template_revision,
+                    tasks.recurrence_occurrence_at, tasks.created_at, tasks.updated_at,
                     lists.name,
                     EXISTS(SELECT 1 FROM home_targets WHERE home_targets.id = tasks.id)
              FROM tasks
@@ -2402,7 +2702,9 @@ impl TaskRepository for SqliteTaskRepository {
                     tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
-                    tasks.assignee, tasks.created_at, tasks.updated_at,
+                    tasks.assignee, tasks.recurrence_schedule_id,
+                    tasks.recurrence_schedule_revision, tasks.recurrence_template_revision,
+                    tasks.recurrence_occurrence_at, tasks.created_at, tasks.updated_at,
                     lists.name, lists.archived_at
              FROM tasks
              INNER JOIN lists ON lists.id = tasks.list_id
@@ -2426,8 +2728,8 @@ impl TaskRepository for SqliteTaskRepository {
                 |row| {
                     Ok((
                         row_to_task(row)?,
-                        row.get::<_, String>(20)?,
-                        row.get::<_, Option<i64>>(21)?.is_some(),
+                        row.get::<_, String>(24)?,
+                        row.get::<_, Option<i64>>(25)?.is_some(),
                     ))
                 },
             )?
@@ -2511,7 +2813,9 @@ impl TaskRepository for SqliteTaskRepository {
                     tasks.note, tasks.status, tasks.priority, tasks.due_kind, tasks.due_on, tasks.due_at_ms, tasks.due_time_zone,
                     tasks.scheduled_at, tasks.estimated_minutes, tasks.sort_order,
                     tasks.completed_at, tasks.closed_reason, tasks.deleted_at,
-                    tasks.assignee, tasks.created_at, tasks.updated_at
+                    tasks.assignee, tasks.recurrence_schedule_id,
+                    tasks.recurrence_schedule_revision, tasks.recurrence_template_revision,
+                    tasks.recurrence_occurrence_at, tasks.created_at, tasks.updated_at
              FROM tasks_fts
              INNER JOIN tasks ON tasks.id = tasks_fts.task_id
              WHERE tasks_fts MATCH ?1
@@ -2540,12 +2844,330 @@ impl TaskRepository for SqliteTaskRepository {
     }
 }
 
+/// SQLite-backed template and recurrence repository.
+pub struct SqliteRecurrenceRepository {
+    connection: Connection,
+}
+
+impl SqliteRecurrenceRepository {
+    pub fn new(connection: Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn upsert_template_for_sync(&mut self, template: TaskTemplate) -> Result<(), StorageError> {
+        upsert_template_on(&self.connection, &template)
+    }
+
+    pub fn upsert_schedule_for_sync(
+        &mut self,
+        schedule: RecurrenceSchedule,
+    ) -> Result<(), StorageError> {
+        upsert_schedule_on(&self.connection, &schedule)
+    }
+}
+
+impl RecurrenceRepository for SqliteRecurrenceRepository {
+    fn get_template(&self, id: Uuid) -> Result<TaskTemplate, StorageError> {
+        get_template_on(&self.connection, id)
+    }
+
+    fn list_templates(&self) -> Result<Vec<TaskTemplate>, StorageError> {
+        list_templates_on(&self.connection)
+    }
+
+    fn upsert_template(&mut self, template: TaskTemplate) -> Result<(), StorageError> {
+        upsert_template_on(&self.connection, &template)
+    }
+
+    fn delete_template(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_template_on(&self.connection, id)
+    }
+
+    fn get_schedule(&self, id: Uuid) -> Result<RecurrenceSchedule, StorageError> {
+        get_schedule_on(&self.connection, id)
+    }
+
+    fn list_schedules(&self) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_on(&self.connection)
+    }
+
+    fn list_schedules_for_template(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_schedules_for_template_on(&self.connection, template_id)
+    }
+
+    fn list_due_schedules(&self, now_ms: i64) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+        list_due_schedules_on(&self.connection, now_ms)
+    }
+
+    fn upsert_schedule(&mut self, schedule: RecurrenceSchedule) -> Result<(), StorageError> {
+        upsert_schedule_on(&self.connection, &schedule)
+    }
+
+    fn delete_schedule(&mut self, id: Uuid) -> Result<bool, StorageError> {
+        delete_schedule_on(&self.connection, id)
+    }
+}
+
+const TEMPLATE_SELECT: &str = "SELECT id, name, default_list_id, snapshot_json, snapshot_revision,
+            snapshot_parent_revision, snapshot_effective_from, lineage_json,
+            created_at, updated_at FROM templates";
+const SCHEDULE_SELECT: &str =
+    "SELECT id, template_id, rrule, starts_at, time_zone, next_run_at, enabled,
+            config_revision, config_parent_revision, config_effective_from,
+            lineage_json, created_at, updated_at FROM schedules";
+
+fn get_template_on(connection: &Connection, id: Uuid) -> Result<TaskTemplate, StorageError> {
+    connection
+        .query_row(
+            &format!("{TEMPLATE_SELECT} WHERE id = ?1"),
+            [id.to_string()],
+            row_to_template,
+        )
+        .optional()?
+        .ok_or(StorageError::NotFound(id))
+}
+
+fn list_templates_on(connection: &Connection) -> Result<Vec<TaskTemplate>, StorageError> {
+    let mut statement = connection.prepare(&format!(
+        "{TEMPLATE_SELECT} ORDER BY updated_at DESC, id ASC"
+    ))?;
+    let templates = statement
+        .query_map([], row_to_template)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StorageError::from)?;
+    Ok(templates)
+}
+
+fn upsert_template_on(
+    connection: &Connection,
+    template: &TaskTemplate,
+) -> Result<(), StorageError> {
+    template.validate()?;
+    let snapshot_json = serde_json::to_string(&template.snapshot)?;
+    let lineage_json = serde_json::to_string(&template.lineage)?;
+    connection.execute(
+        "INSERT INTO templates (
+             id, name, default_list_id, snapshot_json, snapshot_revision,
+             snapshot_parent_revision, snapshot_effective_from, lineage_json,
+             created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name,
+             default_list_id = excluded.default_list_id,
+             snapshot_json = excluded.snapshot_json,
+             snapshot_revision = excluded.snapshot_revision,
+             snapshot_parent_revision = excluded.snapshot_parent_revision,
+             snapshot_effective_from = excluded.snapshot_effective_from,
+             lineage_json = excluded.lineage_json,
+             created_at = excluded.created_at,
+             updated_at = excluded.updated_at",
+        params![
+            template.id.to_string(),
+            template.name,
+            template.default_list_id.map(|id| id.to_string()),
+            snapshot_json,
+            template.snapshot_revision,
+            template.snapshot_parent_revision,
+            template.snapshot_effective_from,
+            lineage_json,
+            template.created_at,
+            template.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn delete_template_on(connection: &Connection, id: Uuid) -> Result<bool, StorageError> {
+    Ok(connection.execute("DELETE FROM templates WHERE id = ?1", [id.to_string()])? == 1)
+}
+
+fn get_schedule_on(connection: &Connection, id: Uuid) -> Result<RecurrenceSchedule, StorageError> {
+    connection
+        .query_row(
+            &format!("{SCHEDULE_SELECT} WHERE id = ?1"),
+            [id.to_string()],
+            row_to_schedule,
+        )
+        .optional()?
+        .ok_or(StorageError::NotFound(id))
+}
+
+fn list_schedules_on(connection: &Connection) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+    list_schedules_query_on(
+        connection,
+        &format!("{SCHEDULE_SELECT} ORDER BY updated_at DESC, id ASC"),
+        [],
+    )
+}
+
+fn list_schedules_for_template_on(
+    connection: &Connection,
+    template_id: Uuid,
+) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+    list_schedules_query_on(
+        connection,
+        &format!("{SCHEDULE_SELECT} WHERE template_id = ?1 ORDER BY updated_at, id"),
+        [template_id.to_string()],
+    )
+}
+
+fn list_due_schedules_on(
+    connection: &Connection,
+    now_ms: i64,
+) -> Result<Vec<RecurrenceSchedule>, StorageError> {
+    list_schedules_query_on(
+        connection,
+        &format!(
+            "{SCHEDULE_SELECT}
+             WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?1
+             ORDER BY next_run_at, id"
+        ),
+        [now_ms],
+    )
+}
+
+fn list_schedules_query_on<P>(
+    connection: &Connection,
+    query: &str,
+    parameters: P,
+) -> Result<Vec<RecurrenceSchedule>, StorageError>
+where
+    P: rusqlite::Params,
+{
+    let mut statement = connection.prepare(query)?;
+    let schedules = statement
+        .query_map(parameters, row_to_schedule)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StorageError::from)?;
+    Ok(schedules)
+}
+
+fn upsert_schedule_on(
+    connection: &Connection,
+    schedule: &RecurrenceSchedule,
+) -> Result<(), StorageError> {
+    schedule.validate()?;
+    let lineage_json = serde_json::to_string(&schedule.lineage)?;
+    connection.execute(
+        "INSERT INTO schedules (
+             id, template_id, rrule, starts_at, time_zone, next_run_at, enabled,
+             config_revision, config_parent_revision, config_effective_from,
+             lineage_json, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+         ON CONFLICT(id) DO UPDATE SET
+             template_id = excluded.template_id,
+             rrule = excluded.rrule,
+             starts_at = excluded.starts_at,
+             time_zone = excluded.time_zone,
+             next_run_at = excluded.next_run_at,
+             enabled = excluded.enabled,
+             config_revision = excluded.config_revision,
+             config_parent_revision = excluded.config_parent_revision,
+             config_effective_from = excluded.config_effective_from,
+             lineage_json = excluded.lineage_json,
+             created_at = excluded.created_at,
+             updated_at = excluded.updated_at",
+        params![
+            schedule.id.to_string(),
+            schedule.template_id.to_string(),
+            schedule.rrule,
+            schedule.starts_at,
+            schedule.time_zone,
+            schedule.cursor.next_run_at(),
+            schedule.enabled,
+            schedule.config_revision,
+            schedule.config_parent_revision,
+            schedule.config_effective_from,
+            lineage_json,
+            schedule.created_at,
+            schedule.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn delete_schedule_on(connection: &Connection, id: Uuid) -> Result<bool, StorageError> {
+    Ok(connection.execute("DELETE FROM schedules WHERE id = ?1", [id.to_string()])? == 1)
+}
+
+fn row_to_template(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskTemplate> {
+    let id: String = row.get(0)?;
+    let default_list_id: Option<String> = row.get(2)?;
+    let snapshot_json: String = row.get(3)?;
+    let lineage_json: String = row.get(7)?;
+    let template = TaskTemplate {
+        id: parse_uuid(id, 0)?,
+        name: row.get(1)?,
+        default_list_id: parse_optional_uuid(default_list_id, 2)?,
+        snapshot: serde_json::from_str(&snapshot_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        snapshot_revision: row.get(4)?,
+        snapshot_parent_revision: row.get(5)?,
+        snapshot_effective_from: row.get(6)?,
+        lineage: serde_json::from_str(&lineage_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                7,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    };
+    template.validate().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(template)
+}
+
+fn row_to_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecurrenceSchedule> {
+    let id: String = row.get(0)?;
+    let template_id: String = row.get(1)?;
+    let next_run_at: Option<i64> = row.get(5)?;
+    let lineage_json: String = row.get(10)?;
+    let schedule = RecurrenceSchedule {
+        id: parse_uuid(id, 0)?,
+        template_id: parse_uuid(template_id, 1)?,
+        rrule: row.get(2)?,
+        starts_at: row.get(3)?,
+        time_zone: row.get(4)?,
+        cursor: next_run_at.map_or(ScheduleCursor::Exhausted, ScheduleCursor::Pending),
+        enabled: row.get(6)?,
+        config_revision: row.get(7)?,
+        config_parent_revision: row.get(8)?,
+        config_effective_from: row.get(9)?,
+        lineage: serde_json::from_str(&lineage_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                10,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+    };
+    schedule.validate().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(schedule)
+}
+
 fn get_task_on(connection: &Connection, id: Uuid) -> Result<Task, StorageError> {
     let task = connection
         .query_row(
             "SELECT id, list_id, parent_task_id, title, note, status, priority,
                     due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                     completed_at, closed_reason, deleted_at, assignee,
+                    recurrence_schedule_id, recurrence_schedule_revision,
+                    recurrence_template_revision, recurrence_occurrence_at,
                     created_at, updated_at
              FROM tasks
              WHERE id = ?1",
@@ -2578,6 +3200,8 @@ fn list_all_tasks_for_sync_on(connection: &Connection) -> Result<Vec<Task>, Stor
         "SELECT id, list_id, parent_task_id, title, note, status, priority,
                 due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                 completed_at, closed_reason, deleted_at, assignee,
+                recurrence_schedule_id, recurrence_schedule_revision,
+                recurrence_template_revision, recurrence_occurrence_at,
                 created_at, updated_at
          FROM tasks
          ORDER BY created_at ASC, id ASC",
@@ -2597,6 +3221,8 @@ fn list_active_tasks_by_list_on(
         "SELECT id, list_id, parent_task_id, title, note, status, priority,
                 due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                 completed_at, closed_reason, deleted_at, assignee,
+                recurrence_schedule_id, recurrence_schedule_revision,
+                recurrence_template_revision, recurrence_occurrence_at,
                 created_at, updated_at
          FROM tasks
          WHERE list_id = ?1
@@ -2620,6 +3246,8 @@ fn list_task_subtree_on(connection: &Connection, task_id: Uuid) -> Result<Vec<Ta
          SELECT id, list_id, parent_task_id, title, note, status, priority,
                 due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
                 completed_at, closed_reason, deleted_at, assignee,
+                recurrence_schedule_id, recurrence_schedule_revision,
+                recurrence_template_revision, recurrence_occurrence_at,
                 created_at, updated_at
          FROM tasks
          WHERE id IN (SELECT id FROM subtree)
@@ -2638,10 +3266,13 @@ fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             id, list_id, parent_task_id, title, note, status, priority,
             due_kind, due_on, due_at_ms, due_time_zone, scheduled_at, estimated_minutes, sort_order,
             completed_at, closed_reason, deleted_at, assignee,
+            recurrence_schedule_id, recurrence_schedule_revision,
+            recurrence_template_revision, recurrence_occurrence_at,
             created_at, updated_at
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-            ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+            ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+            ?22, ?23, ?24
         )",
         params![
             task.id.to_string(),
@@ -2662,6 +3293,18 @@ fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.closed_reason,
             task.deleted_at,
             task.assignee.map(|id| id.to_string()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.schedule_id.to_string()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.schedule_revision.as_str()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.template_revision.as_str()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.occurrence_at),
             task.created_at,
             task.updated_at,
         ],
@@ -2690,8 +3333,12 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
              closed_reason = ?16,
              deleted_at = ?17,
              assignee = ?18,
-             created_at = ?19,
-             updated_at = ?20
+             recurrence_schedule_id = ?19,
+             recurrence_schedule_revision = ?20,
+             recurrence_template_revision = ?21,
+             recurrence_occurrence_at = ?22,
+             created_at = ?23,
+             updated_at = ?24
          WHERE id = ?1",
         params![
             task.id.to_string(),
@@ -2712,6 +3359,18 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.closed_reason,
             task.deleted_at,
             task.assignee.map(|id| id.to_string()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.schedule_id.to_string()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.schedule_revision.as_str()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.template_revision.as_str()),
+            task.recurrence
+                .as_ref()
+                .map(|provenance| provenance.occurrence_at),
             task.created_at,
             task.updated_at,
         ],
@@ -5641,6 +6300,10 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     let due_at_ms: Option<i64> = row.get(9)?;
     let due_time_zone: Option<String> = row.get(10)?;
     let assignee: Option<String> = row.get(17)?;
+    let recurrence_schedule_id: Option<String> = row.get(18)?;
+    let recurrence_schedule_revision: Option<String> = row.get(19)?;
+    let recurrence_template_revision: Option<String> = row.get(20)?;
+    let recurrence_occurrence_at: Option<i64> = row.get(21)?;
 
     Ok(Task {
         id: parse_uuid(id, 0)?,
@@ -5664,16 +6327,56 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         closed_reason: row.get(15)?,
         deleted_at: row.get(16)?,
         assignee: parse_optional_uuid(assignee, 17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
+        recurrence: recurrence_from_columns(
+            recurrence_schedule_id,
+            recurrence_schedule_revision,
+            recurrence_template_revision,
+            recurrence_occurrence_at,
+        )?,
+        created_at: row.get(22)?,
+        updated_at: row.get(23)?,
     })
+}
+
+fn recurrence_from_columns(
+    schedule_id: Option<String>,
+    schedule_revision: Option<String>,
+    template_revision: Option<String>,
+    occurrence_at: Option<i64>,
+) -> rusqlite::Result<Option<RecurrenceProvenance>> {
+    match (
+        schedule_id,
+        schedule_revision,
+        template_revision,
+        occurrence_at,
+    ) {
+        (None, None, None, None) => Ok(None),
+        (
+            Some(schedule_id),
+            Some(schedule_revision),
+            Some(template_revision),
+            Some(occurrence_at),
+        ) => Ok(Some(RecurrenceProvenance {
+            schedule_id: parse_uuid(schedule_id, 18)?,
+            schedule_revision,
+            template_revision,
+            occurrence_at,
+        })),
+        _ => Err(rusqlite::Error::FromSqlConversionFailure(
+            18,
+            rusqlite::types::Type::Text,
+            Box::new(StorageError::IncompatibleSchema(
+                "partial task recurrence provenance".to_string(),
+            )),
+        )),
+    }
 }
 
 fn row_to_home_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<HomeTask> {
     Ok(HomeTask {
         task: row_to_task(row)?,
-        list_name: row.get(20)?,
-        is_home_target: row.get(21)?,
+        list_name: row.get(24)?,
+        is_home_target: row.get(25)?,
     })
 }
 
@@ -5930,9 +6633,49 @@ mod tests {
             closed_reason: None,
             deleted_at: None,
             assignee: Some(Uuid::now_v7()),
+            recurrence: None,
             created_at: 1_799_000_000_000,
             updated_at: 1_799_000_000_000,
         }
+    }
+
+    fn insert_task_pre_v20(connection: &Connection, task: &Task) {
+        let (due_kind, due_on, due_at_ms, due_time_zone) = task_due_parts(task.due.as_ref());
+        connection
+            .execute(
+                "INSERT INTO tasks (
+                     id, list_id, parent_task_id, title, note, status, priority,
+                     due_kind, due_on, due_at_ms, due_time_zone, scheduled_at,
+                     estimated_minutes, sort_order, completed_at, closed_reason,
+                     deleted_at, assignee, created_at, updated_at
+                 ) VALUES (
+                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                     ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+                 )",
+                params![
+                    task.id.to_string(),
+                    task.list_id.to_string(),
+                    task.parent_task_id.map(|id| id.to_string()),
+                    task.title,
+                    task.note,
+                    status_to_str(task.status),
+                    task.priority,
+                    due_kind,
+                    due_on,
+                    due_at_ms,
+                    due_time_zone,
+                    task.scheduled_at,
+                    task.estimated_minutes,
+                    task.sort_order,
+                    task.completed_at,
+                    task.closed_reason,
+                    task.deleted_at,
+                    task.assignee.map(|id| id.to_string()),
+                    task.created_at,
+                    task.updated_at,
+                ],
+            )
+            .unwrap();
     }
 
     fn sample_list(sort_order: &str) -> List {
@@ -6484,8 +7227,7 @@ mod tests {
 
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
-            let mut repository = SqliteTaskRepository::new(connection);
-            repository.insert(task.clone()).unwrap();
+            insert_task_pre_v20(&connection, &task);
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -6543,8 +7285,7 @@ mod tests {
             let device_key = ensure_device_key(&mut store).unwrap();
             let db_key = derive_local_db_key(&device_key);
             let connection = open_encrypted(file.path(), &db_key).unwrap();
-            let mut repository = SqliteTaskRepository::new(connection);
-            repository.insert(task.clone()).unwrap();
+            insert_task_pre_v20(&connection, &task);
         }
 
         {
@@ -6736,8 +7477,7 @@ mod tests {
         task.note = "Backfill target".to_string();
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
-            let mut repository = SqliteTaskRepository::new(connection);
-            repository.insert(task.clone()).unwrap();
+            insert_task_pre_v20(&connection, &task);
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -6894,8 +7634,7 @@ mod tests {
         }
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
-            let mut repository = SqliteTaskRepository::new(connection);
-            repository.insert(task.clone()).unwrap();
+            insert_task_pre_v20(&connection, &task);
         }
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
@@ -7807,8 +8546,7 @@ mod tests {
         }
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
-            let mut repository = SqliteTaskRepository::new(connection);
-            repository.insert(task.clone()).unwrap();
+            insert_task_pre_v20(&connection, &task);
         }
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -10806,6 +11544,8 @@ mod tests {
                      DROP TABLE active_timer_session;
                      DROP TABLE local_tenant_root_key_cache;
                      DROP TABLE list_aliases;
+                     DROP TABLE templates;
+                     DROP TABLE schedules;
                      PRAGMA user_version = 17;",
                     task_id = task.id,
                     op_id = Uuid::now_v7(),
@@ -10924,6 +11664,8 @@ mod tests {
             connection
                 .execute_batch(
                     "DROP TABLE list_aliases;
+                     DROP TABLE templates;
+                     DROP TABLE schedules;
                      PRAGMA user_version = 18;",
                 )
                 .unwrap();
@@ -10964,6 +11706,82 @@ mod tests {
             read_user_version(&open_encrypted(file.path(), &KEY).unwrap()).unwrap(),
             LATEST_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn v19_to_v20_preserves_tasks_sync_metadata_and_adds_recurrence_foundation() {
+        let file = NamedTempFile::new().unwrap();
+        create_baseline_v1_database(file.path(), &KEY, true);
+        let list = new_list("Preserved".into(), "a0".into(), 100).unwrap();
+        let task = new_task(list.id, None, "Preserved task".into(), "a0".into(), 100).unwrap();
+        let tombstone_id = Uuid::now_v7();
+        {
+            let mut connection = open_raw_encrypted(file.path(), &KEY);
+            let transaction = connection.transaction().unwrap();
+            for migration in MIGRATIONS.iter().filter(|value| value.target_version <= 19) {
+                (migration.apply)(&transaction).unwrap();
+            }
+            set_user_version(&transaction, 19).unwrap();
+            transaction.commit().unwrap();
+            insert_list_on(&connection, &list).unwrap();
+            insert_task_pre_v20(&connection, &task);
+            put_record_state_on(
+                &connection,
+                live_record_state(task.id, "tasks", Some("r0"), "m1", "{}", 1),
+            )
+            .unwrap();
+            put_record_state_on(
+                &connection,
+                SyncRecordState {
+                    record_id: tombstone_id,
+                    collection: "tasks".to_string(),
+                    current_revision_hlc: Some("r1".to_string()),
+                    state: SyncRecordSemanticState::Tombstone {
+                        delete_hlc: "d1".to_string(),
+                    },
+                    updated_at: 2,
+                },
+            )
+            .unwrap();
+            set_cursor_on(&connection, "main", 42, 3).unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        assert_eq!(
+            read_user_version(&connection).unwrap(),
+            LATEST_SCHEMA_VERSION
+        );
+        let migrated = get_task_on(&connection, task.id).unwrap();
+        assert_eq!(migrated.recurrence, None);
+        assert_eq!(migrated.title, task.title);
+        assert_eq!(get_cursor_on(&connection, "main").unwrap().unwrap().seq, 42);
+        assert!(matches!(
+            get_record_state_on(&connection, "tasks", tombstone_id)
+                .unwrap()
+                .unwrap()
+                .state,
+            SyncRecordSemanticState::Tombstone { .. }
+        ));
+        for table in ["templates", "schedules"] {
+            assert!(!table_columns_raw(&connection, table).unwrap().is_empty());
+        }
+        for collection in ["templates", "schedules"] {
+            assert!(connection
+                .execute(
+                    "INSERT INTO sync_cursors(name, seq, updated_at) VALUES (?1, 0, 1)",
+                    [format!("cursor-{collection}")],
+                )
+                .is_ok());
+            assert!(connection
+                .execute(
+                    "INSERT INTO sync_record_states (
+                         record_id, collection, current_revision_hlc, state_kind,
+                         semantic_hlc, plaintext_json, updated_at
+                     ) VALUES (?1, ?2, NULL, 'tombstone', 'd1', NULL, 1)",
+                    params![Uuid::now_v7().to_string(), collection],
+                )
+                .is_ok());
+        }
     }
 
     #[test]

@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `billing_state_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `status_to_string`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `billing_state_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `schedule_to_dto`, `settlement_to_dto`, `status_to_string`, `streak_to_dto`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `template_node_to_dto`, `template_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -123,6 +123,97 @@ Future<List<ListDto>> getLists() => RustLib.instance.api.crateApiGetLists();
 
 Future<List<ListDto>> getArchivedLists() =>
     RustLib.instance.api.crateApiGetArchivedLists();
+
+Future<List<TemplateDto>> getTemplates() =>
+    RustLib.instance.api.crateApiGetTemplates();
+
+Future<List<ScheduleDto>> getTemplateSchedules({required String templateId}) =>
+    RustLib.instance.api.crateApiGetTemplateSchedules(templateId: templateId);
+
+Future<String> validateRecurrenceRule({
+  required String rrule,
+  required PlatformInt64 startsAt,
+  required String timeZone,
+}) => RustLib.instance.api.crateApiValidateRecurrenceRule(
+  rrule: rrule,
+  startsAt: startsAt,
+  timeZone: timeZone,
+);
+
+Future<TemplateDto> saveTaskAsTemplate({
+  required String taskId,
+  required String name,
+  String? defaultListId,
+}) => RustLib.instance.api.crateApiSaveTaskAsTemplate(
+  taskId: taskId,
+  name: name,
+  defaultListId: defaultListId,
+);
+
+Future<TemplateDto> updateTemplate({
+  required String templateId,
+  required String name,
+  String? defaultListId,
+}) => RustLib.instance.api.crateApiUpdateTemplate(
+  templateId: templateId,
+  name: name,
+  defaultListId: defaultListId,
+);
+
+Future<TemplateDto> replaceTemplateSnapshot({
+  required String templateId,
+  required String taskId,
+}) => RustLib.instance.api.crateApiReplaceTemplateSnapshot(
+  templateId: templateId,
+  taskId: taskId,
+);
+
+Future<List<TaskDto>> instantiateTemplate({required String templateId}) =>
+    RustLib.instance.api.crateApiInstantiateTemplate(templateId: templateId);
+
+Future<ScheduleDto> createSchedule({
+  required String templateId,
+  required String rrule,
+  required PlatformInt64 startsAt,
+  required String timeZone,
+}) => RustLib.instance.api.crateApiCreateSchedule(
+  templateId: templateId,
+  rrule: rrule,
+  startsAt: startsAt,
+  timeZone: timeZone,
+);
+
+Future<ScheduleDto> updateSchedule({
+  required String scheduleId,
+  required String rrule,
+  required PlatformInt64 startsAt,
+  required String timeZone,
+  required bool enabled,
+}) => RustLib.instance.api.crateApiUpdateSchedule(
+  scheduleId: scheduleId,
+  rrule: rrule,
+  startsAt: startsAt,
+  timeZone: timeZone,
+  enabled: enabled,
+);
+
+Future<void> deleteSchedule({required String scheduleId}) =>
+    RustLib.instance.api.crateApiDeleteSchedule(scheduleId: scheduleId);
+
+Future<void> deleteTemplate({required String templateId}) =>
+    RustLib.instance.api.crateApiDeleteTemplate(templateId: templateId);
+
+Future<SettlementSummaryDto> settleDueSchedules({
+  required PlatformInt64 atMs,
+}) => RustLib.instance.api.crateApiSettleDueSchedules(atMs: atMs);
+
+Future<StreakDto> getScheduleStreak({
+  required String scheduleId,
+  required PlatformInt64 atMs,
+}) => RustLib.instance.api.crateApiGetScheduleStreak(
+  scheduleId: scheduleId,
+  atMs: atMs,
+);
 
 Future<ListDto> renameList({required String listId, required String name}) =>
     RustLib.instance.api.crateApiRenameList(listId: listId, name: name);
@@ -767,6 +858,110 @@ class ReminderDto {
           createdAt == other.createdAt;
 }
 
+class ScheduleDto {
+  final String id;
+  final String templateId;
+  final String rrule;
+  final PlatformInt64 startsAt;
+  final String timeZone;
+  final PlatformInt64? nextRunAt;
+  final bool enabled;
+  final String configRevision;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+
+  const ScheduleDto({
+    required this.id,
+    required this.templateId,
+    required this.rrule,
+    required this.startsAt,
+    required this.timeZone,
+    this.nextRunAt,
+    required this.enabled,
+    required this.configRevision,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      templateId.hashCode ^
+      rrule.hashCode ^
+      startsAt.hashCode ^
+      timeZone.hashCode ^
+      nextRunAt.hashCode ^
+      enabled.hashCode ^
+      configRevision.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScheduleDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          templateId == other.templateId &&
+          rrule == other.rrule &&
+          startsAt == other.startsAt &&
+          timeZone == other.timeZone &&
+          nextRunAt == other.nextRunAt &&
+          enabled == other.enabled &&
+          configRevision == other.configRevision &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
+
+class SettlementSummaryDto {
+  final int generatedOccurrences;
+  final int generatedTasks;
+  final bool hasMore;
+  final bool outboxChanged;
+
+  const SettlementSummaryDto({
+    required this.generatedOccurrences,
+    required this.generatedTasks,
+    required this.hasMore,
+    required this.outboxChanged,
+  });
+
+  @override
+  int get hashCode =>
+      generatedOccurrences.hashCode ^
+      generatedTasks.hashCode ^
+      hasMore.hashCode ^
+      outboxChanged.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SettlementSummaryDto &&
+          runtimeType == other.runtimeType &&
+          generatedOccurrences == other.generatedOccurrences &&
+          generatedTasks == other.generatedTasks &&
+          hasMore == other.hasMore &&
+          outboxChanged == other.outboxChanged;
+}
+
+class StreakDto {
+  final int current;
+  final bool finalized;
+
+  const StreakDto({required this.current, required this.finalized});
+
+  @override
+  int get hashCode => current.hashCode ^ finalized.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StreakDto &&
+          runtimeType == other.runtimeType &&
+          current == other.current &&
+          finalized == other.finalized;
+}
+
 @freezed
 sealed class SyncNowOutcomeDto with _$SyncNowOutcomeDto {
   const SyncNowOutcomeDto._();
@@ -1002,6 +1197,92 @@ class TaskUndoDto {
           listId == other.listId &&
           taskTitle == other.taskTitle &&
           createdAt == other.createdAt;
+}
+
+class TemplateDto {
+  final String id;
+  final String name;
+  final String? defaultListId;
+  final String snapshotRevision;
+  final List<TemplateNodeDto> nodes;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+
+  const TemplateDto({
+    required this.id,
+    required this.name,
+    this.defaultListId,
+    required this.snapshotRevision,
+    required this.nodes,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      defaultListId.hashCode ^
+      snapshotRevision.hashCode ^
+      nodes.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TemplateDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          defaultListId == other.defaultListId &&
+          snapshotRevision == other.snapshotRevision &&
+          nodes == other.nodes &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
+
+class TemplateNodeDto {
+  final String nodeKey;
+  final String? parentNodeKey;
+  final int siblingOrder;
+  final String title;
+  final String note;
+  final int priority;
+  final int? estimatedMinutes;
+
+  const TemplateNodeDto({
+    required this.nodeKey,
+    this.parentNodeKey,
+    required this.siblingOrder,
+    required this.title,
+    required this.note,
+    required this.priority,
+    this.estimatedMinutes,
+  });
+
+  @override
+  int get hashCode =>
+      nodeKey.hashCode ^
+      parentNodeKey.hashCode ^
+      siblingOrder.hashCode ^
+      title.hashCode ^
+      note.hashCode ^
+      priority.hashCode ^
+      estimatedMinutes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TemplateNodeDto &&
+          runtimeType == other.runtimeType &&
+          nodeKey == other.nodeKey &&
+          parentNodeKey == other.parentNodeKey &&
+          siblingOrder == other.siblingOrder &&
+          title == other.title &&
+          note == other.note &&
+          priority == other.priority &&
+          estimatedMinutes == other.estimatedMinutes;
 }
 
 enum TimerFinishKindDto { completed, interrupted }

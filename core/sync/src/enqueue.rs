@@ -1,5 +1,5 @@
 use todori_crypto::key_hierarchy::KEY_LEN;
-use todori_domain::{CompletedTimerSession, List, Task, Uuid};
+use todori_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 
 use crate::{
     encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
@@ -245,6 +245,30 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     }
     fn upsert_task_for_sync(&mut self, task: Task) -> Result<(), String>;
     fn delete_task_subtree_for_sync(&mut self, task_id: Uuid) -> Result<usize, String>;
+    fn get_template(&mut self, _id: Uuid) -> Result<Option<TaskTemplate>, String> {
+        Ok(None)
+    }
+    fn upsert_template_for_sync(&mut self, _template: TaskTemplate) -> Result<(), String> {
+        Err("template storage is unavailable".to_string())
+    }
+    fn delete_template_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn get_schedule(&mut self, _id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
+        Ok(None)
+    }
+    fn upsert_schedule_for_sync(&mut self, _schedule: RecurrenceSchedule) -> Result<(), String> {
+        Err("schedule storage is unavailable".to_string())
+    }
+    fn delete_schedule_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn list_schedules_for_template(
+        &mut self,
+        _template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, String> {
+        Ok(Vec::new())
+    }
     fn get_timer_session(&mut self, _id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
         Ok(None)
     }
@@ -339,19 +363,28 @@ pub trait LocalSyncAtomicStore: LocalSyncStore {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BackfillSummary {
     pub enqueued_lists: usize,
+    pub enqueued_templates: usize,
+    pub enqueued_schedules: usize,
     pub enqueued_tasks: usize,
     pub enqueued_timer_sessions: usize,
     pub skipped_existing_outbox: usize,
     pub skipped_missing_dek: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct BackfillRecords<'a> {
+    pub lists: &'a [List],
+    pub templates: &'a [TaskTemplate],
+    pub schedules: &'a [RecurrenceSchedule],
+    pub tasks: &'a [Task],
+    pub timer_sessions: &'a [CompletedTimerSession],
+}
+
 pub fn enqueue_backfill<S, N>(
     store: &mut S,
     keys: &LocalSyncKeys,
     device_id: &str,
-    lists: &[List],
-    tasks: &[Task],
-    timer_sessions: &[CompletedTimerSession],
+    records: BackfillRecords<'_>,
     now_ms: &mut N,
 ) -> Result<BackfillSummary, String>
 where
@@ -360,7 +393,7 @@ where
 {
     let mut summary = BackfillSummary::default();
 
-    for list in lists {
+    for list in records.lists {
         if store.has_outbox_head(SyncCollection::Lists, list.id)? {
             summary.skipped_existing_outbox += 1;
             continue;
@@ -373,7 +406,33 @@ where
         summary.enqueued_lists += 1;
     }
 
-    let mut sorted_tasks = tasks.iter().collect::<Vec<_>>();
+    for template in records.templates {
+        if store.has_outbox_head(SyncCollection::Templates, template.id)? {
+            summary.skipped_existing_outbox += 1;
+            continue;
+        }
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_template_sync(store, keys, device_id, template, false, now_ms)?;
+        summary.enqueued_templates += 1;
+    }
+
+    for schedule in records.schedules {
+        if store.has_outbox_head(SyncCollection::Schedules, schedule.id)? {
+            summary.skipped_existing_outbox += 1;
+            continue;
+        }
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_schedule_sync(store, keys, device_id, schedule, false, now_ms)?;
+        summary.enqueued_schedules += 1;
+    }
+
+    let mut sorted_tasks = records.tasks.iter().collect::<Vec<_>>();
     sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
     for task in sorted_tasks {
         if store.has_outbox_head(SyncCollection::Tasks, task.id)? {
@@ -388,7 +447,7 @@ where
         summary.enqueued_tasks += 1;
     }
 
-    let mut sorted_sessions = timer_sessions.iter().collect::<Vec<_>>();
+    let mut sorted_sessions = records.timer_sessions.iter().collect::<Vec<_>>();
     sorted_sessions.sort_by_key(|session| (session.created_at, session.id));
     for session in sorted_sessions {
         if store.has_outbox_head(SyncCollection::TimerSessions, session.id)? {
@@ -413,9 +472,7 @@ pub fn enqueue_rotation_backfill<S, N>(
     store: &mut S,
     keys: &LocalSyncKeys,
     device_id: &str,
-    lists: &[List],
-    tasks: &[Task],
-    timer_sessions: &[CompletedTimerSession],
+    records: BackfillRecords<'_>,
     now_ms: &mut N,
 ) -> Result<BackfillSummary, String>
 where
@@ -432,7 +489,7 @@ where
     }
     store.set_setting(crate::KEY_ROTATION_PENDING_SETTING_KEY, "0", now_ms()?)?;
     let mut summary = BackfillSummary::default();
-    for list in lists {
+    for list in records.lists {
         if dek_for_list(keys, list.id).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
@@ -440,7 +497,23 @@ where
         enqueue_list_sync(store, keys, device_id, list, false, now_ms)?;
         summary.enqueued_lists += 1;
     }
-    let mut sorted_tasks = tasks.iter().collect::<Vec<_>>();
+    for template in records.templates {
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_template_sync(store, keys, device_id, template, false, now_ms)?;
+        summary.enqueued_templates += 1;
+    }
+    for schedule in records.schedules {
+        if tenant_root_dek(keys).is_none() {
+            summary.skipped_missing_dek += 1;
+            continue;
+        }
+        enqueue_schedule_sync(store, keys, device_id, schedule, false, now_ms)?;
+        summary.enqueued_schedules += 1;
+    }
+    let mut sorted_tasks = records.tasks.iter().collect::<Vec<_>>();
     sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
     for task in sorted_tasks {
         if dek_for_list(keys, task.list_id).is_none() {
@@ -450,7 +523,7 @@ where
         enqueue_task_sync(store, keys, device_id, task, false, now_ms)?;
         summary.enqueued_tasks += 1;
     }
-    let mut sorted_sessions = timer_sessions.iter().collect::<Vec<_>>();
+    let mut sorted_sessions = records.timer_sessions.iter().collect::<Vec<_>>();
     sorted_sessions.sort_by_key(|session| (session.created_at, session.id));
     for session in sorted_sessions {
         if tenant_root_dek(keys).is_none() {
@@ -503,6 +576,92 @@ where
             dek,
             tenant_id: keys.tenant_id,
             generation,
+            revision_hlc: &hlc,
+            semantic_hlc: &encoded_hlc,
+            base_revision_hlc,
+        },
+        now_ms,
+    )
+}
+
+pub fn enqueue_template_sync<S, N>(
+    store: &mut S,
+    keys: &LocalSyncKeys,
+    device_id: &str,
+    template: &TaskTemplate,
+    deleted: bool,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    ensure_no_pending_rotation(store)?;
+    let dek = tenant_root_dek(keys)
+        .ok_or_else(|| "missing Tenant Root DEK for template sync".to_string())?;
+    if keys.tenant_id.is_nil() || keys.tenant_generation == 0 {
+        return Err("missing active tenant key generation".to_string());
+    }
+    let hlc = tick_local_hlc(store, device_id, now_ms)?;
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    let previous_state = store.get_record_state(SyncCollection::Templates, template.id)?;
+    let base_revision_hlc = previous_state
+        .as_ref()
+        .and_then(|state| state.current_revision_hlc.clone());
+    let plaintext = changed_template_plaintext(previous_state.as_ref(), template, hlc.clone())?;
+    enqueue_plaintext(
+        store,
+        EnqueuePlaintextRequest {
+            record_id: template.id,
+            collection: SyncCollection::Templates,
+            deleted,
+            plaintext: &plaintext,
+            dek,
+            tenant_id: keys.tenant_id,
+            generation: keys.tenant_generation,
+            revision_hlc: &hlc,
+            semantic_hlc: &encoded_hlc,
+            base_revision_hlc,
+        },
+        now_ms,
+    )
+}
+
+pub fn enqueue_schedule_sync<S, N>(
+    store: &mut S,
+    keys: &LocalSyncKeys,
+    device_id: &str,
+    schedule: &RecurrenceSchedule,
+    deleted: bool,
+    now_ms: &mut N,
+) -> Result<(), String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    ensure_no_pending_rotation(store)?;
+    let dek = tenant_root_dek(keys)
+        .ok_or_else(|| "missing Tenant Root DEK for schedule sync".to_string())?;
+    if keys.tenant_id.is_nil() || keys.tenant_generation == 0 {
+        return Err("missing active tenant key generation".to_string());
+    }
+    let hlc = tick_local_hlc(store, device_id, now_ms)?;
+    let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
+    let previous_state = store.get_record_state(SyncCollection::Schedules, schedule.id)?;
+    let base_revision_hlc = previous_state
+        .as_ref()
+        .and_then(|state| state.current_revision_hlc.clone());
+    let plaintext = changed_schedule_plaintext(previous_state.as_ref(), schedule, hlc.clone())?;
+    enqueue_plaintext(
+        store,
+        EnqueuePlaintextRequest {
+            record_id: schedule.id,
+            collection: SyncCollection::Schedules,
+            deleted,
+            plaintext: &plaintext,
+            dek,
+            tenant_id: keys.tenant_id,
+            generation: keys.tenant_generation,
             revision_hlc: &hlc,
             semantic_hlc: &encoded_hlc,
             base_revision_hlc,
@@ -811,6 +970,22 @@ where
     Ok(hlc)
 }
 
+/// Reserves a durable HLC identity for a template snapshot or schedule config
+/// revision in the transaction that persists that revision.
+pub fn next_local_revision<S, N>(
+    store: &mut S,
+    device_id: &str,
+    now_ms: &mut N,
+) -> Result<String, String>
+where
+    S: LocalMutationSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    tick_local_hlc(store, device_id, now_ms)?
+        .encode()
+        .map_err(|_| "sync failed".to_string())
+}
+
 fn tick_local_hlc_after<S, N>(
     store: &mut S,
     device_id: &str,
@@ -870,6 +1045,14 @@ pub(crate) fn list_plaintext(list: &List, hlc: Hlc) -> SyncPlaintext {
     SyncPlaintext::from_list(list, hlc).expect("domain list has a valid fixed-width rank")
 }
 
+pub(crate) fn template_plaintext(template: &TaskTemplate, hlc: Hlc) -> SyncPlaintext {
+    SyncPlaintext::from_template(template, hlc).expect("domain template is valid")
+}
+
+pub(crate) fn schedule_plaintext(schedule: &RecurrenceSchedule, hlc: Hlc) -> SyncPlaintext {
+    SyncPlaintext::from_schedule(schedule, hlc).expect("domain schedule is valid")
+}
+
 fn changed_task_plaintext(
     previous: Option<&LocalSyncRecordState>,
     task: &Task,
@@ -901,6 +1084,40 @@ fn changed_list_plaintext(
                 .map_err(|_| "sync failed".to_string())
         }
         _ => SyncPlaintext::from_list(list, hlc).map_err(|_| "sync failed".to_string()),
+    }
+}
+
+fn changed_template_plaintext(
+    previous: Option<&LocalSyncRecordState>,
+    template: &TaskTemplate,
+    hlc: Hlc,
+) -> Result<SyncPlaintext, String> {
+    match previous.map(|state| &state.state) {
+        Some(LocalSyncSemanticState::Live { plaintext_json, .. }) => {
+            let previous: SyncPlaintext =
+                serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
+            previous
+                .stamp_template_changes(template, hlc)
+                .map_err(|_| "sync failed".to_string())
+        }
+        _ => SyncPlaintext::from_template(template, hlc).map_err(|_| "sync failed".to_string()),
+    }
+}
+
+fn changed_schedule_plaintext(
+    previous: Option<&LocalSyncRecordState>,
+    schedule: &RecurrenceSchedule,
+    hlc: Hlc,
+) -> Result<SyncPlaintext, String> {
+    match previous.map(|state| &state.state) {
+        Some(LocalSyncSemanticState::Live { plaintext_json, .. }) => {
+            let previous: SyncPlaintext =
+                serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
+            previous
+                .stamp_schedule_changes(schedule, hlc)
+                .map_err(|_| "sync failed".to_string())
+        }
+        _ => SyncPlaintext::from_schedule(schedule, hlc).map_err(|_| "sync failed".to_string()),
     }
 }
 
@@ -986,9 +1203,13 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            std::slice::from_ref(&list),
-            std::slice::from_ref(&task),
-            &[],
+            BackfillRecords {
+                lists: std::slice::from_ref(&list),
+                templates: &[],
+                schedules: &[],
+                tasks: std::slice::from_ref(&task),
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();
@@ -1016,9 +1237,13 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            std::slice::from_ref(&list),
-            &[task],
-            &[],
+            BackfillRecords {
+                lists: std::slice::from_ref(&list),
+                templates: &[],
+                schedules: &[],
+                tasks: &[task],
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();
@@ -1050,9 +1275,13 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            &[list],
-            &[later.clone(), earlier.clone()],
-            &[],
+            BackfillRecords {
+                lists: &[list],
+                templates: &[],
+                schedules: &[],
+                tasks: &[later.clone(), earlier.clone()],
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();
@@ -1080,9 +1309,13 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            &[missing_list.clone(), synced_list.clone()],
-            &[missing_task.clone(), synced_task.clone()],
-            &[],
+            BackfillRecords {
+                lists: &[missing_list.clone(), synced_list.clone()],
+                templates: &[],
+                schedules: &[],
+                tasks: &[missing_task.clone(), synced_task.clone()],
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();
@@ -1137,9 +1370,13 @@ mod tests {
             &mut store,
             &keys,
             "device-a",
-            std::slice::from_ref(&list),
-            std::slice::from_ref(&task),
-            &[],
+            BackfillRecords {
+                lists: std::slice::from_ref(&list),
+                templates: &[],
+                schedules: &[],
+                tasks: std::slice::from_ref(&task),
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();
@@ -1221,6 +1458,7 @@ mod tests {
             closed_reason: None,
             deleted_at: None,
             assignee: None,
+            recurrence: None,
             created_at,
             updated_at: created_at,
         }

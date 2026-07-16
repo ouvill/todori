@@ -37,6 +37,7 @@ import 'package:todori/src/rust/api.dart'
         CalendarRangeInput,
         HomeTaskDto,
         ListDto,
+        StreakDto,
         TaskDto,
         TimerModeDto,
         TimerPhaseDto,
@@ -1292,6 +1293,44 @@ void main() {
     await _screenshot(tester, 'lists_archived');
   });
 
+  testWidgets('p2_m8_templates_en: recurring template management', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    await _seedTemplateVisualData(tester);
+    await tester.tap(find.text('Lists').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Templates').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'p2_m8_templates_en');
+  });
+
+  testWidgets('p2_m8_templates_ja: recurring template management', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useJaLocale(tester);
+    await _seedTemplateVisualData(tester);
+    await tester.tap(find.text('リスト').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('テンプレート').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'p2_m8_templates_ja');
+  });
+
+  testWidgets('p2_m8_templates_text_scale_2: 390px Dynamic Type 2.0', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    _useTextScale(tester, 2.0);
+    await _seedTemplateVisualData(tester);
+    await tester.tap(find.text('Lists').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Templates').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'p2_m8_templates_text_scale_2');
+  });
+
   testWidgets('account_signed_out: account screen with server URL form', (
     tester,
   ) async {
@@ -2506,6 +2545,41 @@ Future<void> _seedArchivedListData(WidgetTester tester) async {
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
+}
+
+Future<void> _seedTemplateVisualData(WidgetTester tester) async {
+  final fake = _TemplateVisualBridge();
+  final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+  final task = await fake.createTask(
+    listId: inbox.id,
+    title: 'Plan the morning ritual',
+    note: 'Review priorities and choose the first focused task.',
+    priority: 2,
+    estimatedMinutes: 20,
+  );
+  final template = await fake.saveTaskAsTemplate(
+    taskId: task.id,
+    name: 'Morning reset',
+    defaultListId: inbox.id,
+  );
+  await fake.createSchedule(
+    templateId: template.id,
+    rrule: 'FREQ=DAILY',
+    startsAt: DateTime(2026, 7, 18, 7).millisecondsSinceEpoch,
+    timeZone: 'Asia/Tokyo',
+  );
+  await tester.pumpWidget(
+    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+  );
+  await tester.pumpAndSettle();
+}
+
+class _TemplateVisualBridge extends FakeBridgeService {
+  @override
+  Future<StreakDto> getScheduleStreak({
+    required String scheduleId,
+    required int atMs,
+  }) async => const StreakDto(current: 4, finalized: false);
 }
 
 /// Scrolls [title] into view (if needed) and taps it to open task detail.

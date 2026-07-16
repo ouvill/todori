@@ -27,6 +27,8 @@ class FakeBridgeService implements BridgeService {
 
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
+  final List<TemplateDto> _templates = [];
+  final List<ScheduleDto> _schedules = [];
   final List<ReminderDto> _reminders = [];
   final List<CompletedTimerSessionDto> _completedTimerSessions = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
@@ -58,6 +60,8 @@ class FakeBridgeService implements BridgeService {
   );
   int _listSeq = 0;
   int _taskSeq = 0;
+  int _templateSeq = 0;
+  int _scheduleSeq = 0;
   int _reminderSeq = 0;
   int _undoSeq = 0;
   int _accountSeq = 0;
@@ -70,6 +74,8 @@ class FakeBridgeService implements BridgeService {
   }) {
     _lists.clear();
     _tasks.clear();
+    _templates.clear();
+    _schedules.clear();
     _reminders.clear();
     _completedTimerSessions.clear();
     _activeTimerSession = null;
@@ -101,6 +107,8 @@ class FakeBridgeService implements BridgeService {
     );
     _listSeq = listCount;
     _taskSeq = listCount * tasksPerList;
+    _templateSeq = 0;
+    _scheduleSeq = 0;
     _reminderSeq = 0;
     _undoSeq = 0;
     _accountSeq = 0;
@@ -463,6 +471,216 @@ class FakeBridgeService implements BridgeService {
     });
     return List.unmodifiable(archived);
   }
+
+  @override
+  Future<List<TemplateDto>> getTemplates() async =>
+      List.unmodifiable(_templates);
+
+  @override
+  Future<List<ScheduleDto>> getTemplateSchedules({
+    required String templateId,
+  }) async => List.unmodifiable(
+    _schedules.where((schedule) => schedule.templateId == templateId),
+  );
+
+  @override
+  Future<String> validateRecurrenceRule({
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+  }) async {
+    final supportedFrequency = RegExp(
+      r'^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)',
+    ).hasMatch(rrule);
+    if (!supportedFrequency || timeZone.isEmpty) {
+      throw Exception('invalid recurrence rule');
+    }
+    return rrule;
+  }
+
+  @override
+  Future<TemplateDto> saveTaskAsTemplate({
+    required String taskId,
+    required String name,
+    String? defaultListId,
+  }) async {
+    final task = _tasks.firstWhere((task) => task.id == taskId);
+    final now = _fakeTimestamp(5000 + _templateSeq);
+    final template = TemplateDto(
+      id: 'template-${_templateSeq++}',
+      name: name,
+      defaultListId: defaultListId,
+      snapshotRevision: 'template-revision-$now',
+      nodes: [
+        TemplateNodeDto(
+          nodeKey: task.id,
+          siblingOrder: 0,
+          title: task.title,
+          note: task.note,
+          priority: task.priority,
+          estimatedMinutes: task.estimatedMinutes,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+    _templates.add(template);
+    return template;
+  }
+
+  @override
+  Future<TemplateDto> updateTemplate({
+    required String templateId,
+    required String name,
+    String? defaultListId,
+  }) async {
+    final index = _templates.indexWhere((value) => value.id == templateId);
+    final before = _templates[index];
+    final updated = TemplateDto(
+      id: before.id,
+      name: name,
+      defaultListId: defaultListId,
+      snapshotRevision: before.snapshotRevision,
+      nodes: before.nodes,
+      createdAt: before.createdAt,
+      updatedAt: before.updatedAt + _fakeMinuteMs,
+    );
+    _templates[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<TemplateDto> replaceTemplateSnapshot({
+    required String templateId,
+    required String taskId,
+  }) async {
+    final before = _templates.firstWhere((value) => value.id == templateId);
+    final task = _tasks.firstWhere((value) => value.id == taskId);
+    final index = _templates.indexOf(before);
+    final updated = TemplateDto(
+      id: before.id,
+      name: before.name,
+      defaultListId: before.defaultListId,
+      snapshotRevision: '${before.snapshotRevision}-next',
+      nodes: [
+        TemplateNodeDto(
+          nodeKey: task.id,
+          siblingOrder: 0,
+          title: task.title,
+          note: task.note,
+          priority: task.priority,
+          estimatedMinutes: task.estimatedMinutes,
+        ),
+      ],
+      createdAt: before.createdAt,
+      updatedAt: before.updatedAt + _fakeMinuteMs,
+    );
+    _templates[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<List<TaskDto>> instantiateTemplate({
+    required String templateId,
+  }) async {
+    final template = _templates.firstWhere((value) => value.id == templateId);
+    final listId = template.defaultListId ?? _lists.first.id;
+    final created = <TaskDto>[];
+    for (final node in template.nodes) {
+      final now = _fakeTimestamp(6000 + _taskSeq);
+      final task = TaskDto(
+        id: 'task-${_taskSeq++}',
+        listId: listId,
+        title: node.title,
+        note: node.note,
+        status: 'todo',
+        priority: node.priority,
+        estimatedMinutes: node.estimatedMinutes,
+        sortOrder: 'template-${node.siblingOrder}',
+        createdAt: now,
+        updatedAt: now,
+      );
+      _tasks.add(task);
+      created.add(task);
+    }
+    return created;
+  }
+
+  @override
+  Future<ScheduleDto> createSchedule({
+    required String templateId,
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+  }) async {
+    final now = _fakeTimestamp(7000 + _scheduleSeq);
+    final schedule = ScheduleDto(
+      id: 'schedule-${_scheduleSeq++}',
+      templateId: templateId,
+      rrule: rrule,
+      startsAt: startsAt,
+      timeZone: timeZone,
+      nextRunAt: startsAt,
+      enabled: true,
+      configRevision: 'schedule-revision-$now',
+      createdAt: now,
+      updatedAt: now,
+    );
+    _schedules.add(schedule);
+    return schedule;
+  }
+
+  @override
+  Future<ScheduleDto> updateSchedule({
+    required String scheduleId,
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+    required bool enabled,
+  }) async {
+    final index = _schedules.indexWhere((value) => value.id == scheduleId);
+    final before = _schedules[index];
+    final updated = ScheduleDto(
+      id: before.id,
+      templateId: before.templateId,
+      rrule: rrule,
+      startsAt: startsAt,
+      timeZone: timeZone,
+      nextRunAt: startsAt,
+      enabled: enabled,
+      configRevision: '${before.configRevision}-next',
+      createdAt: before.createdAt,
+      updatedAt: before.updatedAt + _fakeMinuteMs,
+    );
+    _schedules[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteSchedule({required String scheduleId}) async {
+    _schedules.removeWhere((value) => value.id == scheduleId);
+  }
+
+  @override
+  Future<void> deleteTemplate({required String templateId}) async {
+    _schedules.removeWhere((value) => value.templateId == templateId);
+    _templates.removeWhere((value) => value.id == templateId);
+  }
+
+  @override
+  Future<SettlementSummaryDto> settleDueSchedules({required int atMs}) async =>
+      const SettlementSummaryDto(
+        generatedOccurrences: 0,
+        generatedTasks: 0,
+        hasMore: false,
+        outboxChanged: false,
+      );
+
+  @override
+  Future<StreakDto> getScheduleStreak({
+    required String scheduleId,
+    required int atMs,
+  }) async => const StreakDto(current: 0, finalized: false);
 
   @override
   Future<ListDto> renameList({
