@@ -59,19 +59,19 @@ GitHub Actionsの直近成功runでは、docs-only PRでもRust、Flutter、Work
 
 ## 6. 受け入れ基準
 
-- [ ] `docs/**`のみの変更をdocs-onlyと判定する。
-- [ ] code、workflow、Cargo、未知pathとの混在はfull CIと判定する。
-- [ ] scheduleと判定不能時はfull CIと判定する。
-- [ ] docs-only時も`Dependency and secret gates`が実行される。
-- [ ] docs-only時のRust、Flutter、Worker、fuzz jobはjob単位でskipされる。
-- [ ] PRでは大容量cacheのsave stepが実行されない。
-- [ ] main pushまたはscheduleではcache miss時に大容量cacheをsaveできる。
-- [ ] A/Bの両方式が同じRust品質ゲートを実行し、比較可能な時間とcache統計を残す。
-- [ ] sccacheは実測で優位性が確認できるまで通常CIへ採用しない。
-- [ ] `sh tool/ci/test_classify_changes.sh`
-- [ ] `sh app/tool/check_client_boundaries.sh`
-- [ ] `sh app/tool/test_client_boundaries.sh`
-- [ ] `git diff --check`
+- [x] `docs/**`のみの変更をdocs-onlyと判定する。
+- [x] code、workflow、Cargo、未知pathとの混在はfull CIと判定する。
+- [x] scheduleと判定不能時はfull CIと判定する。
+- [x] docs-only時も`Dependency and secret gates`が実行される。
+- [x] docs-only時のRust、Flutter、Worker、fuzz jobはjob単位でskipされる。
+- [x] PRでは大容量cacheのsave stepが実行されない。
+- [x] main pushまたはscheduleではcache miss時に大容量cacheをsaveできる。
+- [x] A/Bの両方式が同じRust品質ゲートを実行し、比較可能な時間とcache統計を残す。
+- [x] sccacheは実測で優位性が確認できるまで通常CIへ採用しない。
+- [x] `sh tool/ci/test_classify_changes.sh`
+- [x] `sh app/tool/check_client_boundaries.sh`
+- [x] `sh app/tool/test_client_boundaries.sh`
+- [x] `git diff --check`
 
 ## 7. 制約・注意事項
 
@@ -89,3 +89,33 @@ GitHub Actionsの直近成功runでは、docs-only PRでもRust、Flutter、Work
 - A/Bのrun URL、job時間、cacheサイズまたはhit状況、sccache hit率・error数。
 - sccacheの採用・不採用判断と根拠。
 - 実行した品質ゲート、skip、環境制約、未解決事項。
+
+## 9. 完了報告
+
+### 実装
+
+- `tool/ci/classify_changes.sh`を追加し、PRはbase/headのthree-dot diff、pushはbefore/headのtwo-dot diffから変更pathを取得する。`docs/**`、root Markdown、`LICENSE*`だけをdocs-onlyとし、schedule、未知event、zero before、空diff、取得失敗、allowlist外pathはすべてfull CIへ倒す。
+- change classification jobを常時起動し、docs-only時だけWorker、Rust、Flutter、fuzzをjob単位でskipする。`Dependency and secret gates`は判定に依存せず常時実行する。classifier job自体が失敗した場合も`always() && !cancelled()`で重いjobを実行する。
+- Linux Rust、macOS Flutter Rust、fuzzの大容量Cargo cacheを`actions/cache/restore`と`actions/cache/save`へ分離した。PRはrestore-only、main pushとscheduleは成功かつexact miss時だけ同じprimary keyへsaveする。
+- 一時的なlabel-gated sccache jobで同一のRust 1.97.0、fmt、client boundary、clippy、workspace testを現行target archive方式と並列実行した。cold/warm計測後、優位性がなかったため一時jobとlabel triggerを最終workflowから削除した。
+
+### A/B結果
+
+- [cold run / attempt 1](https://github.com/ouvill/todori/actions/runs/29486163712): 現行Rust target cache 3分12秒、sccache 11分47秒。sccacheは全体hit 9.74%、Rust hit 0%、miss 3,502、cache write error 1,518だった。現行jobの約2.47 GB target archive復元は76秒だった。
+- [warm run / attempt 2](https://github.com/ouvill/todori/actions/runs/29486163712/attempts/2): 現行Rust target cache 2分27秒、sccache 6分10秒。sccacheは全体hit 64.95%、Rust hit 87.92%まで上がったが、C/C++ miss 1,240、cache write error 528が残り、現行jobより3分43秒遅かった。
+- sccacheはcoldで約3.7倍、warmでも約2.5倍遅く、GitHub Actions Cache backendへの細粒度I/OとC/C++ buildのmissがこのworkspaceでは不利だった。通常CIには採用せず、現行target archiveを維持する。
+- 同じwarm runのFlutter jobは4分39秒だった。cold runの6分06秒の内訳はCargo restore 29秒、Flutter SDK restore 81秒、FRB regenerate 53秒、Rust release library build 36秒、Flutter analyze 24秒、Flutter test 117秒であり、Flutter testだけでなくSDK復元、bindgen/FRB、Rust buildも主要因である。
+
+### 検証
+
+- official actionlint v1.7.12で`.github/workflows/ci.yml`: PASS。Ruby YAML parse、`sh -n`、`git diff --check`: PASS。
+- `sh tool/ci/test_classify_changes.sh`: PASS。docs-only PR/push、日本語docs path、root Markdown、削除をtrue、code、mixed、workflow、codeからdocsへのrename、schedule、未知event、zero before、空diff、invalid SHAをfalseとして確認した。
+- 実履歴のdocs-only PR base/headをtrue、Flutter変更PR base/headをfalseと判定した。
+- `cargo fmt --all -- --check`、client boundary check/test、secret pattern check、crypto dependency pin check: PASS。
+- GitHub cold/warm runでは全jobがPASSし、PR上のRust、Flutter、fuzzのsave stepがskipされた。
+- 独立検証担当がfail-open条件、fork PRのcheckout、cache restore/save条件、action SHA固定、classifier test、workflow構文を再確認し、ブロッキング指摘なしでPASSと判定した。
+
+### 未解決事項
+
+- docs-only時のjob skipはclassifierのfixture、実履歴、workflow条件で検証した。変更workflowがmainへ入る前にdocs-only PRだけを作ることはできないため、GitHub UI上の実skipはmerge後の最初のdocs-only PRで確認する。
+- main pushまたはscheduleのexact cache miss時にsaveされることはworkflow条件で確認した。PR #22は意図どおりrestore-onlyであり、trusted non-PRの実saveはmerge後のrunで確認する。
