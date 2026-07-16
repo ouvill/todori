@@ -1,7 +1,7 @@
 ---
 id: 019f6a1c-d4a5-7ad1-bd39-6eb9662d5537
 title: CI cache optimization and sccache benchmark
-status: active
+status: done
 lane: standard
 milestone: maintenance
 ---
@@ -92,30 +92,41 @@ GitHub Actionsの直近成功runでは、docs-only PRでもRust、Flutter、Work
 
 ## 9. 完了報告
 
-### 実装
+### 実装結果
+
+- 作業日: 2026-07-16
+- 結果: docs-only変更だけ重い4 jobをskipするfail-open判定と、PRの大容量Cargo cacheをrestore-onlyにする構成を導入した。sccacheはcold/warm A/Bで現行target archiveより遅かったため採用せず、一時benchmarkを最終workflowから除去した。
+- 証拠: classifier回帰13件、actionlint、既存品質ゲート、GitHub Actions cold/warm各1回がPASSした。実測値とrun URLは下記に記録する。
+- Commit: `ed35d0d`（実装とA/B workflow）、`aab3248`（A/B結果反映と一時benchmark除去）
+- 未解決: GitHub UI上のdocs-only job skipとtrusted non-PR cache saveは、workflowがmainへ入った後の該当runで実地確認する。
 
 - `tool/ci/classify_changes.sh`を追加し、PRはbase/headのthree-dot diff、pushはbefore/headのtwo-dot diffから変更pathを取得する。`docs/**`、root Markdown、`LICENSE*`だけをdocs-onlyとし、schedule、未知event、zero before、空diff、取得失敗、allowlist外pathはすべてfull CIへ倒す。
 - change classification jobを常時起動し、docs-only時だけWorker、Rust、Flutter、fuzzをjob単位でskipする。`Dependency and secret gates`は判定に依存せず常時実行する。classifier job自体が失敗した場合も`always() && !cancelled()`で重いjobを実行する。
 - Linux Rust、macOS Flutter Rust、fuzzの大容量Cargo cacheを`actions/cache/restore`と`actions/cache/save`へ分離した。PRはrestore-only、main pushとscheduleは成功かつexact miss時だけ同じprimary keyへsaveする。
 - 一時的なlabel-gated sccache jobで同一のRust 1.97.0、fmt、client boundary、clippy、workspace testを現行target archive方式と並列実行した。cold/warm計測後、優位性がなかったため一時jobとlabel triggerを最終workflowから削除した。
 
-### A/B結果
+#### A/B結果
 
 - [cold run / attempt 1](https://github.com/ouvill/todori/actions/runs/29486163712): 現行Rust target cache 3分12秒、sccache 11分47秒。sccacheは全体hit 9.74%、Rust hit 0%、miss 3,502、cache write error 1,518だった。現行jobの約2.47 GB target archive復元は76秒だった。
 - [warm run / attempt 2](https://github.com/ouvill/todori/actions/runs/29486163712/attempts/2): 現行Rust target cache 2分27秒、sccache 6分10秒。sccacheは全体hit 64.95%、Rust hit 87.92%まで上がったが、C/C++ miss 1,240、cache write error 528が残り、現行jobより3分43秒遅かった。
 - sccacheはcoldで約3.7倍、warmでも約2.5倍遅く、GitHub Actions Cache backendへの細粒度I/OとC/C++ buildのmissがこのworkspaceでは不利だった。通常CIには採用せず、現行target archiveを維持する。
 - 同じwarm runのFlutter jobは4分39秒だった。cold runの6分06秒の内訳はCargo restore 29秒、Flutter SDK restore 81秒、FRB regenerate 53秒、Rust release library build 36秒、Flutter analyze 24秒、Flutter test 117秒であり、Flutter testだけでなくSDK復元、bindgen/FRB、Rust buildも主要因である。
 
-### 検証
+#### 検証
 
 - official actionlint v1.7.12で`.github/workflows/ci.yml`: PASS。Ruby YAML parse、`sh -n`、`git diff --check`: PASS。
 - `sh tool/ci/test_classify_changes.sh`: PASS。docs-only PR/push、日本語docs path、root Markdown、削除をtrue、code、mixed、workflow、codeからdocsへのrename、schedule、未知event、zero before、空diff、invalid SHAをfalseとして確認した。
 - 実履歴のdocs-only PR base/headをtrue、Flutter変更PR base/headをfalseと判定した。
 - `cargo fmt --all -- --check`、client boundary check/test、secret pattern check、crypto dependency pin check: PASS。
 - GitHub cold/warm runでは全jobがPASSし、PR上のRust、Flutter、fuzzのsave stepがskipされた。
-- 独立検証担当がfail-open条件、fork PRのcheckout、cache restore/save条件、action SHA固定、classifier test、workflow構文を再確認し、ブロッキング指摘なしでPASSと判定した。
 
-### 未解決事項
+#### 未解決事項
 
 - docs-only時のjob skipはclassifierのfixture、実履歴、workflow条件で検証した。変更workflowがmainへ入る前にdocs-only PRだけを作ることはできないため、GitHub UI上の実skipはmerge後の最初のdocs-only PRで確認する。
 - main pushまたはscheduleのexact cache miss時にsaveされることはworkflow条件で確認した。PR #22は意図どおりrestore-onlyであり、trusted non-PRの実saveはmerge後のrunで確認する。
+
+### 独立検証
+
+- 判定: 合格
+- 根拠: GitHub APIとjob logからcold/warmの全job成功、job時間、sccache hit/miss/error、Flutter step内訳、PR save stepのskipを照合した。最終workflowで一時benchmarkとlabel triggerの除去、fail-open、security常時実行、PR restore-only/non-PR save条件を再確認し、actionlint v1.7.12、classifier回帰、`git diff --check`を再実行してPASSした。重大・中程度のコード指摘はなかった。
+- 検証者: 実装を担当していない独立検証エージェント
