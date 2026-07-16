@@ -1,7 +1,7 @@
 ---
 id: 019f6c59-311c-73e3-a71a-96d2660a5b0d
 title: Dependabot Cargo lock coordination
-status: active
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -81,13 +81,13 @@ rootとfuzzのCargo更新を同一Dependabot定義へ統合し、通常の破壊
 ### 実装結果
 
 - 作業日: 2026-07-17
-- 結果: Cargoのroot / fuzz更新を単一設定へ統合し、version updateをdependency-name単位、security updateを全依存group、protected dependencyの通常更新をpatch限定にした。両lockfileの`--locked`検証とrelease gateは維持し、失敗対象を診断できるようにした。
-- 証拠: YAML構造検証、pin check、root / fuzz locked metadata、`cargo fmt`、`cargo clippy`、`cargo test`、`cargo audit --deny warnings`、bridge release build、Flutter analyze / 253 tests、client boundary gatesが成功した。parser fuzzは61秒で384,932 runs、crashなしだった。
-- Commit: `064044b`
-- 未解決: merge後に実生成されるDependabot PRの両lockfile更新を確認する。成立しなければversion update停止fallbackを適用する。確認後にPR #17 / #18を説明付きでcloseし、本work itemを`done`へ更新する。
+- 結果: Cargoのroot / fuzz更新を単一設定へ統合し、version updateをdependency-name単位、security updateを全依存group、protected dependencyの通常更新をpatch限定にした。両lockfileの`--locked`検証とrelease gateは維持し、失敗対象を診断できるようにした。実装PR #25は全CI成功後にmergeした。
+- 証拠: YAML構造検証、pin check、root / fuzz locked metadata、`cargo fmt`、`cargo clippy`、`cargo test`、`cargo audit --deny warnings`、bridge release build、Flutter analyze / 253 tests、client boundary gatesが成功した。parser fuzzは61秒で384,932 runs、crashなしだった。設定mergeを契機に生成されたDependabot PR #28は`Cargo.toml`、`Cargo.lock`、`fuzz/Cargo.lock`を1 PRで更新し、dependency / pin gateを含む全CIが成功したため、横断grouping成立と判定した。fallbackは適用していない。
+- Commit: `064044b`、merge `519cffe`
+- 未解決: なし。旧PR #17 / #18は原因と後継PRをコメントしてcloseした。GitHub Actions更新PR #23は変更していない。破壊的依存更新はwork item `019f6c6a-121f-7363-aa7a-e84ba20ec454`へ分離した。
 
 ### 独立検証
 
-- 判定: 合格（ローカル変更。remote実PR確認は未完了）
-- 根拠: 実装を担当していないエージェントがDependabot設定をGitHub公式仕様と照合し、YAML構造、`git diff --check`、shell構文、pin check、front matterを再実行して指摘なしと判定した。
+- 判定: 合格
+- 根拠: 実装を担当していないエージェントがDependabot設定をGitHub公式仕様と照合し、YAML構造、`git diff --check`、shell構文、pin check、front matterを再実行して指摘なしと判定した。統合後はPR #25の全CI成功、PR #28の両lockfile差分とpin gate成功、PR #17 / #18のclose、PR #23未変更を再確認した。
 - 検証者: independent_stage1_review agent
