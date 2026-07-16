@@ -1,29 +1,107 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    # The root workspace and the isolated fuzz crate have separate lockfiles but
+    # share path dependencies. Keep both directories in one update definition so
+    # a dependency update can refresh both lockfiles in the same pull request.
+    directories:
+      - /
+      - /fuzz
     schedule:
       interval: weekly
       day: monday
       time: "09:00"
       timezone: Asia/Tokyo
     groups:
-      rust-dependencies:
+      cargo-version-updates:
+        applies-to: version-updates
+        group-by: dependency-name
+      cargo-security-updates:
+        applies-to: security-updates
         patterns:
           - "*"
-    open-pull-requests-limit: 5
-
-  - package-ecosystem: cargo
-    directory: /fuzz
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-      timezone: Asia/Tokyo
-    groups:
-      fuzz-dependencies:
-        patterns:
-          - "*"
+    # Exact-pinned release-gate dependencies receive routine patch updates only.
+    # Minor and major updates require a critical work item and independent review.
+    # These version-update filters do not suppress Dependabot security updates.
+    ignore:
+      - dependency-name: aws-lc-rs
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: aws-lc-sys
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: argon2
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: bip39
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: chacha20poly1305
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: hkdf
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: hmac
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: opaque-ke
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: rand
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: sha2
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: x25519-dalek
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: zeroize
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: rusqlite
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: security-framework
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: security-framework-sys
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: jni
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: libfuzzer-sys
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      - dependency-name: uuid
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      # Rust and Dart flutter_rust_bridge versions are a single fixed contract.
+      - dependency-name: flutter_rust_bridge
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
+          - version-update:semver-major
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions

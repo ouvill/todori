@@ -29,5 +29,12 @@ if grep -Eq '^source = "git\+' Cargo.lock fuzz/Cargo.lock; then
   exit 1
 fi
 
-cargo metadata --locked --format-version 1 >/dev/null
-cargo metadata --locked --manifest-path fuzz/Cargo.toml --format-version 1 >/dev/null
+if ! cargo metadata --locked --format-version 1 >/dev/null; then
+  echo "root Cargo.lock is stale or inconsistent with the workspace manifests" >&2
+  exit 1
+fi
+
+if ! cargo metadata --locked --manifest-path fuzz/Cargo.toml --format-version 1 >/dev/null; then
+  echo "fuzz/Cargo.lock is stale or inconsistent with fuzz and path dependency manifests" >&2
+  exit 1
+fi
