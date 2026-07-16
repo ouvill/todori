@@ -1,7 +1,7 @@
 ---
 id: 019f6ccd-da7b-71b2-be11-781eb6e9be7e
 title: P2-M8 templates and recurring tasks
-status: active
+status: done
 lane: critical
 milestone: P2-M8
 ---
@@ -75,24 +75,24 @@ Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、
 
 ## 6. 受け入れ基準
 
-- [ ] snapshot subtreeがfield制限、100 node、48 KiB、安定node keyを守ってroundtripする。
-- [ ] RRULEのdaily / weekly / monthly / yearly、INTERVAL、COUNT、UNTIL、DST、存在しない月末日、端末timezone変更と無効入力をtestする。
-- [ ] 手動起票は保存済み既定listへ生成し、削除・archive済みならcanonical Inboxへfallbackする。
-- [ ] 自動起票はrootだけにoccurrenceの`scheduled_at`を設定し、dueなし・全node todoで生成する。
-- [ ] 100件分割、長期offline、終了規則、停止期間skip、future-only編集をtestする。
-- [ ] 2端末同時生成、再実行、cursor後退、offline復帰、full resyncで重複しない。
-- [ ] A端末でfuture-only編集後、未同期B端末が旧scheduleまたは旧template revisionで境界後を生成しても、同期後のlive treeがwinning lineageの1件だけになる。
-- [ ] 長期offlineでcursorが過去でも編集前settlementが旧revisionで全due occurrenceを生成し、編集失敗時にconfig / snapshotが変わらず、新revisionが編集instant以前へ遡及しない。
-- [ ] 異なるschedule設定のconcurrent編集、終了済み`Exhausted`対stale cursor、停止・再開競合が全端末で同じ設定・cursorへ収束する。
-- [ ] 日次・週次・月次、期限前後の完了、未完了、wont-do、reopen、進行中最新回、schedule revision変更のstreakをtestする。
-- [ ] COUNT / UNTIL最終回についてvirtual next occurrenceの前後、未完了をtestする。
-- [ ] v19からv20で既存task、sync metadata、tombstoneを保持し、provenanceをNULLにする。
-- [ ] templates / schedulesのTenant Root DEK roundtrip、wrong key、collection mismatch、tombstone、pull / apply、2-client収束をtestする。
-- [ ] Templates導線、保存、起票、preset / 詳細RRULE、停止・削除確認、英日、390 px、text scale 2.0、semanticsをFlutter testとVisual QAで確認する。
-- [ ] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`が成功する。
-- [ ] Flutter analyze / test、hardcoded string、client boundary、FRB再生成差分、Postgres統合、iOS / Android Rust cross-build、`git diff --check`を実行し、結果を記録する。
-- [ ] before / after PNGを保存して目視確認し、統合HEADを独立検証者が再検証する。
-- [ ] snapshotは49,152 UTF-8 bytes以下のtyped atomic fieldとし、escape-heavy文字列・100 node・上限付近で最終encrypted envelopeが64 KiB以下になることをtestする。
+- [x] snapshot subtreeがfield制限、100 node、48 KiB、安定node keyを守ってroundtripする。
+- [x] RRULEのdaily / weekly / monthly / yearly、INTERVAL、COUNT、UNTIL、DST、存在しない月末日、端末timezone変更と無効入力をtestする。
+- [x] 手動起票は保存済み既定listへ生成し、削除・archive済みならcanonical Inboxへfallbackする。
+- [x] 自動起票はrootだけにoccurrenceの`scheduled_at`を設定し、dueなし・全node todoで生成する。
+- [x] 100件分割、長期offline、終了規則、停止期間skip、future-only編集をtestする。
+- [x] 2端末同時生成、再実行、cursor後退、offline復帰、full resyncで重複しない。
+- [x] A端末でfuture-only編集後、未同期B端末が旧scheduleまたは旧template revisionで境界後を生成しても、同期後のlive treeがwinning lineageの1件だけになる。
+- [x] 長期offlineでcursorが過去でも編集前settlementが旧revisionで全due occurrenceを生成し、編集失敗時にconfig / snapshotが変わらず、新revisionが編集instant以前へ遡及しない。
+- [x] 異なるschedule設定のconcurrent編集、終了済み`Exhausted`対stale cursor、停止・再開競合が全端末で同じ設定・cursorへ収束する。
+- [x] 日次・週次・月次、期限前後の完了、未完了、wont-do、reopen、進行中最新回、schedule revision変更のstreakをtestする。
+- [x] COUNT / UNTIL最終回についてvirtual next occurrenceの前後、未完了をtestする。
+- [x] v19からv20で既存task、sync metadata、tombstoneを保持し、provenanceをNULLにする。
+- [x] templates / schedulesのTenant Root DEK roundtrip、wrong key、collection mismatch、tombstone、pull / apply、2-client収束をtestする。
+- [x] Templates導線、保存、起票、preset / 詳細RRULE、停止・削除確認、英日、390 px、text scale 2.0、semanticsをFlutter testとVisual QAで確認する。
+- [x] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`が成功する。
+- [x] Flutter analyze / test、hardcoded string、client boundary、FRB再生成差分、Postgres統合、iOS / Android Rust cross-build、`git diff --check`を実行し、結果を記録する。
+- [x] before / after PNGを保存して目視確認し、統合HEADを独立検証者が再検証する。
+- [x] snapshotは49,152 UTF-8 bytes以下のtyped atomic fieldとし、escape-heavy文字列・100 node・上限付近で最終encrypted envelopeが64 KiB以下になることをtestする。
 
 ## 7. 制約・注意事項
 
@@ -114,3 +114,26 @@ Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、
 - Visual QA PNGのpathと確認した状態。
 - 独立検証の判定、検証者、再実行command、指摘と修正。
 - local commit hashと未解決事項。push / PRを行っていないこと。
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-17
+- 結果: content-only subtree template、RRULE schedule、UUIDv5による予定回task tree、100件単位のlocal settlement、future-only revision lineage、streak、schema v20 / protocol v6、Tenant Root DEK同期、FRB API、英日Templates UIを実装した。手動起票はUUIDv7を維持し、archive / 削除済み既定listはcanonical Inboxへfallbackする。
+- DB / sync: `templates` / `schedules`とtask provenanceを追加し、v19からの既存task・cursor・tombstoneを保持した。full resyncは`timer_sessions → tasks → schedules → templates → lists`の依存順、collection別stable cursor、never-synced dependency保護で処理する。server migrationとPostgres protocol v6 integration 21件が成功した。
+- テスト: Rust workspaceはclient 52、domain 57、storage 93成功 / performance 1件手動skip、sync 84、server unit 12、Postgres integration 21を含め全成功した。追加契約テストで105 occurrenceを100 + 5へ分割、再実行0件、COUNT exhaustion、Inbox fallback、全RRULE頻度 / 終了条件 / DST / stored timezone、Tenant Root DEK wrong-key / collection AAD、escape-heavy 100 node・48 KiB近傍envelope 64 KiB以内を確認した。
+- Flutter: `flutter analyze`は0 issue、`flutter test`は257成功 / Visual QA harness 1件意図的skip。Templates test 4件で導線、起票、英日、semantics、週次複数曜日、月次1〜31日、詳細RRULE validation、停止・削除確認、390 px / text scale 2.0を確認した。hardcoded string / client boundary / boundary self-testも成功した。
+- 生成 / build: FRB再生成前後で生成5ファイルのhashが一致した。native Rust release、iOS Simulator arm64、Android arm64-v8a cross-buildが成功した。iOS linkerには既存のdeployment target 15.0をtarget 14.0が上書きするwarningが1件あるが、成果物生成は成功した。
+- Visual QA: `app/build/visual_qa/p2_m8/before_lists.png`、`after_templates_en.png`、`after_templates_ja.png`、`after_templates_text_scale_2.png`を保存して目視し、背景、navigation選択、英日、390 px、text scale 2.0でoverflow / clippingがないことを確認した。PNGは全てfully opaqueである。
+- 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`、Flutter analyze / test、hardcoded string、client boundary 2種、Postgres integration、iOS / Android cross-build、`git diff --check`が成功した。
+- Commit: `a5772e5`（契約 / ADR）、`b776dc9`（実装）、`d213192`（独立検証指摘の修正）。本完了報告は後続のlocal docs commitに含める。
+- 未解決: 本work item内はなし。Android接続実機検証はP2-M5、一般releaseの課金gateは別work itemを正本とする。push / PRは行っていない。
+
+### 独立検証
+
+- 判定: 合格
+- 検証者: `/root/p2_m8_verifier`（実装担当外エージェント）
+- 初回指摘: full-resync sweepの新collection未対応、週次 / 月次presetの指定UI不足、critical契約の統合テスト不足を理由にFAILとした。
+- 修正: 全collection sweep / never-synced保護 / stable cursorを実装し、週次7曜日複数選択と月次1〜31日選択を追加した。full resync、105回補完、Inbox fallback、Tenant Root DEK / AAD、48 KiB近傍snapshot、390 px / text scale 2.0の回帰テストを追加した。
+- 再検証: `cargo fmt --all -- --check`、domain recurrence 12、storage 93成功 / 1件手動skip、sync 84、client 52、Flutter analyze、Templates widget 4、`git diff --check`を再実行してPASS。新規blocking findingなし。

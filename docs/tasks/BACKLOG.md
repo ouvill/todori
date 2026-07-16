@@ -24,7 +24,6 @@ UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLat
 | iOSリリース準備 | 課金基盤のrelease gate合格後にrelease build、署名、ストア提出前コンプライアンスを確認する | M5-01。Billing foundation release gateと人間作業に依存 |
 | macOS dogfooding配布 | macOS desktop buildを配布し、既知差分をリリースノートへ記録する | M5-02。人間判断を含む |
 | クラッシュレポート方針 | F-53のオプトイン、PII除去、実送信有無を確定する | M5-03。法務・プライバシー判断を含む |
-| P2-M8 テンプレート / 繰り返し | テンプレート、RRULE準拠生成、streak、重複生成防止を実装する | Phase 2計画書 P2-M8 / F-19〜F-21 |
 
 ## Quick fixes
 
