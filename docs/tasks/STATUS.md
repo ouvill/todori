@@ -27,7 +27,7 @@ rg -n '^status: (backlog|active|blocked)$' docs/tasks/work-*.md
 
 - iOS実機で通知、Keychainゼロプロンプト、同期を通し確認する。
 - AWS / Neon本番デプロイと前段構成を決定する。
-- 課金の最終価格を承認し、RevenueCat / App Store商品を初回trialなし・16日Billing Grace Periodの決定済み契約どおりに設定してsandbox E2Eを完了する。
+- RevenueCat / App Store商品を承認済み価格、初回trialなし、16日Billing Grace Periodの契約どおりに設定してsandbox E2Eを完了する。
 - Android実機で同期動作を確認する。
 
 ## 作業開始時に読むもの
