@@ -2219,7 +2219,7 @@ dependencies = [
  "generic-array",
  "hkdf 0.12.4",
  "hmac 0.12.1",
- "rand 0.8.6",
+ "rand 0.8.7",
  "serde",
  "subtle",
  "voprf",
@@ -2582,9 +2582,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -3604,7 +3604,7 @@ dependencies = [
  "hkdf 0.12.4",
  "jni",
  "opaque-ke",
- "rand 0.8.6",
+ "rand 0.8.7",
  "security-framework",
  "security-framework-sys",
  "sha2 0.10.9",
@@ -3645,7 +3645,7 @@ dependencies = [
  "hmac 0.12.1",
  "http",
  "opaque-ke",
- "rand 0.8.6",
+ "rand 0.8.7",
  "reqwest",
  "rusqlite",
  "serde",
@@ -3694,7 +3694,7 @@ dependencies = [
  "hmac 0.12.1",
  "opaque-ke",
  "proptest",
- "rand 0.8.6",
+ "rand 0.8.7",
  "reqwest",
  "serde",
  "serde_json",
