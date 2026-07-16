@@ -24,6 +24,13 @@ git diff --check
 
 `cargo-audit 0.22.2`と`cargo-fuzz 0.13.2`を使用する。auditは脆弱性だけでなくwarning、unmaintained、unsound、yanked dependencyもfail closedにする。fuzzは`nightly-2026-07-14`でenvelope v4、personal / Organization manifest、account root、device certificate / identity、hybrid package、signed revocationのparserを同一inputで検査する。16 KiB上限とprotocol magic dictionaryにより、ML-DSA / ML-KEMを含む4 KiB超のcertificate / identity parserも対象にする。CI smokeは60秒であり、長時間campaignやcoverage reviewの代替ではない。
 
+### 1.1 依存更新policy
+
+- Cargo依存を変更するPRは、root workspaceと独立したfuzz crateの両方を解決し、`Cargo.lock`と`fuzz/Cargo.lock`を同時に更新する。片方だけを更新したPRはmergeしない。
+- release gateでexact pinする依存と同じ暗号互換性境界にある依存は、通常の自動更新をpatchに限定する。minor / major updateは`lane: critical`のwork item、人間承認、公式vectorを含む全暗号gate、独立暗号reviewを必要とする。
+- Dependabot security updateは抑止しない。生成PRが両lockfileを更新できない場合も`--locked`検証を緩和せず、専用worktreeで両lockfileと必要な実装を手動更新する。
+- `flutter_rust_bridge`はRust crateとDart packageが同一versionであることを固定契約とし、Cargo単独のversion updateを行わない。
+
 公式vectorと攻撃scenarioの対応は次の通りである。
 
 | 契約 | 再現可能な証拠 |
