@@ -277,7 +277,8 @@ jobs:
           pub-cache-key: ${{ runner.os }}-${{ runner.arch }}-pub-${{ hashFiles('app/pubspec.lock') }}
 
       - name: Install Android SDK and NDK
-        run: sdkmanager "platforms;android-36" "ndk;28.2.13676358"
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;28.2.13676358"
 
       - name: Flutter pub get
         working-directory: app
