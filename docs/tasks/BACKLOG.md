@@ -45,7 +45,7 @@ task文書へ昇格せず、軽量レーンで処理できる候補である。
 - iOS実機でKeychain鍵保持、署名付きゼロプロンプト、通知、同期を確認する。出典: task-64 / 65 / 77。
 - Android実機で同期動作を確認する。出典: task-74。
 - AWS / ECR / Lambda / Neonへ本番デプロイし、WAF / API Gateway / CloudFront前段を確定する。出典: Phase 2計画書。
-- 課金provider、product、trial / grace、価格、launch offerを非公開事業設計と合わせて承認する。実装状態はBilling foundation release gate work itemを正本とする。出典: Phase 2計画書 / `docs/billing_overview.md`。
+- 承認済み契約に従ってRevenueCat / App Store productを設定し、Test StoreとApple sandbox実機E2Eを完了する。実装状態はBilling foundation release gate work itemを正本とする。出典: Phase 2計画書 / `docs/billing_overview.md`。
 - coral / amber系表示のコントラストを裁定する。出典: task-66。
 - `~/.codex/config.toml` へ `~/.cargo` を追加するか判断する（任意）。
 
