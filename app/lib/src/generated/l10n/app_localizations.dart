@@ -1975,11 +1975,11 @@ abstract class AppLocalizations {
   /// **'Pro'**
   String get billingTitle;
 
-  /// No description provided for @billingTrialBody.
+  /// No description provided for @billingSubscriptionBody.
   ///
   /// In en, this message translates to:
-  /// **'Includes a 14-day free trial. Cancel anytime in Apple subscriptions.'**
-  String get billingTrialBody;
+  /// **'Pro includes E2EE sync and encrypted cloud backup. Cancel anytime in Apple subscriptions.'**
+  String get billingSubscriptionBody;
 
   /// No description provided for @billingStatusFree.
   ///
@@ -2080,7 +2080,7 @@ abstract class AppLocalizations {
   /// No description provided for @billingPriceSemantics.
   ///
   /// In en, this message translates to:
-  /// **'{period}, {price}, 14-day free trial'**
+  /// **'{period}, {price}'**
   String billingPriceSemantics(String period, String price);
 
   /// No description provided for @failedToStartTodori.

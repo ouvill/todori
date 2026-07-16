@@ -194,9 +194,12 @@ void main() {
 
     expect(find.text('Pro'), findsOneWidget);
     expect(
-      find.text('14日間の無料トライアル付き。Appleのサブスクリプション画面からいつでも解約できます。'),
+      find.text(
+        'ProではE2EE同期と暗号化クラウドバックアップを利用できます。Appleのサブスクリプション画面からいつでも解約できます。',
+      ),
       findsOneWidget,
     );
+    expect(find.textContaining('トライアル'), findsNothing);
     expect(find.text('月額'), findsOneWidget);
     expect(find.text('Localized monthly price'), findsOneWidget);
     final semantics = tester.ensureSemantics();
@@ -205,7 +208,7 @@ void main() {
         final label = node.getSemanticsData().label;
         return label.contains('月額') &&
             label.contains('Localized monthly price') &&
-            label.contains('14日間無料トライアル');
+            !label.contains('トライアル');
       }),
       findsWidgets,
     );

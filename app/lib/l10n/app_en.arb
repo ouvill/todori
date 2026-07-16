@@ -575,7 +575,7 @@
   "timerNotificationTitle": "Focus time is complete",
   "timerNotificationBody": "Open Todori to continue your focus rhythm.",
   "billingTitle": "Pro",
-  "billingTrialBody": "Includes a 14-day free trial. Cancel anytime in Apple subscriptions.",
+  "billingSubscriptionBody": "Pro includes E2EE sync and encrypted cloud backup. Cancel anytime in Apple subscriptions.",
   "billingStatusFree": "Free",
   "billingStatusTrial": "Trial",
   "billingStatusActive": "Active",
@@ -592,7 +592,7 @@
   "billingPending": "Purchase pending. Pro will activate after Apple confirms payment.",
   "billingFailed": "Purchase couldn't be completed.",
   "billingRestored": "Purchase status refreshed.",
-  "billingPriceSemantics": "{period}, {price}, 14-day free trial",
+  "billingPriceSemantics": "{period}, {price}",
   "@billingPriceSemantics": {
     "placeholders": {
       "period": {"type": "String"},
