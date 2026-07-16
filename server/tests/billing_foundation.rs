@@ -624,7 +624,7 @@ async fn signed_webhook_is_idempotent_and_unknown_customer_is_rejected() {
     .unwrap();
     assert_eq!(original.as_deref(), Some("tx-original"));
 
-    let unknown = body.iter().copied().collect::<Vec<_>>();
+    let unknown = body.to_vec();
     let mut value: Value = serde_json::from_slice(&unknown).unwrap();
     value["event"]["id"] = json!("evt-unknown");
     value["event"]["app_user_id"] = json!(Uuid::now_v7());
