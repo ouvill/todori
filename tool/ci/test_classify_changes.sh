@@ -72,6 +72,7 @@ rename_commit=$(git -C "$fixture" rev-parse HEAD)
 assert_result false "code renamed into docs requires full CI" push "$docs_deletion_commit" "" "$rename_commit"
 
 assert_result false "schedule always runs full CI" schedule "" "" "$rename_commit"
+assert_result false "manual dispatch always runs full CI" workflow_dispatch "" "" "$rename_commit"
 assert_result false "unknown event runs full CI" unknown "$docs_deletion_commit" "" "$rename_commit"
 assert_result false "new branch push runs full CI" push 0000000000000000000000000000000000000000 "" "$rename_commit"
 assert_result false "empty diff runs full CI" push "$rename_commit" "" "$rename_commit"
