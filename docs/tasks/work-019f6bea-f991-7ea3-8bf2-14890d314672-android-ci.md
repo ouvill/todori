@@ -76,11 +76,11 @@ Androidの実装済み範囲と未完の実機gateを公開文書で一致させ
 ### 実装結果
 
 - 作業日: 2026-07-17
-- 結果: プロダクトオーナー承認に基づき、`STATUS.md`、Phase 1 / Phase 2計画書、企画書、READMEをAndroid Rust FFI / Flutter release APK build / Keystore実装済みの状態へ整合した。CIに非docs変更のAndroid arm64 release APK jobと、週次 / `workflow_dispatch`限定のAPI 36 x86_64 Emulator jobを追加した。Emulator jobはKeystore instrumentation testと同一profileのDevice Key rotation test 2回を実行する。
+- 結果: プロダクトオーナー承認に基づき、`STATUS.md`、Phase 1 / Phase 2計画書、企画書、READMEをAndroid Rust FFI / Flutter release APK build / Keystore実装済みの状態へ整合した。CIに非docs変更のAndroid arm64 release APK jobと、週次 / `workflow_dispatch`限定のAPI 36 x86_64 Emulator jobを追加した。Emulator jobはKeystore instrumentation testと同一profileのDevice Key rotation test 2回を実行する。初回の実runで、native threadから文字列指定の`FindClass`を使うとapplication classを解決できない問題を検出し、Kotlinから渡された`AndroidCapsuleStore`をJNI `GlobalRef`として保持する本修正を適用した。
 - 固定条件: JDK 21、Flutter 3.44.6、Rust 1.97.0、SDK 36、NDK 28.2.13676358、`ReactiveCircus/android-emulator-runner` commit `a421e43855164a8197daf9d8d40fe71c6996bb0d`。Android Cargo / Gradle cacheはPR restore-only、非PRの成功時だけsaveとした。
-- 証拠: classifier regression 14件、shell syntax、Action SHA固定check、actionlint 1.7.12、`git diff --check`が成功した。ローカルの`flutter build apk --release --target-platform android-arm64`は成功し、`app-release.apk`は65,804,042 bytes、`lib/arm64-v8a/libtodori_app_bridge.so`同梱を確認した。
-- Commit: この実装結果を含むcommit
-- 未解決: ローカルはFlutter 3.44.4 / JDK 26でbuildしたため、固定済みのFlutter 3.44.6 / JDK 21はGitHub Actions実runで確認する。未pushのためAndroid CI job、`connectedDebugAndroidTest`、Device Key rotation 2回は未実行である。Pixel 10 / Android 37.1 / 16 KiB page-sizeの前方互換確認とAndroid接続実機release gateも残る。
+- 証拠: classifier regression 14件、shell syntax、Action SHA固定check、actionlint 1.7.12、`git diff --check`が成功した。ローカルのarm64 release APK buildとx86_64 debug APK buildが成功し、release APKへの`lib/arm64-v8a/libtodori_app_bridge.so`同梱を確認した。PR run [29529641483](https://github.com/ouvill/todori/actions/runs/29529641483)はAndroid arm64 release APKを含む全必須jobが成功し、Emulator jobは意図どおりskipされた。手動run [29529651043](https://github.com/ouvill/todori/actions/runs/29529651043)は全jobが成功し、Emulator上でinstrumentation test 2件、Device Key rotation / SQLCipher reopen test 2回が成功した。成功後にx86_64 Android Cargo / Gradle cacheも保存された。
+- Commit: Android JNI修正 `1c0cc2e`を含むPR #24のcommit群。
+- 未解決: Pixel 10 / Android 37.1 / 16 KiB page-sizeの前方互換確認、Android接続実機でのKeystore / Device Key rotation / DB reopen / 同期release gate、独立検証が残る。
 
 ### 独立検証
 
