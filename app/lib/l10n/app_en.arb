@@ -574,6 +574,31 @@
   "focusNoActualValue": "No work recorded yet",
   "timerNotificationTitle": "Focus time is complete",
   "timerNotificationBody": "Open Todori to continue your focus rhythm.",
+  "billingTitle": "Pro",
+  "billingTrialBody": "Includes a 14-day free trial. Cancel anytime in Apple subscriptions.",
+  "billingStatusFree": "Free",
+  "billingStatusTrial": "Trial",
+  "billingStatusActive": "Active",
+  "billingStatusGrace": "Payment grace period",
+  "billingStatusExpired": "Expired",
+  "billingStatusRevoked": "Revoked",
+  "billingMonthlyLabel": "Monthly",
+  "billingYearlyLabel": "Yearly",
+  "billingPurchaseButton": "Start Pro",
+  "billingRestoreButton": "Restore purchases",
+  "billingManageButton": "Manage subscription",
+  "billingUnavailable": "Billing is unavailable right now.",
+  "billingCancelled": "Purchase cancelled.",
+  "billingPending": "Purchase pending. Pro will activate after Apple confirms payment.",
+  "billingFailed": "Purchase couldn't be completed.",
+  "billingRestored": "Purchase status refreshed.",
+  "billingPriceSemantics": "{period}, {price}, 14-day free trial",
+  "@billingPriceSemantics": {
+    "placeholders": {
+      "period": {"type": "String"},
+      "price": {"type": "String"}
+    }
+  },
   "failedToStartTodori": "Failed to start Todori: {error}",
   "@failedToStartTodori": {
     "placeholders": {

@@ -7,7 +7,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::{
-    auth,
+    billing,
     realtime::{observe_realtime, RealtimeEvent, RealtimeGateway, RealtimeTicketResponse},
     AppError, SharedState,
 };
@@ -23,7 +23,8 @@ async fn ticket(
     headers: HeaderMap,
 ) -> Result<Json<RealtimeTicketResponse>, AppError> {
     let token = super::sync::bearer_token(&headers)?;
-    let auth_context = auth::authenticate(&state.pool, token, tenant_id).await?;
+    let auth_context =
+        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     let Some(response) = realtime.issue_ticket(tenant_id, auth_context.device_id) else {
         observe_realtime(RealtimeEvent::TicketUnavailable);
         return Err(AppError::service_unavailable("realtime unavailable"));

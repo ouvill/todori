@@ -1069,6 +1069,67 @@ class AppLocalizationsEn extends AppLocalizations {
       'Open Todori to continue your focus rhythm.';
 
   @override
+  String get billingTitle => 'Pro';
+
+  @override
+  String get billingTrialBody =>
+      'Includes a 14-day free trial. Cancel anytime in Apple subscriptions.';
+
+  @override
+  String get billingStatusFree => 'Free';
+
+  @override
+  String get billingStatusTrial => 'Trial';
+
+  @override
+  String get billingStatusActive => 'Active';
+
+  @override
+  String get billingStatusGrace => 'Payment grace period';
+
+  @override
+  String get billingStatusExpired => 'Expired';
+
+  @override
+  String get billingStatusRevoked => 'Revoked';
+
+  @override
+  String get billingMonthlyLabel => 'Monthly';
+
+  @override
+  String get billingYearlyLabel => 'Yearly';
+
+  @override
+  String get billingPurchaseButton => 'Start Pro';
+
+  @override
+  String get billingRestoreButton => 'Restore purchases';
+
+  @override
+  String get billingManageButton => 'Manage subscription';
+
+  @override
+  String get billingUnavailable => 'Billing is unavailable right now.';
+
+  @override
+  String get billingCancelled => 'Purchase cancelled.';
+
+  @override
+  String get billingPending =>
+      'Purchase pending. Pro will activate after Apple confirms payment.';
+
+  @override
+  String get billingFailed => 'Purchase couldn\'t be completed.';
+
+  @override
+  String get billingRestored => 'Purchase status refreshed.';
+
+  @override
+  String billingPriceSemantics(String period, String price) {
+    return '$period, $price, 14-day free trial';
+  }
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }

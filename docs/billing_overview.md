@@ -33,7 +33,7 @@ Todori will not make its first general release until the billing foundation is c
 - Expiration and revocation stop server-backed paid capabilities without making local data unreadable or uneditable.
 - Re-activation restores normal sync without a second billing state maintained only by the client.
 
-Provider selection, concrete products, prices, trial and grace periods, launch offers, revenue assumptions, and operational credentials remain non-public decisions. The public implementation and tests must still make the security boundary and release-gate evidence reviewable.
+The selected implementation provider, public product identifiers, entitlement lookup keys, and state-machine behavior are reviewable implementation facts and may appear in the public technical specification and source. Concrete prices, provider comparisons or contract notes, launch experiments, revenue assumptions, legal review, and operational credentials remain non-public. The public implementation and tests must make the security boundary and release-gate evidence reviewable.
 
 ## E2EE and Entitlements
 
@@ -56,8 +56,8 @@ Cancellation and renewal flows should be clear. If a paid capability expires, To
 
 The following information belongs in the private repository unless intentionally summarized for public release:
 
-- concrete prices, discount levels, trial experiments, and launch offers
+- concrete prices, discount levels, unselected trial experiments, and launch offers
 - revenue scenarios, conversion assumptions, and financial forecasts
-- provider-specific fee comparisons and operating-cost calculations
+- provider comparisons, contract notes, fee comparisons, and operating-cost calculations
 - raw billing event schemas beyond what is needed for implementation transparency
 - unfinished operational notes or decision drafts

@@ -39,6 +39,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BillingStateDto dco_decode_billing_state_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -48,6 +51,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ActiveTimerSessionDto dco_decode_box_autoadd_active_timer_session_dto(
     dynamic raw,
   );
+
+  @protected
+  BillingStateDto dco_decode_box_autoadd_billing_state_dto(dynamic raw);
+
+  @protected
+  bool dco_decode_box_autoadd_bool(dynamic raw);
 
   @protected
   CalendarRangeInput dco_decode_box_autoadd_calendar_range_input(dynamic raw);
@@ -62,6 +71,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  SyncStatusDto dco_decode_box_autoadd_sync_status_dto(dynamic raw);
 
   @protected
   TaskDueDto dco_decode_box_autoadd_task_due_dto(dynamic raw);
@@ -135,6 +147,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BillingStateDto? dco_decode_opt_box_autoadd_billing_state_dto(dynamic raw);
+
+  @protected
+  bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_i_32(dynamic raw);
 
   @protected
@@ -159,6 +177,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ReminderDto dco_decode_reminder_dto(dynamic raw);
+
+  @protected
+  SyncNowOutcomeDto dco_decode_sync_now_outcome_dto(dynamic raw);
 
   @protected
   SyncStatusDto dco_decode_sync_status_dto(dynamic raw);
@@ -220,6 +241,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BillingStateDto sse_decode_billing_state_dto(SseDeserializer deserializer);
+
+  @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
@@ -229,6 +253,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ActiveTimerSessionDto sse_decode_box_autoadd_active_timer_session_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  BillingStateDto sse_decode_box_autoadd_billing_state_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
 
   @protected
   CalendarRangeInput sse_decode_box_autoadd_calendar_range_input(
@@ -245,6 +277,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  SyncStatusDto sse_decode_box_autoadd_sync_status_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   TaskDueDto sse_decode_box_autoadd_task_due_dto(SseDeserializer deserializer);
@@ -328,6 +365,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BillingStateDto? sse_decode_opt_box_autoadd_billing_state_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_i_32(SseDeserializer deserializer);
 
   @protected
@@ -360,6 +405,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer);
+
+  @protected
+  SyncNowOutcomeDto sse_decode_sync_now_outcome_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SyncStatusDto sse_decode_sync_status_dto(SseDeserializer deserializer);
@@ -427,6 +477,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_billing_state_dto(
+    BillingStateDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
@@ -440,6 +496,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ActiveTimerSessionDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_billing_state_dto(
+    BillingStateDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_calendar_range_input(
@@ -459,6 +524,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_i_64(
     PlatformInt64 self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_sync_status_dto(
+    SyncStatusDto self,
     SseSerializer serializer,
   );
 
@@ -568,6 +639,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_billing_state_dto(
+    BillingStateDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_i_32(int? self, SseSerializer serializer);
 
   @protected
@@ -608,6 +688,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sync_now_outcome_dto(
+    SyncNowOutcomeDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_sync_status_dto(SyncStatusDto self, SseSerializer serializer);

@@ -1969,6 +1969,120 @@ abstract class AppLocalizations {
   /// **'Open Todori to continue your focus rhythm.'**
   String get timerNotificationBody;
 
+  /// No description provided for @billingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pro'**
+  String get billingTitle;
+
+  /// No description provided for @billingTrialBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Includes a 14-day free trial. Cancel anytime in Apple subscriptions.'**
+  String get billingTrialBody;
+
+  /// No description provided for @billingStatusFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get billingStatusFree;
+
+  /// No description provided for @billingStatusTrial.
+  ///
+  /// In en, this message translates to:
+  /// **'Trial'**
+  String get billingStatusTrial;
+
+  /// No description provided for @billingStatusActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get billingStatusActive;
+
+  /// No description provided for @billingStatusGrace.
+  ///
+  /// In en, this message translates to:
+  /// **'Payment grace period'**
+  String get billingStatusGrace;
+
+  /// No description provided for @billingStatusExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get billingStatusExpired;
+
+  /// No description provided for @billingStatusRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get billingStatusRevoked;
+
+  /// No description provided for @billingMonthlyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly'**
+  String get billingMonthlyLabel;
+
+  /// No description provided for @billingYearlyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Yearly'**
+  String get billingYearlyLabel;
+
+  /// No description provided for @billingPurchaseButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Pro'**
+  String get billingPurchaseButton;
+
+  /// No description provided for @billingRestoreButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore purchases'**
+  String get billingRestoreButton;
+
+  /// No description provided for @billingManageButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage subscription'**
+  String get billingManageButton;
+
+  /// No description provided for @billingUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Billing is unavailable right now.'**
+  String get billingUnavailable;
+
+  /// No description provided for @billingCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase cancelled.'**
+  String get billingCancelled;
+
+  /// No description provided for @billingPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase pending. Pro will activate after Apple confirms payment.'**
+  String get billingPending;
+
+  /// No description provided for @billingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase couldn\'t be completed.'**
+  String get billingFailed;
+
+  /// No description provided for @billingRestored.
+  ///
+  /// In en, this message translates to:
+  /// **'Purchase status refreshed.'**
+  String get billingRestored;
+
+  /// No description provided for @billingPriceSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{period}, {price}, 14-day free trial'**
+  String billingPriceSemantics(String period, String price);
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

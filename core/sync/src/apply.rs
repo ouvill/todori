@@ -151,6 +151,9 @@ where
             )?;
             return Err("upgrade required".to_string());
         }
+        Err(SyncEngineError::EntitlementRequired) => {
+            return Err("entitlement required".to_string());
+        }
         Err(_) => return Err("sync failed".to_string()),
     };
     if validate_preflight_key_state(&context, &preflight, store, now_ms).is_err() {

@@ -22,8 +22,8 @@ use todori_storage::{
 };
 use todori_sync::{
     account::{
-        unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountKeyMaterial,
-        AccountListDekMaterial, OrganizationRosterTrust,
+        unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountClientError,
+        AccountKeyMaterial, AccountListDekMaterial, BillingResponseDto, OrganizationRosterTrust,
     },
     organization::verify_organization_active_bundle,
     LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncWriteTransaction,
@@ -38,7 +38,7 @@ use super::{
 };
 use crate::{
     load_local_crypto_context, persist_account_crypto_context, persist_local_crypto_context,
-    AccountAuthResult, AccountSessionState, ClientError, LocalCryptoAvailability,
+    AccountAuthResult, AccountSessionState, BillingState, ClientError, LocalCryptoAvailability,
     LocalCryptoIdentity, LocalCryptoUnavailable, OrganizationSafetyState,
 };
 
@@ -46,6 +46,8 @@ enum AccountAuthMode {
     Register,
     Login,
 }
+
+const BILLING_ENTITLEMENT_CACHE_SETTING_KEY: &str = "billing_entitlement_cache";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct OrganizationTrustPin {
@@ -612,6 +614,54 @@ impl TodoriClient {
         account.session = None;
         account.session_restored = true;
         Ok(())
+    }
+
+    pub async fn billing_bootstrap(&self) -> Result<BillingState, ClientError> {
+        let _operation = self.begin_operation()?;
+        self.fetch_billing(false).await
+    }
+
+    pub async fn refresh_billing(&self) -> Result<BillingState, ClientError> {
+        let _operation = self.begin_operation()?;
+        self.fetch_billing(true).await
+    }
+
+    pub fn cached_billing(&self) -> Result<Option<BillingState>, ClientError> {
+        self.setting(BILLING_ENTITLEMENT_CACHE_SETTING_KEY)?
+            .map(|value| serde_json::from_str(&value).map_err(|_| ClientError::AccountRequest))
+            .transpose()
+    }
+
+    async fn fetch_billing(&self, refresh: bool) -> Result<BillingState, ClientError> {
+        self.ensure_account_runtime_restored()?;
+        let session = self
+            .account_state()?
+            .session
+            .clone()
+            .filter(|session| session.logged_in)
+            .ok_or(ClientError::AccountRequest)?;
+        let tenant_id = parse_uuid(
+            session
+                .tenant_id
+                .as_deref()
+                .ok_or(ClientError::AccountRequest)?,
+        )?;
+        let token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
+            .ok_or(ClientError::AccountRequest)?;
+        let client =
+            AccountClient::new(self.sync_server_url()?).map_err(|_| ClientError::AccountRequest)?;
+        let response = if refresh {
+            client.refresh_billing(tenant_id, &token).await
+        } else {
+            client.billing(tenant_id, &token).await
+        }
+        .map_err(map_account_client_error)?;
+        let state = billing_state(response);
+        self.set_setting_value(
+            BILLING_ENTITLEMENT_CACHE_SETTING_KEY,
+            &serde_json::to_string(&state).map_err(|_| ClientError::AccountRequest)?,
+        )?;
+        Ok(state)
     }
 
     async fn account_auth(
@@ -1279,6 +1329,29 @@ impl TodoriClient {
     }
 }
 
+fn map_account_client_error(error: AccountClientError) -> ClientError {
+    match error {
+        AccountClientError::EntitlementRequired => ClientError::EntitlementRequired,
+        _ => ClientError::AccountRequest,
+    }
+}
+
+fn billing_state(response: BillingResponseDto) -> BillingState {
+    BillingState {
+        provider: response.provider,
+        provider_app_user_id: response.provider_app_user_id.to_string(),
+        lookup_key: response.entitlement.lookup_key,
+        status: response.entitlement.status,
+        sync_allowed: response.entitlement.sync_allowed,
+        store_product_identifier: response.entitlement.store_product_identifier,
+        expires_at: response.entitlement.expires_at,
+        grace_expires_at: response.entitlement.grace_expires_at,
+        will_renew: response.entitlement.will_renew,
+        environment: response.entitlement.environment,
+        updated_at: response.entitlement.updated_at,
+    }
+}
+
 fn load_secret_string(
     db_dir: &std::path::Path,
     kind: AccountSecretKind,
@@ -1411,6 +1484,68 @@ mod tests {
 
     use super::*;
     use crate::{LocalMutationContext, SqliteMutationService, SqliteSyncStore};
+
+    fn open_test_client(db_dir: &std::path::Path, db_key: [u8; 32]) -> TodoriClient {
+        let db_path = db_dir.join("todori.db");
+        drop(open_encrypted(&db_path, &db_key).expect("open encrypted test database"));
+        TodoriClient {
+            db_dir: db_dir.to_path_buf(),
+            db_path,
+            db_key: Mutex::new(Zeroizing::new(db_key)),
+            account: Mutex::new(super::super::AccountRuntimeState {
+                session: None,
+                session_restored: false,
+                crypto: CryptoRuntimeState::Anonymous,
+            }),
+            sync: Mutex::new(super::super::SyncRuntimeState::default()),
+            operation_busy: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn billing_cache_round_trips_through_encrypted_profile_and_rejects_corruption() {
+        let temp = TempDir::new().expect("temp profile");
+        let db_key = [0x42; 32];
+        let expected = BillingState {
+            provider: "revenuecat".to_string(),
+            provider_app_user_id: "00000000-0000-4000-8000-000000000001".to_string(),
+            lookup_key: "pro".to_string(),
+            status: "in_grace_period".to_string(),
+            sync_allowed: true,
+            store_product_identifier: Some("dev.todori.todori.pro.monthly".to_string()),
+            expires_at: Some(1_800_000_000_000),
+            grace_expires_at: Some(1_801_382_400_000),
+            will_renew: Some(false),
+            environment: "sandbox".to_string(),
+            updated_at: Some(1_799_999_999_000),
+        };
+
+        let client = open_test_client(temp.path(), db_key);
+        client
+            .set_setting_value(
+                BILLING_ENTITLEMENT_CACHE_SETTING_KEY,
+                &serde_json::to_string(&expected).expect("serialize billing state"),
+            )
+            .expect("persist billing cache");
+        assert_eq!(
+            client.cached_billing().expect("read cache"),
+            Some(expected.clone())
+        );
+        drop(client);
+
+        let reopened = open_test_client(temp.path(), db_key);
+        assert_eq!(
+            reopened.cached_billing().expect("read reopened cache"),
+            Some(expected)
+        );
+        reopened
+            .set_setting_value(BILLING_ENTITLEMENT_CACHE_SETTING_KEY, "{not-json")
+            .expect("persist corrupt cache fixture");
+        assert!(matches!(
+            reopened.cached_billing(),
+            Err(ClientError::AccountRequest)
+        ));
+    }
 
     #[test]
     fn organization_trust_pin_is_strict_and_root_changes_require_reconfirmation() {

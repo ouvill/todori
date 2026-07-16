@@ -43,6 +43,17 @@ abstract class BridgeService {
 
   Future<rust_api.SyncStatusDto> syncNow();
 
+  Future<rust_api.SyncNowOutcomeDto> syncNowOutcome() async =>
+      rust_api.SyncNowOutcomeDto.synced(status: await syncNow());
+
+  Future<rust_api.BillingStateDto> billingBootstrap() =>
+      Future.error(UnimplementedError('billingBootstrap'));
+
+  Future<rust_api.BillingStateDto> refreshBilling() =>
+      Future.error(UnimplementedError('refreshBilling'));
+
+  Future<rust_api.BillingStateDto?> getCachedBilling() async => null;
+
   Future<rust_api.RealtimeTicketDto> getRealtimeTicket();
 
   Future<String> getSyncServerUrl();
@@ -279,6 +290,22 @@ class FrbBridgeService implements BridgeService {
 
   @override
   Future<rust_api.SyncStatusDto> syncNow() => rust_api.syncNow();
+
+  @override
+  Future<rust_api.SyncNowOutcomeDto> syncNowOutcome() =>
+      rust_api.syncNowOutcome();
+
+  @override
+  Future<rust_api.BillingStateDto> billingBootstrap() =>
+      rust_api.billingBootstrap();
+
+  @override
+  Future<rust_api.BillingStateDto> refreshBilling() =>
+      rust_api.refreshBilling();
+
+  @override
+  Future<rust_api.BillingStateDto?> getCachedBilling() =>
+      rust_api.getCachedBilling();
 
   @override
   Future<rust_api.RealtimeTicketDto> getRealtimeTicket() =>

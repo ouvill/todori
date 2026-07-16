@@ -1,5 +1,7 @@
 //! Frontend-neutral account and synchronization views.
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountSessionState {
     pub logged_in: bool,
@@ -26,6 +28,21 @@ pub struct AccountAuthResult {
     pub session: AccountSessionState,
     /// Intentionally exported once after registration so the user can store it.
     pub recovery_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BillingState {
+    pub provider: String,
+    pub provider_app_user_id: String,
+    pub lookup_key: String,
+    pub status: String,
+    pub sync_allowed: bool,
+    pub store_product_identifier: Option<String>,
+    pub expires_at: Option<i64>,
+    pub grace_expires_at: Option<i64>,
+    pub will_renew: Option<bool>,
+    pub environment: String,
+    pub updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

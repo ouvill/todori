@@ -3,11 +3,12 @@ use std::fmt::Write as _;
 use todori_client::chrono::{DateTime, Utc};
 use todori_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
-    AccountSessionState, ActiveTimerSession, CalendarOccurrenceKind, CalendarOccurrenceView,
-    CalendarRange, CivilDate, ClientError, CompletedTimerSession, CreateTaskCommand, HomeTaskView,
-    List, OrganizationSafetyState, RealtimeTicket, ReminderView, ReorderTaskCommand,
-    SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind, TaskUndoView,
-    TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateTaskCommand, UtcInstant, Uuid,
+    AccountSessionState, ActiveTimerSession, BillingState, CalendarOccurrenceKind,
+    CalendarOccurrenceView, CalendarRange, CivilDate, ClientError, CompletedTimerSession,
+    CreateTaskCommand, HomeTaskView, List, OrganizationSafetyState, RealtimeTicket, ReminderView,
+    ReorderTaskCommand, SetTaskStatusCommand, SyncStatus, Task, TaskDue, TaskStatus, TaskUndoKind,
+    TaskUndoView, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateTaskCommand,
+    UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -181,6 +182,26 @@ pub struct AccountAuthResultDto {
     pub recovery_key: Option<String>,
 }
 
+#[derive(Clone)]
+pub struct BillingStateDto {
+    pub provider: String,
+    pub provider_app_user_id: String,
+    pub lookup_key: String,
+    pub status: String,
+    pub sync_allowed: bool,
+    pub store_product_identifier: Option<String>,
+    pub expires_at: Option<i64>,
+    pub grace_expires_at: Option<i64>,
+    pub will_renew: Option<bool>,
+    pub environment: String,
+    pub updated_at: Option<i64>,
+}
+
+pub enum SyncNowOutcomeDto {
+    Synced { status: SyncStatusDto },
+    BillingRequired,
+}
+
 pub struct OrganizationSafetyStateDto {
     pub owner_user_id: String,
     pub member_user_id: String,
@@ -341,6 +362,36 @@ pub async fn sync_now() -> Result<SyncStatusDto, String> {
         .await
         .map_err(|error| error.to_string())
         .map(sync_status_to_dto)
+}
+
+pub async fn sync_now_outcome() -> Result<SyncNowOutcomeDto, String> {
+    match client()?.sync_now().await {
+        Ok(status) => Ok(SyncNowOutcomeDto::Synced {
+            status: sync_status_to_dto(status),
+        }),
+        Err(ClientError::EntitlementRequired) => Ok(SyncNowOutcomeDto::BillingRequired),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub async fn billing_bootstrap() -> Result<BillingStateDto, String> {
+    client()?
+        .billing_bootstrap()
+        .await
+        .map(billing_state_to_dto)
+        .map_err(|error| error.to_string())
+}
+
+pub async fn refresh_billing() -> Result<BillingStateDto, String> {
+    client()?
+        .refresh_billing()
+        .await
+        .map(billing_state_to_dto)
+        .map_err(|error| error.to_string())
+}
+
+pub fn get_cached_billing() -> Result<Option<BillingStateDto>, String> {
+    client_result(client()?.cached_billing()).map(|state| state.map(billing_state_to_dto))
 }
 
 pub async fn get_realtime_ticket() -> Result<RealtimeTicketDto, String> {
@@ -913,6 +964,22 @@ fn account_auth_to_dto(result: AccountAuthResult) -> AccountAuthResultDto {
     AccountAuthResultDto {
         session: account_session_to_dto(result.session),
         recovery_key: result.recovery_key,
+    }
+}
+
+fn billing_state_to_dto(state: BillingState) -> BillingStateDto {
+    BillingStateDto {
+        provider: state.provider,
+        provider_app_user_id: state.provider_app_user_id,
+        lookup_key: state.lookup_key,
+        status: state.status,
+        sync_allowed: state.sync_allowed,
+        store_product_identifier: state.store_product_identifier,
+        expires_at: state.expires_at,
+        grace_expires_at: state.grace_expires_at,
+        will_renew: state.will_renew,
+        environment: state.environment,
+        updated_at: state.updated_at,
     }
 }
 

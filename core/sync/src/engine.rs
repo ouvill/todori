@@ -27,6 +27,8 @@ pub enum SyncEngineError {
     Http(#[from] reqwest::Error),
     #[error("server rejected sync request: {0}")]
     Server(StatusCode),
+    #[error("a Pro entitlement is required")]
+    EntitlementRequired,
     #[error("invalid sync request")]
     InvalidRequest,
     #[error("invalid push response")]
@@ -179,7 +181,7 @@ impl SyncEngine {
         let response = self.request_preflight(since).await?;
         let full_resync_required = response.status() == StatusCode::GONE;
         if !response.status().is_success() && !full_resync_required {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         let capabilities = response.json::<protocol::SyncCapabilities>().await?;
         if capabilities.protocol_version != protocol::SYNC_PROTOCOL_VERSION
@@ -285,7 +287,7 @@ impl SyncEngine {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         let response = response.json::<protocol::PushResponse>().await?;
         validate_push_response(&ops, response)
@@ -306,7 +308,7 @@ impl SyncEngine {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         let response = response.json::<protocol::ResyncStartResponse>().await?;
         if response.base_seq < 0 || response.generation <= 0 {
@@ -344,7 +346,7 @@ impl SyncEngine {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         let response = response.json::<BaseScanResponse>().await?;
         validate_base_response(cursor, response)
@@ -377,7 +379,7 @@ impl SyncEngine {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         let response = response.json::<PullResponse>().await?;
         validate_pull_response(since, response)
@@ -402,9 +404,17 @@ impl SyncEngine {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(SyncEngineError::Server(response.status()));
+            return Err(sync_response_error(response.status()));
         }
         response.json().await.map_err(SyncEngineError::from)
+    }
+}
+
+fn sync_response_error(status: StatusCode) -> SyncEngineError {
+    if status == StatusCode::PAYMENT_REQUIRED {
+        SyncEngineError::EntitlementRequired
+    } else {
+        SyncEngineError::Server(status)
     }
 }
 
@@ -693,6 +703,14 @@ mod tests {
     fn rejects_empty_server_url() {
         let error = SyncEngine::new(" ", Uuid::now_v7(), "token").unwrap_err();
         assert!(matches!(error, SyncEngineError::EmptyServerUrl));
+    }
+
+    #[test]
+    fn maps_payment_required_to_typed_entitlement_error() {
+        assert!(matches!(
+            sync_response_error(StatusCode::PAYMENT_REQUIRED),
+            SyncEngineError::EntitlementRequired
+        ));
     }
 
     #[test]

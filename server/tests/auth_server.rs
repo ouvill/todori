@@ -15,7 +15,11 @@ use todori_crypto::organization::{
     generate_account_root, AccountRootPublicKeys, DeviceCertificate, HybridScopeKind,
     SignedDeviceRevocation,
 };
-use todori_server::{auth::AuthContext, build_router, db, sync, AppState};
+use todori_server::{
+    auth::AuthContext,
+    billing::{BillingEnvironment, BillingService},
+    build_router, db, sync, AppState,
+};
 use todori_sync::account::{
     unwrap_login_key_bundle, unwrap_organization_dek_from_verified_device, wrap_list_dek_bundle,
     wrap_organization_dek_for_verified_device, AccountClient, AccountClientError,
@@ -57,6 +61,7 @@ async fn setup() -> TestApp {
     let application_pool = db::connect_application(&application_url).await.unwrap();
     let app = build_router(AppState {
         pool: application_pool,
+        billing: BillingService::unavailable_for_tests(BillingEnvironment::Sandbox),
     });
     TestApp {
         app,
@@ -159,6 +164,36 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         )
         .await
         .is_err());
+
+    // Sync and realtime are Pro-only. This account test exercises those
+    // authenticated APIs after explicitly granting the fixture entitlement;
+    // registration itself must continue to create a Free account.
+    query::<Postgres>(
+        "WITH subscription AS (
+             INSERT INTO billing_subscriptions
+                (user_id, provider, environment, provider_subscription_id,
+                 store_product_identifier, provider_product_id, status, gives_access,
+                 current_period_ends_at, access_expires_at, will_renew,
+                 provider_observed_at, last_seen_at)
+             VALUES ($1, 'revenuecat', 'sandbox', 'auth-server-fixture',
+                     'dev.todori.todori.pro.monthly', 'test-product', 'active', TRUE,
+                     now() + interval '30 days', now() + interval '30 days', TRUE,
+                     now(), now())
+             RETURNING id
+         )
+         INSERT INTO account_entitlements
+            (user_id, environment, lookup_key, status, gives_access,
+             source_subscription_id, store_product_identifier, expires_at,
+             will_renew, provider_observed_at)
+         SELECT $1, 'sandbox', 'pro', 'active', TRUE, id,
+                'dev.todori.todori.pro.monthly', now() + interval '30 days',
+                TRUE, now()
+         FROM subscription",
+    )
+    .bind(user_id)
+    .execute(&test.pool)
+    .await
+    .unwrap();
 
     let sync = SyncEngine::new(
         &server_url,

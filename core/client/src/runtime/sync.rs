@@ -3,7 +3,8 @@ use std::{future::Future, pin::Pin};
 use todori_crypto::{load_account_secret, AccountSecretKind};
 use todori_storage::{TaskRepository, TimerSessionRepository};
 use todori_sync::{
-    account::AccountClient, ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
+    account::{AccountClient, AccountClientError},
+    ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
     LocalSyncWriteTransaction, SyncKeyRefresher, SyncRunSummary,
 };
 use zeroize::Zeroizing;
@@ -44,6 +45,7 @@ impl TodoriClient {
         let timestamp = now_ms()?;
         let mut state = self.sync_state()?;
         state.running = false;
+        let mut entitlement_required = false;
         match result {
             Ok(summary) => {
                 state.last_success_at = Some(timestamp);
@@ -54,6 +56,11 @@ impl TodoriClient {
                 state.last_failure_at = Some(timestamp);
                 state.last_error = Some("upgrade required".to_string());
             }
+            Err(ClientError::EntitlementRequired) => {
+                state.last_failure_at = Some(timestamp);
+                state.last_error = Some("entitlement required".to_string());
+                entitlement_required = true;
+            }
             Err(_) => {
                 state.last_failure_at = Some(timestamp);
                 state.last_error = Some("sync failed".to_string());
@@ -62,7 +69,11 @@ impl TodoriClient {
         let status = sync_status(true, &state);
         drop(state);
         drop(running);
-        Ok(status)
+        if entitlement_required {
+            Err(ClientError::EntitlementRequired)
+        } else {
+            Ok(status)
+        }
     }
 
     /// Fetches a short-lived foreground realtime ticket without exposing the
@@ -76,7 +87,10 @@ impl TodoriClient {
         let response = client
             .realtime_ticket(context.tenant_id, &context.session_token)
             .await
-            .map_err(|_| ClientError::AccountRequest)?;
+            .map_err(|error| match error {
+                AccountClientError::EntitlementRequired => ClientError::EntitlementRequired,
+                _ => ClientError::AccountRequest,
+            })?;
         Ok(RealtimeTicket {
             websocket_url: response.websocket_url,
             ticket: response.ticket,
@@ -107,6 +121,8 @@ impl TodoriClient {
         .map_err(|error| {
             if error == "upgrade required" {
                 ClientError::UpgradeRequired
+            } else if error == "entitlement required" {
+                ClientError::EntitlementRequired
             } else {
                 ClientError::SyncRun
             }

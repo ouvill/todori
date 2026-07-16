@@ -191,6 +191,11 @@ pub async fn register_finish(
     .await
     .map_err(map_insert_user_error)?;
 
+    query::<Postgres>("INSERT INTO billing_customers (user_id) VALUES ($1)")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
     db::set_user_context(&mut tx, user_id).await?;
     db::set_tenant_context(&mut tx, tenant_id).await?;
 

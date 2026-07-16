@@ -39,6 +39,8 @@ pub enum AccountClientError {
     Http(#[from] reqwest::Error),
     #[error("server returned account error with HTTP status {0}")]
     Server(u16),
+    #[error("a Pro entitlement is required")]
+    EntitlementRequired,
     #[error("invalid base64 field")]
     Base64,
     #[error("OPAQUE protocol error")]
@@ -221,6 +223,26 @@ pub struct RealtimeTicketResponse {
     pub websocket_url: String,
     pub ticket: String,
     pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BillingResponseDto {
+    pub provider: String,
+    pub provider_app_user_id: Uuid,
+    pub entitlement: BillingEntitlementDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BillingEntitlementDto {
+    pub lookup_key: String,
+    pub status: String,
+    pub sync_allowed: bool,
+    pub store_product_identifier: Option<String>,
+    pub expires_at: Option<i64>,
+    pub grace_expires_at: Option<i64>,
+    pub will_renew: Option<bool>,
+    pub environment: String,
+    pub updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -769,7 +791,7 @@ impl AccountClient {
             return Err(AccountClientError::KeyBundleConflict);
         }
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response
             .json::<UpsertListKeyResponse>()
@@ -809,7 +831,7 @@ impl AccountClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response.json().await.map_err(AccountClientError::Http)
     }
@@ -835,7 +857,7 @@ impl AccountClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         Ok(())
     }
@@ -873,7 +895,7 @@ impl AccountClient {
             return Ok(false);
         }
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         Ok(true)
     }
@@ -893,6 +915,31 @@ impl AccountClient {
         Ok(response.into())
     }
 
+    pub async fn billing(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+    ) -> Result<BillingResponseDto, AccountClientError> {
+        self.get_json(
+            &format!("/v2/tenants/{tenant_id}/billing"),
+            Some(session_token),
+        )
+        .await
+    }
+
+    pub async fn refresh_billing(
+        &self,
+        tenant_id: Uuid,
+        session_token: &str,
+    ) -> Result<BillingResponseDto, AccountClientError> {
+        self.post_json(
+            &format!("/v2/tenants/{tenant_id}/billing/refresh"),
+            &serde_json::json!({}),
+            Some(session_token),
+        )
+        .await
+    }
+
     async fn get_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -904,7 +951,7 @@ impl AccountClient {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response.json::<T>().await.map_err(AccountClientError::Http)
     }
@@ -925,7 +972,7 @@ impl AccountClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response.json().await.map_err(AccountClientError::Http)
     }
@@ -948,7 +995,7 @@ impl AccountClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response.json().await.map_err(AccountClientError::Http)
     }
@@ -969,7 +1016,7 @@ impl AccountClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         Ok(())
     }
@@ -989,7 +1036,7 @@ impl AccountClient {
         }
         let response = request.send().await?;
         if !response.status().is_success() {
-            return Err(AccountClientError::Server(response.status().as_u16()));
+            return Err(account_response_error(response.status()));
         }
         response.json::<T>().await.map_err(AccountClientError::Http)
     }
@@ -1334,6 +1381,14 @@ fn normalize_base_url(mut value: String) -> Result<String, AccountClientError> {
     Ok(value)
 }
 
+fn account_response_error(status: reqwest::StatusCode) -> AccountClientError {
+    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+        AccountClientError::EntitlementRequired
+    } else {
+        AccountClientError::Server(status.as_u16())
+    }
+}
+
 fn decode_base64(value: &str) -> Result<Vec<u8>, AccountClientError> {
     STANDARD
         .decode(value)
@@ -1581,6 +1636,14 @@ impl SessionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maps_payment_required_to_typed_entitlement_error() {
+        assert!(matches!(
+            account_response_error(reqwest::StatusCode::PAYMENT_REQUIRED),
+            AccountClientError::EntitlementRequired
+        ));
+    }
 
     #[test]
     fn device_roster_rejects_revocation_omission_rollback_and_replayed_certificate() {
