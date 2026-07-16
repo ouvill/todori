@@ -1,25 +1,32 @@
 use std::sync::OnceLock;
 
 use jni::{
-    objects::{JByteArray, JClass, JObject, JValue},
+    objects::{GlobalRef, JByteArray, JClass, JObject, JValue},
     JNIEnv, JavaVM,
 };
 
 use crate::{KeyStoreError, LocalKeyCapsuleSlot};
 
-const STORE_CLASS: &str = "dev/todori/todori/AndroidCapsuleStore";
-static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
+struct AndroidJniBridge {
+    vm: JavaVM,
+    // Rust workers attach as native threads, where FindClass cannot use the
+    // application ClassLoader. Retain the app-loaded class passed by Kotlin.
+    store_class: GlobalRef,
+}
 
-/// Installs the Flutter process Java VM before Dart initializes the Rust core.
+static ANDROID_JNI: OnceLock<AndroidJniBridge> = OnceLock::new();
+
+/// Installs the Flutter process Java VM and application-loaded store class
+/// before Dart initializes the Rust core.
 /// No secret crosses this boundary; capsule bytes move only during explicit
 /// Keystore seal/unseal calls below.
 #[no_mangle]
 pub extern "system" fn Java_dev_todori_todori_AndroidCapsuleStore_nativeInstallContext(
     env: JNIEnv<'_>,
-    _class: JClass<'_>,
+    class: JClass<'_>,
 ) {
-    if let Ok(vm) = env.get_java_vm() {
-        let _ = JAVA_VM.set(vm);
+    if let (Ok(vm), Ok(store_class)) = (env.get_java_vm(), env.new_global_ref(&class)) {
+        let _ = ANDROID_JNI.set(AndroidJniBridge { vm, store_class });
     }
 }
 
@@ -31,14 +38,14 @@ pub(crate) fn load(
 }
 
 pub(crate) fn load_named(namespace: &str, slot: &str) -> Result<Option<Vec<u8>>, KeyStoreError> {
-    with_env(|env| {
+    with_env(|env, store_class| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
         let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         let value = env
             .call_static_method(
-                STORE_CLASS,
+                store_class,
                 "load",
                 "(Ljava/lang/String;Ljava/lang/String;)[B",
                 &[
@@ -70,14 +77,14 @@ pub(crate) fn store(
 }
 
 pub(crate) fn store_named(namespace: &str, slot: &str, value: &[u8]) -> Result<(), KeyStoreError> {
-    with_env(|env| {
+    with_env(|env, store_class| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
         let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         let bytes = env.byte_array_from_slice(value).map_err(jni_error)?;
         env.call_static_method(
-            STORE_CLASS,
+            store_class,
             "store",
             "(Ljava/lang/String;Ljava/lang/String;[B)V",
             &[
@@ -99,13 +106,13 @@ pub(crate) fn delete(namespace: &str, slot: LocalKeyCapsuleSlot) -> Result<(), K
 }
 
 pub(crate) fn delete_named(namespace: &str, slot: &str) -> Result<(), KeyStoreError> {
-    with_env(|env| {
+    with_env(|env, store_class| {
         let namespace = env.new_string(namespace).map_err(jni_error)?;
         let namespace_object = JObject::from(namespace);
         let slot = env.new_string(slot).map_err(jni_error)?;
         let slot_object = JObject::from(slot);
         env.call_static_method(
-            STORE_CLASS,
+            store_class,
             "delete",
             "(Ljava/lang/String;Ljava/lang/String;)V",
             &[
@@ -119,13 +126,13 @@ pub(crate) fn delete_named(namespace: &str, slot: &str) -> Result<(), KeyStoreEr
 }
 
 fn with_env<T>(
-    operation: impl FnOnce(&mut JNIEnv<'_>) -> Result<T, KeyStoreError>,
+    operation: impl FnOnce(&mut JNIEnv<'_>, &GlobalRef) -> Result<T, KeyStoreError>,
 ) -> Result<T, KeyStoreError> {
-    let vm = JAVA_VM
+    let bridge = ANDROID_JNI
         .get()
         .ok_or(KeyStoreError::PlatformStoreUnavailable)?;
-    let mut env = vm.attach_current_thread().map_err(jni_error)?;
-    operation(&mut env)
+    let mut env = bridge.vm.attach_current_thread().map_err(jni_error)?;
+    operation(&mut env, &bridge.store_class)
 }
 
 fn jni_error(_error: jni::errors::Error) -> KeyStoreError {

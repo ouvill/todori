@@ -47,7 +47,27 @@ flutter {
 }
 
 dependencies {
+    val androidXTestJunitVersion = "1.2.1"
+    val androidXTestRunnerVersion = "1.6.2"
+    val androidXTestRulesVersion = "1.6.1"
+    val espressoVersion = "3.6.1"
+
+    // Flutter 3.44.6 integration_test exposes dynamic AndroidX Test dependencies
+    // on the debug runtime. Keep that graph aligned with the instrumentation APK.
+    // Re-evaluate these constraints when Flutter stops exposing dynamic versions.
+    constraints {
+        add("debugImplementation", "androidx.test:runner:$androidXTestRunnerVersion") {
+            because("Flutter integration_test and androidTest runtimes must resolve the same runner")
+        }
+        add("debugImplementation", "androidx.test:rules:$androidXTestRulesVersion") {
+            because("Flutter integration_test exposes AndroidX Test rules on the debug runtime")
+        }
+        add("debugImplementation", "androidx.test.espresso:espresso-core:$espressoVersion") {
+            because("Flutter integration_test exposes Espresso on the debug runtime")
+        }
+    }
+
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:$androidXTestJunitVersion")
+    androidTestImplementation("androidx.test:runner:$androidXTestRunnerVersion")
 }

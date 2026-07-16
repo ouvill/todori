@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -229,6 +230,168 @@ jobs:
             target
             app/rust/target
           key: ${{ steps.flutter-rust-cache.outputs.cache-primary-key }}
+
+  android-build:
+    name: Android arm64 release APK
+    needs: changes
+    if: ${{ always() && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+          targets: aarch64-linux-android
+
+      - name: Restore Android build cache
+        id: android-build-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-android-arm64-rust-1.97.0-ndk-28.2.13676358-${{ hashFiles('Cargo.lock', 'app/pubspec.lock', 'app/android/**/*.gradle*', 'app/android/gradle/wrapper/gradle-wrapper.properties', 'app/rust_builder/cargokit/build_tool/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-android-arm64-rust-1.97.0-ndk-28.2.13676358-
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.44.6
+          cache: true
+          cache-key: ${{ runner.os }}-${{ runner.arch }}-flutter-3.44.6
+          pub-cache: true
+          pub-cache-key: ${{ runner.os }}-${{ runner.arch }}-pub-${{ hashFiles('app/pubspec.lock') }}
+
+      - name: Install Android SDK and NDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;28.2.13676358"
+
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Cargokit build_tool pub get
+        working-directory: app/rust_builder/cargokit/build_tool
+        run: dart pub get
+
+      - name: Build Android arm64 release APK
+        working-directory: app
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Verify Android arm64 JNI library
+        run: |
+          test -s app/build/app/outputs/flutter-apk/app-release.apk
+          unzip -p app/build/app/outputs/flutter-apk/app-release.apk lib/arm64-v8a/libtodori_app_bridge.so > /dev/null
+
+      - name: Save Android build cache
+        if: success() && github.event_name != 'pull_request' && steps.android-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            app/target
+          key: ${{ steps.android-build-cache.outputs.cache-primary-key }}
+
+  android-emulator:
+    name: Android Emulator tests
+    needs: [changes, android-build]
+    if: ${{ !cancelled() && needs.android-build.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+          targets: i686-linux-android,x86_64-linux-android
+
+      - name: Restore Android Emulator cache
+        id: android-emulator-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-android-emulator-rust-1.97.0-ndk-28.2.13676358-${{ hashFiles('Cargo.lock', 'app/pubspec.lock', 'app/android/**/*.gradle*', 'app/android/gradle/wrapper/gradle-wrapper.properties', 'app/rust_builder/cargokit/build_tool/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-android-emulator-rust-1.97.0-ndk-28.2.13676358-
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.44.6
+          cache: true
+          cache-key: ${{ runner.os }}-${{ runner.arch }}-flutter-3.44.6
+          pub-cache: true
+          pub-cache-key: ${{ runner.os }}-${{ runner.arch }}-pub-${{ hashFiles('app/pubspec.lock') }}
+
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Cargokit build_tool pub get
+        working-directory: app/rust_builder/cargokit/build_tool
+        run: dart pub get
+
+      - name: Run Android Emulator tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          cores: 2
+          ram-size: 2048M
+          ndk: 28.2.13676358
+          disable-animations: true
+          script: sh tool/ci/run_android_emulator_tests.sh
+
+      - name: Save Android Emulator cache
+        if: success() && steps.android-emulator-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            app/target
+          key: ${{ steps.android-emulator-cache.outputs.cache-primary-key }}
 
   security-quality:
     name: Dependency and secret gates
