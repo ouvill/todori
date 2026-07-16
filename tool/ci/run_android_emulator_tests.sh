@@ -7,7 +7,10 @@ device_id=${ANDROID_SERIAL:-emulator-$emulator_port}
 
 adb -s "$device_id" wait-for-device
 
-cd app/android
+cd app
+flutter build apk --debug --target-platform android-x64
+
+cd android
 ./gradlew -Ptarget-platform=android-x64 connectedDebugAndroidTest
 
 cd ..
