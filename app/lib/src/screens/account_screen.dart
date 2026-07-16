@@ -523,7 +523,7 @@ class _BillingSection extends ConsumerWidget {
                 if (!entitlement.syncAllowed) ...[
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    l10n.billingTrialBody,
+                    l10n.billingSubscriptionBody,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: AppSpacing.md),

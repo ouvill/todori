@@ -1047,8 +1047,8 @@ class AppLocalizationsJa extends AppLocalizations {
   String get billingTitle => 'Pro';
 
   @override
-  String get billingTrialBody =>
-      '14日間の無料トライアル付き。Appleのサブスクリプション画面からいつでも解約できます。';
+  String get billingSubscriptionBody =>
+      'ProではE2EE同期と暗号化クラウドバックアップを利用できます。Appleのサブスクリプション画面からいつでも解約できます。';
 
   @override
   String get billingStatusFree => 'Free';
@@ -1100,7 +1100,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String billingPriceSemantics(String period, String price) {
-    return '$period、$price、14日間無料トライアル';
+    return '$period、$price';
   }
 
   @override
