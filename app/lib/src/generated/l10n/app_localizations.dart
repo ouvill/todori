@@ -1447,6 +1447,12 @@ abstract class AppLocalizations {
   /// **'Could not load calendar settings.'**
   String get calendarSettingsLoadFailed;
 
+  /// No description provided for @calendarSettingsSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the calendar setting. Try again.'**
+  String get calendarSettingsSaveFailed;
+
   /// No description provided for @accountPrivateSectionTitle.
   ///
   /// In en, this message translates to:

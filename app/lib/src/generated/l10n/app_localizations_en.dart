@@ -774,6 +774,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarSettingsLoadFailed => 'Could not load calendar settings.';
 
   @override
+  String get calendarSettingsSaveFailed =>
+      'Could not save the calendar setting. Try again.';
+
+  @override
   String get accountPrivateSectionTitle => 'PRIVATE ACCOUNT';
 
   @override

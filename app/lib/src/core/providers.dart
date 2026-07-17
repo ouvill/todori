@@ -787,13 +787,16 @@ class CalendarWeekStartNotifier extends AsyncNotifier<String> {
   }
 
   Future<void> setWeekStart(String weekStart) async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
+    final previous = state.value ?? defaultCalendarWeekStart;
+    try {
       await ref
           .read(settingsRepositoryProvider)
           .setCalendarWeekStart(weekStart);
-      return weekStart;
-    });
+      state = AsyncData(weekStart);
+    } catch (error, stackTrace) {
+      state = AsyncData(previous);
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 }
 

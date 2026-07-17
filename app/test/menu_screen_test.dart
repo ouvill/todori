@@ -82,6 +82,70 @@ void main() {
     expect(find.text('Monday'), findsOneWidget);
   });
 
+  testWidgets(
+    'Calendar setting keeps the persisted value after failure and retries',
+    (tester) async {
+      final fake = _FailingCalendarSettingsBridge();
+      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      await fake.setSetting(
+        key: calendarWeekStartSettingKey,
+        value: mondayCalendarWeekStart,
+      );
+      fake.failCalendarWeekStartWrites = true;
+      await _pumpApp(tester, fake);
+
+      await tester.tap(find.text('Menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monday'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('menu-calendar-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('calendar-week-start-sunday')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not save the calendar setting. Try again.'),
+        findsOneWidget,
+      );
+      expect(
+        await fake.getSetting(key: calendarWeekStartSettingKey),
+        mondayCalendarWeekStart,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('calendar-week-start-monday')),
+          matching: find.byIcon(LucideIcons.circleCheck300),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('calendar-week-start-sunday')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monday'), findsOneWidget);
+
+      fake.failCalendarWeekStartWrites = false;
+      await tester.tap(find.byKey(const ValueKey('menu-calendar-settings')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('calendar-week-start-sunday')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        await fake.getSetting(key: calendarWeekStartSettingKey),
+        sundayCalendarWeekStart,
+      );
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sunday'), findsOneWidget);
+    },
+  );
+
   testWidgets('Menu opens Templates', (tester) async {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
@@ -94,6 +158,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Templates'), findsWidgets);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Menu'), findsWidgets);
+    expect(find.byKey(const ValueKey('menu-templates')), findsOneWidget);
   });
 
   testWidgets('Menu shows the signed-in account identity', (tester) async {
@@ -125,4 +195,16 @@ Future<void> _pumpApp(WidgetTester tester, FakeBridgeService fake) async {
     TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
+}
+
+class _FailingCalendarSettingsBridge extends FakeBridgeService {
+  bool failCalendarWeekStartWrites = false;
+
+  @override
+  Future<void> setSetting({required String key, required String value}) {
+    if (key == calendarWeekStartSettingKey && failCalendarWeekStartWrites) {
+      throw StateError('calendar setting write failed');
+    }
+    return super.setSetting(key: key, value: value);
+  }
 }

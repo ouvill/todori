@@ -102,7 +102,7 @@ class MenuScreen extends ConsumerWidget {
                   icon: LucideIcons.layoutTemplate300,
                   title: l10n.templatesTitle,
                   detail: l10n.menuTemplatesBody,
-                  onTap: () => context.go('/templates'),
+                  onTap: () => context.push('/templates'),
                 ),
               ],
             ),

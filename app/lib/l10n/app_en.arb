@@ -452,6 +452,7 @@
   "calendarWeekStartSunday": "Sunday",
   "calendarWeekStartSundayBody": "Show Sunday in the first column.",
   "calendarSettingsLoadFailed": "Could not load calendar settings.",
+  "calendarSettingsSaveFailed": "Could not save the calendar setting. Try again.",
   "accountPrivateSectionTitle": "PRIVATE ACCOUNT",
   "accountPrivateTitle": "Your encrypted workspace",
   "accountPrivateBody": "Sign in to sync protected tasks across your devices.",

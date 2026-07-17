@@ -7,11 +7,49 @@ import 'package:todori/src/generated/l10n/app_localizations.dart';
 import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/theme.dart';
 
-class CalendarSettingsScreen extends ConsumerWidget {
+class CalendarSettingsScreen extends ConsumerStatefulWidget {
   const CalendarSettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CalendarSettingsScreen> createState() =>
+      _CalendarSettingsScreenState();
+}
+
+class _CalendarSettingsScreenState
+    extends ConsumerState<CalendarSettingsScreen> {
+  bool _saving = false;
+
+  Future<void> _setWeekStart(String weekStart) async {
+    if (_saving) {
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await ref
+          .read(calendarWeekStartProvider.notifier)
+          .setWeekStart(weekStart);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.calendarSettingsSaveFailed,
+            ),
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -99,9 +137,9 @@ class CalendarSettingsScreen extends ConsumerWidget {
                         title: l10n.calendarWeekStartSystem,
                         detail: l10n.calendarWeekStartSystemBody,
                         selected: selected == systemCalendarWeekStart,
-                        onTap: () => ref
-                            .read(calendarWeekStartProvider.notifier)
-                            .setWeekStart(systemCalendarWeekStart),
+                        onTap: _saving
+                            ? null
+                            : () => _setWeekStart(systemCalendarWeekStart),
                       ),
                       Divider(color: colorScheme.outlineVariant),
                       _WeekStartOption(
@@ -109,9 +147,9 @@ class CalendarSettingsScreen extends ConsumerWidget {
                         title: l10n.calendarWeekStartMonday,
                         detail: l10n.calendarWeekStartMondayBody,
                         selected: selected == mondayCalendarWeekStart,
-                        onTap: () => ref
-                            .read(calendarWeekStartProvider.notifier)
-                            .setWeekStart(mondayCalendarWeekStart),
+                        onTap: _saving
+                            ? null
+                            : () => _setWeekStart(mondayCalendarWeekStart),
                       ),
                       Divider(color: colorScheme.outlineVariant),
                       _WeekStartOption(
@@ -119,9 +157,9 @@ class CalendarSettingsScreen extends ConsumerWidget {
                         title: l10n.calendarWeekStartSunday,
                         detail: l10n.calendarWeekStartSundayBody,
                         selected: selected == sundayCalendarWeekStart,
-                        onTap: () => ref
-                            .read(calendarWeekStartProvider.notifier)
-                            .setWeekStart(sundayCalendarWeekStart),
+                        onTap: _saving
+                            ? null
+                            : () => _setWeekStart(sundayCalendarWeekStart),
                       ),
                     ],
                   ),
@@ -147,7 +185,7 @@ class _WeekStartOption extends StatelessWidget {
   final String title;
   final String detail;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

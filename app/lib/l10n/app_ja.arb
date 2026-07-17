@@ -224,6 +224,7 @@
   "calendarWeekStartSunday": "日曜日",
   "calendarWeekStartSundayBody": "日曜日を最初の列に表示します。",
   "calendarSettingsLoadFailed": "カレンダー設定を読み込めませんでした。",
+  "calendarSettingsSaveFailed": "カレンダー設定を保存できませんでした。もう一度お試しください。",
   "accountPrivateSectionTitle": "プライベートアカウント",
   "accountPrivateTitle": "暗号化されたワークスペース",
   "accountPrivateBody": "保護されたタスクを、端末間で同期できます。",

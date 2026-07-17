@@ -760,6 +760,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get calendarSettingsLoadFailed => 'カレンダー設定を読み込めませんでした。';
 
   @override
+  String get calendarSettingsSaveFailed => 'カレンダー設定を保存できませんでした。もう一度お試しください。';
+
+  @override
   String get accountPrivateSectionTitle => 'プライベートアカウント';
 
   @override
