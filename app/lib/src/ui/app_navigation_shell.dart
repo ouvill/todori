@@ -24,7 +24,7 @@ class AppNavigationShell extends ConsumerWidget {
       final value
           when value.startsWith('/lists') || value.startsWith('/templates') =>
         _AppDestination.lists,
-      final value when value.startsWith('/account') => _AppDestination.you,
+      final value when value.startsWith('/menu') => _AppDestination.menu,
       _ => _AppDestination.home,
     };
     final segments = Uri.parse(path).pathSegments;
@@ -80,8 +80,8 @@ class AppNavigationShell extends ConsumerWidget {
           context.go('/calendar');
         case _AppDestination.lists:
           context.go('/lists');
-        case _AppDestination.you:
-          context.go('/account');
+        case _AppDestination.menu:
+          context.go('/menu');
       }
     }
 
@@ -116,7 +116,7 @@ class AppNavigationShell extends ConsumerWidget {
   }
 }
 
-enum _AppDestination { home, calendar, lists, you }
+enum _AppDestination { home, calendar, lists, menu }
 
 class _AppBottomNavigation extends StatelessWidget {
   const _AppBottomNavigation({
@@ -170,10 +170,10 @@ class _AppBottomNavigation extends StatelessWidget {
               ),
               Expanded(
                 child: _AppNavigationItem(
-                  icon: LucideIcons.userRound300,
-                  label: l10n.navigationYouLabel,
-                  selected: selectedDestination == _AppDestination.you,
-                  onTap: () => onSelected(_AppDestination.you),
+                  icon: LucideIcons.menu300,
+                  label: l10n.navigationMenuLabel,
+                  selected: selectedDestination == _AppDestination.menu,
+                  onTap: () => onSelected(_AppDestination.menu),
                 ),
               ),
             ],
@@ -231,10 +231,10 @@ class _AppNavigationRail extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.xs),
             _AppNavigationItem(
-              icon: LucideIcons.userRound300,
-              label: l10n.navigationYouLabel,
-              selected: selectedDestination == _AppDestination.you,
-              onTap: () => onSelected(_AppDestination.you),
+              icon: LucideIcons.menu300,
+              label: l10n.navigationMenuLabel,
+              selected: selectedDestination == _AppDestination.menu,
+              onTap: () => onSelected(_AppDestination.menu),
               vertical: true,
             ),
           ],

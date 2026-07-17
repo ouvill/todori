@@ -456,14 +456,14 @@ void main() {
     await _screenshot(tester, 'shell_home_720');
   });
 
-  testWidgets('shell_you_1024: exact wide account shell', (tester) async {
+  testWidgets('shell_menu_1024: exact wide menu shell', (tester) async {
     _setLogicalViewport(tester, const Size(1024, 760), devicePixelRatio: 2);
     final router = buildAppRouter();
     await _seedRealisticData(tester, router: router);
-    router.go('/account');
+    router.go('/menu');
     await tester.pumpAndSettle();
-    expect(find.text('Account'), findsOneWidget);
-    await _screenshot(tester, 'shell_you_1024');
+    expect(find.byKey(const ValueKey('menu-account')), findsOneWidget);
+    await _screenshot(tester, 'shell_menu_1024');
   });
 
   testWidgets('shell_home_rtl: navigation and task actions mirror safely', (
@@ -554,7 +554,17 @@ void main() {
     _useTextScale(tester, 2);
     final router = buildAppRouter();
     await _seedRealisticData(tester, router: router);
-    router.go('/account');
+    router.go('/menu');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'menu_320_ja_scale_2');
+    await tester.tap(find.byKey(const ValueKey('menu-calendar-settings')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _screenshot(tester, 'calendar_settings_320_ja_scale_2');
+    await tester.tap(find.byTooltip('戻る'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-account')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await _screenshot(tester, 'account_320_ja_scale_2');
@@ -1336,7 +1346,17 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     await _seedArchivedListData(tester);
-    await tester.tap(find.text('You').last);
+    await tester.tap(find.text('Menu').last);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'menu_signed_out');
+    await tester.tap(find.byKey(const ValueKey('menu-calendar-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('calendar-week-start-monday')));
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'calendar_settings_monday');
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-account')));
     await tester.pumpAndSettle();
     await _screenshot(tester, 'account_signed_out');
   });

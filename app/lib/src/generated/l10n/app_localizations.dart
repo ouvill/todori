@@ -1345,11 +1345,155 @@ abstract class AppLocalizations {
   /// **'Account'**
   String get accountTitle;
 
-  /// No description provided for @navigationYouLabel.
+  /// No description provided for @accountSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'You'**
-  String get navigationYouLabel;
+  /// **'Private sync, security, and account settings.'**
+  String get accountSubtitle;
+
+  /// No description provided for @navigationMenuLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get navigationMenuLabel;
+
+  /// No description provided for @menuTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get menuTitle;
+
+  /// No description provided for @menuSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your workspace, account, and reusable tools.'**
+  String get menuSubtitle;
+
+  /// No description provided for @menuSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'WORKSPACE'**
+  String get menuSectionTitle;
+
+  /// No description provided for @menuAccountBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in, sync, security, and Pro'**
+  String get menuAccountBody;
+
+  /// No description provided for @menuTemplatesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable tasks and recurring schedules'**
+  String get menuTemplatesBody;
+
+  /// No description provided for @calendarSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar settings'**
+  String get calendarSettingsTitle;
+
+  /// No description provided for @calendarSettingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how weeks are arranged across the calendar.'**
+  String get calendarSettingsSubtitle;
+
+  /// No description provided for @calendarWeekStartSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'WEEK STARTS ON'**
+  String get calendarWeekStartSectionTitle;
+
+  /// No description provided for @calendarWeekStartSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Region default'**
+  String get calendarWeekStartSystem;
+
+  /// No description provided for @calendarWeekStartSystemBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the first day of the week from this device\'s region.'**
+  String get calendarWeekStartSystemBody;
+
+  /// No description provided for @calendarWeekStartMonday.
+  ///
+  /// In en, this message translates to:
+  /// **'Monday'**
+  String get calendarWeekStartMonday;
+
+  /// No description provided for @calendarWeekStartMondayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Monday in the first column.'**
+  String get calendarWeekStartMondayBody;
+
+  /// No description provided for @calendarWeekStartSunday.
+  ///
+  /// In en, this message translates to:
+  /// **'Sunday'**
+  String get calendarWeekStartSunday;
+
+  /// No description provided for @calendarWeekStartSundayBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Sunday in the first column.'**
+  String get calendarWeekStartSundayBody;
+
+  /// No description provided for @calendarSettingsLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load calendar settings.'**
+  String get calendarSettingsLoadFailed;
+
+  /// No description provided for @calendarSettingsSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the calendar setting. Try again.'**
+  String get calendarSettingsSaveFailed;
+
+  /// No description provided for @accountPrivateSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'PRIVATE ACCOUNT'**
+  String get accountPrivateSectionTitle;
+
+  /// No description provided for @accountPrivateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your encrypted workspace'**
+  String get accountPrivateTitle;
+
+  /// No description provided for @accountPrivateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync protected tasks across your devices.'**
+  String get accountPrivateBody;
+
+  /// No description provided for @accountEncryptionStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'End-to-end encrypted workspace'**
+  String get accountEncryptionStatus;
+
+  /// No description provided for @accountSecurityTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SECURITY'**
+  String get accountSecurityTitle;
+
+  /// No description provided for @accountConnectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'CONNECTION'**
+  String get accountConnectionTitle;
+
+  /// No description provided for @accountConnectionBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced sync server settings for this device.'**
+  String get accountConnectionBody;
 
   /// No description provided for @accountLoadFailed.
   ///

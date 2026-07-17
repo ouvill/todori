@@ -709,7 +709,79 @@ class AppLocalizationsJa extends AppLocalizations {
   String get accountTitle => 'アカウント';
 
   @override
-  String get navigationYouLabel => '自分';
+  String get accountSubtitle => 'プライベート同期・セキュリティ・アカウントの設定。';
+
+  @override
+  String get navigationMenuLabel => 'メニュー';
+
+  @override
+  String get menuTitle => 'メニュー';
+
+  @override
+  String get menuSubtitle => 'ワークスペース、アカウント、繰り返し使うツール。';
+
+  @override
+  String get menuSectionTitle => 'ワークスペース';
+
+  @override
+  String get menuAccountBody => 'ログイン、同期、セキュリティ、Pro';
+
+  @override
+  String get menuTemplatesBody => '繰り返し使えるタスクとスケジュール';
+
+  @override
+  String get calendarSettingsTitle => 'カレンダー設定';
+
+  @override
+  String get calendarSettingsSubtitle => 'カレンダーで1週間をどの曜日から表示するか選びます。';
+
+  @override
+  String get calendarWeekStartSectionTitle => '週の始まり';
+
+  @override
+  String get calendarWeekStartSystem => '地域の設定に従う';
+
+  @override
+  String get calendarWeekStartSystemBody => 'この端末の地域設定に合わせます。';
+
+  @override
+  String get calendarWeekStartMonday => '月曜日';
+
+  @override
+  String get calendarWeekStartMondayBody => '月曜日を最初の列に表示します。';
+
+  @override
+  String get calendarWeekStartSunday => '日曜日';
+
+  @override
+  String get calendarWeekStartSundayBody => '日曜日を最初の列に表示します。';
+
+  @override
+  String get calendarSettingsLoadFailed => 'カレンダー設定を読み込めませんでした。';
+
+  @override
+  String get calendarSettingsSaveFailed => 'カレンダー設定を保存できませんでした。もう一度お試しください。';
+
+  @override
+  String get accountPrivateSectionTitle => 'プライベートアカウント';
+
+  @override
+  String get accountPrivateTitle => '暗号化されたワークスペース';
+
+  @override
+  String get accountPrivateBody => '保護されたタスクを、端末間で同期できます。';
+
+  @override
+  String get accountEncryptionStatus => 'エンドツーエンド暗号化済み';
+
+  @override
+  String get accountSecurityTitle => 'セキュリティ';
+
+  @override
+  String get accountConnectionTitle => '接続';
+
+  @override
+  String get accountConnectionBody => 'この端末で使う同期サーバーの詳細設定です。';
 
   @override
   String get accountLoadFailed => 'アカウント状態を読み込めませんでした。';

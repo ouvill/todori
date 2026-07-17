@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:todori/src/billing/billing_store.dart';
@@ -15,7 +16,9 @@ import 'package:todori/src/ui/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
-  const AccountScreen({super.key});
+  const AccountScreen({super.key, this.showBackButton = false});
+
+  final bool showBackButton;
 
   @override
   ConsumerState<AccountScreen> createState() => _AccountScreenState();
@@ -41,6 +44,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final accountAsync = ref.watch(accountProvider);
     final serverUrlAsync = ref.watch(syncServerUrlProvider);
     final syncStatusAsync = ref.watch(syncStatusProvider);
@@ -62,83 +67,129 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 620),
-              child: ListView(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
                   AppSpacing.lg,
-                  AppSpacing.md,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
                   AppSpacing.xl,
                 ),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          l10n.accountTitle,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontSize: 28,
-                                fontWeight: FontWeight.w600,
-                              ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (widget.showBackButton) ...[
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: IconButton(
+                          tooltip: l10n.backButtonTooltip,
+                          alignment: AlignmentDirectional.centerStart,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 48,
+                            height: 48,
+                          ),
+                          onPressed: () {
+                            if (context.canPop()) {
+                              context.pop();
+                            } else {
+                              context.go('/menu');
+                            }
+                          },
+                          icon: const Icon(LucideIcons.arrowLeft300),
                         ),
                       ),
-                      const AppHeaderSearchAction(),
+                      const SizedBox(height: AppSpacing.sm),
                     ],
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  if (account.loggedIn)
-                    _SignedInSection(
-                      account: account,
-                      syncStatusAsync: syncStatusAsync,
-                      billingAsync: billingAsync,
-                      busy: _busy,
-                      onLogout: _logout,
-                      onSyncNow: _syncNow,
-                      onVerifyOrganization: _showOrganizationVerification,
-                    )
-                  else
-                    _SignedOutSection(
-                      registerMode: _registerMode,
-                      busy: _busy,
-                      emailController: _emailController,
-                      passwordController: _passwordController,
-                      recoveryKey: _recoveryKey,
-                      onModeChanged: (registerMode) {
-                        setState(() {
-                          _registerMode = registerMode;
-                          _recoveryKey = null;
-                          _error = null;
-                        });
-                      },
-                      onSubmit: _submit,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            l10n.accountTitle,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              color: colorScheme.onSurface,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (!widget.showBackButton)
+                          const AppHeaderSearchAction(),
+                      ],
                     ),
-                  if (_recoveryKey != null && account.loggedIn) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    SelectableText(
-                      _recoveryKey!,
-                      key: const ValueKey('account-recovery-key'),
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: AppSpacing.md),
+                    const SizedBox(height: AppSpacing.sm),
                     Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                      l10n.accountSubtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                    const _AccountAccentLine(),
+                    const SizedBox(height: AppSpacing.xl),
+                    if (_recoveryKey != null && account.loggedIn) ...[
+                      SelectableText(
+                        _recoveryKey!,
+                        key: const ValueKey('account-recovery-key'),
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                    if (account.loggedIn)
+                      _SignedInSection(
+                        account: account,
+                        syncStatusAsync: syncStatusAsync,
+                        billingAsync: billingAsync,
+                        busy: _busy,
+                        onLogout: _logout,
+                        onSyncNow: _syncNow,
+                        onVerifyOrganization: _showOrganizationVerification,
+                      )
+                    else
+                      _SignedOutSection(
+                        registerMode: _registerMode,
+                        busy: _busy,
+                        emailController: _emailController,
+                        passwordController: _passwordController,
+                        recoveryKey: _recoveryKey,
+                        onModeChanged: (registerMode) {
+                          setState(() {
+                            _registerMode = registerMode;
+                            _recoveryKey = null;
+                            _error = null;
+                          });
+                        },
+                        onSubmit: _submit,
+                      ),
+                    if (_error != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            LucideIcons.circleAlert300,
+                            size: 18,
+                            color: colorScheme.error,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: TextStyle(color: colorScheme.error),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.xl),
+                    Divider(color: colorScheme.outlineVariant),
+                    const SizedBox(height: AppSpacing.lg),
+                    _ServerUrlSection(
+                      controller: _serverUrlController,
+                      busy: _busy,
+                      onSave: _saveServerUrl,
+                    ),
                   ],
-                  const SizedBox(height: AppSpacing.xl),
-                  Divider(color: Theme.of(context).colorScheme.outlineVariant),
-                  const SizedBox(height: AppSpacing.lg),
-                  _ServerUrlSection(
-                    controller: _serverUrlController,
-                    busy: _busy,
-                    onSave: _saveServerUrl,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -234,6 +285,88 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 }
 
+class _AccountAccentLine extends StatelessWidget {
+  const _AccountAccentLine();
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: AlignmentDirectional.centerStart,
+    child: Container(
+      width: 36,
+      height: 2,
+      color: Theme.of(context).colorScheme.primary,
+    ),
+  );
+}
+
+class _AccountSectionLabel extends StatelessWidget {
+  const _AccountSectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      letterSpacing: 1.35,
+    ),
+  );
+}
+
+class _AccountActionRow extends StatelessWidget {
+  const _AccountActionRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final foreground = destructive ? colorScheme.error : colorScheme.onSurface;
+    return InkWell(
+      onTap: onPressed,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 54),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: foreground),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Icon(
+                LucideIcons.chevronRight300,
+                size: 19,
+                color: destructive
+                    ? colorScheme.error
+                    : colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ServerUrlSection extends StatelessWidget {
   const _ServerUrlSection({
     required this.controller,
@@ -248,14 +381,22 @@ class _ServerUrlSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          l10n.accountServerUrlLabel,
-          style: Theme.of(context).textTheme.labelLarge,
-        ),
+        _AccountSectionLabel(l10n.accountConnectionTitle),
         const SizedBox(height: AppSpacing.sm),
+        Text(l10n.accountServerUrlLabel, style: theme.textTheme.titleMedium),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          l10n.accountConnectionBody,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
         TextField(
           controller: controller,
           keyboardType: TextInputType.url,
@@ -263,12 +404,6 @@ class _ServerUrlSection extends StatelessWidget {
           onSubmitted: busy ? null : (_) => onSave(),
           decoration: InputDecoration(
             hintText: defaultSyncServerUrl,
-            border: const UnderlineInputBorder(),
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
             suffixIcon: IconButton(
               tooltip: l10n.accountSaveServerUrlTooltip,
               onPressed: busy ? null : onSave,
@@ -303,9 +438,48 @@ class _SignedOutSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _AccountSectionLabel(l10n.accountPrivateSectionTitle),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                LucideIcons.shieldCheck300,
+                size: 22,
+                color: colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.accountPrivateTitle,
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    l10n.accountPrivateBody,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Divider(color: colorScheme.outlineVariant),
+        const SizedBox(height: AppSpacing.md),
         Row(
           children: [
             Expanded(
@@ -330,20 +504,14 @@ class _SignedOutSection extends StatelessWidget {
           controller: emailController,
           keyboardType: TextInputType.emailAddress,
           autofillHints: const [AutofillHints.email],
-          decoration: InputDecoration(
-            labelText: l10n.accountEmailLabel,
-            border: const UnderlineInputBorder(),
-          ),
+          decoration: InputDecoration(labelText: l10n.accountEmailLabel),
         ),
         const SizedBox(height: AppSpacing.md),
         TextField(
           controller: passwordController,
           obscureText: true,
           autofillHints: const [AutofillHints.password],
-          decoration: InputDecoration(
-            labelText: l10n.accountPasswordLabel,
-            border: const UnderlineInputBorder(),
-          ),
+          decoration: InputDecoration(labelText: l10n.accountPasswordLabel),
         ),
         const SizedBox(height: AppSpacing.lg),
         FilledButton.icon(
@@ -439,44 +607,95 @@ class _SignedInSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final email = account.email ?? '';
+    final initial = email.trim().isEmpty ? '?' : email.trim()[0].toUpperCase();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          account.email ?? '',
-          style: Theme.of(context).textTheme.titleLarge,
+        _AccountSectionLabel(l10n.accountPrivateSectionTitle),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: colorScheme.primary, width: 1.5),
+              ),
+              child: Text(
+                initial,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: colorScheme.primary,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    children: [
+                      Icon(
+                        LucideIcons.lockKeyhole300,
+                        size: 14,
+                        color: colorScheme.primary,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          l10n.accountEncryptionStatus,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.xl),
         _SyncStatusSection(
           syncStatusAsync: syncStatusAsync,
           busy: busy,
           onSyncNow: onSyncNow,
         ),
         const SizedBox(height: AppSpacing.lg),
+        Divider(color: colorScheme.outlineVariant),
+        const SizedBox(height: AppSpacing.lg),
         _BillingSection(billingAsync: billingAsync),
         const SizedBox(height: AppSpacing.lg),
-        OutlinedButton.icon(
+        Divider(color: colorScheme.outlineVariant),
+        const SizedBox(height: AppSpacing.lg),
+        _AccountSectionLabel(l10n.accountSecurityTitle),
+        const SizedBox(height: AppSpacing.sm),
+        _AccountActionRow(
           key: const ValueKey('organization-safety-open'),
           onPressed: busy ? null : onVerifyOrganization,
-          icon: const Icon(LucideIcons.shieldCheck300),
-          label: Text(l10n.organizationSafetyOpenButton),
-          style: OutlinedButton.styleFrom(
-            side: BorderSide.none,
-            alignment: AlignmentDirectional.centerStart,
-          ),
+          icon: LucideIcons.shieldCheck300,
+          label: l10n.organizationSafetyOpenButton,
         ),
-        const SizedBox(height: AppSpacing.sm),
-        OutlinedButton.icon(
+        Divider(color: colorScheme.outlineVariant),
+        _AccountActionRow(
+          key: const ValueKey('account-logout'),
           onPressed: busy ? null : onLogout,
-          icon: const Icon(LucideIcons.logOut300),
-          label: Text(l10n.accountLogoutButton),
-          style: OutlinedButton.styleFrom(
-            side: BorderSide.none,
-            alignment: AlignmentDirectional.centerStart,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
+          icon: LucideIcons.logOut300,
+          label: l10n.accountLogoutButton,
+          destructive: true,
         ),
       ],
     );
@@ -494,7 +713,7 @@ class _BillingSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(l10n.billingTitle, style: Theme.of(context).textTheme.labelLarge),
+        _AccountSectionLabel(l10n.billingTitle),
         const SizedBox(height: AppSpacing.sm),
         billingAsync.when(
           loading: () => const LinearProgressIndicator(minHeight: 2),
@@ -862,10 +1081,7 @@ class _SyncStatusSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          l10n.accountSyncTitle,
-          style: Theme.of(context).textTheme.labelLarge,
-        ),
+        _AccountSectionLabel(l10n.accountSyncTitle),
         const SizedBox(height: AppSpacing.sm),
         Row(
           children: [
@@ -873,7 +1089,27 @@ class _SyncStatusSection extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(statusText),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: status?.lastError?.isNotEmpty == true
+                              ? Theme.of(context).colorScheme.error
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          statusText,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     l10n.accountSyncLastSuccess(
