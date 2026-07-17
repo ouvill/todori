@@ -82,4 +82,4 @@ milestone: maintenance
 - 390px通常表示と320px日本語text scale 2.0のMenu / Account / Calendar settingsをvisual QAし、狭幅では戻る操作を独立route barへ配置してoverflowを解消した。戻る矢印は48pxのtap targetを維持しつつ、見出しと同じ左端へ揃えた。
 - `cargo build --release`、`flutter analyze`、`flutter test`（265件成功、visual QA harness 1件skip）、hardcoded strings、client boundary check / test、`git diff --check`が成功した。
 - 全体テストで既存カレンダーテストの日曜始まり週における土曜→翌日仮定を検出したため、表示中の別日をdrag targetに使う曜日非依存テストへ修正し、単独・全体の両方で再検証した。
-- 独立検証は未実施。commitも未作成。
+- 独立検証は未実施。実装差分はcommitし、Draft PR #34として公開した。
