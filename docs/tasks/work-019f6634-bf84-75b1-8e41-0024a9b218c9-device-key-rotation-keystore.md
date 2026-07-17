@@ -84,3 +84,13 @@ OS secret storeにactive / pending capsuleを持たせ、SQLCipher rekeyをcrash
 - 判定: 実装合格。Android実機release gateは未解除。
 - 根拠: 初回検証でfailure injection境界、秘密buffer zeroize、test/profile namespace混線、固定global session token、runbook commandを指摘し、すべて修正した。別エージェントがtargeted Rust test、required fmt/clippy、arm64 NDK check、JDK 21 Android test compile、macOS profile drive 2回、Android release APK/JNI symbol、boundary script、secret-log grepを再確認し、実装差分にP0〜P2の残存指摘なしと判定した。
 - 検証者: 実装を担当していない独立検証エージェント
+
+### 2026-07-18 Android接続実機追補
+
+上記完了報告のAndroid未実施判定は2026-07-15時点のスナップショットであり、Android部分を次の接続実機証拠で更新する。
+
+- Device: Pixel 7a、Android 16（API 36）、wireless ADB。
+- Environment: JDK 21.0.11、Gradle 9.1.0。JDK 26ではAndroid JDK image生成に失敗したため、runbook契約どおりJDK 21を明示した。
+- Keystore: `./gradlew connectedDebugAndroidTest`が`BUILD SUCCESSFUL`となり、Keystore AES keyのnon-exportability、active / pending capsule roundtrip、profile namespace分離を確認した。
+- Rotation / DB reopen: 同じprofileに対する`flutter drive --profile`を2回連続実行し、両runで`All tests passed`を確認した。DK rotation、新鍵でのSQLCipher DB reopen、旧鍵拒否、プロセス再起動後のactive capsule再利用が成立した。旧鍵拒否時のSQLCipher HMAC failure logは設計どおりで、秘密値はlogへ出ていない。
+- 判定: Android platform crypto gateは合格。Android実機同期、課金、本番運用等の非暗号release gateは別途完了するまで一般配布しない。
