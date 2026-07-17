@@ -25,8 +25,11 @@ export CARGOKIT_CONFIGURATION=$CONFIGURATION
 # Path to directory containing Cargo.toml.
 export CARGOKIT_MANIFEST_DIR=$PODS_TARGET_SRCROOT/$1
 
-# Temporary directory for build artifacts.
-export CARGOKIT_TARGET_TEMP_DIR=$TARGET_TEMP_DIR
+# Temporary directory for build artifacts. CI may provide a persistent Cargo
+# target directory so cross-build artifacts can be restored between runs.
+if [ -z "${CARGOKIT_TARGET_TEMP_DIR:-}" ]; then
+  export CARGOKIT_TARGET_TEMP_DIR="$TARGET_TEMP_DIR"
+fi
 
 # Output directory for final artifacts.
 export CARGOKIT_OUTPUT_DIR=$PODS_CONFIGURATION_BUILD_DIR/$PRODUCT_NAME
