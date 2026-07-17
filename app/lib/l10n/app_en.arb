@@ -336,8 +336,31 @@
   "changeDueDateTooltip": "Change due date",
   "reminderChipEmpty": "Reminder",
   "reminderChipTooltipSet": "Set reminder",
-  "reminderChipTooltipChange": "Change reminder",
+  "reminderChipTooltipChange": "Manage reminders",
   "clearReminderButton": "Clear reminder",
+  "manageRemindersTitle": "Reminders",
+  "addReminderButton": "Add reminder",
+  "editReminderTooltip": "Edit reminder",
+  "deleteReminderTooltip": "Delete reminder",
+  "reminderCount": "{count} reminders",
+  "@reminderCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reminderQuickOptionsTitle": "Before due time",
+  "reminderFiveMinutesBefore": "5 minutes before",
+  "reminderThirtyMinutesBefore": "30 minutes before",
+  "reminderOneHourBefore": "1 hour before",
+  "reminderOneDayBefore": "1 day before",
+  "reminderCustomTime": "Custom date and time",
+  "reminderPastLabel": "Past",
+  "reminderLimitReached": "You can set up to 5 reminders for one task.",
+  "reminderDuplicateTime": "A reminder already exists at that time.",
+  "reminderMustBeFuture": "Choose a future time.",
+  "reminderSavedNotificationFailed": "The reminder was saved, but Todori could not schedule the local notification.",
   "reminderPermissionDenied": "Notifications are off. The reminder was saved, but Todori could not schedule a local notification.",
   "failedToSaveReminder": "Failed to save reminder: {error}",
   "@failedToSaveReminder": {

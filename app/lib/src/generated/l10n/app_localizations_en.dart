@@ -524,10 +524,62 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reminderChipTooltipSet => 'Set reminder';
 
   @override
-  String get reminderChipTooltipChange => 'Change reminder';
+  String get reminderChipTooltipChange => 'Manage reminders';
 
   @override
   String get clearReminderButton => 'Clear reminder';
+
+  @override
+  String get manageRemindersTitle => 'Reminders';
+
+  @override
+  String get addReminderButton => 'Add reminder';
+
+  @override
+  String get editReminderTooltip => 'Edit reminder';
+
+  @override
+  String get deleteReminderTooltip => 'Delete reminder';
+
+  @override
+  String reminderCount(int count) {
+    return '$count reminders';
+  }
+
+  @override
+  String get reminderQuickOptionsTitle => 'Before due time';
+
+  @override
+  String get reminderFiveMinutesBefore => '5 minutes before';
+
+  @override
+  String get reminderThirtyMinutesBefore => '30 minutes before';
+
+  @override
+  String get reminderOneHourBefore => '1 hour before';
+
+  @override
+  String get reminderOneDayBefore => '1 day before';
+
+  @override
+  String get reminderCustomTime => 'Custom date and time';
+
+  @override
+  String get reminderPastLabel => 'Past';
+
+  @override
+  String get reminderLimitReached =>
+      'You can set up to 5 reminders for one task.';
+
+  @override
+  String get reminderDuplicateTime => 'A reminder already exists at that time.';
+
+  @override
+  String get reminderMustBeFuture => 'Choose a future time.';
+
+  @override
+  String get reminderSavedNotificationFailed =>
+      'The reminder was saved, but Todori could not schedule the local notification.';
 
   @override
   String get reminderPermissionDenied =>

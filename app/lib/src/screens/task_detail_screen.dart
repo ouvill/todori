@@ -95,7 +95,8 @@ class TaskDetailScreen extends ConsumerWidget {
           final colorScheme = theme.colorScheme;
           final locale = Localizations.localeOf(context).toLanguageTag();
           final remindersAsync = ref.watch(taskRemindersProvider(task.id));
-          final reminder = remindersAsync.asData?.value.firstOrNull;
+          final reminders =
+              remindersAsync.asData?.value ?? const <ReminderDto>[];
           final completedSessionsAsync = ref.watch(
             completedTimerSessionsProvider(task.id),
           );
@@ -203,7 +204,7 @@ class TaskDetailScreen extends ConsumerWidget {
                         const SizedBox(height: AppSpacing.md),
                         _EditableTaskMetadata(
                           task: task,
-                          reminder: reminder,
+                          reminders: reminders,
                           stats: stats,
                           actualDuration: actualDuration,
                           locale: locale,
@@ -225,10 +226,7 @@ class TaskDetailScreen extends ConsumerWidget {
                           onSelectPriority: () =>
                               _selectPriority(context, ref, task),
                           onSelectReminder: () =>
-                              _selectReminder(context, ref, task, reminder),
-                          onClearReminder: reminder == null
-                              ? null
-                              : () => _clearReminder(context, ref, task),
+                              _manageReminders(context, ref, task, reminders),
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         Text(
@@ -572,97 +570,426 @@ class TaskDetailScreen extends ConsumerWidget {
     await _updateTaskFields(context, ref, task, due: due);
   }
 
-  Future<void> _selectReminder(
+  Future<void> _manageReminders(
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
-    ReminderDto? currentReminder,
+    List<ReminderDto> initialReminders,
+  ) async {
+    var reminders = [...initialReminders]..sort(_compareReminderDtos);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final l10n = AppLocalizations.of(sheetContext)!;
+          final locale = Localizations.localeOf(sheetContext).toLanguageTag();
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.78,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  0,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                ),
+                child: Column(
+                  key: const ValueKey('task-reminders-sheet'),
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      l10n.manageRemindersTitle,
+                      style: Theme.of(sheetContext).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: reminders.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final reminder = reminders[index];
+                          final effectiveAt = effectiveReminderAt(reminder);
+                          final isPast =
+                              effectiveAt <=
+                              DateTime.now().millisecondsSinceEpoch;
+                          return ListTile(
+                            key: ValueKey('reminder-row-${reminder.id}'),
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              formatReminderDateTime(locale, effectiveAt),
+                            ),
+                            subtitle: isPast
+                                ? Text(l10n.reminderPastLabel)
+                                : null,
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  key: ValueKey('edit-reminder-${reminder.id}'),
+                                  tooltip: l10n.editReminderTooltip,
+                                  onPressed: () async {
+                                    final initial =
+                                        DateTime.fromMillisecondsSinceEpoch(
+                                          effectiveAt,
+                                        ).toLocal();
+                                    final selected =
+                                        await _pickCustomReminderTime(
+                                          sheetContext,
+                                          initial: initial,
+                                        );
+                                    if (selected == null ||
+                                        !sheetContext.mounted) {
+                                      return;
+                                    }
+                                    final updated = await _saveReminder(
+                                      sheetContext,
+                                      ref,
+                                      task,
+                                      reminders,
+                                      selected,
+                                      existing: reminder,
+                                    );
+                                    if (updated != null &&
+                                        sheetContext.mounted) {
+                                      setSheetState(() {
+                                        reminders =
+                                            reminders
+                                                .map(
+                                                  (item) =>
+                                                      item.id == updated.id
+                                                      ? updated
+                                                      : item,
+                                                )
+                                                .toList()
+                                              ..sort(_compareReminderDtos);
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(LucideIcons.pencil300),
+                                ),
+                                IconButton(
+                                  key: ValueKey(
+                                    'delete-reminder-${reminder.id}',
+                                  ),
+                                  tooltip: l10n.deleteReminderTooltip,
+                                  onPressed: () async {
+                                    final deleted = await _deleteReminder(
+                                      sheetContext,
+                                      ref,
+                                      task,
+                                      reminder,
+                                    );
+                                    if (deleted && sheetContext.mounted) {
+                                      setSheetState(() {
+                                        reminders.removeWhere(
+                                          (item) => item.id == reminder.id,
+                                        );
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(LucideIcons.trash2300),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('add-reminder-button'),
+                      onPressed: reminders.length >= _maxTaskReminders
+                          ? null
+                          : () async {
+                              final selected = await _pickNewReminderTime(
+                                sheetContext,
+                                task,
+                                reminders,
+                              );
+                              if (selected == null || !sheetContext.mounted) {
+                                return;
+                              }
+                              final created = await _saveReminder(
+                                sheetContext,
+                                ref,
+                                task,
+                                reminders,
+                                selected,
+                              );
+                              if (created != null && sheetContext.mounted) {
+                                setSheetState(() {
+                                  reminders = [...reminders, created]
+                                    ..sort(_compareReminderDtos);
+                                });
+                              }
+                      },
+                      icon: const Icon(LucideIcons.plus300),
+                      label: Text(l10n.addReminderButton),
+                    ),
+                    if (reminders.length >= _maxTaskReminders) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        l10n.reminderLimitReached,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<DateTime?> _pickNewReminderTime(
+    BuildContext context,
+    TaskDto task,
+    List<ReminderDto> reminders,
   ) async {
     final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
-    final initial = currentReminder == null
-        ? now.add(const Duration(hours: 1))
-        : DateTime.fromMillisecondsSinceEpoch(
-            effectiveReminderAt(currentReminder),
-          ).toLocal();
+    final dueAt = taskDueInstant(task.due)?.toLocal();
+    final usedTimes = reminders.map((reminder) => reminder.remindAt).toSet();
+    final options = dueAt == null
+        ? const <_ReminderQuickOption>[]
+        : [
+            _ReminderQuickOption(
+              keyName: '5m',
+              label: l10n.reminderFiveMinutesBefore,
+              time: dueAt.subtract(const Duration(minutes: 5)),
+            ),
+            _ReminderQuickOption(
+              keyName: '30m',
+              label: l10n.reminderThirtyMinutesBefore,
+              time: dueAt.subtract(const Duration(minutes: 30)),
+            ),
+            _ReminderQuickOption(
+              keyName: '1h',
+              label: l10n.reminderOneHourBefore,
+              time: dueAt.subtract(const Duration(hours: 1)),
+            ),
+            _ReminderQuickOption(
+              keyName: '1d',
+              label: l10n.reminderOneDayBefore,
+              time: dueAt.subtract(const Duration(days: 1)),
+            ),
+          ];
+    final choice = await showModalBottomSheet<_ReminderTimeChoice>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (choiceContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            0,
+            AppSpacing.md,
+            AppSpacing.md,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (options.isNotEmpty) ...[
+                Text(
+                  l10n.reminderQuickOptionsTitle,
+                  style: Theme.of(choiceContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                for (final option in options)
+                  ListTile(
+                    key: ValueKey('reminder-preset-${option.keyName}'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(option.label),
+                    subtitle: Text(
+                      formatReminderDateTime(
+                        Localizations.localeOf(choiceContext).toLanguageTag(),
+                        option.time.millisecondsSinceEpoch,
+                      ),
+                    ),
+                    enabled:
+                        option.time.isAfter(now) &&
+                        !usedTimes.contains(option.time.millisecondsSinceEpoch),
+                    onTap:
+                        option.time.isAfter(now) &&
+                            !usedTimes.contains(
+                              option.time.millisecondsSinceEpoch,
+                            )
+                        ? () => Navigator.of(
+                            choiceContext,
+                          ).pop(_ReminderTimeChoice(time: option.time))
+                        : null,
+                  ),
+              ],
+              ListTile(
+                key: const ValueKey('reminder-custom-time'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(LucideIcons.calendarClock300),
+                title: Text(l10n.reminderCustomTime),
+                onTap: () => Navigator.of(
+                  choiceContext,
+                ).pop(const _ReminderTimeChoice.custom()),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) {
+      return null;
+    }
+    if (!choice.isCustom) {
+      return choice.time;
+    }
+    if (!context.mounted) {
+      return null;
+    }
+    return _pickCustomReminderTime(
+      context,
+      initial: now.add(const Duration(hours: 1)),
+    );
+  }
+
+  Future<DateTime?> _pickCustomReminderTime(
+    BuildContext context, {
+    required DateTime initial,
+  }) async {
+    final now = DateTime.now();
+    final safeInitial = initial.isAfter(now)
+        ? initial
+        : now.add(const Duration(hours: 1));
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: safeInitial,
       firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(2100),
     );
     if (pickedDate == null || !context.mounted) {
-      return;
+      return null;
     }
     final pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
+      initialTime: TimeOfDay.fromDateTime(safeInitial),
     );
-    if (pickedTime == null || !context.mounted) {
-      return;
+    if (pickedTime == null) {
+      return null;
     }
-    final remindAt = DateTime(
+    return DateTime(
       pickedDate.year,
       pickedDate.month,
       pickedDate.day,
       pickedTime.hour,
       pickedTime.minute,
     );
+  }
+
+  Future<ReminderDto?> _saveReminder(
+    BuildContext context,
+    WidgetRef ref,
+    TaskDto task,
+    List<ReminderDto> reminders,
+    DateTime remindAt, {
+    ReminderDto? existing,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final remindAtMs = remindAt.millisecondsSinceEpoch;
+    if (!remindAt.isAfter(DateTime.now())) {
+      _showReminderMessage(context, l10n.reminderMustBeFuture);
+      return null;
+    }
+    if (reminders.any(
+      (reminder) =>
+          reminder.id != existing?.id && reminder.remindAt == remindAtMs,
+    )) {
+      _showReminderMessage(context, l10n.reminderDuplicateTime);
+      return null;
+    }
+    if (existing == null && reminders.length >= _maxTaskReminders) {
+      _showReminderMessage(context, l10n.reminderLimitReached);
+      return null;
+    }
 
     final notificationService = ref.read(reminderNotificationServiceProvider);
     final permissionsGranted = await notificationService.requestPermissions();
     try {
-      final reminder = await ref
-          .read(taskRemindersProvider(task.id).notifier)
-          .setReminder(remindAt.millisecondsSinceEpoch);
+      final notifier = ref.read(taskRemindersProvider(task.id).notifier);
+      final reminder = existing == null
+          ? await notifier.createReminder(remindAtMs)
+          : await notifier.updateReminder(existing.id, remindAtMs);
       if (permissionsGranted) {
-        await notificationService.scheduleReminder(
-          reminder: reminder,
-          listId: task.listId,
-          content: ReminderNotificationContent(
-            title: l10n.reminderNotificationTitle,
-            body: l10n.reminderNotificationBody,
-            snoozeActionTitle: l10n.reminderSnoozeOneHourAction,
-          ),
-        );
-      } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.reminderPermissionDenied),
-            margin: const EdgeInsets.all(AppSpacing.md),
-          ),
-        );
+        try {
+          await notificationService.scheduleReminder(
+            reminder: reminder,
+            listId: task.listId,
+            content: ReminderNotificationContent(
+              title: l10n.reminderNotificationTitle,
+              body: l10n.reminderNotificationBody,
+              snoozeActionTitle: l10n.reminderSnoozeOneHourAction,
+            ),
+          );
+        } catch (_) {
+          await notificationService.cancelReminder(reminder);
+          if (context.mounted) {
+            _showReminderMessage(context, l10n.reminderSavedNotificationFailed);
+          }
+        }
+      } else {
+        await notificationService.cancelReminder(reminder);
+        if (context.mounted) {
+          _showReminderMessage(context, l10n.reminderPermissionDenied);
+        }
       }
+      return reminder;
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.failedToSaveReminder(error.toString())),
-            margin: const EdgeInsets.all(AppSpacing.md),
-          ),
+        _showReminderMessage(
+          context,
+          l10n.failedToSaveReminder(error.toString()),
         );
       }
+      return null;
     }
   }
 
-  Future<void> _clearReminder(
+  Future<bool> _deleteReminder(
     BuildContext context,
     WidgetRef ref,
     TaskDto task,
+    ReminderDto reminder,
   ) async {
     final l10n = AppLocalizations.of(context)!;
     try {
-      await ref.read(taskRemindersProvider(task.id).notifier).clearReminders();
+      await ref
+          .read(taskRemindersProvider(task.id).notifier)
+          .deleteReminder(reminder.id);
+      return true;
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.failedToSaveReminder(error.toString())),
-            margin: const EdgeInsets.all(AppSpacing.md),
-          ),
+        _showReminderMessage(
+          context,
+          l10n.failedToSaveReminder(error.toString()),
         );
       }
+      return false;
     }
+  }
+
+  void _showReminderMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        margin: const EdgeInsets.all(AppSpacing.md),
+      ),
+    );
   }
 
   Future<void> _deleteTask(
@@ -943,6 +1270,39 @@ const Object _unchangedScheduledAt = Object();
 const Object _unchangedEstimatedMinutes = Object();
 
 enum _TaskDueMode { date, dateTime }
+
+const _maxTaskReminders = 5;
+
+int _compareReminderDtos(ReminderDto left, ReminderDto right) {
+  final byTime = effectiveReminderAt(
+    left,
+  ).compareTo(effectiveReminderAt(right));
+  if (byTime != 0) {
+    return byTime;
+  }
+  return left.id.compareTo(right.id);
+}
+
+class _ReminderQuickOption {
+  const _ReminderQuickOption({
+    required this.keyName,
+    required this.label,
+    required this.time,
+  });
+
+  final String keyName;
+  final String label;
+  final DateTime time;
+}
+
+class _ReminderTimeChoice {
+  const _ReminderTimeChoice({required this.time}) : isCustom = false;
+
+  const _ReminderTimeChoice.custom() : time = null, isCustom = true;
+
+  final DateTime? time;
+  final bool isCustom;
+}
 
 const EdgeInsets _inlineEditorPadding = EdgeInsets.all(AppSpacing.sm);
 
@@ -1357,7 +1717,7 @@ class _ParentTaskLink extends StatelessWidget {
 class _EditableTaskMetadata extends StatelessWidget {
   const _EditableTaskMetadata({
     required this.task,
-    required this.reminder,
+    required this.reminders,
     required this.stats,
     required this.actualDuration,
     required this.locale,
@@ -1367,11 +1727,10 @@ class _EditableTaskMetadata extends StatelessWidget {
     required this.onSelectPlan,
     required this.onSelectPriority,
     required this.onSelectReminder,
-    required this.onClearReminder,
   });
 
   final TaskDto task;
-  final ReminderDto? reminder;
+  final List<ReminderDto> reminders;
   final SubtaskStats stats;
   final Duration actualDuration;
   final String locale;
@@ -1381,16 +1740,20 @@ class _EditableTaskMetadata extends StatelessWidget {
   final VoidCallback onSelectPlan;
   final VoidCallback onSelectPriority;
   final VoidCallback onSelectReminder;
-  final VoidCallback? onClearReminder;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final overdue = isTaskOverdue(task);
     final dueLabel = formatRelativeDueDate(l10n, locale, task.due);
-    final reminderLabel = reminder == null
-        ? l10n.reminderChipEmpty
-        : formatReminderDateTime(locale, effectiveReminderAt(reminder!));
+    final reminderLabel = switch (reminders.length) {
+      0 => l10n.reminderChipEmpty,
+      1 => formatReminderDateTime(
+        locale,
+        effectiveReminderAt(reminders.single),
+      ),
+      _ => l10n.reminderCount(reminders.length),
+    };
     return Column(
       children: [
         if (onStartFocus != null)
@@ -1470,13 +1833,10 @@ class _EditableTaskMetadata extends StatelessWidget {
           icon: LucideIcons.bell300,
           property: l10n.reminderChipEmpty,
           label: reminderLabel,
-          tooltip: reminder == null
+          tooltip: reminders.isEmpty
               ? l10n.reminderChipTooltipSet
               : l10n.reminderChipTooltipChange,
           onTap: onSelectReminder,
-          clearKey: ValueKey('task-clear-reminder-${task.id}'),
-          clearTooltip: l10n.clearReminderButton,
-          onClear: onClearReminder,
         ),
         if (stats.hasDescendants)
           _DetailPropertyRow(

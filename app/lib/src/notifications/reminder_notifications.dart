@@ -26,17 +26,46 @@ class ReminderNotificationPayload {
   final String listId;
 
   String encode() => jsonEncode({
+    'owner': reminderNotificationCategoryId,
     'reminderId': reminderId,
     'taskId': taskId,
     'listId': listId,
   });
 
   static ReminderNotificationPayload? decode(String? value) {
+    return _decode(value, allowLegacy: false);
+  }
+
+  static ReminderNotificationPayload? decodeLegacy(String? value) {
+    return _decode(value, allowLegacy: true);
+  }
+
+  static ReminderNotificationPayload? _decode(
+    String? value, {
+    required bool allowLegacy,
+  }) {
     if (value == null || value.isEmpty) {
       return null;
     }
-    final decoded = jsonDecode(value);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(value);
+    } on FormatException {
+      return null;
+    }
     if (decoded is! Map<String, Object?>) {
+      return null;
+    }
+    final owner = decoded['owner'];
+    final isCurrent = owner == reminderNotificationCategoryId;
+    final isLegacy =
+        allowLegacy &&
+        owner == null &&
+        decoded.length == 3 &&
+        decoded.containsKey('reminderId') &&
+        decoded.containsKey('taskId') &&
+        decoded.containsKey('listId');
+    if (!isCurrent && !isLegacy) {
       return null;
     }
     final reminderId = decoded['reminderId'];
@@ -58,6 +87,16 @@ class ReminderNotificationResponse {
 
   final String actionId;
   final ReminderNotificationPayload? payload;
+}
+
+class PendingReminderNotification {
+  const PendingReminderNotification({
+    required this.notificationId,
+    required this.payload,
+  });
+
+  final int notificationId;
+  final ReminderNotificationPayload payload;
 }
 
 class ReminderNotificationContent {
@@ -85,6 +124,7 @@ abstract class ReminderNotificationGateway {
     required ReminderNotificationPayload payload,
   });
   Future<void> cancel(int notificationId);
+  Future<List<PendingReminderNotification>> pendingReminderNotifications();
 }
 
 class FlutterLocalReminderNotificationGateway
@@ -190,6 +230,35 @@ class FlutterLocalReminderNotificationGateway
     return _plugin.cancel(id: notificationId);
   }
 
+  @override
+  Future<List<PendingReminderNotification>>
+  pendingReminderNotifications() async {
+    final pending = await _plugin.pendingNotificationRequests();
+    return pending
+        .map((request) {
+          final current = ReminderNotificationPayload.decode(request.payload);
+          if (current != null) {
+            return PendingReminderNotification(
+              notificationId: request.id,
+              payload: current,
+            );
+          }
+          final legacy = ReminderNotificationPayload.decodeLegacy(
+            request.payload,
+          );
+          if (legacy == null ||
+              request.id != notificationIdForReminder(legacy.reminderId)) {
+            return null;
+          }
+          return PendingReminderNotification(
+            notificationId: request.id,
+            payload: legacy,
+          );
+        })
+        .whereType<PendingReminderNotification>()
+        .toList(growable: false);
+  }
+
   void _initializeTimeZones() {
     if (_timeZonesInitialized) {
       return;
@@ -254,19 +323,71 @@ class ReminderNotificationService {
     }
   }
 
-  Future<void> reschedulePending(ReminderNotificationContent content) async {
+  Future<void> scheduleTaskReminders(String taskId) async {
+    final content = _content;
+    if (content == null) {
+      return;
+    }
+    final task = await _findTask(taskId);
+    if (task == null || task.status == 'done' || task.status == 'wont_do') {
+      return;
+    }
+    final reminders = await bridge.getTaskReminders(taskId: taskId);
+    var failedCount = 0;
+    for (final reminder in reminders) {
+      try {
+        await scheduleReminder(
+          reminder: reminder,
+          listId: task.listId,
+          content: content,
+        );
+      } catch (_) {
+        failedCount += 1;
+      }
+    }
+    if (failedCount > 0) {
+      debugPrint(
+        'Todori reminder reopen could not schedule '
+        '$failedCount notification(s).',
+      );
+    }
+  }
+
+  Future<void> reconcilePending(ReminderNotificationContent content) async {
     final reminders = await bridge.listPendingReminders(
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
+    final reminderIds = reminders.map((reminder) => reminder.id).toSet();
+    final scheduled = await gateway.pendingReminderNotifications();
+    for (final notification in scheduled) {
+      final isCanonicalId =
+          notification.notificationId ==
+          notificationIdForReminder(notification.payload.reminderId);
+      if (!isCanonicalId ||
+          !reminderIds.contains(notification.payload.reminderId)) {
+        await gateway.cancel(notification.notificationId);
+      }
+    }
+    var failedCount = 0;
     for (final reminder in reminders) {
       final task = await _findTask(reminder.taskId);
       if (task == null) {
         continue;
       }
-      await scheduleReminder(
-        reminder: reminder,
-        listId: task.listId,
-        content: content,
+      try {
+        await scheduleReminder(
+          reminder: reminder,
+          listId: task.listId,
+          content: content,
+        );
+      } catch (_) {
+        failedCount += 1;
+      }
+    }
+    if (failedCount > 0) {
+      debugPrint(
+        'Todori reminder reconciliation could not schedule '
+        '$failedCount notification(s).',
       );
     }
   }
@@ -277,6 +398,11 @@ class ReminderNotificationService {
     if (payload == null ||
         content == null ||
         response.actionId != reminderSnoozeActionId) {
+      return;
+    }
+    final task = await _findTask(payload.taskId);
+    if (task == null || task.status == 'done' || task.status == 'wont_do') {
+      await gateway.cancel(notificationIdForReminder(payload.reminderId));
       return;
     }
     final snoozedUntil = DateTime.now()
@@ -318,7 +444,9 @@ ReminderNotificationResponse _fromPluginResponse(
 ) {
   return ReminderNotificationResponse(
     actionId: response.actionId ?? '',
-    payload: ReminderNotificationPayload.decode(response.payload),
+    payload:
+        ReminderNotificationPayload.decode(response.payload) ??
+        ReminderNotificationPayload.decodeLegacy(response.payload),
   );
 }
 

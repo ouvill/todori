@@ -354,13 +354,24 @@ Future<String?> getSetting({required String key}) =>
 Future<void> setSetting({required String key, required String value}) =>
     RustLib.instance.api.crateApiSetSetting(key: key, value: value);
 
-Future<ReminderDto> setTaskReminder({
+Future<ReminderDto> createTaskReminder({
   required String taskId,
   required PlatformInt64 remindAt,
-}) => RustLib.instance.api.crateApiSetTaskReminder(
+}) => RustLib.instance.api.crateApiCreateTaskReminder(
   taskId: taskId,
   remindAt: remindAt,
 );
+
+Future<ReminderDto> updateReminder({
+  required String reminderId,
+  required PlatformInt64 remindAt,
+}) => RustLib.instance.api.crateApiUpdateReminder(
+  reminderId: reminderId,
+  remindAt: remindAt,
+);
+
+Future<ReminderDto> deleteReminder({required String reminderId}) =>
+    RustLib.instance.api.crateApiDeleteReminder(reminderId: reminderId);
 
 Future<List<ReminderDto>> clearTaskReminders({required String taskId}) =>
     RustLib.instance.api.crateApiClearTaskReminders(taskId: taskId);

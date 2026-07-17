@@ -782,9 +782,19 @@ pub fn set_setting(key: String, value: String) -> Result<(), String> {
     client_result(client()?.set_setting(&key, &value))
 }
 
-pub fn set_task_reminder(task_id: String, remind_at: i64) -> Result<ReminderDto, String> {
+pub fn create_task_reminder(task_id: String, remind_at: i64) -> Result<ReminderDto, String> {
     let task_id = parse_uuid(&task_id)?;
-    client_result(client()?.set_task_reminder(task_id, remind_at)).map(reminder_to_dto)
+    client_result(client()?.create_task_reminder(task_id, remind_at)).map(reminder_to_dto)
+}
+
+pub fn update_reminder(reminder_id: String, remind_at: i64) -> Result<ReminderDto, String> {
+    let reminder_id = parse_uuid(&reminder_id)?;
+    client_result(client()?.update_reminder(reminder_id, remind_at)).map(reminder_to_dto)
+}
+
+pub fn delete_reminder(reminder_id: String) -> Result<ReminderDto, String> {
+    let reminder_id = parse_uuid(&reminder_id)?;
+    client_result(client()?.delete_reminder(reminder_id)).map(reminder_to_dto)
 }
 
 pub fn clear_task_reminders(task_id: String) -> Result<Vec<ReminderDto>, String> {
@@ -1336,7 +1346,9 @@ mod tests {
         let _: fn(String) -> Result<TaskDto, String> = undo_task_operation;
         let _: fn(String) -> Result<Option<String>, String> = get_setting;
         let _: fn(String, String) -> Result<(), String> = set_setting;
-        let _: fn(String, i64) -> Result<ReminderDto, String> = set_task_reminder;
+        let _: fn(String, i64) -> Result<ReminderDto, String> = create_task_reminder;
+        let _: fn(String, i64) -> Result<ReminderDto, String> = update_reminder;
+        let _: fn(String) -> Result<ReminderDto, String> = delete_reminder;
         let _: fn(String) -> Result<Vec<ReminderDto>, String> = clear_task_reminders;
         let _: fn(String) -> Result<Vec<ReminderDto>, String> = get_task_reminders;
         let _: fn(String) -> Result<Vec<ReminderDto>, String> = get_task_subtree_reminders;

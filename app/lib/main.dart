@@ -23,6 +23,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   Object? initializationError;
+  ReminderNotificationService? reminderNotificationService;
   TimerNotificationService? timerNotificationService;
   try {
     await RustLib.init();
@@ -48,8 +49,13 @@ Future<void> main() async {
         plugin: localNotificationsPlugin,
       ),
     );
-    await notificationService.initialize(notificationContent);
-    await notificationService.reschedulePending(notificationContent);
+    try {
+      await notificationService.initialize(notificationContent);
+      reminderNotificationService = notificationService;
+      await notificationService.reconcilePending(notificationContent);
+    } catch (error) {
+      debugPrint('Todori reminder notification initialization failed: $error');
+    }
     timerNotificationService = TimerNotificationService(
       FlutterLocalTimerNotificationGateway(plugin: localNotificationsPlugin),
     );
@@ -72,6 +78,10 @@ Future<void> main() async {
     TodoriApp(
       initializationError: initializationError,
       overrides: [
+        if (reminderNotificationService != null)
+          reminderNotificationServiceProvider.overrideWithValue(
+            reminderNotificationService,
+          ),
         if (timerNotificationService != null)
           timerNotificationServiceProvider.overrideWithValue(
             timerNotificationService,

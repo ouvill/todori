@@ -1275,6 +1275,10 @@ class TasksNotifier extends AsyncNotifier<List<TaskDto>> {
           .cancelReminders(reminders);
       ref.invalidate(latestTaskUndoProvider);
       ref.invalidate(taskRemindersProvider(taskId));
+    } else {
+      await ref
+          .read(reminderNotificationServiceProvider)
+          .scheduleTaskReminders(taskId);
     }
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -1391,6 +1395,10 @@ class HomeTasksNotifier extends AsyncNotifier<List<HomeTaskDto>> {
           .cancelReminders(reminders);
       ref.invalidate(latestTaskUndoProvider);
       ref.invalidate(taskRemindersProvider(taskId));
+    } else {
+      await ref
+          .read(reminderNotificationServiceProvider)
+          .scheduleTaskReminders(taskId);
     }
     ref.invalidate(tasksProvider(updated.listId));
     ref.invalidate(calendarOccurrencesProvider);
@@ -1460,6 +1468,9 @@ class LatestTaskUndoNotifier extends AsyncNotifier<TaskUndoDto?> {
         .read(bridgeServiceProvider)
         .undoTaskOperation(undoId: undoId);
     ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
+    await ref
+        .read(reminderNotificationServiceProvider)
+        .scheduleTaskReminders(restored.id);
     ref.invalidate(tasksProvider(restored.listId));
     ref.invalidate(homeTasksProvider);
     ref.invalidate(calendarOccurrencesProvider);
@@ -1486,10 +1497,29 @@ class TaskRemindersNotifier extends AsyncNotifier<List<ReminderDto>> {
     return ref.watch(bridgeServiceProvider).getTaskReminders(taskId: taskId);
   }
 
-  Future<ReminderDto> setReminder(int remindAt) async {
+  Future<ReminderDto> createReminder(int remindAt) async {
     final reminder = await ref
         .read(bridgeServiceProvider)
-        .setTaskReminder(taskId: taskId, remindAt: remindAt);
+        .createTaskReminder(taskId: taskId, remindAt: remindAt);
+    ref.invalidateSelf();
+    return reminder;
+  }
+
+  Future<ReminderDto> updateReminder(String reminderId, int remindAt) async {
+    final reminder = await ref
+        .read(bridgeServiceProvider)
+        .updateReminder(reminderId: reminderId, remindAt: remindAt);
+    ref.invalidateSelf();
+    return reminder;
+  }
+
+  Future<ReminderDto> deleteReminder(String reminderId) async {
+    final reminder = await ref
+        .read(bridgeServiceProvider)
+        .deleteReminder(reminderId: reminderId);
+    await ref
+        .read(reminderNotificationServiceProvider)
+        .cancelReminder(reminder);
     ref.invalidateSelf();
     return reminder;
   }

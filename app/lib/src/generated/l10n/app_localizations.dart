@@ -982,7 +982,7 @@ abstract class AppLocalizations {
   /// No description provided for @reminderChipTooltipChange.
   ///
   /// In en, this message translates to:
-  /// **'Change reminder'**
+  /// **'Manage reminders'**
   String get reminderChipTooltipChange;
 
   /// No description provided for @clearReminderButton.
@@ -990,6 +990,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Clear reminder'**
   String get clearReminderButton;
+
+  /// No description provided for @manageRemindersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reminders'**
+  String get manageRemindersTitle;
+
+  /// No description provided for @addReminderButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add reminder'**
+  String get addReminderButton;
+
+  /// No description provided for @editReminderTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit reminder'**
+  String get editReminderTooltip;
+
+  /// No description provided for @deleteReminderTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete reminder'**
+  String get deleteReminderTooltip;
+
+  /// No description provided for @reminderCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} reminders'**
+  String reminderCount(int count);
+
+  /// No description provided for @reminderQuickOptionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Before due time'**
+  String get reminderQuickOptionsTitle;
+
+  /// No description provided for @reminderFiveMinutesBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'5 minutes before'**
+  String get reminderFiveMinutesBefore;
+
+  /// No description provided for @reminderThirtyMinutesBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'30 minutes before'**
+  String get reminderThirtyMinutesBefore;
+
+  /// No description provided for @reminderOneHourBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour before'**
+  String get reminderOneHourBefore;
+
+  /// No description provided for @reminderOneDayBefore.
+  ///
+  /// In en, this message translates to:
+  /// **'1 day before'**
+  String get reminderOneDayBefore;
+
+  /// No description provided for @reminderCustomTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom date and time'**
+  String get reminderCustomTime;
+
+  /// No description provided for @reminderPastLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Past'**
+  String get reminderPastLabel;
+
+  /// No description provided for @reminderLimitReached.
+  ///
+  /// In en, this message translates to:
+  /// **'You can set up to 5 reminders for one task.'**
+  String get reminderLimitReached;
+
+  /// No description provided for @reminderDuplicateTime.
+  ///
+  /// In en, this message translates to:
+  /// **'A reminder already exists at that time.'**
+  String get reminderDuplicateTime;
+
+  /// No description provided for @reminderMustBeFuture.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a future time.'**
+  String get reminderMustBeFuture;
+
+  /// No description provided for @reminderSavedNotificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The reminder was saved, but Todori could not schedule the local notification.'**
+  String get reminderSavedNotificationFailed;
 
   /// No description provided for @reminderPermissionDenied.
   ///
