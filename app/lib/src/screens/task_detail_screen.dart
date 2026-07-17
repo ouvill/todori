@@ -58,6 +58,8 @@ class TaskDetailScreen extends ConsumerWidget {
                       unawaited(_setTaskStatus(context, ref, task, 'wont_do'));
                     case _TaskDetailAction.reopen:
                       unawaited(_setTaskStatus(context, ref, task, 'todo'));
+                    case _TaskDetailAction.saveAsTemplate:
+                      unawaited(_saveAsTemplate(context, ref, task));
                     case _TaskDetailAction.delete:
                       unawaited(_deleteTask(context, ref, task));
                   }
@@ -734,7 +736,7 @@ class TaskDetailScreen extends ConsumerWidget {
   }
 }
 
-enum _TaskDetailAction { markDone, markWontDo, reopen, delete }
+enum _TaskDetailAction { markDone, markWontDo, reopen, saveAsTemplate, delete }
 
 List<PopupMenuEntry<_TaskDetailAction>> _taskDetailMenuItems({
   required AppLocalizations l10n,
@@ -765,11 +767,47 @@ List<PopupMenuEntry<_TaskDetailAction>> _taskDetailMenuItems({
   }
   items.add(
     PopupMenuItem(
+      value: _TaskDetailAction.saveAsTemplate,
+      child: Text(l10n.saveAsTemplateMenuItem),
+    ),
+  );
+  items.add(const PopupMenuDivider());
+  items.add(
+    PopupMenuItem(
       value: _TaskDetailAction.delete,
       child: Text(l10n.deleteTaskMenuItem),
     ),
   );
   return items;
+}
+
+Future<void> _saveAsTemplate(
+  BuildContext context,
+  WidgetRef ref,
+  TaskDto task,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  final name = await showAppTextInputDialog(
+    context: context,
+    title: l10n.saveAsTemplateTitle,
+    label: l10n.nameLabel,
+    initialValue: task.title,
+    cancelLabel: l10n.cancelButton,
+    submitLabel: l10n.saveButton,
+  );
+  if (name == null || name.trim().isEmpty) return;
+  await ref
+      .read(bridgeServiceProvider)
+      .saveTaskAsTemplate(
+        taskId: task.id,
+        name: name.trim(),
+        defaultListId: task.listId,
+      );
+  if (context.mounted) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l10n.templateSavedMessage)));
+  }
 }
 
 Future<void> _showLatestUndoSnackBar(BuildContext context) async {

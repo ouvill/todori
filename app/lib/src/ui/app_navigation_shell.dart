@@ -21,7 +21,9 @@ class AppNavigationShell extends ConsumerWidget {
     final selectedDestination = switch (path) {
       final value when value.startsWith('/calendar') =>
         _AppDestination.calendar,
-      final value when value.startsWith('/lists') => _AppDestination.lists,
+      final value
+          when value.startsWith('/lists') || value.startsWith('/templates') =>
+        _AppDestination.lists,
       final value when value.startsWith('/account') => _AppDestination.you,
       _ => _AppDestination.home,
     };

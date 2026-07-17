@@ -133,7 +133,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ReminderDto> dco_decode_list_reminder_dto(dynamic raw);
 
   @protected
+  List<ScheduleDto> dco_decode_list_schedule_dto(dynamic raw);
+
+  @protected
   List<TaskDto> dco_decode_list_task_dto(dynamic raw);
+
+  @protected
+  List<TemplateDto> dco_decode_list_template_dto(dynamic raw);
+
+  @protected
+  List<TemplateNodeDto> dco_decode_list_template_node_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -179,6 +188,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ReminderDto dco_decode_reminder_dto(dynamic raw);
 
   @protected
+  ScheduleDto dco_decode_schedule_dto(dynamic raw);
+
+  @protected
+  SettlementSummaryDto dco_decode_settlement_summary_dto(dynamic raw);
+
+  @protected
+  StreakDto dco_decode_streak_dto(dynamic raw);
+
+  @protected
   SyncNowOutcomeDto dco_decode_sync_now_outcome_dto(dynamic raw);
 
   @protected
@@ -197,6 +215,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto dco_decode_task_undo_dto(dynamic raw);
 
   @protected
+  TemplateDto dco_decode_template_dto(dynamic raw);
+
+  @protected
+  TemplateNodeDto dco_decode_template_node_dto(dynamic raw);
+
+  @protected
   TimerFinishKindDto dco_decode_timer_finish_kind_dto(dynamic raw);
 
   @protected
@@ -207,6 +231,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TimerRunStateDto dco_decode_timer_run_state_dto(dynamic raw);
+
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -351,7 +378,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ReminderDto> sse_decode_list_reminder_dto(SseDeserializer deserializer);
 
   @protected
+  List<ScheduleDto> sse_decode_list_schedule_dto(SseDeserializer deserializer);
+
+  @protected
   List<TaskDto> sse_decode_list_task_dto(SseDeserializer deserializer);
+
+  @protected
+  List<TemplateDto> sse_decode_list_template_dto(SseDeserializer deserializer);
+
+  @protected
+  List<TemplateNodeDto> sse_decode_list_template_node_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -407,6 +445,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer);
 
   @protected
+  ScheduleDto sse_decode_schedule_dto(SseDeserializer deserializer);
+
+  @protected
+  SettlementSummaryDto sse_decode_settlement_summary_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  StreakDto sse_decode_streak_dto(SseDeserializer deserializer);
+
+  @protected
   SyncNowOutcomeDto sse_decode_sync_now_outcome_dto(
     SseDeserializer deserializer,
   );
@@ -427,6 +476,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskUndoDto sse_decode_task_undo_dto(SseDeserializer deserializer);
 
   @protected
+  TemplateDto sse_decode_template_dto(SseDeserializer deserializer);
+
+  @protected
+  TemplateNodeDto sse_decode_template_node_dto(SseDeserializer deserializer);
+
+  @protected
   TimerFinishKindDto sse_decode_timer_finish_kind_dto(
     SseDeserializer deserializer,
   );
@@ -439,6 +494,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TimerRunStateDto sse_decode_timer_run_state_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -621,7 +679,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_schedule_dto(
+    List<ScheduleDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_task_dto(List<TaskDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_template_dto(
+    List<TemplateDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_template_node_dto(
+    List<TemplateNodeDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -690,6 +766,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_schedule_dto(ScheduleDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_settlement_summary_dto(
+    SettlementSummaryDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_streak_dto(StreakDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_sync_now_outcome_dto(
     SyncNowOutcomeDto self,
     SseSerializer serializer,
@@ -711,6 +799,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_task_undo_dto(TaskUndoDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_template_dto(TemplateDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_template_node_dto(
+    TemplateNodeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_timer_finish_kind_dto(
     TimerFinishKindDto self,
     SseSerializer serializer,
@@ -727,6 +824,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     TimerRunStateDto self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

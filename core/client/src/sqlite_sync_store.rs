@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use todori_domain::{CompletedTimerSession, List, Task, Uuid};
+use todori_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 use todori_storage::{
     open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
     FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
-    PendingListKeyBundle, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
-    SqliteSyncStateRepository, SqliteTaskRepository, SqliteTimerSessionRepository, StorageError,
-    SyncOutboxState, SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState,
-    SyncStateRepository, TaskRepository, TimerSessionRepository,
+    PendingListKeyBundle, RecurrenceRepository, SettingsRepository, SqliteListRepository,
+    SqliteRecurrenceRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
+    SqliteTaskRepository, SqliteTimerSessionRepository, StorageError, SyncOutboxState,
+    SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState, SyncStateRepository,
+    TaskRepository, TimerSessionRepository,
 };
 use todori_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
@@ -451,6 +452,69 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
+    fn get_template(&mut self, id: Uuid) -> Result<Option<TaskTemplate>, String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            match repository.get_template(id) {
+                Ok(template) => Ok(Some(template)),
+                Err(StorageError::NotFound(_)) => Ok(None),
+                Err(error) => Err(error.to_string()),
+            }
+        })
+    }
+
+    fn upsert_template_for_sync(&mut self, template: TaskTemplate) -> Result<(), String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .upsert_template_for_sync(template)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn delete_template_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_template(id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn get_schedule(&mut self, id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            match repository.get_schedule(id) {
+                Ok(schedule) => Ok(Some(schedule)),
+                Err(StorageError::NotFound(_)) => Ok(None),
+                Err(error) => Err(error.to_string()),
+            }
+        })
+    }
+
+    fn upsert_schedule_for_sync(&mut self, schedule: RecurrenceSchedule) -> Result<(), String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .upsert_schedule_for_sync(schedule)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn delete_schedule_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .delete_schedule(id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn list_schedules_for_template(
+        &mut self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, String> {
+        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
+            repository
+                .list_schedules_for_template(template_id)
+                .map_err(|error| error.to_string())
+        })
+    }
+
     fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
         with_timer_repository(&self.db_path, &self.db_key, |repository| {
             match repository.get_completed(id) {
@@ -762,6 +826,55 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
+    fn get_template(&mut self, id: Uuid) -> Result<Option<TaskTemplate>, String> {
+        match self.transaction.get_template(id) {
+            Ok(template) => Ok(Some(template)),
+            Err(StorageError::NotFound(_)) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn upsert_template_for_sync(&mut self, template: TaskTemplate) -> Result<(), String> {
+        self.transaction
+            .upsert_template(template)
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_template_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .delete_template(id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_schedule(&mut self, id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
+        match self.transaction.get_schedule(id) {
+            Ok(schedule) => Ok(Some(schedule)),
+            Err(StorageError::NotFound(_)) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn upsert_schedule_for_sync(&mut self, schedule: RecurrenceSchedule) -> Result<(), String> {
+        self.transaction
+            .upsert_schedule(schedule)
+            .map_err(|error| error.to_string())
+    }
+
+    fn delete_schedule_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+        self.transaction
+            .delete_schedule(id)
+            .map_err(|error| error.to_string())
+    }
+
+    fn list_schedules_for_template(
+        &mut self,
+        template_id: Uuid,
+    ) -> Result<Vec<RecurrenceSchedule>, String> {
+        self.transaction
+            .list_schedules_for_template(template_id)
+            .map_err(|error| error.to_string())
+    }
+
     fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
         match self.transaction.get_timer_session(id) {
             Ok(session) => Ok(Some(session)),
@@ -932,6 +1045,9 @@ fn storage_sweep_to_local(summary: FullResyncSweepSummary) -> LocalFullResyncSwe
         scanned_records: summary.scanned_records,
         swept_lists: summary.swept_lists,
         swept_tasks: summary.swept_tasks,
+        swept_templates: summary.swept_templates,
+        swept_schedules: summary.swept_schedules,
+        swept_timer_sessions: summary.swept_timer_sessions,
         swept_record_states: summary.swept_record_states,
     }
 }
@@ -1151,6 +1267,16 @@ fn with_task_repository<T>(
     f(&mut repository)
 }
 
+fn with_recurrence_repository<T>(
+    db_path: &Path,
+    db_key: &[u8; 32],
+    f: impl FnOnce(&mut SqliteRecurrenceRepository) -> Result<T, String>,
+) -> Result<T, String> {
+    let connection = open_encrypted(db_path, db_key).map_err(|error| error.to_string())?;
+    let mut repository = SqliteRecurrenceRepository::new(connection);
+    f(&mut repository)
+}
+
 fn with_timer_repository<T>(
     db_path: &Path,
     db_key: &[u8; 32],
@@ -1345,9 +1471,13 @@ mod tests {
                 &mut transaction,
                 &keys,
                 "device",
-                std::slice::from_ref(&list),
-                &[],
-                &[],
+                todori_sync::BackfillRecords {
+                    lists: std::slice::from_ref(&list),
+                    templates: &[],
+                    schedules: &[],
+                    tasks: &[],
+                    timer_sessions: &[],
+                },
                 &mut now,
             )
             .unwrap();
@@ -1360,9 +1490,13 @@ mod tests {
             &mut transaction,
             &keys,
             "device",
-            std::slice::from_ref(&list),
-            &[],
-            &[],
+            todori_sync::BackfillRecords {
+                lists: std::slice::from_ref(&list),
+                templates: &[],
+                schedules: &[],
+                tasks: &[],
+                timer_sessions: &[],
+            },
             &mut now,
         )
         .unwrap();

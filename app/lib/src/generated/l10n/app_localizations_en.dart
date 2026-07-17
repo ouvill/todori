@@ -1130,6 +1130,154 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get backButtonTooltip => 'Back';
+
+  @override
+  String get templatesTitle => 'Templates';
+
+  @override
+  String templatesLoadFailed(String error) {
+    return 'Templates could not be loaded: $error';
+  }
+
+  @override
+  String get templatesEmptyTitle => 'No templates yet';
+
+  @override
+  String get templatesEmptyBody => 'Open a task and choose Save as template.';
+
+  @override
+  String get templateActionsTooltip => 'Template actions';
+
+  @override
+  String get editButton => 'Edit';
+
+  @override
+  String get replaceTemplateSnapshotMenuItem => 'Replace contents';
+
+  @override
+  String templateTaskCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tasks',
+      one: '1 task',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get createFromTemplateButton => 'Create tasks';
+
+  @override
+  String get addScheduleTooltip => 'Add schedule';
+
+  @override
+  String get templateCreatedMessage => 'Tasks created from template.';
+
+  @override
+  String get replaceTemplateSnapshotTitle => 'Replace template contents';
+
+  @override
+  String get sourceTaskIdLabel => 'Source task ID';
+
+  @override
+  String get replaceButton => 'Replace';
+
+  @override
+  String deleteTemplateDialogTitle(String name) {
+    return 'Delete $name?';
+  }
+
+  @override
+  String get deleteTemplateDialogBody =>
+      'Its schedules will also be deleted. Tasks already created will stay unchanged.';
+
+  @override
+  String get deleteScheduleDialogTitle => 'Delete schedule?';
+
+  @override
+  String get deleteScheduleDialogBody =>
+      'Tasks already created will stay unchanged.';
+
+  @override
+  String get scheduleEndedLabel => 'Ended';
+
+  @override
+  String scheduleSemantics(String rule, String next) {
+    return 'Schedule $rule, next $next';
+  }
+
+  @override
+  String scheduleStreak(int count) {
+    return '$count streak';
+  }
+
+  @override
+  String get scheduleActionsTooltip => 'Schedule actions';
+
+  @override
+  String get pauseScheduleMenuItem => 'Pause';
+
+  @override
+  String get resumeScheduleMenuItem => 'Resume';
+
+  @override
+  String get editTemplateTitle => 'Edit template';
+
+  @override
+  String get defaultListLabel => 'Default list';
+
+  @override
+  String get inboxFallbackLabel => 'Inbox fallback';
+
+  @override
+  String get newScheduleTitle => 'New schedule';
+
+  @override
+  String get editScheduleTitle => 'Edit schedule';
+
+  @override
+  String get schedulePresetLabel => 'Repeat';
+
+  @override
+  String get dailyPreset => 'Every day';
+
+  @override
+  String get weeklyPreset => 'Every week on this weekday';
+
+  @override
+  String get monthlyPreset => 'Every month on this date';
+
+  @override
+  String get advancedPreset => 'Advanced RRULE';
+
+  @override
+  String get rruleLabel => 'RRULE';
+
+  @override
+  String get scheduleStartsAtLabel => 'Starts';
+
+  @override
+  String get timeZoneLabel => 'Time zone';
+
+  @override
+  String get scheduleEnabledLabel => 'Schedule enabled';
+
+  @override
+  String get scheduleValidationFailed =>
+      'Check the recurrence rule, start, and time zone.';
+
+  @override
+  String get saveAsTemplateMenuItem => 'Save as template';
+
+  @override
+  String get saveAsTemplateTitle => 'Save as template';
+
+  @override
+  String get templateSavedMessage => 'Template saved.';
+
+  @override
   String failedToStartTodori(String error) {
     return 'Failed to start Todori: $error';
   }

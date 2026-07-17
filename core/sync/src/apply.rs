@@ -5,23 +5,24 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use todori_domain::{List, Task, Uuid};
+use todori_domain::{List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 
 use crate::{
     account::{AccountClient, ListDekBundleDto},
     decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc, PullRecord, PushOp,
     PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext, SyncRunSummary,
-    LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
+    LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+    TASKS_COLLECTION, TEMPLATES_COLLECTION,
 };
 
 use crate::enqueue::{
     enqueue_merged_plaintext, enqueue_rebased_tombstone, enqueue_task_sync,
-    enqueue_timer_session_sync, list_plaintext, observe_remote_hlc, task_plaintext,
-    LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore, LocalSyncQuarantineEntry,
-    LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction,
-    PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
+    enqueue_timer_session_sync, list_plaintext, observe_remote_hlc, schedule_plaintext,
+    task_plaintext, template_plaintext, LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore,
+    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
+    LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
-use crate::keys::{dek_for_list, LocalSyncKeys};
+use crate::keys::{dek_for_list, tenant_root_dek, LocalSyncKeys};
 
 const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
@@ -879,7 +880,11 @@ where
                 transaction
                     .commit()
                     .map_err(|_| "sync failed".to_string())?;
-                summary.deleted_count += swept.swept_lists + swept.swept_tasks;
+                summary.deleted_count += swept.swept_lists
+                    + swept.swept_tasks
+                    + swept.swept_templates
+                    + swept.swept_schedules
+                    + swept.swept_timer_sessions;
                 if swept.scanned_records == 0 {
                     let mut transaction = store
                         .begin_write_transaction()
@@ -1243,6 +1248,8 @@ where
     match record.collection {
         SyncCollection::Lists => apply_pull_list(record, context, store, now_ms, summary),
         SyncCollection::Tasks => apply_pull_task(record, context, store, now_ms, summary),
+        SyncCollection::Templates => apply_pull_template(record, context, store, now_ms, summary),
+        SyncCollection::Schedules => apply_pull_schedule(record, context, store, now_ms, summary),
         SyncCollection::TimerSessions => {
             apply_pull_timer_session(record, context, store, now_ms, summary)
         }
@@ -1406,6 +1413,341 @@ where
             }
         }
     }
+}
+
+fn apply_pull_template<S, N>(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    summary: &mut SyncRunSummary,
+) -> Result<ApplyDisposition, String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
+    let local_state = store.get_record_state(SyncCollection::Templates, record.record_id)?;
+    let (incoming_mutation_hlc, blob) = match &record.state {
+        EncryptedSyncState::Tombstone { delete_hlc } => {
+            store.delete_outbox_head(SyncCollection::Templates, record.record_id)?;
+            for schedule in store.list_schedules_for_template(record.record_id)? {
+                store.delete_outbox_head(SyncCollection::Schedules, schedule.id)?;
+                let base_revision = store
+                    .get_record_state(SyncCollection::Schedules, schedule.id)?
+                    .and_then(|state| state.current_revision_hlc);
+                enqueue_rebased_tombstone(
+                    store,
+                    RebaseTombstoneRequest {
+                        record_id: schedule.id,
+                        collection: SyncCollection::Schedules,
+                        delete_hlc,
+                        device_id: &context.device_id,
+                        base_revision_hlc: base_revision.as_deref(),
+                    },
+                    now_ms,
+                )?;
+                if store.delete_schedule_for_sync(schedule.id)? {
+                    summary.deleted_count += 1;
+                }
+            }
+            if store.delete_template_for_sync(record.record_id)? {
+                summary.deleted_count += 1;
+            }
+            store.put_record_state(
+                SyncCollection::Templates,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Tombstone {
+                        delete_hlc: delete_hlc.clone(),
+                    },
+                },
+                now_ms()?,
+            )?;
+            return Ok(ApplyDisposition::AppliedCurrent);
+        }
+        EncryptedSyncState::Live { mutation_hlc, blob } => {
+            if let Some(LocalSyncRecordState {
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(delete_hlc, mutation_hlc)? != std::cmp::Ordering::Less {
+                    enqueue_rebased_tombstone(
+                        store,
+                        RebaseTombstoneRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Templates,
+                            delete_hlc,
+                            device_id: &context.device_id,
+                            base_revision_hlc: Some(&record.revision_hlc),
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(ApplyDisposition::Rebased);
+                }
+            }
+            (mutation_hlc, blob)
+        }
+    };
+    let header = match crate::parse_envelope_header(blob) {
+        Ok(header) => header,
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                None,
+                blob.first().copied().unwrap_or(0),
+            ))
+        }
+    };
+    let Some(dek) = crate::tenant_root_dek_for_generation(&context.keys, header.key_generation)
+    else {
+        return Ok(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDek,
+            None,
+        ));
+    };
+    let incoming = match decrypt_plaintext(
+        dek,
+        context.tenant_id,
+        header.key_generation,
+        TEMPLATES_COLLECTION,
+        record.record_id,
+        blob,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                None,
+                blob.first().copied().unwrap_or(0),
+            ))
+        }
+    };
+    let existing = store.get_template(record.record_id)?;
+    let stored_plaintext =
+        stored_sync_plaintext(store, SyncCollection::Templates, record.record_id)?;
+    let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
+        (Some(local), _) => {
+            let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, Some(local)) => {
+            let local = template_plaintext(local, record_hlc_or_initial(&incoming));
+            let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, None) => (incoming, false),
+    };
+    let needs_repush = needs_repush || header.key_generation < context.keys.tenant_generation;
+    let template = template_from_plaintext(record.record_id, &merged)?;
+    store.upsert_template_for_sync(template)?;
+    store_sync_plaintext(
+        store,
+        SyncCollection::Templates,
+        record.record_id,
+        &record.revision_hlc,
+        incoming_mutation_hlc,
+        &merged,
+        now_ms,
+    )?;
+    summary.applied_count += 1;
+    if needs_repush {
+        enqueue_merged_plaintext(
+            store,
+            RebasePlaintextRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::Templates,
+                plaintext: &merged,
+                dek: tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?,
+                tenant_id: context.tenant_id,
+                generation: context.keys.tenant_generation,
+                device_id: &context.device_id,
+                base_revision_hlc: &record.revision_hlc,
+            },
+            now_ms,
+        )?;
+        summary.repush_count += 1;
+    }
+    Ok(if needs_repush {
+        ApplyDisposition::Rebased
+    } else {
+        ApplyDisposition::AppliedCurrent
+    })
+}
+
+fn apply_pull_schedule<S, N>(
+    record: &PullRecord,
+    context: &ActiveSyncContext,
+    store: &mut S,
+    now_ms: &mut N,
+    summary: &mut SyncRunSummary,
+) -> Result<ApplyDisposition, String>
+where
+    S: LocalSyncStore,
+    N: FnMut() -> Result<i64, String>,
+{
+    observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
+    let local_state = store.get_record_state(SyncCollection::Schedules, record.record_id)?;
+    let (incoming_mutation_hlc, blob) = match &record.state {
+        EncryptedSyncState::Tombstone { delete_hlc } => {
+            store.delete_outbox_head(SyncCollection::Schedules, record.record_id)?;
+            if store.delete_schedule_for_sync(record.record_id)? {
+                summary.deleted_count += 1;
+            }
+            store.put_record_state(
+                SyncCollection::Schedules,
+                record.record_id,
+                LocalSyncRecordState {
+                    current_revision_hlc: Some(record.revision_hlc.clone()),
+                    state: LocalSyncSemanticState::Tombstone {
+                        delete_hlc: delete_hlc.clone(),
+                    },
+                },
+                now_ms()?,
+            )?;
+            return Ok(ApplyDisposition::AppliedCurrent);
+        }
+        EncryptedSyncState::Live { mutation_hlc, blob } => {
+            if let Some(LocalSyncRecordState {
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+                ..
+            }) = local_state.as_ref()
+            {
+                if compare_encoded_hlc(delete_hlc, mutation_hlc)? != std::cmp::Ordering::Less {
+                    enqueue_rebased_tombstone(
+                        store,
+                        RebaseTombstoneRequest {
+                            record_id: record.record_id,
+                            collection: SyncCollection::Schedules,
+                            delete_hlc,
+                            device_id: &context.device_id,
+                            base_revision_hlc: Some(&record.revision_hlc),
+                        },
+                        now_ms,
+                    )?;
+                    summary.repush_count += 1;
+                    return Ok(ApplyDisposition::Rebased);
+                }
+            }
+            (mutation_hlc, blob)
+        }
+    };
+    let header = match crate::parse_envelope_header(blob) {
+        Ok(header) => header,
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                None,
+                blob.first().copied().unwrap_or(0),
+            ))
+        }
+    };
+    let Some(dek) = crate::tenant_root_dek_for_generation(&context.keys, header.key_generation)
+    else {
+        return Ok(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDek,
+            None,
+        ));
+    };
+    let incoming = match decrypt_plaintext(
+        dek,
+        context.tenant_id,
+        header.key_generation,
+        SCHEDULES_COLLECTION,
+        record.record_id,
+        blob,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return Ok(classify_envelope_error(
+                error,
+                None,
+                blob.first().copied().unwrap_or(0),
+            ))
+        }
+    };
+    let existing = store.get_schedule(record.record_id)?;
+    let stored_plaintext =
+        stored_sync_plaintext(store, SyncCollection::Schedules, record.record_id)?;
+    let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
+        (Some(local), _) => {
+            let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, Some(local)) => {
+            let local = schedule_plaintext(local, record_hlc_or_initial(&incoming));
+            let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
+            let needs_repush = merge.needs_repush();
+            (merge.plaintext, needs_repush)
+        }
+        (None, None) => (incoming, false),
+    };
+    let needs_repush = needs_repush || header.key_generation < context.keys.tenant_generation;
+    let schedule = schedule_from_plaintext(record.record_id, &merged)?;
+    if let Some(LocalSyncRecordState {
+        state: LocalSyncSemanticState::Tombstone { delete_hlc },
+        ..
+    }) = store.get_record_state(SyncCollection::Templates, schedule.template_id)?
+    {
+        enqueue_rebased_tombstone(
+            store,
+            RebaseTombstoneRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::Schedules,
+                delete_hlc: &delete_hlc,
+                device_id: &context.device_id,
+                base_revision_hlc: Some(&record.revision_hlc),
+            },
+            now_ms,
+        )?;
+        summary.repush_count += 1;
+        return Ok(ApplyDisposition::Rebased);
+    }
+    if store.get_template(schedule.template_id)?.is_none() {
+        return Ok(ApplyDisposition::Deferred(
+            PullFailureReason::MissingDependency,
+            Some(schedule.template_id),
+        ));
+    }
+    store.upsert_schedule_for_sync(schedule)?;
+    store_sync_plaintext(
+        store,
+        SyncCollection::Schedules,
+        record.record_id,
+        &record.revision_hlc,
+        incoming_mutation_hlc,
+        &merged,
+        now_ms,
+    )?;
+    summary.applied_count += 1;
+    if needs_repush {
+        enqueue_merged_plaintext(
+            store,
+            RebasePlaintextRequest {
+                record_id: record.record_id,
+                collection: SyncCollection::Schedules,
+                plaintext: &merged,
+                dek: tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?,
+                tenant_id: context.tenant_id,
+                generation: context.keys.tenant_generation,
+                device_id: &context.device_id,
+                base_revision_hlc: &record.revision_hlc,
+            },
+            now_ms,
+        )?;
+        summary.repush_count += 1;
+    }
+    Ok(if needs_repush {
+        ApplyDisposition::Rebased
+    } else {
+        ApplyDisposition::AppliedCurrent
+    })
 }
 
 fn apply_pull_list<S, N>(
@@ -1681,9 +2023,10 @@ where
     };
     let incoming_list_id = match &incoming {
         SyncPlaintext::Task(task) => task.placement.value.list_id,
-        SyncPlaintext::List(_) | SyncPlaintext::TimerSession(_) => {
-            return Err("sync failed".to_string())
-        }
+        SyncPlaintext::List(_)
+        | SyncPlaintext::Template(_)
+        | SyncPlaintext::Schedule(_)
+        | SyncPlaintext::TimerSession(_) => return Err("sync failed".to_string()),
     };
     let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
         incoming_dek
@@ -2175,8 +2518,57 @@ where
         closed_reason: fields.completion.value.closed_reason.clone(),
         deleted_at: None,
         assignee: fields.assignee.value,
+        recurrence: fields.recurrence.value.clone(),
         created_at: fields.created_at.value,
         updated_at: fields.updated_at.value,
+    })
+}
+
+fn template_from_plaintext(id: Uuid, plaintext: &SyncPlaintext) -> Result<TaskTemplate, String> {
+    plaintext
+        .validate_for_collection(TEMPLATES_COLLECTION, &id.to_string())
+        .map_err(|_| "sync failed".to_string())?;
+    let SyncPlaintext::Template(fields) = plaintext else {
+        return Err("sync failed".to_string());
+    };
+    Ok(TaskTemplate {
+        id,
+        name: fields.name.value.clone(),
+        default_list_id: fields.default_list_id.value,
+        snapshot: fields.snapshot.value.snapshot.clone(),
+        snapshot_revision: fields.snapshot.value.revision.clone(),
+        snapshot_parent_revision: fields.snapshot.value.parent_revision.clone(),
+        snapshot_effective_from: fields.snapshot.value.effective_from,
+        lineage: fields.snapshot.value.lineage.clone(),
+        created_at: fields.created_at.value,
+        updated_at: fields.updated_at.value,
+    })
+}
+
+fn schedule_from_plaintext(
+    id: Uuid,
+    plaintext: &SyncPlaintext,
+) -> Result<RecurrenceSchedule, String> {
+    plaintext
+        .validate_for_collection(SCHEDULES_COLLECTION, &id.to_string())
+        .map_err(|_| "sync failed".to_string())?;
+    let SyncPlaintext::Schedule(fields) = plaintext else {
+        return Err("sync failed".to_string());
+    };
+    Ok(RecurrenceSchedule {
+        id,
+        template_id: fields.config.value.template_id,
+        rrule: fields.config.value.rrule.clone(),
+        starts_at: fields.config.value.starts_at,
+        time_zone: fields.config.value.time_zone.clone(),
+        cursor: fields.cursor.value.cursor,
+        enabled: fields.config.value.enabled,
+        config_revision: fields.config.value.revision.clone(),
+        config_parent_revision: fields.config.value.parent_revision.clone(),
+        config_effective_from: fields.config.value.effective_from,
+        lineage: fields.config.value.lineage.clone(),
+        created_at: fields.config.value.created_at,
+        updated_at: fields.config.value.updated_at,
     })
 }
 
@@ -3781,10 +4173,10 @@ mod tests {
 }
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
-    assert!(upgrade_block_is_active("6:3"));
+    assert!(upgrade_block_is_active("7:3"));
     assert!(upgrade_block_is_active("5:5"));
     assert!(!upgrade_block_is_active("4:4"));
-    assert!(!upgrade_block_is_active("5:3"));
+    assert!(!upgrade_block_is_active("6:3"));
     assert!(!upgrade_block_is_active("0:0"));
     assert!(upgrade_block_is_active("invalid"));
 }

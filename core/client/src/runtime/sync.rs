@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use todori_crypto::{load_account_secret, AccountSecretKind};
-use todori_storage::{TaskRepository, TimerSessionRepository};
+use todori_storage::{RecurrenceRepository, TaskRepository, TimerSessionRepository};
 use todori_sync::{
     account::{AccountClient, AccountClientError},
     ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
@@ -110,7 +110,7 @@ impl TodoriClient {
             self.run_initial_backfill_if_needed(store)
                 .map_err(|error| error.to_string())
         };
-        let summary = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
+        let mut summary = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
             context.clone(),
             &mut store,
             &mut clock,
@@ -127,6 +127,33 @@ impl TodoriClient {
                 ClientError::SyncRun
             }
         })?;
+        loop {
+            let settlement = self.settle_after_sync_pull(now_ms()?)?;
+            if !settlement.outbox_changed {
+                break;
+            }
+            let follow_up = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
+                context.clone(),
+                &mut store,
+                &mut clock,
+                &mut key_refresher,
+                &mut pre_push,
+            )
+            .await
+            .map_err(|error| {
+                if error == "upgrade required" {
+                    ClientError::UpgradeRequired
+                } else if error == "entitlement required" {
+                    ClientError::EntitlementRequired
+                } else {
+                    ClientError::SyncRun
+                }
+            })?;
+            add_sync_summary(&mut summary, &follow_up);
+            if !settlement.has_more {
+                break;
+            }
+        }
         self.retire_safe_list_deks(&context).await?;
         Ok(summary)
     }
@@ -196,6 +223,10 @@ impl TodoriClient {
         }
 
         let lists = self.local_lists_including_archived()?;
+        let templates =
+            self.with_recurrence_repository(|repository| Ok(repository.list_templates()?))?;
+        let schedules =
+            self.with_recurrence_repository(|repository| Ok(repository.list_schedules()?))?;
         let tasks = self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
         let timer_sessions =
             self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
@@ -218,9 +249,13 @@ impl TodoriClient {
             &mut transaction,
             &context.keys,
             &context.device_id,
-            &lists,
-            &tasks,
-            &timer_sessions,
+            todori_sync::BackfillRecords {
+                lists: &lists,
+                templates: &templates,
+                schedules: &schedules,
+                tasks: &tasks,
+                timer_sessions: &timer_sessions,
+            },
             &mut clock,
         )
         .map_err(|_| ClientError::SyncRun)?;
@@ -265,6 +300,21 @@ impl TodoriClient {
     fn has_active_sync_context(&self) -> bool {
         self.active_sync_context().is_some()
     }
+}
+
+fn add_sync_summary(target: &mut SyncRunSummary, value: &SyncRunSummary) {
+    target.pushed_count += value.pushed_count;
+    target.push_acked_count += value.push_acked_count;
+    target.push_superseded_count += value.push_superseded_count;
+    target.push_conflict_count += value.push_conflict_count;
+    target.pulled_count += value.pulled_count;
+    target.applied_count += value.applied_count;
+    target.deleted_count += value.deleted_count;
+    target.decrypt_failed_count += value.decrypt_failed_count;
+    target.repush_count += value.repush_count;
+    target.missing_key_quarantined_count += value.missing_key_quarantined_count;
+    target.corruption_quarantined_count += value.corruption_quarantined_count;
+    target.resolved_quarantine_count += value.resolved_quarantine_count;
 }
 
 struct SyncRunningGuard<'a> {

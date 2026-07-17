@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use todori_domain::{
-    validate_completed_timer_session, CompletedTimerSession, List, Task, TaskDue, TaskStatus, Uuid,
+    validate_completed_timer_session, CompletedTimerSession, List, RecurrenceProvenance,
+    RecurrenceSchedule, RevisionBoundary, ScheduleCursor, Task, TaskDue, TaskStatus, TaskTemplate,
+    TemplateSnapshot, Uuid,
 };
 
 use crate::hlc::Hlc;
@@ -16,6 +18,7 @@ pub const TASK_FIELD_GROUPS: &[&str] = &[
     "scheduled_at",
     "estimated_minutes",
     "assignee",
+    "recurrence",
     "created_at",
     "updated_at",
     "completion",
@@ -32,6 +35,14 @@ pub const LIST_FIELD_GROUPS: &[&str] = &[
     "updated_at",
     "placement",
 ];
+pub const TEMPLATE_FIELD_GROUPS: &[&str] = &[
+    "name",
+    "default_list_id",
+    "snapshot",
+    "created_at",
+    "updated_at",
+];
+pub const SCHEDULE_FIELD_GROUPS: &[&str] = &["config", "cursor"];
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FieldMapError {
@@ -51,6 +62,12 @@ pub enum FieldMapError {
     InvalidTimerSession,
     #[error("immutable timer session contents conflict")]
     ImmutableConflict,
+    #[error("template plaintext is invalid")]
+    InvalidTemplate,
+    #[error("schedule plaintext is invalid")]
+    InvalidSchedule,
+    #[error("schedule cursor is bound to a different config revision")]
+    CursorRevisionMismatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,10 +115,61 @@ pub struct TaskPlaintext {
     pub scheduled_at: Clocked<Option<i64>>,
     pub estimated_minutes: Clocked<Option<i32>>,
     pub assignee: Clocked<Option<Uuid>>,
+    pub recurrence: Clocked<Option<RecurrenceProvenance>>,
     pub created_at: Clocked<i64>,
     pub updated_at: Clocked<i64>,
     pub completion: Clocked<TaskCompletion>,
     pub placement: Clocked<TaskPlacement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateSnapshotValue {
+    pub snapshot: TemplateSnapshot,
+    pub revision: String,
+    pub parent_revision: Option<String>,
+    pub effective_from: i64,
+    pub lineage: Vec<RevisionBoundary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplatePlaintext {
+    pub name: Clocked<String>,
+    pub default_list_id: Clocked<Option<Uuid>>,
+    pub snapshot: Clocked<TemplateSnapshotValue>,
+    pub created_at: Clocked<i64>,
+    pub updated_at: Clocked<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleConfigValue {
+    pub template_id: Uuid,
+    pub rrule: String,
+    pub starts_at: i64,
+    pub time_zone: String,
+    pub enabled: bool,
+    pub revision: String,
+    pub parent_revision: Option<String>,
+    pub effective_from: i64,
+    pub lineage: Vec<RevisionBoundary>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleCursorValue {
+    pub config_revision: String,
+    pub cursor: ScheduleCursor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulePlaintext {
+    pub config: Clocked<ScheduleConfigValue>,
+    pub cursor: Clocked<ScheduleCursorValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,9 +202,15 @@ pub struct TimerSessionPlaintext {
     rename_all = "snake_case",
     deny_unknown_fields
 )]
+// Plaintexts are decoded, merged, and immediately serialized. Keeping the
+// variants inline avoids a heap allocation on every task merge; the largest
+// current variant remains below 1 KiB.
+#[allow(clippy::large_enum_variant)]
 pub enum SyncPlaintext {
     Task(TaskPlaintext),
     List(ListPlaintext),
+    Template(TemplatePlaintext),
+    Schedule(SchedulePlaintext),
     TimerSession(TimerSessionPlaintext),
 }
 
@@ -162,11 +236,60 @@ impl SyncPlaintext {
                     &task.scheduled_at.hlc,
                     &task.estimated_minutes.hlc,
                     &task.assignee.hlc,
+                    &task.recurrence.hlc,
                     &task.created_at.hlc,
                     &task.updated_at.hlc,
                     &task.completion.hlc,
                     &task.placement.hlc,
                 ])
+            }
+            ("templates", Self::Template(template)) => {
+                let value = TaskTemplate {
+                    id: record_id,
+                    name: template.name.value.clone(),
+                    default_list_id: template.default_list_id.value,
+                    snapshot: template.snapshot.value.snapshot.clone(),
+                    snapshot_revision: template.snapshot.value.revision.clone(),
+                    snapshot_parent_revision: template.snapshot.value.parent_revision.clone(),
+                    snapshot_effective_from: template.snapshot.value.effective_from,
+                    lineage: template.snapshot.value.lineage.clone(),
+                    created_at: template.created_at.value,
+                    updated_at: template.updated_at.value,
+                };
+                value
+                    .validate()
+                    .map_err(|_| FieldMapError::InvalidTemplate)?;
+                validate_hlcs([
+                    &template.name.hlc,
+                    &template.default_list_id.hlc,
+                    &template.snapshot.hlc,
+                    &template.created_at.hlc,
+                    &template.updated_at.hlc,
+                ])
+            }
+            ("schedules", Self::Schedule(schedule)) => {
+                if schedule.cursor.value.config_revision != schedule.config.value.revision {
+                    return Err(FieldMapError::CursorRevisionMismatch);
+                }
+                let value = RecurrenceSchedule {
+                    id: record_id,
+                    template_id: schedule.config.value.template_id,
+                    rrule: schedule.config.value.rrule.clone(),
+                    starts_at: schedule.config.value.starts_at,
+                    time_zone: schedule.config.value.time_zone.clone(),
+                    cursor: schedule.cursor.value.cursor,
+                    enabled: schedule.config.value.enabled,
+                    config_revision: schedule.config.value.revision.clone(),
+                    config_parent_revision: schedule.config.value.parent_revision.clone(),
+                    config_effective_from: schedule.config.value.effective_from,
+                    lineage: schedule.config.value.lineage.clone(),
+                    created_at: schedule.config.value.created_at,
+                    updated_at: schedule.config.value.updated_at,
+                };
+                value
+                    .validate()
+                    .map_err(|_| FieldMapError::InvalidSchedule)?;
+                validate_hlcs([&schedule.config.hlc, &schedule.cursor.hlc])
             }
             ("lists", Self::List(list)) => {
                 validate_rank(&list.placement.value.rank)?;
@@ -204,6 +327,7 @@ impl SyncPlaintext {
                 &value.scheduled_at.hlc,
                 &value.estimated_minutes.hlc,
                 &value.assignee.hlc,
+                &value.recurrence.hlc,
                 &value.created_at.hlc,
                 &value.updated_at.hlc,
                 &value.completion.hlc,
@@ -226,6 +350,20 @@ impl SyncPlaintext {
             .into_iter()
             .max()
             .expect("list plaintext has fields"),
+            Self::Template(value) => [
+                &value.name.hlc,
+                &value.default_list_id.hlc,
+                &value.snapshot.hlc,
+                &value.created_at.hlc,
+                &value.updated_at.hlc,
+            ]
+            .into_iter()
+            .max()
+            .expect("template plaintext has fields"),
+            Self::Schedule(value) => [&value.config.hlc, &value.cursor.hlc]
+                .into_iter()
+                .max()
+                .expect("schedule plaintext has fields"),
             Self::TimerSession(value) => &value.hlc,
         }
     }
@@ -240,6 +378,7 @@ impl SyncPlaintext {
             scheduled_at: Clocked::new(task.scheduled_at, hlc.clone()),
             estimated_minutes: Clocked::new(task.estimated_minutes, hlc.clone()),
             assignee: Clocked::new(task.assignee, hlc.clone()),
+            recurrence: Clocked::new(task.recurrence.clone(), hlc.clone()),
             created_at: Clocked::new(task.created_at, hlc.clone()),
             updated_at: Clocked::new(task.updated_at, hlc.clone()),
             completion: Clocked::new(
@@ -255,6 +394,59 @@ impl SyncPlaintext {
                     list_id: task.list_id,
                     parent_task_id: task.parent_task_id,
                     rank: task.sort_order.clone(),
+                },
+                hlc,
+            ),
+        }))
+    }
+
+    pub fn from_template(template: &TaskTemplate, hlc: Hlc) -> Result<Self, FieldMapError> {
+        template
+            .validate()
+            .map_err(|_| FieldMapError::InvalidTemplate)?;
+        Ok(Self::Template(TemplatePlaintext {
+            name: Clocked::new(template.name.clone(), hlc.clone()),
+            default_list_id: Clocked::new(template.default_list_id, hlc.clone()),
+            snapshot: Clocked::new(
+                TemplateSnapshotValue {
+                    snapshot: template.snapshot.clone(),
+                    revision: template.snapshot_revision.clone(),
+                    parent_revision: template.snapshot_parent_revision.clone(),
+                    effective_from: template.snapshot_effective_from,
+                    lineage: template.lineage.clone(),
+                },
+                hlc.clone(),
+            ),
+            created_at: Clocked::new(template.created_at, hlc.clone()),
+            updated_at: Clocked::new(template.updated_at, hlc),
+        }))
+    }
+
+    pub fn from_schedule(schedule: &RecurrenceSchedule, hlc: Hlc) -> Result<Self, FieldMapError> {
+        schedule
+            .validate()
+            .map_err(|_| FieldMapError::InvalidSchedule)?;
+        Ok(Self::Schedule(SchedulePlaintext {
+            config: Clocked::new(
+                ScheduleConfigValue {
+                    template_id: schedule.template_id,
+                    rrule: schedule.rrule.clone(),
+                    starts_at: schedule.starts_at,
+                    time_zone: schedule.time_zone.clone(),
+                    enabled: schedule.enabled,
+                    revision: schedule.config_revision.clone(),
+                    parent_revision: schedule.config_parent_revision.clone(),
+                    effective_from: schedule.config_effective_from,
+                    lineage: schedule.lineage.clone(),
+                    created_at: schedule.created_at,
+                    updated_at: schedule.updated_at,
+                },
+                hlc.clone(),
+            ),
+            cursor: Clocked::new(
+                ScheduleCursorValue {
+                    config_revision: schedule.config_revision.clone(),
+                    cursor: schedule.cursor,
                 },
                 hlc,
             ),
@@ -308,6 +500,7 @@ impl SyncPlaintext {
         retain_unchanged(&mut next.scheduled_at, &previous.scheduled_at);
         retain_unchanged(&mut next.estimated_minutes, &previous.estimated_minutes);
         retain_unchanged(&mut next.assignee, &previous.assignee);
+        retain_unchanged(&mut next.recurrence, &previous.recurrence);
         retain_unchanged(&mut next.created_at, &previous.created_at);
         retain_unchanged(&mut next.updated_at, &previous.updated_at);
         retain_unchanged(&mut next.completion, &previous.completion);
@@ -333,6 +526,43 @@ impl SyncPlaintext {
         retain_unchanged(&mut next.updated_at, &previous.updated_at);
         retain_unchanged(&mut next.placement, &previous.placement);
         Ok(Self::List(next))
+    }
+
+    pub fn stamp_template_changes(
+        &self,
+        template: &TaskTemplate,
+        hlc: Hlc,
+    ) -> Result<Self, FieldMapError> {
+        let Self::Template(previous) = self else {
+            return Err(FieldMapError::KindMismatch);
+        };
+        let mut next = match Self::from_template(template, hlc)? {
+            Self::Template(value) => value,
+            _ => unreachable!(),
+        };
+        retain_unchanged(&mut next.name, &previous.name);
+        retain_unchanged(&mut next.default_list_id, &previous.default_list_id);
+        retain_unchanged(&mut next.snapshot, &previous.snapshot);
+        retain_unchanged(&mut next.created_at, &previous.created_at);
+        retain_unchanged(&mut next.updated_at, &previous.updated_at);
+        Ok(Self::Template(next))
+    }
+
+    pub fn stamp_schedule_changes(
+        &self,
+        schedule: &RecurrenceSchedule,
+        hlc: Hlc,
+    ) -> Result<Self, FieldMapError> {
+        let Self::Schedule(previous) = self else {
+            return Err(FieldMapError::KindMismatch);
+        };
+        let mut next = match Self::from_schedule(schedule, hlc)? {
+            Self::Schedule(value) => value,
+            _ => unreachable!(),
+        };
+        retain_unchanged(&mut next.config, &previous.config);
+        retain_unchanged(&mut next.cursor, &previous.cursor);
+        Ok(Self::Schedule(next))
     }
 }
 

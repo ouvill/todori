@@ -2083,6 +2083,264 @@ abstract class AppLocalizations {
   /// **'{period}, {price}'**
   String billingPriceSemantics(String period, String price);
 
+  /// No description provided for @backButtonTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get backButtonTooltip;
+
+  /// No description provided for @templatesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Templates'**
+  String get templatesTitle;
+
+  /// No description provided for @templatesLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Templates could not be loaded: {error}'**
+  String templatesLoadFailed(String error);
+
+  /// No description provided for @templatesEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No templates yet'**
+  String get templatesEmptyTitle;
+
+  /// No description provided for @templatesEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a task and choose Save as template.'**
+  String get templatesEmptyBody;
+
+  /// No description provided for @templateActionsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Template actions'**
+  String get templateActionsTooltip;
+
+  /// No description provided for @editButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get editButton;
+
+  /// No description provided for @replaceTemplateSnapshotMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace contents'**
+  String get replaceTemplateSnapshotMenuItem;
+
+  /// No description provided for @templateTaskCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 task} other{{count} tasks}}'**
+  String templateTaskCount(int count);
+
+  /// No description provided for @createFromTemplateButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Create tasks'**
+  String get createFromTemplateButton;
+
+  /// No description provided for @addScheduleTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add schedule'**
+  String get addScheduleTooltip;
+
+  /// No description provided for @templateCreatedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks created from template.'**
+  String get templateCreatedMessage;
+
+  /// No description provided for @replaceTemplateSnapshotTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace template contents'**
+  String get replaceTemplateSnapshotTitle;
+
+  /// No description provided for @sourceTaskIdLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Source task ID'**
+  String get sourceTaskIdLabel;
+
+  /// No description provided for @replaceButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get replaceButton;
+
+  /// No description provided for @deleteTemplateDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {name}?'**
+  String deleteTemplateDialogTitle(String name);
+
+  /// No description provided for @deleteTemplateDialogBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its schedules will also be deleted. Tasks already created will stay unchanged.'**
+  String get deleteTemplateDialogBody;
+
+  /// No description provided for @deleteScheduleDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete schedule?'**
+  String get deleteScheduleDialogTitle;
+
+  /// No description provided for @deleteScheduleDialogBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks already created will stay unchanged.'**
+  String get deleteScheduleDialogBody;
+
+  /// No description provided for @scheduleEndedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Ended'**
+  String get scheduleEndedLabel;
+
+  /// No description provided for @scheduleSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule {rule}, next {next}'**
+  String scheduleSemantics(String rule, String next);
+
+  /// No description provided for @scheduleStreak.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} streak'**
+  String scheduleStreak(int count);
+
+  /// No description provided for @scheduleActionsTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule actions'**
+  String get scheduleActionsTooltip;
+
+  /// No description provided for @pauseScheduleMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pauseScheduleMenuItem;
+
+  /// No description provided for @resumeScheduleMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get resumeScheduleMenuItem;
+
+  /// No description provided for @editTemplateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit template'**
+  String get editTemplateTitle;
+
+  /// No description provided for @defaultListLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Default list'**
+  String get defaultListLabel;
+
+  /// No description provided for @inboxFallbackLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Inbox fallback'**
+  String get inboxFallbackLabel;
+
+  /// No description provided for @newScheduleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New schedule'**
+  String get newScheduleTitle;
+
+  /// No description provided for @editScheduleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit schedule'**
+  String get editScheduleTitle;
+
+  /// No description provided for @schedulePresetLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get schedulePresetLabel;
+
+  /// No description provided for @dailyPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Every day'**
+  String get dailyPreset;
+
+  /// No description provided for @weeklyPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Every week on this weekday'**
+  String get weeklyPreset;
+
+  /// No description provided for @monthlyPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Every month on this date'**
+  String get monthlyPreset;
+
+  /// No description provided for @advancedPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced RRULE'**
+  String get advancedPreset;
+
+  /// No description provided for @rruleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'RRULE'**
+  String get rruleLabel;
+
+  /// No description provided for @scheduleStartsAtLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Starts'**
+  String get scheduleStartsAtLabel;
+
+  /// No description provided for @timeZoneLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Time zone'**
+  String get timeZoneLabel;
+
+  /// No description provided for @scheduleEnabledLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule enabled'**
+  String get scheduleEnabledLabel;
+
+  /// No description provided for @scheduleValidationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the recurrence rule, start, and time zone.'**
+  String get scheduleValidationFailed;
+
+  /// No description provided for @saveAsTemplateMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as template'**
+  String get saveAsTemplateMenuItem;
+
+  /// No description provided for @saveAsTemplateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as template'**
+  String get saveAsTemplateTitle;
+
+  /// No description provided for @templateSavedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Template saved.'**
+  String get templateSavedMessage;
+
   /// No description provided for @failedToStartTodori.
   ///
   /// In en, this message translates to:

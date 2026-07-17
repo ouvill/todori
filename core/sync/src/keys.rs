@@ -14,6 +14,8 @@ pub const SYNC_UPGRADE_REQUIRED_SETTING_KEY: &str = "sync_upgrade_required_v2";
 pub const KEY_ROTATION_PENDING_SETTING_KEY: &str = "key_rotation_pending_generation";
 pub const TASKS_COLLECTION: &str = "tasks";
 pub const LISTS_COLLECTION: &str = "lists";
+pub const TEMPLATES_COLLECTION: &str = "templates";
+pub const SCHEDULES_COLLECTION: &str = "schedules";
 pub const TIMER_SESSIONS_COLLECTION: &str = "timer_sessions";
 
 #[derive(Clone, PartialEq, Eq)]

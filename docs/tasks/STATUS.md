@@ -8,9 +8,9 @@ UUIDv7 work item方式のpilot中である。長期計画はPhase計画書、設
 
 - 進行中: なし。
 - 保留: なし。
-- 最新の完了: **task-108 Focus / Timer Visual Refinement** — Focus全状態をwarm open-dialへ統一し、全品質ゲート、Visual QA、iOS Simulator motionの独立検証まで完了した。
+- 最新の完了: **P2-M8 templates and recurring tasks** — content-only template、RRULE local settlement、UUIDv5重複防止、Tenant Root DEK同期、streak、英日Templates UIを実装し、全品質ゲートと独立検証を完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は課金基盤完成後まで延期する。
-- Phase 2: P2-M1〜M4・M6・M7完了。P2-M5は削除同期、macOS / iOS Simulator確認、Android Rust FFI / Flutter release APK build、Android Keystore実装まで完了した。Android接続実機でのKeystore instrumentation test、Device Key rotation / DB reopen、同期確認が残る。P2-M8テンプレート / 繰り返しは未着手である。
+- Phase 2: P2-M1〜M4・M6〜M8完了。P2-M5は削除同期、macOS / iOS Simulator確認、Android Rust FFI / Flutter release APK build、Android Keystore実装まで完了した。Android接続実機でのKeystore instrumentation test、Device Key rotation / DB reopen、同期確認が残る。
 - 一般リリースゲート: **Billing foundation release gate**。課金基盤、iOS sandbox E2E、server-side entitlement、失効時認可が完了するまでstore提出、release tag、公開告知を行わない。
 
 ## UUIDv7 work item pilot

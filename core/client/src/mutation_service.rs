@@ -6,16 +6,18 @@ use std::path::Path;
 use thiserror::Error;
 use todori_domain::{
     update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
-    update_title, CompletedTimerSession, List, Task, TaskDue, Uuid,
+    update_title, CompletedTimerSession, List, RecurrenceSchedule, Task, TaskDue, TaskTemplate,
+    Uuid,
 };
 use todori_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
 use todori_sync::{
-    enqueue_list_sync, enqueue_task_sync, enqueue_timer_session_sync, EncryptedSyncState,
-    LocalMutationSyncStore, LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState,
-    NewLocalSyncOutboxEntry, SyncCollection,
+    enqueue_list_sync, enqueue_schedule_sync, enqueue_task_sync, enqueue_template_sync,
+    enqueue_timer_session_sync, next_local_revision, EncryptedSyncState, LocalMutationSyncStore,
+    LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
+    SyncCollection,
 };
 use zeroize::Zeroizing;
 
@@ -25,6 +27,8 @@ pub enum ClientError {
     Storage(#[from] StorageError),
     #[error("domain operation failed: {0}")]
     Domain(#[from] todori_domain::DomainError),
+    #[error("recurrence operation failed: {0}")]
+    Recurrence(#[from] todori_domain::RecurrenceError),
     #[error("local sync preparation failed")]
     Sync,
     #[error("local sync key is unavailable for list {0}")]
@@ -201,6 +205,56 @@ pub(crate) fn enqueue_timer_session_in_transaction(
         &sync.keys,
         &sync.device_id,
         session,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn next_revision_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    device_id: &str,
+    now_ms: i64,
+) -> Result<String, ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    next_local_revision(&mut store, device_id, &mut now).map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn enqueue_template_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    template: &TaskTemplate,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_template_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        template,
+        deleted,
+        &mut now,
+    )
+    .map_err(|_| ClientError::Sync)
+}
+
+pub(crate) fn enqueue_schedule_in_transaction(
+    transaction: &mut SqliteWriteTx<'_>,
+    sync: &LocalMutationContext,
+    schedule: &RecurrenceSchedule,
+    deleted: bool,
+    now_ms: i64,
+) -> Result<(), ClientError> {
+    let mut store = TransactionalMutationStore { transaction };
+    let mut now = || Ok(now_ms);
+    enqueue_schedule_sync(
+        &mut store,
+        &sync.keys,
+        &sync.device_id,
+        schedule,
         deleted,
         &mut now,
     )

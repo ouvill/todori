@@ -3,12 +3,20 @@
 //! 詳細な論理スキーマは `docs/03_技術仕様書.md` §3 データモデル を参照。
 
 pub mod entities;
+pub mod recurrence;
 pub mod sort_order;
 pub mod usecases;
 
 pub use entities::{
     ActiveTimerSession, CivilDate, CompletedTimerSession, DueValueError, IanaTimeZone, List, Task,
     TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant,
+};
+pub use recurrence::{
+    calculate_streak, next_occurrence_after, occurrences_after, scheduled_task_id,
+    validate_and_normalize_rrule, virtual_next_occurrence_after_end, RecurrenceError,
+    RecurrenceProvenance, RecurrenceSchedule, RevisionBoundary, ScheduleCursor, Streak,
+    StreakOccurrence, TaskTemplate, TemplateNode, TemplateSnapshot, MAX_TEMPLATE_NODES,
+    MAX_TEMPLATE_SNAPSHOT_BYTES, SETTLEMENT_BATCH_SIZE, TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
 };
 pub use sort_order::{
     fractional_index_after, fractional_index_between, rebalance_ranks, validate_sort_order,
