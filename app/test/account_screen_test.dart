@@ -31,12 +31,22 @@ Future<void> _enterCredentials(WidgetTester tester) async {
   await tester.enterText(find.byType(TextField).at(1), 'correct password');
 }
 
+Finder _accountScrollable() => find.byWidgetPredicate(
+  (widget) =>
+      widget is Scrollable && widget.axisDirection == AxisDirection.down,
+);
+
 void main() {
   testWidgets('shows signed-out account form', (tester) async {
     final fake = FakeBridgeService();
     await _pumpAccountScreen(tester, fake);
 
     expect(find.text('Account'), findsOneWidget);
+    expect(
+      find.text('Private sync, security, and account settings.'),
+      findsOneWidget,
+    );
+    expect(find.text('Your encrypted workspace'), findsOneWidget);
     expect(find.text('Server URL'), findsOneWidget);
     expect(find.text('Log in'), findsWidgets);
     expect(find.text('Register'), findsOneWidget);
@@ -59,6 +69,11 @@ void main() {
     await tester.enterText(
       find.byType(TextField).last,
       'http://127.0.0.1:4000',
+    );
+    await tester.scrollUntilVisible(
+      find.byTooltip('Save server URL'),
+      160,
+      scrollable: _accountScrollable(),
     );
     await tester.tap(find.byTooltip('Save server URL'));
     await tester.pumpAndSettle();
@@ -97,11 +112,16 @@ void main() {
 
     expect(find.text('alice@example.com'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Log out'));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('account-logout')),
+      160,
+      scrollable: _accountScrollable(),
+    );
+    await tester.tap(find.byKey(const ValueKey('account-logout')));
     await tester.pumpAndSettle();
 
     expect(find.text('Log in'), findsWidgets);
-    expect(find.widgetWithText(OutlinedButton, 'Log out'), findsNothing);
+    expect(find.byKey(const ValueKey('account-logout')), findsNothing);
   });
 
   testWidgets('signed-in account shows sync status and manual sync', (
@@ -117,7 +137,13 @@ void main() {
     expect(find.text('Sync'), findsOneWidget);
     expect(find.textContaining('Last synced:'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Sync now'));
+    final syncNow = find.widgetWithText(OutlinedButton, 'Sync now');
+    await tester.scrollUntilVisible(
+      syncNow,
+      160,
+      scrollable: _accountScrollable(),
+    );
+    await tester.tap(syncNow);
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Last synced:'), findsOneWidget);

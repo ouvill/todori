@@ -244,7 +244,6 @@ void main() {
     final fake = FakeBridgeService();
     final listId = await _createInbox(fake);
     final today = _today();
-    final tomorrow = DateTime(today.year, today.month, today.day + 1);
     final scheduledAt = DateTime(
       today.year,
       today.month,
@@ -265,10 +264,22 @@ void main() {
 
     await _pumpApp(tester, fake);
     await _openCalendar(tester);
-    final draggable = find.byKey(ValueKey('calendar-draggable-$dueKey'));
-    final target = find.byKey(
-      ValueKey('calendar-week-day-${_civilDate(tomorrow)}'),
+    final targetKey = tester
+        .widgetList<Widget>(
+          find.byWidgetPredicate((widget) {
+            final key = widget.key;
+            return key is ValueKey<String> &&
+                key.value.startsWith('calendar-week-day-') &&
+                key.value != 'calendar-week-day-${_civilDate(today)}';
+          }),
+        )
+        .map((widget) => (widget.key! as ValueKey<String>).value)
+        .first;
+    final targetDate = DateTime.parse(
+      targetKey.substring('calendar-week-day-'.length),
     );
+    final draggable = find.byKey(ValueKey('calendar-draggable-$dueKey'));
+    final target = find.byKey(ValueKey(targetKey));
     final gesture = await tester.startGesture(tester.getCenter(draggable));
     await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
     await gesture.moveTo(tester.getCenter(target));
@@ -279,9 +290,85 @@ void main() {
     final updated = (await fake.getTasks(listId: listId)).single;
     expect(
       updated.due,
-      testDateOnlyDueFromMillis(tomorrow.millisecondsSinceEpoch),
+      testDateOnlyDueFromMillis(targetDate.millisecondsSinceEpoch),
     );
     expect(updated.scheduledAt, scheduledAt);
+  });
+
+  testWidgets('Calendar applies Monday and Sunday week starts', (tester) async {
+    final fake = FakeBridgeService();
+    await _createInbox(fake);
+    await fake.setSetting(
+      key: calendarWeekStartSettingKey,
+      value: mondayCalendarWeekStart,
+    );
+    final today = _today();
+    final monday = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday - DateTime.monday),
+    );
+    final sundayAfterMonday = DateTime(
+      monday.year,
+      monday.month,
+      monday.day + 6,
+    );
+
+    await _pumpCalendarScreen(tester, fake, settle: true);
+
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(ValueKey('calendar-week-day-${_civilDate(monday)}')),
+          )
+          .dx,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                ValueKey('calendar-week-day-${_civilDate(sundayAfterMonday)}'),
+              ),
+            )
+            .dx,
+      ),
+    );
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(CalendarScreen)),
+    );
+    await container
+        .read(calendarWeekStartProvider.notifier)
+        .setWeekStart(sundayCalendarWeekStart);
+    await tester.pumpAndSettle();
+    final sunday = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday % 7),
+    );
+    final saturdayAfterSunday = DateTime(
+      sunday.year,
+      sunday.month,
+      sunday.day + 6,
+    );
+
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(ValueKey('calendar-week-day-${_civilDate(sunday)}')),
+          )
+          .dx,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                ValueKey(
+                  'calendar-week-day-${_civilDate(saturdayAfterSunday)}',
+                ),
+              ),
+            )
+            .dx,
+      ),
+    );
   });
 
   testWidgets(

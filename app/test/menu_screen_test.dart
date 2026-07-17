@@ -1,0 +1,128 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:todori/main.dart';
+import 'package:todori/src/core/providers.dart';
+import 'package:todori/src/generated/l10n/app_localizations.dart';
+import 'package:todori/src/screens/menu_screen.dart';
+import 'package:todori/src/ui/theme.dart';
+
+import 'support/fake_bridge_service.dart';
+
+void main() {
+  testWidgets('Menu opens Account and back returns to Menu', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpApp(tester, fake);
+
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Your workspace, account, and reusable tools.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('menu-account')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('menu-calendar-settings')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('menu-templates')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('menu-account')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.byTooltip('Back'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byIcon(LucideIcons.arrowLeft300)).dx,
+      tester.getTopLeft(find.text('Account')).dx,
+    );
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Menu'), findsWidgets);
+    expect(find.byKey(const ValueKey('menu-account')), findsOneWidget);
+  });
+
+  testWidgets('Menu opens Calendar settings and saves Monday start', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpApp(tester, fake);
+
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-calendar-settings')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Calendar settings'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byIcon(LucideIcons.arrowLeft300)).dx,
+      tester.getTopLeft(find.text('Calendar settings')).dx,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-week-start-system')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('calendar-week-start-monday')));
+    await tester.pumpAndSettle();
+
+    expect(
+      await fake.getSetting(key: calendarWeekStartSettingKey),
+      mondayCalendarWeekStart,
+    );
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Monday'), findsOneWidget);
+  });
+
+  testWidgets('Menu opens Templates', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpApp(tester, fake);
+
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('menu-templates')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Templates'), findsWidgets);
+  });
+
+  testWidgets('Menu shows the signed-in account identity', (tester) async {
+    final fake = FakeBridgeService();
+    await fake.accountLogin(
+      email: 'alice@example.com',
+      password: 'correct password',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp(
+          theme: buildTodoriTheme(Brightness.light),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const MenuScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('alice@example.com'), findsOneWidget);
+  });
+}
+
+Future<void> _pumpApp(WidgetTester tester, FakeBridgeService fake) async {
+  await tester.pumpWidget(
+    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+  );
+  await tester.pumpAndSettle();
+}

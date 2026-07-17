@@ -26,7 +26,7 @@ void main() {
     expect(find.text('Find what you need.'), findsOneWidget);
   });
 
-  testWidgets('Lists, list tasks and You keep a 48px header search action', (
+  testWidgets('Lists, list tasks and Menu keep a 48px header search action', (
     tester,
   ) async {
     final fake = await _seedSearchData();
@@ -40,7 +40,7 @@ void main() {
     await tester.pumpAndSettle();
     _expectSearchHitTarget(tester);
 
-    await tester.tap(find.text('You').last);
+    await tester.tap(find.text('Menu').last);
     await tester.pumpAndSettle();
     _expectSearchHitTarget(tester);
   });

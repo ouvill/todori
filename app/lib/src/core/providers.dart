@@ -222,11 +222,21 @@ final taskSearchProvider =
 const uiModeSettingKey = 'ui_mode';
 const onboardingCompletedSettingKey = 'onboarding_completed';
 const syncServerUrlSettingKey = 'sync_server_url';
+const calendarWeekStartSettingKey = 'calendar_week_start';
 const defaultSyncServerUrl = 'http://localhost:3000';
 const defaultUiMode = 'simple';
 const simpleUiMode = 'simple';
 const advancedUiMode = 'advanced';
+const defaultCalendarWeekStart = 'system';
+const systemCalendarWeekStart = 'system';
+const mondayCalendarWeekStart = 'monday';
+const sundayCalendarWeekStart = 'sunday';
 const _supportedUiModes = {simpleUiMode, advancedUiMode};
+const _supportedCalendarWeekStarts = {
+  systemCalendarWeekStart,
+  mondayCalendarWeekStart,
+  sundayCalendarWeekStart,
+};
 
 /// Thin typed entry point for app settings stored in the encrypted local DB.
 ///
@@ -258,6 +268,26 @@ class SettingsRepository {
       throw ArgumentError.value(uiMode, 'uiMode', 'unsupported UI mode');
     }
     return setSetting(uiModeSettingKey, uiMode);
+  }
+
+  Future<String> getCalendarWeekStart() async {
+    final persisted = await getSetting(calendarWeekStartSettingKey);
+    if (persisted == null ||
+        !_supportedCalendarWeekStarts.contains(persisted)) {
+      return defaultCalendarWeekStart;
+    }
+    return persisted;
+  }
+
+  Future<void> setCalendarWeekStart(String weekStart) {
+    if (!_supportedCalendarWeekStarts.contains(weekStart)) {
+      throw ArgumentError.value(
+        weekStart,
+        'weekStart',
+        'unsupported calendar week start',
+      );
+    }
+    return setSetting(calendarWeekStartSettingKey, weekStart);
   }
 }
 
@@ -749,6 +779,28 @@ class UiModeNotifier extends AsyncNotifier<String> {
 final uiModeProvider = AsyncNotifierProvider<UiModeNotifier, String>(
   UiModeNotifier.new,
 );
+
+class CalendarWeekStartNotifier extends AsyncNotifier<String> {
+  @override
+  FutureOr<String> build() {
+    return ref.watch(settingsRepositoryProvider).getCalendarWeekStart();
+  }
+
+  Future<void> setWeekStart(String weekStart) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await ref
+          .read(settingsRepositoryProvider)
+          .setCalendarWeekStart(weekStart);
+      return weekStart;
+    });
+  }
+}
+
+final calendarWeekStartProvider =
+    AsyncNotifierProvider<CalendarWeekStartNotifier, String>(
+      CalendarWeekStartNotifier.new,
+    );
 
 /// Gates the one-time welcome experience before the app starts its ordinary
 /// Home and sync providers. The flag is device-local and remains inside the

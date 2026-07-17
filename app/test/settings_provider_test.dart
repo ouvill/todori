@@ -41,6 +41,49 @@ void main() {
     );
   });
 
+  test('calendarWeekStartProvider defaults to region setting', () async {
+    final fake = FakeBridgeService();
+    final container = ProviderContainer(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+
+    expect(
+      await container.read(calendarWeekStartProvider.future),
+      systemCalendarWeekStart,
+    );
+  });
+
+  test('calendarWeekStartProvider persists an explicit first day', () async {
+    final fake = FakeBridgeService();
+    final container = ProviderContainer(
+      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(calendarWeekStartProvider.notifier)
+        .setWeekStart(mondayCalendarWeekStart);
+
+    expect(
+      await fake.getSetting(key: calendarWeekStartSettingKey),
+      mondayCalendarWeekStart,
+    );
+    expect(
+      await container.read(calendarWeekStartProvider.future),
+      mondayCalendarWeekStart,
+    );
+  });
+
+  test('SettingsRepository rejects unsupported calendar week starts', () {
+    final repository = SettingsRepository(FakeBridgeService());
+
+    expect(
+      () => repository.setCalendarWeekStart('unsupported'),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
+
   test(
     'onboardingStatusProvider defaults to incomplete and persists',
     () async {

@@ -721,7 +721,80 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accountTitle => 'Account';
 
   @override
-  String get navigationYouLabel => 'You';
+  String get accountSubtitle => 'Private sync, security, and account settings.';
+
+  @override
+  String get navigationMenuLabel => 'Menu';
+
+  @override
+  String get menuTitle => 'Menu';
+
+  @override
+  String get menuSubtitle => 'Your workspace, account, and reusable tools.';
+
+  @override
+  String get menuSectionTitle => 'WORKSPACE';
+
+  @override
+  String get menuAccountBody => 'Sign in, sync, security, and Pro';
+
+  @override
+  String get menuTemplatesBody => 'Reusable tasks and recurring schedules';
+
+  @override
+  String get calendarSettingsTitle => 'Calendar settings';
+
+  @override
+  String get calendarSettingsSubtitle =>
+      'Choose how weeks are arranged across the calendar.';
+
+  @override
+  String get calendarWeekStartSectionTitle => 'WEEK STARTS ON';
+
+  @override
+  String get calendarWeekStartSystem => 'Region default';
+
+  @override
+  String get calendarWeekStartSystemBody =>
+      'Use the first day of the week from this device\'s region.';
+
+  @override
+  String get calendarWeekStartMonday => 'Monday';
+
+  @override
+  String get calendarWeekStartMondayBody => 'Show Monday in the first column.';
+
+  @override
+  String get calendarWeekStartSunday => 'Sunday';
+
+  @override
+  String get calendarWeekStartSundayBody => 'Show Sunday in the first column.';
+
+  @override
+  String get calendarSettingsLoadFailed => 'Could not load calendar settings.';
+
+  @override
+  String get accountPrivateSectionTitle => 'PRIVATE ACCOUNT';
+
+  @override
+  String get accountPrivateTitle => 'Your encrypted workspace';
+
+  @override
+  String get accountPrivateBody =>
+      'Sign in to sync protected tasks across your devices.';
+
+  @override
+  String get accountEncryptionStatus => 'End-to-end encrypted workspace';
+
+  @override
+  String get accountSecurityTitle => 'SECURITY';
+
+  @override
+  String get accountConnectionTitle => 'CONNECTION';
+
+  @override
+  String get accountConnectionBody =>
+      'Advanced sync server settings for this device.';
 
   @override
   String get accountLoadFailed => 'Could not load account state.';

@@ -1011,12 +1011,10 @@ void main() {
       );
       final semantics = tester.ensureSemantics();
       expect(
-        find.semantics.byPredicate(
-          (node) {
-            final label = node.getSemanticsData().label;
-            return label.contains('Priority') && label.contains('High');
-          },
-        ),
+        find.semantics.byPredicate((node) {
+          final label = node.getSemanticsData().label;
+          return label.contains('Priority') && label.contains('High');
+        }),
         findsWidgets,
       );
       semantics.dispose();
@@ -1044,7 +1042,7 @@ void main() {
     expect(find.byType(NavigationRail), findsNothing);
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Lists'), findsWidgets);
-    expect(find.text('You'), findsOneWidget);
+    expect(find.text('Menu'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('Work')).dy,
       lessThan(tester.getTopLeft(find.text('New list')).dy),
@@ -1054,10 +1052,14 @@ void main() {
       lessThan(tester.getTopLeft(find.text('Archived (1)')).dy),
     );
 
-    await tester.tap(find.text('You'));
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('menu-account')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('menu-account')));
     await tester.pumpAndSettle();
     expect(find.text('Account'), findsOneWidget);
-    expect(find.text('You'), findsOneWidget);
+    expect(find.text('Menu'), findsOneWidget);
 
     await tester.tap(find.text('Home'));
     await tester.pumpAndSettle();
@@ -1939,7 +1941,7 @@ void main() {
     expect(find.text('To do'), findsOneWidget);
     expect(find.text('Home'), findsNothing);
     expect(find.text('Lists'), findsNothing);
-    expect(find.text('You'), findsNothing);
+    expect(find.text('Menu'), findsNothing);
     expect(find.byKey(const ValueKey('quick-add-open')), findsNothing);
   });
 

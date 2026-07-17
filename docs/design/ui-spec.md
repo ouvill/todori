@@ -25,7 +25,7 @@
 - HomeはTodayを1本の連続streamとして表示し、今日予定（`scheduled_at`）、今日が期限のtask、期限超過taskを統合する。期限超過は行内の短いcoral metadataで区別し、Tomorrow / UpcomingはCalendarへ集約する。各task最大1回表示、subtask tree、完了 / reopen / Undoを維持し、`completed_at`が今日の成果だけを小さなCompleted disclosureに表示する。
 - task rowはtransparentな連続streamとし、行間のhairlineまたは余白で区切る。checkbox、priority dot、title、短いcontext metadataを同じ基準線へ整列し、通常時の外周面、chevron、常設CTAを置かない。
 - subtask connectorはcheckboxの円へ接触させない。横棒はring手前約4pxで終端し、親checkbox直下にも余白を設けて幹線が円を貫かないようにする。3階層以上でも本文幅を優先する。
-- mobile navigationはHome / Calendar / Lists / YouのLucide icon + 小さなlabel + active underlineを低強度で表示し、中央captureだけを円形primary actionにする。Search、task detail、Focusなどの専用routeではglobal navigationを隠す。
+- mobile navigationはHome / Calendar / Lists / MenuのLucide icon + 小さなlabel + active underlineを低強度で表示し、中央captureだけを円形primary actionにする。MenuはAccountへ直行せず、実在する遷移先だけを並べた一覧を開く。Search、task detail、Focusなどの専用routeではglobal navigationを隠す。
 - Search、Calendar、Focusはproductionの実データ・provider・routeへ接続済みである。Design Labのfake route/stateは見た目とinteractionの探索用に限り、productionの実装根拠またはfallbackとして扱わない。
 - edge icon buttonは44px以上、task checkboxは48px級のhit targetを持ち、icon / ring / ripple / semantics boundsの中心を一致させる。LTR / RTLのleading / trailingへ追従する。
 - 完了motionはpress 90ms級、fill約200ms、タップ後130msからcheck path約330ms、単一halo約520ms、strikethrough、500msの結果保持、420msのheight collapseを順に行う。行はfadeしながら最大4px上へ抜け、後続行は同じheight factorへ追従する。通常完了に多色particleを使わない。checkbox ringは1.0px級、check pathは1.4px級とし、light hapticを添える。Reduce Motionでは装飾motionと保持遅延を省略して状態を即時確定する。
@@ -198,12 +198,12 @@ Completed見出しは控えめな1行とする。左寄せの小さな見出し 
 - **Homeセクション**: Todayの未完了件数だけを見出しに表示し、Overdueは各行のcoral metadataで示す。Completedは`completed_at`が今日のroot taskだけを控えめに開閉表示する。各task最大1回、単独表示される子孫の剪定、直近祖先下へのsubtree同伴、親contextを含むsemanticsを維持する。
 - **Capture**: mobile navigation中央の円形captureからroot navigator上のtask作成sheetを開く。sheetはhome indicatorまでwarm面を連続させ、Title / Note / List / Due / Plan / Priorityをhairline property rowで提供する。Dueはdate-only / datetime / clear、Planは予定日時と5分刻みの見積（25 / 45 / 60分preset）、Priorityはnone / low / medium / highを扱う。選択値を同一sheet内で保持し、作成は全属性を1回のcommandとして確定する。横スクロールpillや属性ごとの独立cardを作らない。
 - **Search**: `/search`はShell外のimmersive routeとし、入力、clear、blank、debounce中、結果、0件、error + retryを同じwarm canvasへ表示する。対象はtitle / note、全status、archive済みlist内taskで、deleted taskは除外する。結果行から詳細へ遷移し、戻ったときquery・結果・scroll contextを保持する。検索icon、hit target、ripple、semanticsの中心を一致させる。
-- **Calendar**: top-level destinationとしてWeek / Monthを提供する。WeekはTodayと同じtask row、checkbox、subtask tree、完了motionを使う。Monthは7列grid + 選択日のagendaとし、1024px以上は2 pane、720px幅はsingle paneを維持する。date-only due、datetime due、scheduled、completedを別occurrenceとして表示し、同じtaskのdueとscheduledを統合しない。Completedは`completed_at`基準の控えめなdisclosureとする。dragまたは同等のアクセシブルな日付変更menuは、掴んだoccurrenceだけを変更する。
+- **Calendar**: top-level destinationとしてWeek / Monthを提供する。WeekはTodayと同じtask row、checkbox、subtask tree、完了motionを使う。Monthは7列grid + 選択日のagendaとし、1024px以上は2 pane、720px幅はsingle paneを維持する。date-only due、datetime due、scheduled、completedを別occurrenceとして表示し、同じtaskのdueとscheduledを統合しない。Completedは`completed_at`基準の控えめなdisclosureとする。dragまたは同等のアクセシブルな日付変更menuは、掴んだoccurrenceだけを変更する。週の開始曜日は端末の地域設定を既定とし、Menu配下のCalendar settingsで月曜または日曜へ明示的に上書きできる。Weekの範囲、Monthの列順、occurrence取得範囲は同じ設定に従う。
 - **Focus**: `/focus/:listId/:taskId`はShell外の専用routeとし、setup / running / paused / break / finished / restore / error / conflictをすべて同じwarm canvasで扱う。中央は開始角135度・描画範囲270度の細いopen dialとし、外周card、円形surface、heavy shadowを置かない。Pomodoroはhairline track上のforest arcを残り時間に応じて減少させ、pausedは値を保持したままsageへ弱める。Stopwatchは静的arcとelapsed clockを使い、存在しない完了率を表示しない。work / short break / long breakはphase labelとaccentで区別し、色だけへ依存しない。Pomodoro初期値はwork 25分 / short break 5分 / 4 workごとのlong breakとし、設定は端末ローカルで保持する。running中のPomodoro work / breakがwall-clock targetへ到達したら、foregroundのdisplay tickから既存settlementを実行して自動的にfinishedへ遷移する。workはtarget時刻までの実績を保存してbreak pendingへ進み、breakはwork実績を追加せず`Break complete`へ進む。settlement失敗時はdurable active sessionを残し、次のtick / resume / restartで再試行する。setupはtask title、compactなPomodoro / Stopwatch selector、preview dial、時間・設定、最大幅280pxのStartを1本の縦軸へ置く。activeの常設操作は64px級の円形Pause / Resumeと`Session options`だけにし、Add 5 min、finish、task complete、save exit、discardは状態別のwarm bottom sheetへ送る。close / system backも同じsheetへ到達し、sheet dismissalだけではsessionを終了しない。finishedはdial構図を維持し、記録時間、Start break、Doneだけを表示する。setup→runningは260msのfade + 0.985→1.0 scale、pause / resumeは180ms、finishedは260msでdialを記録結果へ収束させ、Reduce Motionでは即時切替する。全taskへ常設CTAを置かず、open taskのtrailing swipeとTask detailから入る。見積時間と合計実績はTask detailの小さなproperty rowで比較できるようにする。
 - **スワイプ/モーション**: open taskのleading swipeはcomplete、trailing swipeはFocus revealとする。closed taskのleading swipeはreopenで、trailing paneは表示しない。Due変更はTask detailのproperty sheetへ集約する。完了motionはセクション0のcheck path + 単一halo + strikethrough + hold + collapseを使い、多色particle、画面全体のconfetti、トロフィー、音、全画面演出を禁止する。
 - **リスト一覧**: Listsはグローバルナビゲーションから直接開くトップレベル領域とする。旧戻る矢印、Home行、Account overflowを置かない。Interのcompact見出しの下に、最大760pxの連続rowを置き、短いindex mark、文字階層、hairlineで区切る。外周card、count pill、行内chevronを置かない。New listはactive listの直後、Archivedはその下の低強度sectionとする。リスト単位操作は、そのlistを開いた画面の右上overflowに置く。
 - **Task detail**: headerはbackとoverflowだけに限定し、`Task detail`という重複見出しを表示しない。最大760pxのdocument canvasへ、親リンク → 円形チェック + Inter title → note → 罫線ベースのproperty rows → created → Subtasksを直接配置する。外周cardと属性pillを禁止する。既存属性は48px級操作領域で編集し、タイトルとnoteの閲覧 / 編集で同一TextStyleとbaselineを使う。Subtasksは子孫tree全体を同じcanvas上に表示し、connectorをcheckbox ringへ接触させない。ロック / 暗号化表現を常設しない。
-- **Account**: 最大620pxのborderless settings canvasとし、Interのcompact見出し → account identity / sign-in action → sync state → hairline → Server URLの順にする。各設定はcardやpillではなくrowとhairlineで分ける。Server URLを最初の巨大formにせず、保存操作はfield末尾iconへ統合する。
+- **Menu / Account**: Menuを最大620pxのtop-level borderless canvasとし、実在するAccount / Calendar settings / Templatesだけを連続rowとhairlineで表示する。AccountとCalendar settingsはMenu配下の戻れる画面とする。AccountはInterのcompact見出し → account identity / sign-in action → sync state → hairline → Server URLの順にする。各設定はcardやpillではなくrowとhairlineで分ける。Server URLを最初の巨大formにせず、保存操作はfield末尾iconへ統合する。
 - **Dialog**: 文章主体、装飾なし。destructiveのみcoralを使う。
 
 ### Task statusとTimer state
@@ -215,9 +215,9 @@ Completed見出しは控えめな1行とする。左寄せの小さな見出し 
 
 ### グローバルナビゲーションと遷移
 
-- Home / Calendar / Lists / Youは同格のトップレベル領域とする。幅720px未満では低いcustom navigation面、720px以上では同じ情報設計のcompact railを用い、各領域へ1操作で移動できるようにする。
+- Home / Calendar / Lists / Menuは同格のトップレベル領域とする。幅720px未満では低いcustom navigation面、720px以上では同じ情報設計のcompact railを用い、各領域へ1操作で移動できるようにする。AccountはMenuの子画面とする。
 - mobile navigationはwarm canvasにLucide icon + 小さなlabel + active underlineを置き、pill形の選択indicatorを使わない。大きなtext scaleでも全destinationのiconとlabelを残し、labelは最大1.3倍にclampして1行省略できる。中央captureだけを緑の円形primary actionとする。wide railへsprout / bird / ブランド名を常設しない。
-- Home / Calendar / Lists / Youの切替は220ms級のfade + 2%未満の縦移動、Listsからリスト内タスク一覧は260ms級の短い右→左slide + fade、タスク詳細は240ms級のfade + 0.985→1.0 scaleとする。
+- Home / Calendar / Lists / Menuの切替は220ms級のfade + 2%未満の縦移動、MenuからAccountとListsからリスト内タスク一覧は260ms級の短い右→左slide + fade、タスク詳細は240ms級のfade + 0.985→1.0 scaleとする。
 - Search、Task detail、Focusではグローバルナビゲーションを隠し、back / closeで元の文脈へ戻る没入画面とする。リスト内タスク一覧ではグローバルナビゲーションを維持する。
 - Captureと期日選択のmodal bottom sheetはroot navigatorへ表示し、global navigationによって利用可能高が狭まらないようにする。
 
@@ -262,6 +262,8 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 - **2026-07-11 人間裁定（task-99 IA / 画面遷移追補）**: 初回成果が既存の情報設計と遷移を保守的に残しすぎたというプロダクトオーナー指摘を受け、見た目だけでなくアプリシェル、画面階層、遷移演出も抜本変更の対象であることを明確化した。Home / Lists / Accountをレスポンシブなグローバルナビゲーションへ統合し、旧ハンバーガー、戻る矢印、Home重複行、Account overflowを撤去する。Homeのタスク選別、ツリー、完了体験だけを不変条件とする。
 - **2026-07-11 人間裁定（task-100 プロダクトUI再設計）**: task-99後も「プロトタイプ感が拭えず、エレガントにするには抜本変更が必要」と評価された。巨大見出し、全行独立カード、pill過多、Quick AddとNavigationBarの二重帯、モバイル構造を引き伸ばしたワイド画面を廃止対象とする。主要画面はcontent最大幅を持つ直接的なcanvasへ変更し、Homeの選別・ツリー・完了体験だけを不変条件とする。この裁定はtask-99外観規則のうち本書で置き換えた箇所に優先する。
 - **2026-07-13 人間裁定（Interactive Design Lab single-canvas本番採用）**: Interactive Design Labのsingle-canvas方向をproductionへ採用する。通常画面はInter主体、warm canvas、hairline、低角丸とし、serif、白panel、通常card、情報pillを常用しない。dark inverseはFocus専用とする。Design Labはfake data専用で独立させ、productionからimportしない。task-100時点ではCalendar完成までHomeの4期日sectionを維持し、Search / Calendar / Focusをscope外としたが、この暫定範囲はtask-103〜106の完了で解消済みである。現在の拘束契約はセクション0〜5を正とする。
+- **2026-07-18 人間裁定（Menu-first Account IA）**: グローバルナビゲーションのYou / Account直行をMenuへ置き換え、AccountはMenu一覧から開く子画面とする。Menuへ実在しない設定項目のdead-end rowを置かず、当初はAccount / Templatesだけを表示する。
+- **2026-07-18 人間裁定（Calendar week start）**: Calendarの週開始曜日を設定可能にする。端末の地域設定を既定とし、Menuの実在するCalendar settingsから月曜始まり / 日曜始まりを選べるようにする。設定はWeek / Monthの列順と取得範囲へ一貫して反映する。
 - **2026-07-14 人間裁定（Focus warm open-dial再設計）**: setupからrunning / pausedへの全面dark inverse切替を廃止し、Focus全状態をproduction共通のwarm canvasへ統一する。没入感はShell外route、情報量の削減、135度開始・270度のopen dial、単一のPause / Resume主操作で作る。Session終了系操作は状態別bottom sheetへ集約し、Focusへマスコットを置かない。task-106/107のdark inverse記述は当時の実装履歴として保持し、現行拘束契約はセクション0〜5を正とする。
 
 ## セクション6: 未決事項（要人間判断。勝手に本番へ入れない）

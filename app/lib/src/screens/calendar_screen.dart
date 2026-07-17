@@ -104,7 +104,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final range = _calendarRange(context);
+    final weekStart =
+        ref.watch(calendarWeekStartProvider).value ?? defaultCalendarWeekStart;
+    final range = _calendarRange(context, weekStart);
     final occurrences = ref.watch(calendarOccurrencesProvider(range));
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -140,7 +142,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         child: Text(l10n.calendarRetryButton),
                       ),
                     ),
-                    data: (items) => _buildCalendar(context, items),
+                    data: (items) => _buildCalendar(context, items, weekStart),
                   ),
                 ),
               ],
@@ -243,11 +245,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget _buildCalendar(
     BuildContext context,
     List<CalendarOccurrenceDto> occurrences,
+    String weekStart,
   ) {
     final isTwoPane = MediaQuery.sizeOf(context).width >= 1024;
     final selector = _viewMode == CalendarViewMode.week
-        ? _buildWeekSelector(context, occurrences)
-        : _buildMonthSelector(context, occurrences);
+        ? _buildWeekSelector(context, occurrences, weekStart)
+        : _buildMonthSelector(context, occurrences, weekStart);
     final agenda = _buildAgenda(context, occurrences);
     if (isTwoPane) {
       return Row(
@@ -299,9 +302,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget _buildWeekSelector(
     BuildContext context,
     List<CalendarOccurrenceDto> occurrences,
+    String weekStart,
   ) {
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final start = _weekStart(context, _anchorDay);
+    final start = _weekStart(context, _anchorDay, weekStart);
     final days = [
       for (var index = 0; index < 7; index++)
         DateTime(start.year, start.month, start.day + index),
@@ -340,10 +344,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget _buildMonthSelector(
     BuildContext context,
     List<CalendarOccurrenceDto> occurrences,
+    String weekStart,
   ) {
     final locale = Localizations.localeOf(context).toLanguageTag();
     final monthStart = DateTime(_anchorDay.year, _anchorDay.month);
-    final gridStart = _weekStart(context, monthStart);
+    final gridStart = _weekStart(context, monthStart, weekStart);
     final days = [
       for (var index = 0; index < 42; index++)
         DateTime(gridStart.year, gridStart.month, gridStart.day + index),
@@ -753,29 +758,39 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     CalendarOccurrenceDto occurrence,
     DateTime targetDate,
   ) {
+    final weekStart =
+        ref.read(calendarWeekStartProvider).value ?? defaultCalendarWeekStart;
     return ref
-        .read(calendarOccurrencesProvider(_calendarRange(context)).notifier)
+        .read(
+          calendarOccurrencesProvider(
+            _calendarRange(context, weekStart),
+          ).notifier,
+        )
         .moveOccurrence(occurrence: occurrence, targetDate: targetDate);
   }
 
-  CalendarRange _calendarRange(BuildContext context) {
+  CalendarRange _calendarRange(BuildContext context, String weekStart) {
     if (_viewMode == CalendarViewMode.week) {
-      final start = _weekStart(context, _anchorDay);
+      final start = _weekStart(context, _anchorDay, weekStart);
       return CalendarRange.local(
         start: start,
         end: DateTime(start.year, start.month, start.day + 7),
       );
     }
     final monthStart = DateTime(_anchorDay.year, _anchorDay.month);
-    final start = _weekStart(context, monthStart);
+    final start = _weekStart(context, monthStart, weekStart);
     return CalendarRange.local(
       start: start,
       end: DateTime(start.year, start.month, start.day + 42),
     );
   }
 
-  DateTime _weekStart(BuildContext context, DateTime day) {
-    final firstDay = MaterialLocalizations.of(context).firstDayOfWeekIndex;
+  DateTime _weekStart(BuildContext context, DateTime day, String weekStart) {
+    final firstDay = switch (weekStart) {
+      mondayCalendarWeekStart => DateTime.monday,
+      sundayCalendarWeekStart => DateTime.sunday % 7,
+      _ => MaterialLocalizations.of(context).firstDayOfWeekIndex,
+    };
     final weekday = day.weekday % 7;
     final offset = (weekday - firstDay + 7) % 7;
     return DateTime(day.year, day.month, day.day - offset);

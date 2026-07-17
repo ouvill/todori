@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:todori/src/screens/account_screen.dart';
 import 'package:todori/src/screens/calendar_screen.dart';
+import 'package:todori/src/screens/calendar_settings_screen.dart';
 import 'package:todori/src/screens/focus_screen.dart';
 import 'package:todori/src/screens/home_screen.dart';
 import 'package:todori/src/screens/lists_screen.dart';
+import 'package:todori/src/screens/menu_screen.dart';
 import 'package:todori/src/screens/search_screen.dart';
 import 'package:todori/src/screens/task_detail_screen.dart';
 import 'package:todori/src/screens/tasks_screen.dart';
@@ -18,9 +20,9 @@ import 'package:todori/src/ui/app_navigation_shell.dart';
 /// second (higher-functionality) UI mode should mean adding new top-level
 /// routes/branches here, not scattering routing logic across screens.
 ///
-/// Home, Lists, and Account live in a persistent product shell. List task
-/// screens stay in that shell; task detail becomes an immersive route and
-/// hides the global navigation.
+/// Home, Calendar, Lists, and Menu live in a persistent product shell. Account
+/// is reached from Menu; task detail becomes an immersive route and hides the
+/// global navigation.
 GoRouter buildAppRouter() {
   return GoRouter(
     initialLocation: '/',
@@ -54,10 +56,28 @@ GoRouter buildAppRouter() {
             ],
           ),
           GoRoute(
-            path: '/account',
-            name: 'account',
+            path: '/menu',
+            name: 'menu',
             pageBuilder: (context, state) =>
-                _topLevelPage(state: state, child: const AccountScreen()),
+                _topLevelPage(state: state, child: const MenuScreen()),
+            routes: [
+              GoRoute(
+                path: 'account',
+                name: 'account',
+                pageBuilder: (context, state) => _listPage(
+                  state: state,
+                  child: const AccountScreen(showBackButton: true),
+                ),
+              ),
+              GoRoute(
+                path: 'calendar',
+                name: 'calendarSettings',
+                pageBuilder: (context, state) => _listPage(
+                  state: state,
+                  child: const CalendarSettingsScreen(),
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/lists',
