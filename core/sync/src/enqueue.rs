@@ -1305,7 +1305,7 @@ mod tests {
         let mut low = 0usize;
         let mut high = 600usize;
         while low < high {
-            let candidate = (low + high + 1) / 2;
+            let candidate = (low + high).div_ceil(2);
             if template_with_escape_note_size(uuid(22), candidate)
                 .snapshot
                 .validate()
