@@ -32,9 +32,11 @@
 
 ### Design Lab境界
 
-- Design Labはfake data専用の独立環境とする。`app/tool/design_lab_main.dart`と`app/test/visual_qa/`のmock、route、state、componentをproduction codeからimportしてはならない。
-- productionへ昇格するのは裁定済みtoken、構成規則、interaction timingであり、production側のcomponentとして実データ・provider・l10n・semantics契約に沿って実装する。
-- production codeからDesign Labへの依存をboundary checkまたは同等の静的検査で検出する。Design Labがproduction componentを参照することは、探索環境を壊さない範囲で許可する。
+- Design Labのproduction baselineはfake dataを注入した実際の`TodoriApp`、production router、provider、l10n、semantics、componentで描画する。採用済み画面をLab専用widgetとして複製しない。
+- Candidateは未採用の差分だけをregistryへ登録し、対象route、仮説、本書との差分、対応work itemを必須とする。既定ではproduction theme / componentを再利用し、比較に必要な差分だけをLab専用widgetにする。
+- 採用または却下したCandidateを実行可能なarchiveとして残さない。採用時は本書の裁定、production実装、production Visual QA、Candidate削除を同一work itemで完了し、履歴はwork itemとgitに残す。
+- production codeからDesign Lab、Visual QA、fake bridgeへの依存をboundary checkまたは同等の静的検査で検出する。依存方向はDesign Lab / testからproductionへの一方向だけを許可する。
+- 正本の責任は、本書が視覚契約、productionが挙動・情報設計・アクセシビリティ、Design Labが未採用差分の探索である。Candidateがproductionの挙動を代替したりfallbackになったりしてはならない。
 
 ## セクション1: 形容詞の翻訳表
 
@@ -241,14 +243,14 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
 
 ## 裁定済み事項
 
-- **2026-07-06 人間裁定**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、**calm発展形の単一方向**（現行 `design_lab_task_list.png` 等の8画面）へ集約された。dense案・smart lists単独案はclosed。smart listsの概念は `design_lab_list_overview` に吸収済み。以後のセッションはこの3案比較を再開しない。本番への反映は別タスクの指示書で範囲を定めて行う。
+- **2026-07-06 人間裁定（履歴）**: Design Lab の Today/Task 体験は当初の3案比較（calm/dense/smart lists）から、人間がAIと共同で探索した結果、calm発展形の単一方向へ集約された。dense案・smart lists単独案はclosed。比較mockはproduction採用後に撤去し、task文書とgit履歴へ保存した。以後のセッションはこの3案比較を再開しない。
 - **2026-07-06 人間裁定**: 本番アイコンセットとして `lucide_icons_flutter` を採用する。本番反映時は全画面で Lucide に統一し、Material Icons と同一画面で混在させない。tooltip/semanticsは維持する。反映は別タスクの指示書で行う。
-- **2026-07-06 人間裁定（タイポグラフィ、履歴）**: Design Labの4案比較（A: Newsreader範囲制限 / B: Lora現行 / C: オールInter / D: A+和文明朝）の結果、当時は**D案の構成を採用**した。これは2026-07-13 single-canvas本番採用で通常画面をall Interへ変更したため、現在の拘束規範ではない。具体構成:
+- **2026-07-06 人間裁定（タイポグラフィ、履歴）**: Design Labの4案比較（A: Newsreader範囲制限 / B: Lora現行 / C: オールInter / D: A+和文明朝）の結果、当時は**D案の構成を採用**した。これは2026-07-13 single-canvas本番採用で通常画面をall Interへ変更したため、現在の拘束規範ではない。比較実装と外部font取得scriptは採用済みmock撤去時に削除し、履歴はtask文書とgitに残す。具体構成:
   - ディスプレイ書体: Newsreader（欧文、既存同梱アセット）＋ システム和文セリフフォールバック
   - セリフの適用範囲: **28px級以上かつ1画面1〜2箇所のみ**（現行画面ではToday見出しのみ。将来のタイマー数字も対象）
   - AppBarタイトル・セクション見出し（Tasks等）・タスク/詳細タイトル・本文: すべてInter
   - Loraは本番から退役（decommission）。アセットはDesign Lab比較用にリポジトリへ残すが、pubspecのfonts定義から外し、アプリには同梱しない
-  - Zen Old MinchoはLab実験専用（同梱しない、`app/tool/fetch_lab_fonts.sh` 経由）
+  - Zen Old Minchoは当時のLab実験専用で、productionへ同梱しなかった
 - **2026-07-06 人間裁定（ダークモード）**: ダークモードは対応方針だが直近スコープ外。Phase 1リリースはライトモードのみを正式サポートし、リリース前にthemeModeをlight固定する。dark系トークン・コードは残置し、正式対応の再開はBACKLOGで管理する。それまで新規UI実装はライトモードでの検証のみを必須とする。
 - **2026-07-07 人間裁定（北極星アプリ）**: 操作感・体験品質の参照基準は TickTick および Todoist とする。デザイン批評・実装判断で迷った場合は「TickTick/Todoistならどうするか」を判断補助に使う（ビジュアルトーンは既存のTodoriブランド＝深緑/セージ/セリフ見出しを維持し、両アプリの操作感・密度・応答性・モーションの水準を参照する）。
 - **2026-07-07 人間裁定（データ保持原則）**: 完了済みタスク（done/wont_do）は振り返りのための記録資産であり、リスト削除を含むいかなる整理操作でも暗黙に失われてはならない。リスト削除はリストの論理削除とし、完了済みタスクは削除済みリストに紐付いたまま保全する（未完了タスクはゴミ箱へ、復元時は既定インボックスへremap）。振り返り（ログブック）UIはPhase 3検討。ゴミ箱の完全削除機能を将来実装する場合も、この原則との整合（完了済み履歴を巻き込まない設計）を確認すること。
