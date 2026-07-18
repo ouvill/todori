@@ -527,7 +527,7 @@ impl TodoriClient {
         self.set_setting_value(key, value)
     }
 
-    pub fn set_task_reminder(
+    pub fn create_task_reminder(
         &self,
         task_id: Uuid,
         remind_at: i64,
@@ -536,8 +536,29 @@ impl TodoriClient {
         let created_at = now_ms()?;
         self.with_reminder_repository(|repository| {
             Ok(repository
-                .set_task_reminder(task_id, remind_at, created_at)?
+                .create_task_reminder(task_id, remind_at, created_at)?
                 .into())
+        })
+    }
+
+    pub fn update_reminder(
+        &self,
+        reminder_id: Uuid,
+        remind_at: i64,
+    ) -> Result<ReminderView, ClientError> {
+        let _guard = self.operation_guard()?;
+        let updated_at = now_ms()?;
+        self.with_reminder_repository(|repository| {
+            Ok(repository
+                .update_reminder(reminder_id, remind_at, updated_at)?
+                .into())
+        })
+    }
+
+    pub fn delete_reminder(&self, reminder_id: Uuid) -> Result<ReminderView, ClientError> {
+        let _guard = self.operation_guard()?;
+        self.with_reminder_repository(|repository| {
+            Ok(repository.delete_reminder(reminder_id)?.into())
         })
     }
 
@@ -602,9 +623,10 @@ impl TodoriClient {
         snoozed_until: i64,
     ) -> Result<ReminderView, ClientError> {
         let _guard = self.operation_guard()?;
+        let updated_at = now_ms()?;
         self.with_reminder_repository(|repository| {
             Ok(repository
-                .snooze_reminder(reminder_id, snoozed_until)?
+                .snooze_reminder(reminder_id, snoozed_until, updated_at)?
                 .into())
         })
     }
@@ -1104,7 +1126,7 @@ mod tests {
             .insert(task.clone())
             .unwrap();
         let reminder = SqliteReminderRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
-            .set_task_reminder(task.id, BASE_MS + 10_000, BASE_MS)
+            .create_task_reminder(task.id, BASE_MS + 10_000, BASE_MS)
             .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         let mut transaction = OwnedSqliteWriteTx::begin(connection).unwrap();

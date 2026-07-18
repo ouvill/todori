@@ -259,11 +259,20 @@ abstract class BridgeService {
   /// Persists an app setting.
   Future<void> setSetting({required String key, required String value});
 
-  /// Replaces this task's Phase 1 reminder with a single local reminder.
-  Future<rust_api.ReminderDto> setTaskReminder({
+  /// Adds a local reminder to a task.
+  Future<rust_api.ReminderDto> createTaskReminder({
     required String taskId,
     required int remindAt,
   });
+
+  /// Changes one reminder while preserving its identity.
+  Future<rust_api.ReminderDto> updateReminder({
+    required String reminderId,
+    required int remindAt,
+  });
+
+  /// Deletes one reminder and returns the deleted row.
+  Future<rust_api.ReminderDto> deleteReminder({required String reminderId});
 
   /// Clears all reminders for a task and returns the cleared rows.
   Future<List<rust_api.ReminderDto>> clearTaskReminders({
@@ -662,10 +671,20 @@ class FrbBridgeService implements BridgeService {
       rust_api.setSetting(key: key, value: value);
 
   @override
-  Future<rust_api.ReminderDto> setTaskReminder({
+  Future<rust_api.ReminderDto> createTaskReminder({
     required String taskId,
     required int remindAt,
-  }) => rust_api.setTaskReminder(taskId: taskId, remindAt: remindAt);
+  }) => rust_api.createTaskReminder(taskId: taskId, remindAt: remindAt);
+
+  @override
+  Future<rust_api.ReminderDto> updateReminder({
+    required String reminderId,
+    required int remindAt,
+  }) => rust_api.updateReminder(reminderId: reminderId, remindAt: remindAt);
+
+  @override
+  Future<rust_api.ReminderDto> deleteReminder({required String reminderId}) =>
+      rust_api.deleteReminder(reminderId: reminderId);
 
   @override
   Future<List<rust_api.ReminderDto>> clearTaskReminders({

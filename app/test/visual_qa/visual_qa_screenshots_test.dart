@@ -1386,8 +1386,35 @@ void main() {
   ) async {
     _setMobileViewport(tester);
     final seed = await _seedRealisticData(tester);
-    await _openTask(tester, seed.parentWithSubtasksTitle);
+    final context = tester.element(find.byType(Scaffold).first);
+    GoRouter.of(
+      context,
+    ).go('/lists/${seed.homeListId}/tasks/${seed.parentWithSubtasksId}');
+    await tester.pumpAndSettle();
     await _screenshot(tester, 'task_detail');
+  });
+
+  testWidgets('task_detail_reminders_sheet: multiple reminder management', (
+    tester,
+  ) async {
+    _setMobileViewport(tester);
+    final seed = await _seedRealisticData(tester);
+    final context = tester.element(find.byType(Scaffold).first);
+    GoRouter.of(
+      context,
+    ).go('/lists/${seed.homeListId}/tasks/${seed.parentWithSubtasksId}');
+    await tester.pumpAndSettle();
+    final reminderRow = find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith(
+            'task-reminder-chip-',
+          ),
+    );
+    await _ensureVisible(tester, reminderRow);
+    await tester.tap(reminderRow);
+    await tester.pumpAndSettle();
+    await _screenshot(tester, 'task_detail_reminders_sheet');
   });
 
   testWidgets('task_detail_text_scale_2: detail at Dynamic Type 2.0', (
@@ -2117,15 +2144,13 @@ Future<_SeedData> _seedRealisticData(
     priority: 2,
     due: testDateOnlyDueFromMillis(tomorrow),
   );
-  await fake.setTaskReminder(
+  await fake.createTaskReminder(
     taskId: launch.id,
-    remindAt: DateTime(
-      now.year,
-      now.month,
-      now.day,
-      16,
-      30,
-    ).millisecondsSinceEpoch,
+    remindAt: tomorrow + const Duration(hours: 16, minutes: 30).inMilliseconds,
+  );
+  await fake.createTaskReminder(
+    taskId: launch.id,
+    remindAt: tomorrow + const Duration(hours: 17, minutes: 30).inMilliseconds,
   );
   final checklist = await fake.createTask(
     listId: homeListId,
@@ -2139,15 +2164,9 @@ Future<_SeedData> _seedRealisticData(
     priority: 1,
     due: testDateOnlyDueFromMillis(today),
   );
-  await fake.setTaskReminder(
+  await fake.createTaskReminder(
     taskId: checklist.id,
-    remindAt: DateTime(
-      now.year,
-      now.month,
-      now.day,
-      16,
-      30,
-    ).millisecondsSinceEpoch,
+    remindAt: tomorrow + const Duration(hours: 16, minutes: 30).inMilliseconds,
   );
   await fake.createTask(
     listId: homeListId,

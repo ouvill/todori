@@ -334,8 +334,10 @@ void main() {
       title: 'Review reminder chip',
       due: testDateOnlyDueFromMillis(_todayStartMs()),
     );
-    final remindAt = DateTime(2026, 7, 8, 15, 30).millisecondsSinceEpoch;
-    await fake.setTaskReminder(taskId: task.id, remindAt: remindAt);
+    final remindAt = DateTime.now()
+        .add(const Duration(days: 1))
+        .millisecondsSinceEpoch;
+    await fake.createTaskReminder(taskId: task.id, remindAt: remindAt);
 
     await tester.pumpWidget(
       TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
@@ -349,8 +351,57 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(formatReminderDateTime('en', remindAt)), findsOneWidget);
-    expect(find.byTooltip('Change reminder'), findsOneWidget);
-    expect(find.byTooltip('Clear reminder'), findsOneWidget);
+    expect(find.byTooltip('Manage reminders'), findsOneWidget);
+    expect(find.byTooltip('Clear reminder'), findsNothing);
+  });
+
+  testWidgets('task detail manages multiple reminders and due-time presets', (
+    tester,
+  ) async {
+    _useLocale(tester, const Locale('en'));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final inbox = (await fake.getLists()).singleWhere((list) => list.isDefault);
+    final dueAt = DateTime.now().add(const Duration(days: 2));
+    final task = await fake.createTask(
+      listId: inbox.id,
+      title: 'Plan reminder sequence',
+      due: testDateTimeDueFromMillis(dueAt.millisecondsSinceEpoch),
+      scheduledAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await fake.createTaskReminder(
+      taskId: task.id,
+      remindAt: dueAt.subtract(const Duration(hours: 1)).millisecondsSinceEpoch,
+    );
+    await fake.createTaskReminder(
+      taskId: task.id,
+      remindAt: dueAt
+          .subtract(const Duration(minutes: 30))
+          .millisecondsSinceEpoch,
+    );
+
+    await tester.pumpWidget(
+      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Plan reminder sequence'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 reminders'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('task-reminder-chip-${task.id}')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('task-reminders-sheet')), findsOneWidget);
+    expect(find.byTooltip('Edit reminder'), findsNWidgets(2));
+    expect(find.byTooltip('Delete reminder'), findsNWidgets(2));
+    await tester.tap(find.byKey(const ValueKey('add-reminder-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('reminder-preset-5m')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reminder-preset-30m')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reminder-preset-1h')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reminder-preset-1d')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reminder-custom-time')), findsOneWidget);
   });
 
   testWidgets('lists screen shows lists from the bridge service', (

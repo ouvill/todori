@@ -47,13 +47,13 @@ git diff --check
 
 実機手順は [`docs/09_運用ガイド.md`](../09_運用ガイド.md) §8.1.1を正本とする。各対象platformで同じprofileを2回起動し、DK rotation、process再起動、SQLCipher reopen、secret-store zero prompt、秘密値のlog非露出を確認する。
 
-2026-07-15時点の証拠は次の通りである。
+2026-07-18時点の証拠は次の通りである。
 
 | Platform | Cross / package build | 接続実機runtime | 判定 |
 |---|---|---|---|
 | macOS | release appとbridge build済み | profile E2Eを2回実行し、Data Protection Keychain、DB reopen、prompt 0回を確認 | crypto platform gate PASS |
 | iOS | device / Simulator cross-buildとno-codesign app build済み | 未実施 | iOS外部配布 BLOCKED |
-| Android | JDK 21、arm64 NDK cross-build、universal / split release APK build済み | 未接続。Keystore non-exportability、active / pending復旧、DB reopen未確認 | Android外部配布 BLOCKED |
+| Android | JDK 21、arm64 NDK cross-build、universal / split release APK build済み | Pixel 7a / Android 16で`connectedDebugAndroidTest`とprofile E2Eを2回実行し、Keystore key non-exportability、active / pending capsule roundtrip、DK rotation、新鍵DB reopen、旧鍵拒否、プロセス再起動後のactive capsule再利用を確認 | crypto platform gate PASS。同期・課金等の非暗号release gateは別途必要 |
 
 ## 3. Reviewと表示gate
 
@@ -64,4 +64,4 @@ git diff --check
 
 ## 4. 現在の判定
 
-2026-07-15時点では、暗号実装の自動gateと内部独立reviewは合格している。macOSのplatform crypto gateだけが実機合格であり、iOS / Androidの個人利用外部配布、Organization共有の公開、一般リリース、`audited`表示は閉じたままである。
+2026-07-18時点では、暗号実装の自動gateと内部独立reviewは合格している。macOSとAndroidのplatform crypto gateは実機合格し、iOSの個人利用外部配布、Organization共有の公開、一般リリース、`audited`表示は閉じたままである。Androidの一般配布も同期・課金等の非暗号release gateが完了するまで行わない。

@@ -71,11 +71,18 @@ void main() {
         .add(const Duration(hours: 2))
         .millisecondsSinceEpoch;
 
-    final reminder = await setTaskReminder(taskId: task.id, remindAt: remindAt);
+    final reminder = await createTaskReminder(
+      taskId: task.id,
+      remindAt: remindAt,
+    );
+    final second = await createTaskReminder(
+      taskId: task.id,
+      remindAt: remindAt + const Duration(minutes: 30).inMilliseconds,
+    );
 
     expect(reminder.taskId, task.id);
     expect(reminder.remindAt, remindAt);
-    expect(await getTaskReminders(taskId: task.id), [reminder]);
+    expect(await getTaskReminders(taskId: task.id), [reminder, second]);
     expect(
       (await listPendingReminders(
         nowMs: DateTime.now().millisecondsSinceEpoch,
@@ -89,6 +96,15 @@ void main() {
       snoozedUntil: snoozedUntil,
     );
     expect(snoozed.snoozedUntil, snoozedUntil);
+
+    final updated = await updateReminder(
+      reminderId: reminder.id,
+      remindAt: remindAt + const Duration(hours: 4).inMilliseconds,
+    );
+    expect(updated.id, reminder.id);
+    expect(updated.snoozedUntil, isNull);
+
+    expect((await deleteReminder(reminderId: second.id)).id, second.id);
 
     final cleared = await clearTaskReminders(taskId: task.id);
     expect(cleared.single.id, reminder.id);

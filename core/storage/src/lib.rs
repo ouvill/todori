@@ -123,6 +123,14 @@ const MIGRATIONS: &[Migration] = &[
 pub enum StorageError {
     #[error("record not found: {0}")]
     NotFound(Uuid),
+    #[error("reminder time must be in the future")]
+    ReminderTimeNotFuture,
+    #[error("a reminder already exists at that time")]
+    DuplicateReminderTime,
+    #[error("a task can have at most {limit} reminders")]
+    ReminderLimitReached { limit: usize },
+    #[error("closed tasks cannot schedule or snooze reminders")]
+    ReminderTaskClosed,
     #[error("another active timer already exists: {0}")]
     ActiveTimerConflict(Uuid),
     #[error("invalid active timer update: {0}")]
@@ -328,6 +336,8 @@ pub struct Reminder {
     pub snoozed_until: Option<i64>,
     pub created_at: i64,
 }
+
+pub const MAX_REMINDERS_PER_TASK: usize = 5;
 
 /// 未ACKのrecord headに保持する暗号化済みsemantic state。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -608,12 +618,19 @@ pub trait SettingsRepository {
 
 /// リマインダーの永続化を担うリポジトリ。
 pub trait ReminderRepository {
-    fn set_task_reminder(
+    fn create_task_reminder(
         &mut self,
         task_id: Uuid,
         remind_at: i64,
         created_at: i64,
     ) -> Result<Reminder, StorageError>;
+    fn update_reminder(
+        &mut self,
+        reminder_id: Uuid,
+        remind_at: i64,
+        updated_at: i64,
+    ) -> Result<Reminder, StorageError>;
+    fn delete_reminder(&mut self, reminder_id: Uuid) -> Result<Reminder, StorageError>;
     fn clear_task_reminders(&mut self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
     fn list_task_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
     fn list_task_subtree_reminders(&self, task_id: Uuid) -> Result<Vec<Reminder>, StorageError>;
@@ -623,6 +640,7 @@ pub trait ReminderRepository {
         &mut self,
         reminder_id: Uuid,
         snoozed_until: i64,
+        updated_at: i64,
     ) -> Result<Reminder, StorageError>;
 }
 
@@ -4595,13 +4613,14 @@ impl SqliteReminderRepository {
 }
 
 impl ReminderRepository for SqliteReminderRepository {
-    fn set_task_reminder(
+    fn create_task_reminder(
         &mut self,
         task_id: Uuid,
         remind_at: i64,
         created_at: i64,
     ) -> Result<Reminder, StorageError> {
-        ensure_task_exists(&self.connection, task_id)?;
+        ensure_task_open_for_reminder(&self.connection, task_id)?;
+        validate_reminder_time(remind_at, created_at)?;
         let reminder = Reminder {
             id: Uuid::now_v7(),
             task_id,
@@ -4610,9 +4629,55 @@ impl ReminderRepository for SqliteReminderRepository {
             created_at,
         };
         let transaction = self.connection.transaction()?;
-        delete_task_reminders_on(&transaction, task_id)?;
+        let reminder_count: i64 = transaction.query_row(
+            "SELECT COUNT(*) FROM reminders WHERE task_id = ?1",
+            [task_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if reminder_count >= MAX_REMINDERS_PER_TASK as i64 {
+            return Err(StorageError::ReminderLimitReached {
+                limit: MAX_REMINDERS_PER_TASK,
+            });
+        }
+        ensure_unique_reminder_time_on(&transaction, task_id, remind_at, None)?;
         insert_reminder_on(&transaction, &reminder)?;
         transaction.commit()?;
+        Ok(reminder)
+    }
+
+    fn update_reminder(
+        &mut self,
+        reminder_id: Uuid,
+        remind_at: i64,
+        updated_at: i64,
+    ) -> Result<Reminder, StorageError> {
+        validate_reminder_time(remind_at, updated_at)?;
+        let current = get_reminder_on(&self.connection, reminder_id)?;
+        ensure_task_open_for_reminder(&self.connection, current.task_id)?;
+        let transaction = self.connection.transaction()?;
+        ensure_unique_reminder_time_on(
+            &transaction,
+            current.task_id,
+            remind_at,
+            Some(reminder_id),
+        )?;
+        transaction.execute(
+            "UPDATE reminders
+             SET remind_at = ?2, snoozed_until = NULL
+             WHERE id = ?1",
+            params![reminder_id.to_string(), remind_at],
+        )?;
+        let reminder = get_reminder_on(&transaction, reminder_id)?;
+        transaction.commit()?;
+        Ok(reminder)
+    }
+
+    fn delete_reminder(&mut self, reminder_id: Uuid) -> Result<Reminder, StorageError> {
+        let reminder = get_reminder_on(&self.connection, reminder_id)?;
+        self.connection.execute(
+            "DELETE FROM reminders WHERE id = ?1",
+            [reminder_id.to_string()],
+        )?;
         Ok(reminder)
     }
 
@@ -4687,7 +4752,11 @@ impl ReminderRepository for SqliteReminderRepository {
         &mut self,
         reminder_id: Uuid,
         snoozed_until: i64,
+        updated_at: i64,
     ) -> Result<Reminder, StorageError> {
+        let reminder = get_reminder_on(&self.connection, reminder_id)?;
+        ensure_task_open_for_reminder(&self.connection, reminder.task_id)?;
+        validate_reminder_time(snoozed_until, updated_at)?;
         let changed = self.connection.execute(
             "UPDATE reminders
              SET snoozed_until = ?2
@@ -6381,6 +6450,73 @@ fn list_task_reminders_on(
         .query_map([task_id.to_string()], row_to_reminder)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(reminders)
+}
+
+fn get_reminder_on(connection: &Connection, reminder_id: Uuid) -> Result<Reminder, StorageError> {
+    connection
+        .query_row(
+            "SELECT id, task_id, remind_at, snoozed_until, created_at
+             FROM reminders
+             WHERE id = ?1",
+            [reminder_id.to_string()],
+            row_to_reminder,
+        )
+        .optional()?
+        .ok_or(StorageError::NotFound(reminder_id))
+}
+
+fn ensure_task_open_for_reminder(
+    connection: &Connection,
+    task_id: Uuid,
+) -> Result<(), StorageError> {
+    let state = connection
+        .query_row(
+            "SELECT status, deleted_at FROM tasks WHERE id = ?1",
+            [task_id.to_string()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .optional()?
+        .ok_or(StorageError::NotFound(task_id))?;
+    if matches!(state.0.as_str(), "todo" | "in_progress") && state.1.is_none() {
+        Ok(())
+    } else {
+        Err(StorageError::ReminderTaskClosed)
+    }
+}
+
+fn validate_reminder_time(remind_at: i64, now_ms: i64) -> Result<(), StorageError> {
+    if remind_at > now_ms {
+        Ok(())
+    } else {
+        Err(StorageError::ReminderTimeNotFuture)
+    }
+}
+
+fn ensure_unique_reminder_time_on(
+    connection: &Connection,
+    task_id: Uuid,
+    remind_at: i64,
+    excluding_id: Option<Uuid>,
+) -> Result<(), StorageError> {
+    let duplicate: bool = connection.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM reminders
+             WHERE task_id = ?1
+               AND remind_at = ?2
+               AND (?3 IS NULL OR id != ?3)
+         )",
+        params![
+            task_id.to_string(),
+            remind_at,
+            excluding_id.map(|id| id.to_string())
+        ],
+        |row| row.get(0),
+    )?;
+    if duplicate {
+        Err(StorageError::DuplicateReminderTime)
+    } else {
+        Ok(())
+    }
 }
 
 fn insert_reminder_on(connection: &Connection, reminder: &Reminder) -> Result<(), StorageError> {
@@ -9258,7 +9394,7 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_reminder_repository_sets_lists_clears_and_snoozes_reminders() {
+    fn sqlite_reminder_repository_creates_updates_deletes_and_snoozes_reminders() {
         let file = NamedTempFile::new().unwrap();
         let task = sample_task();
         {
@@ -9271,7 +9407,7 @@ mod tests {
         let mut repository = SqliteReminderRepository::new(connection);
 
         let first = repository
-            .set_task_reminder(task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .create_task_reminder(task.id, 1_800_000_000_000, 1_799_000_000_000)
             .unwrap();
         assert_eq!(first.task_id, task.id);
         assert_eq!(
@@ -9280,23 +9416,71 @@ mod tests {
         );
 
         let second = repository
-            .set_task_reminder(task.id, 1_800_000_600_000, 1_799_000_001_000)
+            .create_task_reminder(task.id, 1_800_000_600_000, 1_799_000_001_000)
             .unwrap();
         assert_ne!(first.id, second.id);
         assert_eq!(
             repository.list_task_reminders(task.id).unwrap(),
-            vec![second.clone()]
+            vec![first.clone(), second.clone()]
         );
 
+        let updated = repository
+            .update_reminder(first.id, 1_800_001_200_000, 1_799_000_002_000)
+            .unwrap();
+        assert_eq!(updated.id, first.id);
+        assert_eq!(updated.created_at, first.created_at);
+        assert_eq!(updated.remind_at, 1_800_001_200_000);
+
         let snoozed = repository
-            .snooze_reminder(second.id, 1_800_004_200_000)
+            .snooze_reminder(second.id, 1_800_004_200_000, 1_799_000_003_000)
             .unwrap();
         assert_eq!(snoozed.snoozed_until, Some(1_800_004_200_000));
+        assert_eq!(repository.delete_reminder(updated.id).unwrap(), updated);
         assert_eq!(
             repository.clear_task_reminders(task.id).unwrap(),
             vec![snoozed]
         );
         assert!(repository.list_task_reminders(task.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sqlite_reminder_repository_enforces_time_uniqueness_and_limit() {
+        let file = NamedTempFile::new().unwrap();
+        let task = sample_task();
+        {
+            let connection = open_encrypted(file.path(), &KEY).unwrap();
+            SqliteTaskRepository::new(connection)
+                .insert(task.clone())
+                .unwrap();
+        }
+
+        let connection = open_encrypted(file.path(), &KEY).unwrap();
+        let mut repository = SqliteReminderRepository::new(connection);
+        assert!(matches!(
+            repository.create_task_reminder(task.id, 100, 100),
+            Err(StorageError::ReminderTimeNotFuture)
+        ));
+
+        let first = repository.create_task_reminder(task.id, 200, 100).unwrap();
+        assert!(matches!(
+            repository.create_task_reminder(task.id, 200, 100),
+            Err(StorageError::DuplicateReminderTime)
+        ));
+        for remind_at in [300, 400, 500, 600] {
+            repository
+                .create_task_reminder(task.id, remind_at, 100)
+                .unwrap();
+        }
+        assert!(matches!(
+            repository.create_task_reminder(task.id, 700, 100),
+            Err(StorageError::ReminderLimitReached {
+                limit: MAX_REMINDERS_PER_TASK
+            })
+        ));
+        assert!(matches!(
+            repository.update_reminder(first.id, 300, 100),
+            Err(StorageError::DuplicateReminderTime)
+        ));
     }
 
     #[test]
@@ -9306,8 +9490,7 @@ mod tests {
         pending_task.status = TaskStatus::Todo;
         pending_task.sort_order = "a0".to_string();
         let mut closed_task = sample_task();
-        closed_task.status = TaskStatus::Done;
-        closed_task.completed_at = Some(1_799_000_010_000);
+        closed_task.status = TaskStatus::Todo;
         closed_task.sort_order = "a1".to_string();
         let mut expired_task = sample_task();
         expired_task.status = TaskStatus::Todo;
@@ -9323,13 +9506,20 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteReminderRepository::new(connection);
         let pending = repository
-            .set_task_reminder(pending_task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .create_task_reminder(pending_task.id, 1_800_000_000_000, 1_799_000_000_000)
             .unwrap();
         repository
-            .set_task_reminder(closed_task.id, 1_800_000_000_000, 1_799_000_000_000)
+            .create_task_reminder(closed_task.id, 1_800_000_000_000, 1_799_000_000_000)
             .unwrap();
         repository
-            .set_task_reminder(expired_task.id, 1_799_999_999_999, 1_799_000_000_000)
+            .connection()
+            .execute(
+                "UPDATE tasks SET status = 'done', completed_at = ?2 WHERE id = ?1",
+                params![closed_task.id.to_string(), 1_799_000_010_000_i64],
+            )
+            .unwrap();
+        repository
+            .create_task_reminder(expired_task.id, 1_799_999_999_999, 1_799_000_000_000)
             .unwrap();
 
         assert_eq!(
@@ -9372,13 +9562,13 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteReminderRepository::new(connection);
         let parent_reminder = repository
-            .set_task_reminder(parent.id, 1_800_000_000_000, 1_799_000_000_000)
+            .create_task_reminder(parent.id, 1_800_000_000_000, 1_799_000_000_000)
             .unwrap();
         let child_reminder = repository
-            .set_task_reminder(child.id, 1_800_000_600_000, 1_799_000_000_000)
+            .create_task_reminder(child.id, 1_800_000_600_000, 1_799_000_000_000)
             .unwrap();
         let other_reminder = repository
-            .set_task_reminder(other.id, 1_800_001_200_000, 1_799_000_000_000)
+            .create_task_reminder(other.id, 1_800_001_200_000, 1_799_000_000_000)
             .unwrap();
 
         assert_eq!(
@@ -9418,10 +9608,10 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut reminder_repository = SqliteReminderRepository::new(connection);
             reminder_repository
-                .set_task_reminder(subtree_task.id, 1_800_000_000_000, 1_799_000_000_000)
+                .create_task_reminder(subtree_task.id, 1_800_000_000_000, 1_799_000_000_000)
                 .unwrap();
             reminder_repository
-                .set_task_reminder(list_task.id, 1_800_000_600_000, 1_799_000_000_000)
+                .create_task_reminder(list_task.id, 1_800_000_600_000, 1_799_000_000_000)
                 .unwrap();
         }
 

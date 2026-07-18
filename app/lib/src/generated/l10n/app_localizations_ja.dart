@@ -513,10 +513,61 @@ class AppLocalizationsJa extends AppLocalizations {
   String get reminderChipTooltipSet => 'リマインダーを設定';
 
   @override
-  String get reminderChipTooltipChange => 'リマインダーを変更';
+  String get reminderChipTooltipChange => 'リマインダーを管理';
 
   @override
   String get clearReminderButton => 'リマインダーを解除';
+
+  @override
+  String get manageRemindersTitle => 'リマインダー';
+
+  @override
+  String get addReminderButton => 'リマインダーを追加';
+
+  @override
+  String get editReminderTooltip => 'リマインダーを編集';
+
+  @override
+  String get deleteReminderTooltip => 'リマインダーを削除';
+
+  @override
+  String reminderCount(int count) {
+    return '$count件のリマインダー';
+  }
+
+  @override
+  String get reminderQuickOptionsTitle => '期限時刻より前';
+
+  @override
+  String get reminderFiveMinutesBefore => '5分前';
+
+  @override
+  String get reminderThirtyMinutesBefore => '30分前';
+
+  @override
+  String get reminderOneHourBefore => '1時間前';
+
+  @override
+  String get reminderOneDayBefore => '1日前';
+
+  @override
+  String get reminderCustomTime => '日時を指定';
+
+  @override
+  String get reminderPastLabel => '過去';
+
+  @override
+  String get reminderLimitReached => '1つのタスクには最大5件まで設定できます。';
+
+  @override
+  String get reminderDuplicateTime => '同じ時刻のリマインダーがすでにあります。';
+
+  @override
+  String get reminderMustBeFuture => '未来の時刻を選んでください。';
+
+  @override
+  String get reminderSavedNotificationFailed =>
+      'リマインダーは保存しましたが、Todoriはローカル通知を登録できませんでした。';
 
   @override
   String get reminderPermissionDenied =>

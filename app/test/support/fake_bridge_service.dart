@@ -1381,14 +1381,29 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<ReminderDto> setTaskReminder({
+  Future<ReminderDto> createTaskReminder({
     required String taskId,
     required int remindAt,
   }) async {
-    if (!_tasks.any((task) => task.id == taskId)) {
+    final task = _tasks.where((task) => task.id == taskId).firstOrNull;
+    if (task == null) {
       throw Exception('record not found');
     }
-    _reminders.removeWhere((reminder) => reminder.taskId == taskId);
+    if (task.status == 'done' || task.status == 'wont_do') {
+      throw Exception('closed tasks cannot schedule reminders');
+    }
+    if (remindAt <= DateTime.now().millisecondsSinceEpoch) {
+      throw Exception('reminder time must be in the future');
+    }
+    final taskReminders = _reminders.where(
+      (reminder) => reminder.taskId == taskId,
+    );
+    if (taskReminders.length >= 5) {
+      throw Exception('a task can have at most 5 reminders');
+    }
+    if (taskReminders.any((reminder) => reminder.remindAt == remindAt)) {
+      throw Exception('a reminder already exists at that time');
+    }
     final reminderSeq = _reminderSeq++;
     final reminder = ReminderDto(
       id: 'reminder-$reminderSeq',
@@ -1398,6 +1413,50 @@ class FakeBridgeService implements BridgeService {
     );
     _reminders.add(reminder);
     return reminder;
+  }
+
+  @override
+  Future<ReminderDto> updateReminder({
+    required String reminderId,
+    required int remindAt,
+  }) async {
+    final index = _reminders.indexWhere(
+      (reminder) => reminder.id == reminderId,
+    );
+    if (index < 0) {
+      throw Exception('record not found');
+    }
+    if (remindAt <= DateTime.now().millisecondsSinceEpoch) {
+      throw Exception('reminder time must be in the future');
+    }
+    final current = _reminders[index];
+    if (_reminders.any(
+      (reminder) =>
+          reminder.id != reminderId &&
+          reminder.taskId == current.taskId &&
+          reminder.remindAt == remindAt,
+    )) {
+      throw Exception('a reminder already exists at that time');
+    }
+    final updated = ReminderDto(
+      id: current.id,
+      taskId: current.taskId,
+      remindAt: remindAt,
+      createdAt: current.createdAt,
+    );
+    _reminders[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<ReminderDto> deleteReminder({required String reminderId}) async {
+    final index = _reminders.indexWhere(
+      (reminder) => reminder.id == reminderId,
+    );
+    if (index < 0) {
+      throw Exception('record not found');
+    }
+    return _reminders.removeAt(index);
   }
 
   @override
@@ -1472,6 +1531,10 @@ class FakeBridgeService implements BridgeService {
       throw Exception('record not found');
     }
     final current = _reminders[index];
+    final task = _tasks.singleWhere((task) => task.id == current.taskId);
+    if (task.status == 'done' || task.status == 'wont_do') {
+      throw Exception('closed tasks cannot snooze reminders');
+    }
     final updated = ReminderDto(
       id: current.id,
       taskId: current.taskId,
