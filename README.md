@@ -1,74 +1,132 @@
-# Todori（トドリ）― E2EE Todoアプリ
+# Todori
 
-> Status: pre-release. Todori is public for E2EE transparency and development visibility, but it is not ready for production use or broad external promotion yet.
+**プライバシーを妥協しない、ローカルファーストのE2EE Todoアプリ。**
 
-The first general release is intentionally blocked until the billing foundation, server-side entitlement enforcement, and iOS sandbox purchase/restore flow are complete. Public billing principles are documented in [Billing Overview](./docs/billing_overview.md).
+[![CI](https://github.com/ouvill/todori/actions/workflows/ci.yml/badge.svg)](https://github.com/ouvill/todori/actions/workflows/ci.yml)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](./LICENSE)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](#プロジェクトの状態)
 
-Todoriは、「プライバシーを一切妥協しない、ふわっと親しみやすいTodoアプリ」をコンセプトに掲げるTodo管理アプリです。E2EE（エンドツーエンド暗号化）とローカルファーストの設計を軸に、iOS・Android・Desktop（Windows・macOS・Linux）で動作するマルチプラットフォーム対応を目指しています。アカウント登録や課金を行わなくても、単一端末上でアプリのコア機能をフルに利用できる点が特徴です。
+Todori（トドリ）は、タスクの内容をサービス提供者からも見えないようにすることを目指した、Flutter + Rust製のTodoアプリです。アカウントやサーバーを使わずに単一端末で利用でき、同期を有効にした場合もタスク本文はクライアント側で暗号化されます。
 
-既存のTodoアプリの多くはタスクの内容を平文のままサーバーに保存していますが、Todoリストには健康・仕事・人間関係など機微な情報が含まれることが少なくありません。Todoriは、サーバー側がパスワードもタスク内容も知り得ないOPAQUE認証とE2EEを組み合わせることで、この課題に正面から向き合います。複数端末間の同期やOrganizationでのタスク共有など、サーバーを介した機能のみを有料の対象とすることで、気軽に使い始められる体験と、使うほど便利になる拡張性の両立を図ります。
+このリポジトリでは、クライアント、暗号化されたローカルストレージ、同期プロトコル、認証・同期サーバーの実装と設計資料を公開しています。
 
-UI面では、丸みや淡い配色を取り入れた親しみやすいデザインに加え、シンプルUIと高機能UIを利用シーンに応じて切り替えられる設計とし、MCP・CLI・ローカルAIといったオープンな拡張性によって、データ主権をユーザーの手元に残したまま最新のAI体験を取り込めるようにします。
+## プロジェクトの状態
 
-## ドキュメント
+> [!WARNING]
+> Todoriは**一般リリース前**です。配布済みの安定版はなく、実データでの常用や本番運用はまだ推奨しません。API、同期プロトコル、データベーススキーマは予告なく変更され、開発中のデータを引き継げない場合があります。
 
-- [企画書](./docs/01_企画書.md)
-- [機能仕様書](./docs/02_機能仕様書.md)
-- [技術仕様書](./docs/03_技術仕様書.md)
-- [課金概要](./docs/billing_overview.md)
-- [法務・OSS概要](./docs/legal_overview.md)
-- [運用ガイド](./docs/09_運用ガイド.md)
-- [Apple署名設定メモ](./docs/dev/code-signing-setup.md)
-- [Security Policy](./SECURITY.md)
+現在、macOSとAndroidでは主要な暗号・端末鍵フローを実機確認済みです。一方、iOS実機検証、Android実機での同期、課金・認可のE2E検証、本番環境へのデプロイはリリースゲートとして残っています。また、暗号実装は内部レビュー済みですが、**外部の暗号専門家による監査は未実施**です。
+
+- 最新の進捗: [開発ステータス](./docs/tasks/STATUS.md)
+- 暗号機能の公開条件: [暗号release gate](./docs/ops/crypto-release-gate.md)
+- 公開版の課金方針: [Billing Overview](./docs/billing_overview.md)
+
+## 特徴
+
+- **ローカルファースト** — アカウント登録やサーバー接続なしで、リストとタスクを端末上で管理できます。
+- **暗号化されたローカルデータ** — SQLCipherデータベースを、OSのKeychain / Keystoreで保護したDevice Key由来の鍵で暗号化します。
+- **E2EE同期** — サーバーは暗号化されたレコードを中継・保存し、タスク本文を復号しません。認証にはOPAQUEを使用します。
+- **日常のタスク管理** — 階層化したリストとタスク、期限、リマインダー、検索、テンプレート、繰り返しタスク、Focusタイマーを実装しています。
+- **クロスプラットフォームUI** — FlutterでiOS、Android、macOS、Windows、Linuxを対象とし、日本語・英語UIを提供します。プラットフォームごとのリリース検証状況は同一ではありません。
+- **共有Rustコア** — ドメインロジック、暗号、ストレージ、同期処理をRust crateとして分離し、フロントエンドから再利用できる構成です。
+
+CLIとMCPサーバーは将来の拡張用の雛形であり、現時点では実用的なタスク操作には対応していません。Organization共有もリリースゲートを満たすまで公開対象外です。
+
+## セキュリティモデル
+
+Todoriは、ローカルDBと同期レコードの両方を暗号化します。同期サーバーは暗号化されたレコード本文を復号しませんが、認証、端末、テナント、同期順序など、サービス提供に必要なメタデータは扱います。保護対象、鍵階層、サーバーから見える情報の詳細は[技術仕様書 §4](./docs/03_技術仕様書.md#4-暗号設計)を参照してください。
+
+脆弱性を発見した場合は、公開IssueやPull Requestへ詳細を書かず、[Security Policy](./SECURITY.md)の非公開報告手順を利用してください。
+
+## ローカルで試す
+
+### 必要なもの
+
+- [Rust](https://www.rust-lang.org/tools/install) 1.97.0（[`rust-toolchain.toml`](./rust-toolchain.toml)で固定）
+- [Flutter](https://docs.flutter.dev/get-started/install) 3.44.6
+- 実行対象に応じたFlutterのプラットフォームツールチェーン
+- 同期サーバーも動かす場合はDocker
+
+### クライアント
+
+```sh
+git clone https://github.com/ouvill/todori.git
+cd todori/app
+flutter pub get
+flutter run
+```
+
+使用可能な端末は `flutter devices` で確認できます。単一端末のローカル利用では同期サーバーは不要です。
+
+### 開発用同期サーバー
+
+リポジトリルートで次を実行すると、開発用PostgreSQLコンテナの作成、マイグレーション、Rust APIサーバーの起動をまとめて行います。
+
+```sh
+./tool/dev_server.sh
+```
+
+既定では `http://localhost:8080` で起動します。クライアント2台を使った同期確認は[2台同期テスト手順](./docs/dev/two-device-sync-test.md)を参照してください。
+
+## 開発とテスト
+
+Rustワークスペースの基本品質ゲートは次のとおりです。
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Flutter側を変更した場合は、Rust bridgeをビルドしてから解析とテストを実行します。
+
+```sh
+cd app/rust
+env CARGO_TARGET_DIR=target cargo build --release
+cd ..
+flutter analyze
+flutter test
+```
+
+完全な品質ゲートと開発上の制約は[開発ハンドブック](./AGENTS.md)に記載しています。
 
 ## リポジトリ構成
 
-本リポジトリはmonorepo構成であり（詳細は[技術仕様書 §2](./docs/03_技術仕様書.md#2-リポジトリモジュール構成)を参照）、以下のディレクトリで構成される。
-
-```
+```text
 todori/
-├── app/                  Flutterアプリ本体（iOS / Android / Windows / macOS / Linux）
-├── core/                 Rustコアクレート群（暗号・同期・ドメインロジックの単一の実装源泉）
-│   ├── domain/           エンティティ・ユースケース（todori-domain）
-│   ├── crypto/           鍵導出・AEAD暗号化（todori-crypto）
-│   ├── sync/             HLC・同期エンジン（todori-sync）
-│   └── storage/          ローカルストレージアクセス層（todori-storage）
-├── cli/                  Rust CLI「todori」（todori-cli）。coreを利用
-├── mcp-server/           Rust MCPサーバー（todori-mcp-server）。coreを利用
-├── server/               Rust APIサーバー（axum、todori-server）。AWS Lambda上で稼働
-└── docs/                 設計ドキュメント
+├── app/              FlutterクライアントとRust FFI bridge
+├── core/
+│   ├── client/       frontend共通のapplication service
+│   ├── crypto/       鍵管理、暗号、OPAQUE
+│   ├── domain/       エンティティとユースケース
+│   ├── storage/      SQLCipherローカルストレージ
+│   └── sync/         E2EE同期protocolとstate machine
+├── server/           認証・同期・認可を提供するRust API
+├── realtime-worker/  foreground同期のwake-up通知
+├── cli/              CLI雛形（未接続）
+├── mcp-server/       MCPサーバー雛形（未接続）
+└── docs/             仕様、ADR、運用資料、作業履歴
 ```
 
-### 開発コマンド例
+各frontendは `core/client` を共通の入口とし、暗号鍵、repository、同期coordinatorを直接所有しない設計です。詳しくは[client / frontend adapter architecture](./docs/dev/client-profile-architecture.md)を参照してください。
 
-```sh
-# Rustワークスペース全体のテスト
-cargo test --workspace
+## ドキュメント
 
-# Flutterアプリの起動
-cd app && flutter run
-```
+| 文書 | 内容 |
+|---|---|
+| [機能仕様書](./docs/02_機能仕様書.md) | ユーザー向け機能の仕様 |
+| [技術仕様書](./docs/03_技術仕様書.md) | アーキテクチャ、暗号、ストレージ、同期の正本 |
+| [設計判断記録](./docs/05_設計判断記録.md) | 主要な設計判断とその背景 |
+| [運用ガイド](./docs/09_運用ガイド.md) | 開発、サーバー、リリース、セキュリティ運用 |
+| [開発ステータス](./docs/tasks/STATUS.md) | 現在地と未完了のリリースゲート |
+| [法務・OSS概要](./docs/legal_overview.md) | 公開リポジトリの法務・OSS方針 |
 
-### 性能検証メモ
+## コントリビューション
 
-Phase 1の性能検証は `docs/tasks/task-67-performance-verification.md` に記録している。task-67で判明したHome 7140件相当の全行Widget構築ボトルネックは、task-68でHome/TasksのSliver遅延構築へ引き継ぎ、解消済み。
+IssueやPull Requestを作成する前に[コントリビューションガイド](./CONTRIBUTING.md)を確認してください。コミットには[Conventional Commits](https://www.conventionalcommits.org/)を使用します。
 
-### マルチプラットフォーム検証メモ
+Pull Requestの提出には[Contributor License Agreement](./CLA.md)への同意が必要です。Todoriは一般リリース前のため、互換性やセキュリティに影響する提案は慎重に取り扱う場合があります。
 
-初期のマルチプラットフォーム検証は `docs/tasks/task-74-multiplatform-verification.md` に記録している。その後、macOS署名付き起動とKeychainゼロプロンプト、iOS Simulatorでのbuild / install / launch、macOS + iOS Simulatorの2台同期、Focus motion、Android Rust FFI / Flutter release APK build、Android Keystore実装まで確認済みである。2026-07-18にはPixel 7a / Android 16接続実機でKeystore key non-exportability、active / pending capsule roundtrip、Device Key rotation 2回、プロセス再起動後のSQLCipher DB reopenも確認した。残るrelease確認はiOS実機、Android実機同期、本番デプロイ、課金基盤であり、最新状態は `docs/tasks/STATUS.md` と `docs/tasks/work-*.md` を正本とする。
+## ライセンス
 
-### core抽出メモ
-
-task-75で同期オーケストレーションは `core/sync`、Device Key / Keychain / account secret store は `core/crypto` へ移した。`app/rust/src/api.rs` はFRB公開関数とDTO変換中心の薄いブリッジ層として維持する。
-
-### Apple Keychain署名メモ
-
-task-77でiOS/macOS Runnerに `keychain-access-groups` entitlementを追加し、署名済みAppleビルドではData Protection Keychainを正規経路として使う。macOS署名付きbuildはゼロプロンプト確認済みで、iOS実機確認はリリース前の人間作業として残る。ローカル検証は[Apple署名設定メモ](./docs/dev/code-signing-setup.md)に従う。
-
-## License
-
-Todoriは [`LICENSE`](./LICENSE)（AGPL-3.0-only）のもとで公開されています。コントリビューションには [`CONTRIBUTING.md`](./CONTRIBUTING.md) および [`CLA.md`](./CLA.md)（Contributor License Agreement）への同意が必要です。
-
-Todori is currently in an early pre-release phase. Public issues and pull requests may be handled conservatively until the app, contribution process, and release policy mature.
-
-セキュリティ脆弱性を見つけた場合は、public issueには詳細を書かず、[`SECURITY.md`](./SECURITY.md) の非公開報告導線を参照してください。
+Todoriは[GNU Affero General Public License v3.0 only](./LICENSE)で公開されています。
