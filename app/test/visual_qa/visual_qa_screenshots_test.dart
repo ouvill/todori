@@ -51,7 +51,8 @@ import 'package:todori/src/ui/states.dart';
 import 'package:todori/src/ui/task_components.dart';
 import 'package:todori/src/ui/theme.dart';
 
-import 'design_lab_mocks.dart';
+import '../../tool/design_lab.dart';
+import '../support/design_lab_fixture.dart';
 import '../support/fake_bridge_service.dart';
 
 const _visualQaEnvFlag = 'TODORI_VISUAL_QA';
@@ -64,13 +65,6 @@ const _mobileLogicalSize = Size(390, 844);
 const _mobileDevicePixelRatio = 3.0;
 const _wideLogicalSize = Size(1100, 760);
 const _wideDevicePixelRatio = 2.0;
-
-/// Downloaded (not committed) by `tool/fetch_lab_fonts.sh`; used only by the
-/// `design_lab_typo_d_ja_mincho_*` screenshots (D案). See
-/// `docs/design/ui-spec.md` セクション6.
-const _zenOldMinchoFontPath = 'build/lab_fonts/ZenOldMincho-SemiBold.ttf';
-
-bool get _zenOldMinchoFontAvailable => File(_zenOldMinchoFontPath).existsSync();
 
 final _generatedScreenshotNames = <String>{};
 late bool _previousDebugBannerOverride;
@@ -1523,228 +1517,19 @@ void main() {
     await _screenshot(tester, 'confirm_dialog');
   });
 
-  testWidgets('design_lab_task_list: single-canvas Today direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.taskList),
-    );
-    await _screenshot(tester, 'design_lab_task_list');
-  });
-
-  testWidgets('design_lab_calendar: quiet completed reflection', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.calendar),
-    );
-    await _screenshot(tester, 'design_lab_calendar');
-    await tester.tap(find.text('Completed'));
-    await tester.pumpAndSettle();
-    await _screenshot(tester, 'design_lab_calendar_completed');
-  });
-
-  testWidgets('design_lab_list_overview: borderless list index direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.listOverview),
-    );
-    await _screenshot(tester, 'design_lab_list_overview');
-  });
-
-  testWidgets('design_lab_focus_timer: warm open-dial focus direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.focusTimer),
-    );
-    await _precacheDesignLabMascot(tester);
-    await _screenshot(tester, 'design_lab_focus_timer');
-  });
-
-  testWidgets('design_lab_task_detail: single-canvas document direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.taskDetail),
-    );
-    await _screenshot(tester, 'design_lab_task_detail');
-  });
-
-  testWidgets('design_lab_task_create_sheet: minimal task capture direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.taskCreateSheet),
-    );
-    await _screenshot(tester, 'design_lab_task_create_sheet');
-  });
-
-  testWidgets('design_lab_completion_midframe: halo and strike', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(const InteractiveDesignLabApp());
-    await tester.tap(
-      find.byKey(
-        const ValueKey('design-lab-task-check-Review onboarding copy'),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 220));
-    await _screenshotCurrentFrame(tester, 'design_lab_completion_midframe');
-    await tester.pump(const Duration(milliseconds: 280));
-    await tester.pump(const Duration(milliseconds: 180));
-    await _screenshotCurrentFrame(
+  for (final candidate in activeDesignLabCandidates) {
+    testWidgets('design_lab_candidate_${candidate.id}: active candidate', (
       tester,
-      'design_lab_completion_collapse_midframe',
-    );
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('design_lab_search: underline search direction', (tester) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(const DesignLabMockApp(mock: DesignLabMock.search));
-    await _screenshot(tester, 'design_lab_search');
-  });
-
-  testWidgets('design_lab_settings: borderless account direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.settings),
-    );
-    await _screenshot(tester, 'design_lab_settings');
-  });
-
-  testWidgets('design_lab_timer_setup: warm open-dial setup direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.timerSetup),
-    );
-    await _screenshot(tester, 'design_lab_timer_setup');
-  });
-
-  testWidgets('design_lab_list_tasks: a full list in the shared task grammar', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.listTasks),
-    );
-    await _screenshot(tester, 'design_lab_list_tasks');
-    final menuPress = await tester.startGesture(
-      tester.getCenter(find.byIcon(LucideIcons.moreHorizontal300)),
-    );
-    await tester.pump(const Duration(milliseconds: 120));
-    await _screenshot(tester, 'design_lab_list_tasks_menu_press');
-    await menuPress.up();
-    await tester.pumpAndSettle();
-    await tester.drag(find.text('Prepare launch notes'), const Offset(-90, 0));
-    await tester.pumpAndSettle();
-    await _screenshot(tester, 'design_lab_list_tasks_timer_reveal');
-  });
-
-  testWidgets('design_lab_task_detail_editing: calm document editing', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.taskDetailEditing),
-    );
-    await _screenshot(tester, 'design_lab_task_detail_editing');
-  });
-
-  testWidgets('design_lab_account_signed_out: private account access', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.accountSignedOut),
-    );
-    await _screenshot(tester, 'design_lab_account_signed_out');
-  });
-
-  testWidgets('design_lab_task_actions: safe action sheet composition', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.taskActions),
-    );
-    await _screenshot(tester, 'design_lab_task_actions');
-  });
-
-  testWidgets('design_lab_due_date_sheet: quick scheduling choices', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.dueDateSheet),
-    );
-    await _screenshot(tester, 'design_lab_due_date_sheet');
-  });
-
-  testWidgets('design_lab_system_states: empty loading and error grammar', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.systemStates),
-    );
-    await _screenshot(tester, 'design_lab_system_states');
-  });
-
-  testWidgets('design_lab_onboarding: quiet first-run direction', (
-    tester,
-  ) async {
-    _setMobileViewport(tester);
-    await tester.pumpWidget(
-      const DesignLabMockApp(mock: DesignLabMock.onboarding),
-    );
-    await _screenshot(tester, 'design_lab_onboarding');
-  });
-
-  // Typography comparison: 4 variants x 2 screens (Today task list, Focus
-  // timer). See `docs/design/ui-spec.md` セクション6 note and
-  // `design_lab_mocks.dart`'s `DesignLabTypoVariant`/`DesignLabTypography`.
-  for (final variant in DesignLabTypoVariant.values) {
-    final variantId = _typoVariantIds[variant]!;
-    if (variant == DesignLabTypoVariant.jaMinchoD &&
-        !_zenOldMinchoFontAvailable) {
-      test(
-        'design_lab_typo_$variantId: skipped, Zen Old Mincho font not '
-        'available',
-        () {},
-        skip:
-            'Run `sh tool/fetch_lab_fonts.sh` (or `sh tool/visual_qa.sh`, '
-            'which calls it first) with network access to download Zen Old '
-            'Mincho to $_zenOldMinchoFontPath; D案 screenshots are skipped '
-            'without it.',
+    ) async {
+      _setMobileViewport(tester);
+      await tester.pumpWidget(
+        await buildDesignLabRoot(
+          mode: DesignLabMode.candidate,
+          candidateId: candidate.id,
+        ),
       );
-      continue;
-    }
-    for (final screen in DesignLabTypoScreen.values) {
-      final screenId = _typoScreenIds[screen]!;
-      final name = 'design_lab_typo_${variantId}_$screenId';
-      testWidgets('$name: typography comparison', (tester) async {
-        _setMobileViewport(tester);
-        await tester.pumpWidget(
-          DesignLabTypoMockApp(variant: variant, screen: screen),
-        );
-        await _screenshot(tester, name);
-      });
-    }
+      await _screenshot(tester, 'design_lab_candidate_${candidate.id}');
+    });
   }
 }
 
@@ -2046,38 +1831,6 @@ Future<void> _pumpFocusConflictVisual(WidgetTester tester) async {
   expect(find.text('Another focus session is active'), findsOneWidget);
 }
 
-const _typoVariantIds = {
-  DesignLabTypoVariant.newsreaderA: 'a_newsreader',
-  DesignLabTypoVariant.loraB: 'b_lora',
-  DesignLabTypoVariant.sansOnlyC: 'c_sans_only',
-  DesignLabTypoVariant.jaMinchoD: 'd_ja_mincho',
-};
-
-const _typoScreenIds = {
-  DesignLabTypoScreen.today: 'today',
-  DesignLabTypoScreen.focus: 'focus',
-};
-
-/// Handles produced by [_seedRealisticData] so individual screenshot tests
-/// can navigate to a specific seeded task without hardcoding titles twice.
-class _SeedData {
-  const _SeedData({
-    required this.fake,
-    required this.homeListId,
-    required this.parentWithSubtasksTitle,
-    required this.parentWithSubtasksId,
-    required this.visibleRootTaskId,
-    required this.focusTaskId,
-  });
-
-  final FakeBridgeService fake;
-  final String homeListId;
-  final String parentWithSubtasksTitle;
-  final String parentWithSubtasksId;
-  final String visibleRootTaskId;
-  final String focusTaskId;
-}
-
 /// Seeds two lists ("Inbox" as the home list, "仕事" as a second list) with a
 /// realistic, mixed set of tasks and pumps [TodoriApp] on top of them:
 ///
@@ -2088,209 +1841,20 @@ class _SeedData {
 /// - one task ("Plan the product launch event") has three subtasks, one of
 ///   which is completed after an overdue due date.
 /// - titles mix Japanese and English, and one title is long enough to wrap.
-Future<_SeedData> _seedRealisticData(
+Future<DesignLabFixture> _seedRealisticData(
   WidgetTester tester, {
   GoRouter? router,
 }) async {
-  final fake = FakeBridgeService();
-  await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
-  await fake.createList(name: '仕事', sortOrder: 'a1');
-  final lists = await fake.getLists();
-  final homeListId = lists[0].id;
-  final workListId = lists[1].id;
-
-  DateTime atMidnight(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
-  final now = DateTime.now();
-  final today = atMidnight(now).millisecondsSinceEpoch;
-  final todayExact = DateTime(
-    now.year,
-    now.month,
-    now.day,
-    14,
-    30,
-  ).millisecondsSinceEpoch;
-  final tomorrow = atMidnight(
-    now.add(const Duration(days: 1)),
-  ).millisecondsSinceEpoch;
-  final overdue = atMidnight(
-    now.subtract(const Duration(days: 4)),
-  ).millisecondsSinceEpoch;
-  final upcoming = atMidnight(
-    now.add(const Duration(days: 5)),
-  ).millisecondsSinceEpoch;
-
-  final uiTweaks = await fake.createTask(
-    listId: homeListId,
-    title: '地図アプリのUI微調整を仕上げる',
-  );
-  await fake.updateTask(
-    taskId: uiTweaks.id,
-    title: uiTweaks.title,
-    note: '',
-    priority: 2,
-    due: testDateTimeDueFromMillis(todayExact, timeZone: 'America/New_York'),
-  );
-
-  const parentWithSubtasksTitle = 'Plan the product launch event';
-  final launch = await fake.createTask(
-    listId: homeListId,
-    title: parentWithSubtasksTitle,
-  );
-  await fake.updateTask(
-    taskId: launch.id,
-    title: launch.title,
-    note: '',
-    priority: 2,
-    due: testDateOnlyDueFromMillis(tomorrow),
-  );
-  await fake.createTaskReminder(
-    taskId: launch.id,
-    remindAt: tomorrow + const Duration(hours: 16, minutes: 30).inMilliseconds,
-  );
-  await fake.createTaskReminder(
-    taskId: launch.id,
-    remindAt: tomorrow + const Duration(hours: 17, minutes: 30).inMilliseconds,
-  );
-  final checklist = await fake.createTask(
-    listId: homeListId,
-    title: 'Draft the launch checklist',
-    parentTaskId: launch.id,
-  );
-  await fake.updateTask(
-    taskId: checklist.id,
-    title: checklist.title,
-    note: '',
-    priority: 1,
-    due: testDateOnlyDueFromMillis(today),
-  );
-  await fake.createTaskReminder(
-    taskId: checklist.id,
-    remindAt: tomorrow + const Duration(hours: 16, minutes: 30).inMilliseconds,
-  );
-  await fake.createTask(
-    listId: homeListId,
-    title: 'Review checklist with design',
-    parentTaskId: launch.id,
-  );
-  final finalCopy = await fake.createTask(
-    listId: homeListId,
-    title: 'Confirm final copy in the hero panel',
-    parentTaskId: checklist.id,
-  );
-  await fake.updateTask(
-    taskId: finalCopy.id,
-    title: finalCopy.title,
-    note: '',
-    priority: 0,
-    due: testDateOnlyDueFromMillis(overdue),
-  );
-  await fake.setTaskStatus(taskId: finalCopy.id, status: 'done');
-  await fake.createTask(
-    listId: homeListId,
-    title: 'デザインレビューのフィードバックを反映する',
-    parentTaskId: launch.id,
-  );
-
-  const longTitle =
-      'Draft the Q3 roadmap presentation for the leadership offsite meeting '
-      'next week';
-  final roadmap = await fake.createTask(listId: homeListId, title: longTitle);
-  await fake.updateTask(
-    taskId: roadmap.id,
-    title: roadmap.title,
-    note: 'Include churn metrics and the hiring plan.',
-    priority: 3,
-    due: testDateOnlyDueFromMillis(upcoming),
-  );
-
-  final groceries = await fake.createTask(
-    listId: homeListId,
-    title: '買い物リストを整理する',
-  );
-  await fake.updateTask(
-    taskId: groceries.id,
-    title: groceries.title,
-    note: '',
-    priority: 1,
-    due: null,
-  );
-
-  final planning = await fake.createTask(
-    listId: homeListId,
-    title: 'Plan July archive review',
-  );
-  await fake.updateTask(
-    taskId: planning.id,
-    title: planning.title,
-    note: '',
-    priority: 1,
-    due: testDateOnlyDueFromMillis(upcoming),
-  );
-
-  final passport = await fake.createTask(
-    listId: homeListId,
-    title: 'Renew passport before the trip',
-  );
-  await fake.updateTask(
-    taskId: passport.id,
-    title: passport.title,
-    note: '',
-    priority: 0,
-    due: testDateOnlyDueFromMillis(overdue),
-  );
-
-  final standup = await fake.createTask(listId: homeListId, title: '朝会に参加する');
-  await fake.updateTask(
-    taskId: standup.id,
-    title: standup.title,
-    note: '',
-    priority: 0,
-    due: testDateOnlyDueFromMillis(today),
-  );
-  await fake.setTaskStatus(taskId: standup.id, status: 'done');
-
-  final skipped = await fake.createTask(
-    listId: homeListId,
-    title: 'Replace the planning spreadsheet',
-  );
-  await fake.updateTask(
-    taskId: skipped.id,
-    title: skipped.title,
-    note: '',
-    priority: 0,
-    due: null,
-  );
-  await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
-
-  final workReview = await fake.createTask(
-    listId: workListId,
-    title: '四半期レビュー資料を作成する',
-  );
-  await fake.updateTask(
-    taskId: workReview.id,
-    title: workReview.title,
-    note: '',
-    priority: 3,
-    due: testDateOnlyDueFromMillis(today),
-  );
+  final fixture = await createDesignLabFixture();
 
   await tester.pumpWidget(
     TodoriApp(
       router: router,
-      overrides: [bridgeServiceProvider.overrideWithValue(fake)],
+      overrides: [bridgeServiceProvider.overrideWithValue(fixture.fake)],
     ),
   );
   await tester.pumpAndSettle();
-
-  return _SeedData(
-    fake: fake,
-    homeListId: homeListId,
-    parentWithSubtasksTitle: parentWithSubtasksTitle,
-    parentWithSubtasksId: launch.id,
-    visibleRootTaskId: uiTweaks.id,
-    focusTaskId: uiTweaks.id,
-  );
+  return fixture;
 }
 
 int _todayStartMs() {
@@ -2874,19 +2438,6 @@ Future<void> _screenshot(
   );
 }
 
-Future<void> _precacheDesignLabMascot(WidgetTester tester) async {
-  final context = tester.element(find.byType(MaterialApp));
-  await tester.runAsync(
-    () => precacheImage(
-      const AssetImage(
-        'assets/brand/generated/todori-mascot-ui-sprites-v1.png',
-      ),
-      context,
-    ),
-  );
-  await tester.pump();
-}
-
 Future<void> _screenshotCurrentFrame(
   WidgetTester tester,
   String name, {
@@ -3087,23 +2638,8 @@ Future<void> _loadRealFonts() async {
     family: 'SourceSerif4',
     weightPaths: _sourceSerif4WeightPaths,
   );
-  await _loadZenOldMinchoFont();
   await _loadCjkFallbackFont();
   await _loadMinchoFallbackFont();
-}
-
-/// Loads the Design Lab-only Zen Old Mincho font (D案 Today heading) if
-/// `tool/fetch_lab_fonts.sh` has downloaded it. Never committed to the repo
-/// (see `docs/design/ui-spec.md` セクション6); the
-/// `design_lab_typo_d_ja_mincho_*` tests skip themselves via
-/// [_zenOldMinchoFontAvailable] when this file is missing.
-Future<void> _loadZenOldMinchoFont() async {
-  if (!_zenOldMinchoFontAvailable) {
-    return;
-  }
-  final loader = FontLoader('ZenOldMincho');
-  await _addFontFile(loader, _zenOldMinchoFontPath);
-  await loader.load();
 }
 
 const _interWeightPaths = [

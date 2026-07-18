@@ -49,7 +49,7 @@ printf '%s\n' 'use std::sync::OnceLock;' 'static ROGUE: OnceLock<()> = OnceLock:
 expect_failure rogue-process-handle
 rm "$fixture/app/rust/src/rogue_handle.rs"
 
-printf '%s\n' "import '../../test/visual_qa/design_lab_mocks.dart';" > \
+printf '%s\n' "import '../../tool/design_lab.dart';" > \
   "$fixture/app/lib/rogue_design_import.dart"
 expect_failure production-design-lab-import
 rm "$fixture/app/lib/rogue_design_import.dart"

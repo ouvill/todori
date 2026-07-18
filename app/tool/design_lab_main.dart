@@ -1,8 +1,17 @@
 import 'package:flutter/widgets.dart';
 
-import '../test/visual_qa/design_lab_mocks.dart';
+import 'design_lab.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const InteractiveDesignLabApp());
+  const modeValue = String.fromEnvironment(
+    'TODORI_DESIGN_LAB_MODE',
+    defaultValue: 'baseline',
+  );
+  const candidateId = String.fromEnvironment('TODORI_DESIGN_LAB_CANDIDATE');
+  final root = await buildDesignLabRoot(
+    mode: parseDesignLabMode(modeValue),
+    candidateId: candidateId,
+  );
+  runApp(root);
 }

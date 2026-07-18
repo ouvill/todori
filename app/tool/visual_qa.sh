@@ -21,8 +21,6 @@ mkdir -p "$output_dir"
 find "$output_dir" -maxdepth 1 -type f \
   \( -name '*.png' -o -name 'current-manifest.txt' \) -delete
 
-sh tool/fetch_lab_fonts.sh || echo "visual_qa: WARNING: tool/fetch_lab_fonts.sh failed; continuing without it." >&2
-
 TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
 
 test -s "$output_dir/current-manifest.txt"
