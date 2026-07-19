@@ -7,7 +7,7 @@
 
 `docs/07_Phase1計画書.md` のマイルストーンM1「コア層完成」は、M1-01「`core/domain` にリスト/タスク操作ユースケースを追加する」を最初のタスクとして定義している。このタスクはM1-01に対応する。
 
-`core/domain` はTodoriのRust workspaceの中で、ストレージ（`core/storage`、rusqlite/SQLCipher）にもFlutterブリッジにも依存しない**純粋ロジックcrate**である。現時点では `core/domain/src/entities.rs` に `Task` / `List` / `TaskStatus` エンティティと `TaskStatus::can_transition_to` のみが実装されており、タスク・リストを生成／編集／状態遷移させるユースケース関数は未実装である。
+`core/domain` はTaskveilのRust workspaceの中で、ストレージ（`core/storage`、rusqlite/SQLCipher）にもFlutterブリッジにも依存しない**純粋ロジックcrate**である。現時点では `core/domain/src/entities.rs` に `Task` / `List` / `TaskStatus` エンティティと `TaskStatus::can_transition_to` のみが実装されており、タスク・リストを生成／編集／状態遷移させるユースケース関数は未実装である。
 
 リポジトリ（`core/storage` 側のDB接続）とユースケースを結びつける作業はM1-03（別タスク）で行う。したがって本タスクでは、DBにもファイルシステムにもアクセスしない、**値を受け取り値を返す純粋関数・メソッド**としてユースケースを実装する。「現在時刻」はテスト可能性のため呼び出し側から `now_ms: i64`（UTC epoch milliseconds）として明示的に注入すること。システムクロックを内部で読み取るコード（`SystemTime::now()` 等）を追加しないこと。
 
@@ -87,7 +87,7 @@
 6. `delete_task` / `restore_task` と、削除済みタスクへの編集・遷移がエラーになることのテストを実装する。
 7. `validate_parent` を実装する。祖先チェーン走査のロジックは無限ループに陥らないよう、`tasks` スライスから `parent_task_id` を辿るヘルパーを別関数として切り出すとよい。
 8. `core/domain/src/lib.rs` に `pub mod usecases;` を追加し、必要な型をre-exportする。
-9. `cargo test -p todori-domain` を繰り返し実行しながら実装する。
+9. `cargo test -p taskveil-domain` を繰り返し実行しながら実装する。
 10. 最後に `cargo fmt --all`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace` を実行し全体の品質ゲートを確認する。
 
 ## 6. 受け入れ基準
@@ -95,7 +95,7 @@
 - [ ] `cargo fmt --all -- --check` が差分なしで通過する
 - [ ] `cargo clippy --workspace -- -D warnings` が警告ゼロで通過する
 - [ ] `cargo test --workspace` が全テスト成功する（既存の `entities.rs` のテストも含めすべて成功すること）
-- [ ] `cargo test -p todori-domain` で本タスクの新規テストがすべて実行され成功する
+- [ ] `cargo test -p taskveil-domain` で本タスクの新規テストがすべて実行され成功する
 - [ ] 4.の8.に列挙した異常系テスト（空title/空name、不許可遷移、削除済みタスクへの編集・遷移、自己参照parent、循環parent、別リストparent、削除済みparent、存在しないparent）がすべて実装され成功する
 
 ## 7. 制約・注意事項
@@ -146,7 +146,7 @@
 
 ### 検証
 
-- `cargo test -p todori-domain` 成功。
+- `cargo test -p taskveil-domain` 成功。
 - `cargo fmt --all -- --check` 成功。
 - `cargo clippy --workspace -- -D warnings` 成功。
 - `cargo test --workspace` 成功。

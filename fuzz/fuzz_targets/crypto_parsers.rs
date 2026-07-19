@@ -3,12 +3,12 @@
 use std::sync::OnceLock;
 
 use libfuzzer_sys::fuzz_target;
-use todori_crypto::organization::{
+use taskveil_crypto::organization::{
     generate_account_root, generate_device_keys, issue_device_certificate, AccountRootPrivateKeys,
     AccountRootPublicKeys, DeviceCertificate, DeviceIdentity, HybridDekPackage, HybridScopeKind,
     SignedDeviceRevocation, ML_KEM_768_CIPHERTEXT_LEN,
 };
-use todori_sync::{
+use taskveil_sync::{
     envelope::parse_envelope_header, organization::OrganizationKeyManifest, KeyManifest, KeyScope,
     RotationStatus,
 };
@@ -79,7 +79,7 @@ fn canonical_templates() -> Vec<Vec<u8>> {
     )
     .expect("canonical personal manifest");
     let hybrid_package = HybridDekPackage {
-        suite_id: todori_crypto::CRYPTO_SUITE_ID,
+        suite_id: taskveil_crypto::CRYPTO_SUITE_ID,
         scope_kind: HybridScopeKind::Tenant,
         scope_id: tenant_id,
         generation: 1,
@@ -93,7 +93,7 @@ fn canonical_templates() -> Vec<Vec<u8>> {
         DeviceIdentity::new(device.private, certificate.clone()).expect("canonical fuzz identity");
     let mut envelope = vec![0; 54];
     envelope[..4].copy_from_slice(b"TDE4");
-    envelope[4..6].copy_from_slice(&todori_crypto::CRYPTO_SUITE_ID.to_be_bytes());
+    envelope[4..6].copy_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
     envelope[6..14].copy_from_slice(&1u64.to_be_bytes());
 
     vec![

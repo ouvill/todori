@@ -1,21 +1,21 @@
 PODS:
   - Flutter (1.0.0)
-  - todori_app_bridge (0.0.1):
+  - taskveil_app_bridge (0.0.1):
     - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
-  - todori_app_bridge (from `.symlinks/plugins/todori_app_bridge/ios`)
+  - taskveil_app_bridge (from `.symlinks/plugins/taskveil_app_bridge/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
-  todori_app_bridge:
-    :path: ".symlinks/plugins/todori_app_bridge/ios"
+  taskveil_app_bridge:
+    :path: ".symlinks/plugins/taskveil_app_bridge/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  todori_app_bridge: 3b45a0e07321cdf9a564ef05c69258285b6e76da
+  taskveil_app_bridge: 005cd97e4d3be3aadacde19b6e0941c24eb83074
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
 

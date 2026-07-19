@@ -1,24 +1,24 @@
-//! `todori` CLI。
+//! `taskveil` CLI。
 //!
-//! `todori-client`の共通client APIを通じてローカルの暗号化DBへ直接アクセスする設計だが
+//! `taskveil-client`の共通client APIを通じてローカルの暗号化DBへ直接アクセスする設計だが
 //! （`docs/03_技術仕様書.md` §8.1, §8.3）、DB統合前の現段階ではスタブとして
 //! サブコマンドの受け口のみを提供する。
 
 use clap::{Parser, Subcommand};
 
-// `todori-client`をfrontend共通入口としてcompile時にも固定する。実際の
+// `taskveil-client`をfrontend共通入口としてcompile時にも固定する。実際の
 // local profile openとsubcommand接続はOS secret store実装後の後続taskで行う。
-use todori_client::{ClientError, LocalProfileConfig, TodoriClient};
+use taskveil_client::{ClientError, LocalProfileConfig, TaskveilClient};
 
-const _: fn(LocalProfileConfig) -> Result<TodoriClient, ClientError> = TodoriClient::open;
+const _: fn(LocalProfileConfig) -> Result<TaskveilClient, ClientError> = TaskveilClient::open;
 
 #[allow(dead_code)]
-fn _assert_async_client_api(client: &TodoriClient) {
+fn _assert_async_client_api(client: &TaskveilClient) {
     std::mem::drop(client.sync_now());
 }
 
 #[derive(Parser)]
-#[command(name = "todori", version, about = "Todori: E2EE Todo CLI")]
+#[command(name = "taskveil", version, about = "Taskveil: E2EE Todo CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

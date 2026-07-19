@@ -104,11 +104,11 @@ task-18でタスク詳細画面からの `title` / `note` / `priority` / `due_at
 - ゴミ箱画面を危険ゾーンとして演出しない。
 - 復元成功時に派手なcelebration、mascot演出、confettiなどを追加しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
+- `taskveil-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
 
 ## 5. 実装手順（例）
 
-1. `git -C todori status --short` で作業ツリーを確認する。
+1. `git -C taskveil status --short` で作業ツリーを確認する。
 2. 2章のファイルを読み、既存route、provider、BridgeService、UI foundation、widget test fakeを確認する。
 3. route設計を決め、`app/lib/src/router.dart` にゴミ箱画面routeを追加する。
 4. `app/lib/src/core/providers.dart` に trashed tasks 用provider/notifierを追加し、`getTrashedTasks()` と `restoreTask()` をつなぐ。
@@ -306,7 +306,7 @@ task-18でタスク詳細画面からの `title` / `note` / `priority` / `due_at
 
 ### public/private境界
 
-- `todori-private/` は読んでおらず、変更していない。
+- `taskveil-private/` は読んでおらず、変更していない。
 - public repoへprivate側の課金、収益、法務、監査、公開前ロードマップ等の詳細は転記していない。
 
 ### 未解決事項・要人間判断

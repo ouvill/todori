@@ -9,22 +9,22 @@ use sha2::Sha256;
 use thiserror::Error;
 use uuid::Uuid;
 
-const AUDIENCE: &str = "todori-realtime";
+const AUDIENCE: &str = "taskveil-realtime";
 const PUBLISH_BODY_LIMIT: usize = 512;
 const PUBLISH_TIMEOUT: StdDuration = StdDuration::from_millis(500);
 const TICKET_TTL_SECONDS: i64 = 300;
 
-const WEBSOCKET_URL: &str = "TODORI_REALTIME_WEBSOCKET_URL";
-const PUBLISH_URL: &str = "TODORI_REALTIME_PUBLISH_URL";
-const CHANNEL_KEY: &str = "TODORI_REALTIME_CHANNEL_KEY";
-const TICKET_KEY_CURRENT_ID: &str = "TODORI_REALTIME_TICKET_KEY_CURRENT_ID";
-const TICKET_KEY_CURRENT: &str = "TODORI_REALTIME_TICKET_KEY_CURRENT";
-const TICKET_KEY_PREVIOUS_ID: &str = "TODORI_REALTIME_TICKET_KEY_PREVIOUS_ID";
-const TICKET_KEY_PREVIOUS: &str = "TODORI_REALTIME_TICKET_KEY_PREVIOUS";
-const PUBLISH_KEY_CURRENT_ID: &str = "TODORI_REALTIME_PUBLISH_KEY_CURRENT_ID";
-const PUBLISH_KEY_CURRENT: &str = "TODORI_REALTIME_PUBLISH_KEY_CURRENT";
-const PUBLISH_KEY_PREVIOUS_ID: &str = "TODORI_REALTIME_PUBLISH_KEY_PREVIOUS_ID";
-const PUBLISH_KEY_PREVIOUS: &str = "TODORI_REALTIME_PUBLISH_KEY_PREVIOUS";
+const WEBSOCKET_URL: &str = "TASKVEIL_REALTIME_WEBSOCKET_URL";
+const PUBLISH_URL: &str = "TASKVEIL_REALTIME_PUBLISH_URL";
+const CHANNEL_KEY: &str = "TASKVEIL_REALTIME_CHANNEL_KEY";
+const TICKET_KEY_CURRENT_ID: &str = "TASKVEIL_REALTIME_TICKET_KEY_CURRENT_ID";
+const TICKET_KEY_CURRENT: &str = "TASKVEIL_REALTIME_TICKET_KEY_CURRENT";
+const TICKET_KEY_PREVIOUS_ID: &str = "TASKVEIL_REALTIME_TICKET_KEY_PREVIOUS_ID";
+const TICKET_KEY_PREVIOUS: &str = "TASKVEIL_REALTIME_TICKET_KEY_PREVIOUS";
+const PUBLISH_KEY_CURRENT_ID: &str = "TASKVEIL_REALTIME_PUBLISH_KEY_CURRENT_ID";
+const PUBLISH_KEY_CURRENT: &str = "TASKVEIL_REALTIME_PUBLISH_KEY_CURRENT";
+const PUBLISH_KEY_PREVIOUS_ID: &str = "TASKVEIL_REALTIME_PUBLISH_KEY_PREVIOUS_ID";
+const PUBLISH_KEY_PREVIOUS: &str = "TASKVEIL_REALTIME_PUBLISH_KEY_PREVIOUS";
 
 const CONFIG_VARIABLES: [&str; 11] = [
     WEBSOCKET_URL,
@@ -321,7 +321,7 @@ impl RealtimeGateway {
             expires_at.timestamp()
         );
         let payload_segment = URL_SAFE_NO_PAD.encode(payload.as_bytes());
-        let signature_input = format!("todori-realtime-ticket-v1\n{payload_segment}");
+        let signature_input = format!("taskveil-realtime-ticket-v1\n{payload_segment}");
         let signature = sign(&enabled.ticket_current.value, signature_input.as_bytes());
         Some(RealtimeTicketResponse {
             websocket_url: enabled.websocket_url.clone(),
@@ -347,16 +347,17 @@ impl RealtimeGateway {
             return PublishOutcome::Transport;
         }
         let timestamp = now.timestamp().to_string();
-        let mut signature_input = format!("todori-realtime-publish-v1\n{timestamp}\n").into_bytes();
+        let mut signature_input =
+            format!("taskveil-realtime-publish-v1\n{timestamp}\n").into_bytes();
         signature_input.extend_from_slice(body.as_bytes());
         let signature =
             URL_SAFE_NO_PAD.encode(sign(&enabled.publish_current.value, &signature_input));
         let response = enabled
             .client
             .post(enabled.publish_url.clone())
-            .header("X-Todori-Realtime-Key-Id", &enabled.publish_current.id)
-            .header("X-Todori-Realtime-Timestamp", timestamp)
-            .header("X-Todori-Realtime-Signature", signature)
+            .header("X-Taskveil-Realtime-Key-Id", &enabled.publish_current.id)
+            .header("X-Taskveil-Realtime-Timestamp", timestamp)
+            .header("X-Taskveil-Realtime-Signature", signature)
             .body(body)
             .send()
             .await;
@@ -414,13 +415,13 @@ fn parse_key_id(value: String, variable: &'static str) -> Result<String, Realtim
 }
 
 fn opaque_channel(key: &[u8; 32], tenant_id: Uuid) -> String {
-    let input = format!("todori-realtime-channel-v1\n{}", tenant_id.hyphenated());
+    let input = format!("taskveil-realtime-channel-v1\n{}", tenant_id.hyphenated());
     URL_SAFE_NO_PAD.encode(sign(key, input.as_bytes()))
 }
 
 fn opaque_device(key: &[u8; 32], tenant_id: Uuid, device_id: Uuid) -> String {
     let input = format!(
-        "todori-realtime-device-v1\n{}\n{}",
+        "taskveil-realtime-device-v1\n{}\n{}",
         tenant_id.hyphenated(),
         device_id.hyphenated()
     );
@@ -577,7 +578,7 @@ mod tests {
         let ticket_key = parse_key(&vector.ticket.key_base64url, TICKET_KEY_CURRENT).unwrap();
         let payload_segment = URL_SAFE_NO_PAD.encode(vector.ticket.payload.as_bytes());
         assert_eq!(payload_segment, vector.ticket.payload_segment);
-        let ticket_input = format!("todori-realtime-ticket-v1\n{payload_segment}");
+        let ticket_input = format!("taskveil-realtime-ticket-v1\n{payload_segment}");
         let signature = URL_SAFE_NO_PAD.encode(sign(&ticket_key, ticket_input.as_bytes()));
         assert_eq!(signature, vector.ticket.signature);
         assert_eq!(
@@ -588,7 +589,7 @@ mod tests {
         assert!(vector.publish.key_id.ends_with("-publish"));
         let publish_key = parse_key(&vector.publish.key_base64url, PUBLISH_KEY_CURRENT).unwrap();
         let input = format!(
-            "todori-realtime-publish-v1\n{}\n{}",
+            "taskveil-realtime-publish-v1\n{}\n{}",
             vector.publish.timestamp, vector.publish.body
         );
         assert_eq!(
@@ -698,12 +699,12 @@ mod tests {
             body,
             format!("{{\"v\":1,\"channel\":\"{channel}\",\"source_device\":\"{device}\"}}")
         );
-        assert_eq!(headers["X-Todori-Realtime-Key-Id"], "publish-current");
-        assert_eq!(headers["X-Todori-Realtime-Timestamp"], "1784059200");
+        assert_eq!(headers["X-Taskveil-Realtime-Key-Id"], "publish-current");
+        assert_eq!(headers["X-Taskveil-Realtime-Timestamp"], "1784059200");
         let signature = URL_SAFE_NO_PAD
-            .decode(headers["X-Todori-Realtime-Signature"].to_str().unwrap())
+            .decode(headers["X-Taskveil-Realtime-Signature"].to_str().unwrap())
             .unwrap();
-        let input = format!("todori-realtime-publish-v1\n1784059200\n{body}");
+        let input = format!("taskveil-realtime-publish-v1\n1784059200\n{body}");
         let mut mac = HmacSha256::new_from_slice(&[4; 32]).unwrap();
         mac.update(input.as_bytes());
         mac.verify_slice(&signature).unwrap();

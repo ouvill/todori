@@ -8,7 +8,7 @@
 
 task-106でPomodoro / Stopwatch / Focusのwall-clock engineと専用routeを実装し、task-107でproduction全体の遷移・状態・Visual QAを統合した。現在のFocusはsetupのwarm canvasからrunning / pausedの全面dark inverseへ切り替わるため、同じアプリ内の連続した体験に見えにくい。また、active画面へ複数の同格ボタンとsession終了系操作が常設され、計時中に必要な情報と判断の優先順位が弱い。
 
-プロダクトオーナーは、Focus全状態をTodori共通のwarm canvasへ戻し、没入感を色面の反転ではなく、Shell外route、情報量の削減、静かなopen dial、単一の主操作で作る方向を採用した。本taskはvisual refinementであり、task-105/106で確立したTimer保存・同期・wall-clock・task status直交の契約は変更しない。
+プロダクトオーナーは、Focus全状態をTaskveil共通のwarm canvasへ戻し、没入感を色面の反転ではなく、Shell外route、情報量の削減、静かなopen dial、単一の主操作で作る方向を採用した。本taskはvisual refinementであり、task-105/106で確立したTimer保存・同期・wall-clock・task status直交の契約は変更しない。
 
 ## 2. 事前に読むべきファイル
 

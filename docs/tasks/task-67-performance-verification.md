@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-Phase 1計画書のM4-04は、1万件データでの起動2秒以内、主要リスト操作60fps目標、オフライン動作の検証を完了条件としている。TodoriはローカルSQLCipher DBとFlutter UIを中心に動作するため、Phase 2同期へ進む前にローカル性能の基準値を記録する。
+Phase 1計画書のM4-04は、1万件データでの起動2秒以内、主要リスト操作60fps目標、オフライン動作の検証を完了条件としている。TaskveilはローカルSQLCipher DBとFlutter UIを中心に動作するため、Phase 2同期へ進む前にローカル性能の基準値を記録する。
 
 本タスクは検証系タスクである。軽微な最適化（インデックス追加、テスト専用seed、計測用widget test）は実施してよいが、大規模なデータロード再設計やUI仮想化方針変更は要人間判断として完了報告へ送る。
 
@@ -145,7 +145,7 @@ Phase 1計画書のM4-04は、1万件データでの起動2秒以内、主要リ
 - Rust層: リスト10、タスク10000、期日あり6667、closed 2000。各リスト1000件、root 700件、child 220件、grandchild 80件。ステータスは `done` 10%、`wont_do` 10%、`in_progress` 20%、`todo` 60%。期日はなし、昨日、今日、明日、翌週を混在。検索語は `alpha`、`日本語`、`routine` を混在。
 - Flutter fake層: Rust層と同じリスト数、タスク数、階層、期日、ステータス分布でseed。
 
-Rust層計測結果（`cargo test -p todori-storage task_67_reports_10000_task_storage_timings -- --ignored --nocapture`）:
+Rust層計測結果（`cargo test -p taskveil-storage task_67_reports_10000_task_storage_timings -- --ignored --nocapture`）:
 
 | 操作 | 件数 | 経過時間 | 備考 |
 |---|---:|---:|---|
@@ -207,7 +207,7 @@ Flutter widget test計測結果:
 - `cd app && flutter test --reporter expanded`: 成功（116 passed、visual QA harness 1 skipped）。
 - `sh app/tool/check_hardcoded_strings.sh`: 成功。
 - `git diff --check`: 成功。
-- `cargo test -p todori-storage task_67_reports_10000_task_storage_timings -- --ignored --nocapture`: 成功。
+- `cargo test -p taskveil-storage task_67_reports_10000_task_storage_timings -- --ignored --nocapture`: 成功。
 - `cd app && flutter test test/performance_large_data_test.dart --reporter expanded`: 成功。
 
 未解決事項:

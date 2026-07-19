@@ -1,6 +1,6 @@
 use std::fmt;
 
-use todori_crypto::key_hierarchy::{generate_list_dek, INITIAL_KEY_GENERATION, KEY_LEN};
+use taskveil_crypto::key_hierarchy::{generate_list_dek, INITIAL_KEY_GENERATION, KEY_LEN};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 

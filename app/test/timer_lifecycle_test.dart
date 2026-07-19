@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/rust/api.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -12,7 +12,7 @@ void main() {
     (tester) async {
       final bridge = _FailingRestoreBridge();
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(bridge)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(bridge)]),
       );
       await tester.pump();
 

@@ -1,18 +1,18 @@
-//! `todori-mcp-server`: LLMエージェント向けTodo操作インターフェース。
+//! `taskveil-mcp-server`: LLMエージェント向けTodo操作インターフェース。
 //!
 //! TODO: rmcp SDK による stdio トランスポートの実装は後続タスク
 //! （`docs/03_技術仕様書.md` §8.2）。本バイナリは現時点では起動確認用のスタブ。
 
-// CLIと同じく、Todoriのapplication serviceへはこの共通入口だけを使う。
-use todori_client::{ClientError, LocalProfileConfig, TodoriClient};
+// CLIと同じく、Taskveilのapplication serviceへはこの共通入口だけを使う。
+use taskveil_client::{ClientError, LocalProfileConfig, TaskveilClient};
 
-const _: fn(LocalProfileConfig) -> Result<TodoriClient, ClientError> = TodoriClient::open;
+const _: fn(LocalProfileConfig) -> Result<TaskveilClient, ClientError> = TaskveilClient::open;
 
 #[allow(dead_code)]
-fn _assert_async_client_api(client: &TodoriClient) {
+fn _assert_async_client_api(client: &TaskveilClient) {
     std::mem::drop(client.sync_now());
 }
 
 fn main() {
-    println!("todori-mcp-server: stdio transport not implemented yet");
+    println!("taskveil-mcp-server: stdio transport not implemented yet");
 }

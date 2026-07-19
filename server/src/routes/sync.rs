@@ -17,7 +17,7 @@ use crate::{
     },
     AppError, SharedState,
 };
-use todori_sync::{
+use taskveil_sync::{
     account::ListDekBundleDto,
     protocol::{
         BaseScanResponse, ContinuityAckRequest, ContinuityAckResponse, PullResponse, PushRequest,
@@ -150,7 +150,7 @@ async fn active_key_bundle(
     State(state): State<SharedState>,
     Path(tenant_id): Path<Uuid>,
     headers: HeaderMap,
-) -> Result<Json<todori_sync::account::ActiveKeyBundleDto>, AppError> {
+) -> Result<Json<taskveil_sync::account::ActiveKeyBundleDto>, AppError> {
     let token = bearer_token(&headers)?;
     let auth_context =
         billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
@@ -374,7 +374,7 @@ fn require_current_protocol(headers: &HeaderMap) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todori_sync::protocol::{PushResult, SyncCollection};
+    use taskveil_sync::protocol::{PushResult, SyncCollection};
 
     #[test]
     fn publish_is_attempted_only_when_at_least_one_result_is_accepted() {

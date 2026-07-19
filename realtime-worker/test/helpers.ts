@@ -15,7 +15,7 @@ export async function connect(
   const now = Math.floor(Date.now() / 1000);
   const token = await issueTicket({
     kid: options.kid ?? env.TICKET_KEY_CURRENT_ID,
-    aud: "todori-realtime",
+    aud: "taskveil-realtime",
     channel: options.channel ?? CHANNEL,
     device,
     iat: (options.expiresAt ?? now + 300) - 300,
@@ -31,7 +31,7 @@ export async function issueTicket(
   encodedKey: string,
 ): Promise<string> {
   const payloadSegment = encodeBase64Url(encoder.encode(JSON.stringify(payload)));
-  const input = encoder.encode(`todori-realtime-ticket-v1\n${payloadSegment}`);
+  const input = encoder.encode(`taskveil-realtime-ticket-v1\n${payloadSegment}`);
   const signature = await sign(encodedKey, input);
   return `${payloadSegment}.${encodeBase64Url(signature)}`;
 }
@@ -51,9 +51,9 @@ export async function publish(
     body,
     headers: {
       "Content-Type": "application/json",
-      "X-Todori-Realtime-Key-Id": options.kid ?? env.PUBLISH_KEY_CURRENT_ID,
-      "X-Todori-Realtime-Signature": signature,
-      "X-Todori-Realtime-Timestamp": String(timestamp),
+      "X-Taskveil-Realtime-Key-Id": options.kid ?? env.PUBLISH_KEY_CURRENT_ID,
+      "X-Taskveil-Realtime-Signature": signature,
+      "X-Taskveil-Realtime-Timestamp": String(timestamp),
     },
     method: "POST",
   });
@@ -64,7 +64,7 @@ export async function signPublishBody(
   timestamp: number,
   body: Uint8Array,
 ): Promise<string> {
-  const prefix = encoder.encode(`todori-realtime-publish-v1\n${timestamp}\n`);
+  const prefix = encoder.encode(`taskveil-realtime-publish-v1\n${timestamp}\n`);
   const input = new Uint8Array(prefix.byteLength + body.byteLength);
   input.set(prefix);
   input.set(body, prefix.byteLength);

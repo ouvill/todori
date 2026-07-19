@@ -8,16 +8,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/notifications/reminder_notifications.dart';
-import 'package:todori/src/router.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/rust/frb_generated.dart';
-import 'package:todori/src/screens/onboarding_screen.dart';
-import 'package:todori/src/timer/timer_notifications.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/notifications/reminder_notifications.dart';
+import 'package:taskveil/src/router.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/rust/frb_generated.dart';
+import 'package:taskveil/src/screens/onboarding_screen.dart';
+import 'package:taskveil/src/timer/timer_notifications.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +28,7 @@ Future<void> main() async {
   try {
     await RustLib.init();
     final supportDir = await getApplicationSupportDirectory();
-    final dbDir = Directory('${supportDir.path}/todori-db');
+    final dbDir = Directory('${supportDir.path}/taskveil-db');
     await dbDir.create(recursive: true);
     final defaultInboxName = lookupAppLocalizations(
       _resolveStartupLocale(PlatformDispatcher.instance.locale),
@@ -54,7 +54,7 @@ Future<void> main() async {
       reminderNotificationService = notificationService;
       await notificationService.reconcilePending(notificationContent);
     } catch (error) {
-      debugPrint('Todori reminder notification initialization failed: $error');
+      debugPrint('Taskveil reminder notification initialization failed: $error');
     }
     timerNotificationService = TimerNotificationService(
       FlutterLocalTimerNotificationGateway(plugin: localNotificationsPlugin),
@@ -67,15 +67,15 @@ Future<void> main() async {
         ),
       );
     } catch (error) {
-      debugPrint('Todori timer notification initialization failed: $error');
+      debugPrint('Taskveil timer notification initialization failed: $error');
     }
   } catch (error, stackTrace) {
     initializationError = error;
-    debugPrint('Todori native core initialization failed: $error\n$stackTrace');
+    debugPrint('Taskveil native core initialization failed: $error\n$stackTrace');
   }
 
   runApp(
-    TodoriApp(
+    TaskveilApp(
       initializationError: initializationError,
       overrides: [
         if (reminderNotificationService != null)
@@ -106,8 +106,8 @@ Locale _resolveStartupLocale(Locale platformLocale) {
 /// [main] so widget tests can build it directly -- with a fake
 /// `BridgeService` supplied via [overrides] -- without ever calling
 /// `RustLib.init()`, touching the filesystem, or calling `initCore`.
-class TodoriApp extends StatelessWidget {
-  TodoriApp({
+class TaskveilApp extends StatelessWidget {
+  TaskveilApp({
     super.key,
     this.initializationError,
     this.overrides = const [],
@@ -135,8 +135,8 @@ class TodoriApp extends StatelessWidget {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-        theme: buildTodoriTheme(Brightness.light),
-        darkTheme: buildTodoriTheme(Brightness.dark),
+        theme: buildTaskveilTheme(Brightness.light),
+        darkTheme: buildTaskveilTheme(Brightness.dark),
         home: Scaffold(
           body: Center(
             child: Padding(
@@ -145,7 +145,7 @@ class TodoriApp extends StatelessWidget {
                 builder: (context) => Text(
                   AppLocalizations.of(
                     context,
-                  )!.failedToStartTodori(error.toString()),
+                  )!.failedToStartTaskveil(error.toString()),
                 ),
               ),
             ),
@@ -156,21 +156,21 @@ class TodoriApp extends StatelessWidget {
 
     return ProviderScope(
       overrides: overrides,
-      child: _TodoriAppShell(router: router),
+      child: _TaskveilAppShell(router: router),
     );
   }
 }
 
-class _TodoriAppShell extends ConsumerStatefulWidget {
-  const _TodoriAppShell({required this.router});
+class _TaskveilAppShell extends ConsumerStatefulWidget {
+  const _TaskveilAppShell({required this.router});
 
   final GoRouter router;
 
   @override
-  ConsumerState<_TodoriAppShell> createState() => _TodoriAppShellState();
+  ConsumerState<_TaskveilAppShell> createState() => _TaskveilAppShellState();
 }
 
-class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
+class _TaskveilAppShellState extends ConsumerState<_TaskveilAppShell>
     with WidgetsBindingObserver {
   bool _startupSettlementRequested = false;
 
@@ -268,8 +268,8 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-          theme: buildTodoriTheme(Brightness.light),
-          darkTheme: buildTodoriTheme(Brightness.dark),
+          theme: buildTaskveilTheme(Brightness.light),
+          darkTheme: buildTaskveilTheme(Brightness.dark),
           routerConfig: widget.router,
         );
       },
@@ -281,8 +281,8 @@ class _TodoriAppShellState extends ConsumerState<_TodoriAppShell>
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-      theme: buildTodoriTheme(Brightness.light),
-      darkTheme: buildTodoriTheme(Brightness.dark),
+      theme: buildTaskveilTheme(Brightness.light),
+      darkTheme: buildTaskveilTheme(Brightness.dark),
       home: home,
     );
   }

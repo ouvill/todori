@@ -4,7 +4,7 @@
 <dict>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)dev.todori.todori</string>
+		<string>$(AppIdentifierPrefix)com.taskveil.app</string>
 	</array>
 </dict>
 </plist>

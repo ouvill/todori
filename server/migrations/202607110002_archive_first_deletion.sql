@@ -49,23 +49,23 @@ ALTER TABLE tenant_device_continuity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_device_continuity FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_device_continuity_isolation ON tenant_device_continuity;
 CREATE POLICY tenant_device_continuity_isolation ON tenant_device_continuity
-    USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
-    WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
+    USING (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID)
+    WITH CHECK (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID);
 
 ALTER TABLE device_resync_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE device_resync_sessions FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS device_resync_sessions_isolation ON device_resync_sessions;
 CREATE POLICY device_resync_sessions_isolation ON device_resync_sessions
-    USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
-    WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
+    USING (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID)
+    WITH CHECK (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID);
 
 ALTER TABLE continuity_closure_proofs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE continuity_closure_proofs FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS continuity_closure_proofs_isolation ON continuity_closure_proofs;
 CREATE POLICY continuity_closure_proofs_isolation ON continuity_closure_proofs
-    USING (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID)
-    WITH CHECK (tenant_id = NULLIF(current_setting('todori.tenant_id', true), '')::UUID);
+    USING (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID)
+    WITH CHECK (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID);
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON tenant_device_continuity TO todori_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON device_resync_sessions TO todori_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON continuity_closure_proofs TO todori_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON tenant_device_continuity TO taskveil_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON device_resync_sessions TO taskveil_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON continuity_closure_proofs TO taskveil_app;

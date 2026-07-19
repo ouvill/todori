@@ -20,10 +20,10 @@ Future<String> getLocalTimeZone() =>
 Future<String> createDraftTask({required String title}) =>
     RustLib.instance.api.crateApiCreateDraftTask(title: title);
 
-/// Initializes Todori core for the process using `db_dir`.
+/// Initializes Taskveil core for the process using `db_dir`.
 ///
 /// This creates or loads a platform Device Key, derives the SQLCipher key,
-/// initializes `<db_dir>/todori.db`, and stores the process-global client
+/// initializes `<db_dir>/taskveil.db`, and stores the process-global client
 /// profile. Reinitializing with the same DB path succeeds idempotently;
 /// reinitializing with a different DB path returns an error.
 Future<void> initCore({
@@ -115,7 +115,7 @@ Future<RealtimeTicketDto> getRealtimeTicket() =>
 /// Creates a list using a client-owned fractional `sort_order`.
 ///
 /// `sort_order` remains in the FRB contract for compatibility, but rank
-/// generation and rebalance are owned by `TodoriClient`.
+/// generation and rebalance are owned by `TaskveilClient`.
 Future<ListDto> createList({required String name, required String sortOrder}) =>
     RustLib.instance.api.crateApiCreateList(name: name, sortOrder: sortOrder);
 

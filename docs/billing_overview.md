@@ -1,6 +1,6 @@
 # Billing Overview
 
-This document summarizes Todori's public billing principles. Detailed pricing experiments, revenue scenarios, channel comparisons, and operational notes are maintained outside the public repository.
+This document summarizes Taskveil's public billing principles. Detailed pricing experiments, revenue scenarios, channel comparisons, and operational notes are maintained outside the public repository.
 
 ## Principles
 
@@ -9,11 +9,11 @@ This document summarizes Todori's public billing principles. Detailed pricing ex
 - Losing paid status must not make local data unreadable or uneditable.
 - Billing state is separated from end-to-end encrypted content. The server may know whether an account has access to a paid capability, but it must not learn task contents.
 - Upsell prompts should appear only in relevant product contexts and must not rely on disruptive advertising or dark patterns.
-- Product analytics for billing should be minimized and should not undermine Todori's privacy promises.
+- Product analytics for billing should be minimized and should not undermine Taskveil's privacy promises.
 
 ## Public Plan Shape
 
-Todori's planned plan structure is:
+Taskveil's planned plan structure is:
 
 | Plan | Intended audience | Public boundary |
 |---|---|---|
@@ -25,7 +25,7 @@ Final pricing, trial details, eligibility rules, and launch timing are not commi
 
 ## Release Gate
 
-Todori will not make its first general release until the billing foundation is complete. Store submission, release tags, and public launch announcements remain blocked until all of the following are verified:
+Taskveil will not make its first general release until the billing foundation is complete. Store submission, release tags, and public launch announcements remain blocked until all of the following are verified:
 
 - iOS purchase and restore work end to end in a store sandbox.
 - Receipts, transactions, and billing events are verified on the server and applied idempotently.
@@ -48,9 +48,9 @@ The technical design must preserve these boundaries:
 
 ## User Experience
 
-Billing prompts should be quiet and contextual. Appropriate moments include setting up an additional device, enabling encrypted cloud backup, or accepting an organization invitation. Todori should avoid aggressive paywalls, surprise restrictions on existing local functionality, and sales notifications.
+Billing prompts should be quiet and contextual. Appropriate moments include setting up an additional device, enabling encrypted cloud backup, or accepting an organization invitation. Taskveil should avoid aggressive paywalls, surprise restrictions on existing local functionality, and sales notifications.
 
-Cancellation and renewal flows should be clear. If a paid capability expires, Todori may stop server-backed sync or sharing, but local data remains available on the device.
+Cancellation and renewal flows should be clear. If a paid capability expires, Taskveil may stop server-backed sync or sharing, but local data remains available on the device.
 
 ## Non-Public Detail
 

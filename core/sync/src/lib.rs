@@ -1,8 +1,8 @@
-//! `todori-sync`: HLC・差分検出・push/pull同期エンジンを提供する crate。
+//! `taskveil-sync`: HLC・差分検出・push/pull同期エンジンを提供する crate。
 //!
 //! 詳細は `docs/03_技術仕様書.md` §6 同期プロトコル を参照。
 //!
-//! `outbox` によるpush/pullフローの永続化は `todori-storage` が担う。
+//! `outbox` によるpush/pullフローの永続化は `taskveil-storage` が担う。
 
 pub mod account;
 pub mod apply;
@@ -66,7 +66,7 @@ pub use rotation::{DeviceContinuity, RotationCoordinator, RotationError, HISTORY
 mod convergence_tests {
     use crate::{merge_lww, Hlc, SyncPlaintext};
     use proptest::{prelude::*, test_runner::Config};
-    use todori_domain::{new_task, Uuid};
+    use taskveil_domain::{new_task, Uuid};
 
     proptest! {
         #![proptest_config(Config::with_cases(64))]

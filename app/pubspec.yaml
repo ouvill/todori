@@ -1,4 +1,4 @@
-name: todori
+name: taskveil
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -39,7 +39,7 @@ dependencies:
   flutter_riverpod: ^3.3.2
   go_router: ^17.3.0
   path_provider: ^2.1.6
-  todori_app_bridge:
+  taskveil_app_bridge:
     path: rust_builder
   flutter_localizations:
     sdk: flutter
@@ -84,7 +84,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - assets/brand/generated/todori-mascot-ui-sprites-v1.png
+    - assets/brand/generated/taskveil-mascot-ui-sprites-v1.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/screens/tasks_screen.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/screens/tasks_screen.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -14,7 +14,7 @@ void main() {
 
     final stopwatch = Stopwatch()..start();
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     stopwatch.stop();
@@ -46,7 +46,7 @@ void main() {
 
     final stopwatch = Stopwatch()..start();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),

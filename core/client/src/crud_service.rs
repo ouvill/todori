@@ -1,18 +1,18 @@
-use todori_crypto::key_hierarchy::{
+use taskveil_crypto::key_hierarchy::{
     generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key, KEY_LEN,
 };
-use todori_domain::{
+use taskveil_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
     unarchive_list as domain_unarchive_list, update_due, update_estimated_minutes, update_note,
     update_priority, update_scheduled_at, validate_parent_for, List, Task, TaskDue, TaskStatus,
     Uuid,
 };
-use todori_storage::{
+use taskveil_storage::{
     open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
     TaskUndoOperation,
 };
-use todori_sync::{KeyManifest, KeyScope, RotationStatus};
+use taskveil_sync::{KeyManifest, KeyScope, RotationStatus};
 use zeroize::Zeroizing;
 
 use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
@@ -62,7 +62,7 @@ impl SqliteMutationService {
         lists.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
         let rank = match fractional_index_after(lists.last().map(|list| list.sort_order.as_str())) {
             Ok(rank) => rank,
-            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+            Err(taskveil_domain::DomainError::SortOrderSpaceExhausted) => {
                 let ranks = rebalance_ranks(lists.len() + 1)?;
                 for (mut list, rank) in lists.into_iter().zip(ranks.iter()) {
                     if list.sort_order != *rank {
@@ -140,7 +140,7 @@ impl SqliteMutationService {
             || (input.previous_task_id.is_some() && input.previous_task_id == input.next_task_id)
         {
             return Err(ClientError::Domain(
-                todori_domain::DomainError::InvalidSortOrderBoundary,
+                taskveil_domain::DomainError::InvalidSortOrderBoundary,
             ));
         }
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
@@ -214,7 +214,7 @@ impl SqliteMutationService {
             .max();
         let sort_order = match fractional_index_after(last_sibling_sort_order) {
             Ok(rank) => rank,
-            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+            Err(taskveil_domain::DomainError::SortOrderSpaceExhausted) => {
                 let mut siblings = tasks
                     .iter()
                     .filter(|task| task.parent_task_id == input.parent_task_id)
@@ -414,7 +414,7 @@ fn insertion_index(
             let next_index = find(next)?;
             if previous_index + 1 != next_index {
                 return Err(ClientError::Domain(
-                    todori_domain::DomainError::InvalidSortOrderBoundary,
+                    taskveil_domain::DomainError::InvalidSortOrderBoundary,
                 ));
             }
             next_index
@@ -425,7 +425,7 @@ fn insertion_index(
         .any(|task| task.list_id != list_id || task.parent_task_id != parent_task_id)
     {
         return Err(ClientError::Domain(
-            todori_domain::DomainError::InvalidSortOrderBoundary,
+            taskveil_domain::DomainError::InvalidSortOrderBoundary,
         ));
     }
     Ok(index)
@@ -441,17 +441,17 @@ fn require_list_key(sync: &LocalMutationContext, list_id: Uuid) -> Result<(), Cl
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-    use todori_domain::{new_list, new_task};
-    use todori_storage::{
+    use taskveil_domain::{new_list, new_task};
+    use taskveil_storage::{
         ListRepository, OwnedSqliteWriteTx, SettingsRepository, SqliteListRepository,
         SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository,
         SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
     };
-    use todori_sync::{
+    use taskveil_sync::{
         Hlc, LocalSyncKeys, SyncPlaintext, LISTS_COLLECTION, SYNC_LOCAL_HLC_SETTING_KEY,
         TASKS_COLLECTION,
     };
+    use tempfile::TempDir;
 
     use super::*;
     use crate::{
@@ -1045,7 +1045,7 @@ mod tests {
         assert!(matches!(
             fixture.mutation_service.create_task(input, &fixture.sync),
             Err(ClientError::Domain(
-                todori_domain::DomainError::ParentNotFound
+                taskveil_domain::DomainError::ParentNotFound
             ))
         ));
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
@@ -1307,7 +1307,7 @@ mod tests {
         List,
         Option<String>,
         Option<SyncRecordState>,
-        Vec<todori_storage::SyncOutboxEntry>,
+        Vec<taskveil_storage::SyncOutboxEntry>,
     ) {
         let list = SqliteListRepository::new(
             open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap(),

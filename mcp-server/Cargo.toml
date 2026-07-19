@@ -1,9 +1,9 @@
 [package]
-name = "todori-mcp-server"
+name = "taskveil-mcp-server"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-todori-client.workspace = true
+taskveil-client.workspace = true

@@ -1,6 +1,6 @@
 # DBマイグレーションrunbook
 
-TodoriサーバーDBのマイグレーション手順を定義する。2026-07-08時点の本番デプロイは未実施であり、このrunbookはローカルリハーサルと将来のNeon適用に向けたドラフトである。
+TaskveilサーバーDBのマイグレーション手順を定義する。2026-07-08時点の本番デプロイは未実施であり、このrunbookはローカルリハーサルと将来のNeon適用に向けたドラフトである。
 
 ## 1. 対象
 
@@ -31,12 +31,12 @@ contractは公開リポジトリだけで判断しない。実稼働状況、ク
 ./tool/dev_server.sh
 ```
 
-スクリプトは `todori-dev-postgres` を起動し、`server/migrations/*.sql` を順に適用してからサーバーを起動する。
+スクリプトは `taskveil-dev-postgres` を起動し、`server/migrations/*.sql` を順に適用してからサーバーを起動する。
 
 クリーンDBで試す場合:
 
 ```sh
-docker rm -f todori-dev-postgres
+docker rm -f taskveil-dev-postgres
 ./tool/dev_server.sh
 ```
 
@@ -71,28 +71,28 @@ curl -i http://localhost:8080/health
 psql "<NEON_MIGRATION_DATABASE_URL>" -v ON_ERROR_STOP=1 -f server/migrations/<MIGRATION_FILE>.sql
 ```
 
-アプリ起動時にも `DATABASE_MIGRATION_URL` のowner接続で `run_migrations` が走るため、SQLは再実行で壊れない設計にする。通常query用の `DATABASE_URL` は別のruntime loginを使用し、migrationが作成するNOLOGIN group role `todori_app`のmemberにする。
+アプリ起動時にも `DATABASE_MIGRATION_URL` のowner接続で `run_migrations` が走るため、SQLは再実行で壊れない設計にする。通常query用の `DATABASE_URL` は別のruntime loginを使用し、migrationが作成するNOLOGIN group role `taskveil_app`のmemberにする。
 
 ```sql
 -- role名とpasswordは運用環境で管理する。実値をpublic repoへ記録しない。
 CREATE ROLE <RUNTIME_LOGIN> LOGIN PASSWORD '<SECRET>'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-GRANT todori_app TO <RUNTIME_LOGIN>;
+GRANT taskveil_app TO <RUNTIME_LOGIN>;
 ```
 
 本番・共有環境では次を分離する。
 
 - `DATABASE_MIGRATION_URL`: schema owner / migration専用。通常server requestへ渡さない。
-- `DATABASE_URL`: pooled endpointを使うnon-owner runtime login。`INHERIT`付きで`todori_app`のmemberにし、serverは接続時にLOGIN / non-owner / NOSUPERUSER / NOBYPASSRLS / 権限継承を検証する。transaction poolで保持されないsession-level `SET ROLE`には依存しない。
+- `DATABASE_URL`: pooled endpointを使うnon-owner runtime login。`INHERIT`付きで`taskveil_app`のmemberにし、serverは接続時にLOGIN / non-owner / NOSUPERUSER / NOBYPASSRLS / 権限継承を検証する。transaction poolで保持されないsession-level `SET ROLE`には依存しない。
 
-ローカルの `tool/dev_server.sh` もowner接続と`todori_runtime` loginを分離する。
+ローカルの `tool/dev_server.sh` もowner接続と`taskveil_runtime` loginを分離する。
 
 ## 7. 検証
 
 最低限の検証:
 
 ```sh
-cargo test -p todori-server
+cargo test -p taskveil-server
 cargo test --workspace
 git diff --check
 ```
@@ -103,7 +103,7 @@ APIレベルの検証:
 - OPAQUE登録/ログインが成功する。
 - push/pullがtenant分離、batch上限、blob上限、未来HLC拒否を維持している。
 - 削除tombstoneの空blob方針が維持されている。
-- application poolの `current_user` がnon-owner runtime loginで、`rolsuper = false`、`rolbypassrls = false`、`rolinherit = true`、`pg_has_role(current_user, 'todori_app', 'USAGE') = true`である。
+- application poolの `current_user` がnon-owner runtime loginで、`rolsuper = false`、`rolbypassrls = false`、`rolinherit = true`、`pg_has_role(current_user, 'taskveil_app', 'USAGE') = true`である。
 - `tenants`、`tenant_members`、`tenant_seq`、tenant/list key bundle、sync record/historyでRLSと`FORCE ROW LEVEL SECURITY`が有効である。
 - tenant contextなしでは0行、tenant contextありでは当該tenantだけが見え、別tenantへのinsert/update/deleteが拒否または0件になる。
 

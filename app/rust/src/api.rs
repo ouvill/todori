@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
-use todori_client::chrono::{DateTime, Utc};
-use todori_client::{
+use taskveil_client::chrono::{DateTime, Utc};
+use taskveil_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
     AccountSessionState, ActiveTimerSession, BillingState, CalendarOccurrenceKind,
     CalendarOccurrenceView, CalendarRange, CivilDate, ClientError, CompletedTimerSession,
@@ -288,7 +288,7 @@ pub struct SyncStatusDto {
 }
 
 pub fn greet(name: String) -> String {
-    format!("Hello {name} from todori-core")
+    format!("Hello {name} from taskveil-core")
 }
 
 pub fn get_local_time_zone() -> Result<String, String> {
@@ -312,10 +312,10 @@ pub fn create_draft_task(title: String) -> String {
     )
 }
 
-/// Initializes Todori core for the process using `db_dir`.
+/// Initializes Taskveil core for the process using `db_dir`.
 ///
 /// This creates or loads a platform Device Key, derives the SQLCipher key,
-/// initializes `<db_dir>/todori.db`, and stores the process-global client
+/// initializes `<db_dir>/taskveil.db`, and stores the process-global client
 /// profile. Reinitializing with the same DB path succeeds idempotently;
 /// reinitializing with a different DB path returns an error.
 pub fn init_core(db_dir: String, default_inbox_name: String) -> Result<(), String> {
@@ -452,7 +452,7 @@ pub async fn get_realtime_ticket() -> Result<RealtimeTicketDto, String> {
 /// Creates a list using a client-owned fractional `sort_order`.
 ///
 /// `sort_order` remains in the FRB contract for compatibility, but rank
-/// generation and rebalance are owned by `TodoriClient`.
+/// generation and rebalance are owned by `TaskveilClient`.
 pub fn create_list(name: String, sort_order: String) -> Result<ListDto, String> {
     let _legacy_caller_rank = sort_order;
     client_result(client()?.create_list(name)).map(list_to_dto)
@@ -831,7 +831,7 @@ pub fn snooze_reminder(reminder_id: String, snoozed_until: i64) -> Result<Remind
     client_result(client()?.snooze_reminder(reminder_id, snoozed_until)).map(reminder_to_dto)
 }
 
-fn client_result<T>(result: Result<T, todori_client::ClientError>) -> Result<T, String> {
+fn client_result<T>(result: Result<T, taskveil_client::ClientError>) -> Result<T, String> {
     result.map_err(|error| error.to_string())
 }
 

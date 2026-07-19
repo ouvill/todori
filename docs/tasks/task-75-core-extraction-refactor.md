@@ -55,7 +55,7 @@
 1. `api.rs` のprivate同期ロジックを分類する: sync run、pull apply、enqueue、key補完、plaintext変換、HLC tick。
 2. `core/sync` に `apply.rs` / `enqueue.rs` / `keys.rs` などを追加し、分類したロジックを移す。
 3. `core/sync` に最小traitを定義し、outbox、cursor、record state、settings、task/list upsert/delete をtrait経由にする。
-4. `app/rust` に trait adapter を追加し、既存 `todori-storage` のSQLite repositoryへ委譲する。
+4. `app/rust` に trait adapter を追加し、既存 `taskveil-storage` のSQLite repositoryへ委譲する。
 5. `dev_key_store.rs` を `core/crypto` へ移し、`security-framework` 依存も `core/crypto` のApple target依存へ移す。
 6. `api.rs` の公開関数から core/sync / core/crypto の関数を呼び、DTO変換以外の大きなprivate処理を別モジュールへ出す。
 7. FRB生成を実行し、生成物の手編集をしない。
@@ -81,7 +81,7 @@
 - 秘密情報、Device Key、session token、MK/DEK、復号済みplaintextをDart境界やログへ出してはならない。
 - `FileDeviceKeyStore` は非Apple開発・Flutter test fallbackとして残すが、本番用primary storeへ戻してはならない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `.github/` と `todori-private/` は変更しない。
+- `.github/` と `taskveil-private/` は変更しない。
 - git commit はしない。
 
 ## 8. 完了報告に含めるべき内容
@@ -102,7 +102,7 @@
 
 - `app/rust/src/api.rs` から同期run、pull適用、outbox enqueue、HLC tick、plaintext変換、List DEK補完を `core/sync` へ移設した。
 - `core/sync` に `apply.rs` / `enqueue.rs` / `keys.rs` を追加し、ローカルDBアクセスは `LocalSyncStore` traitで注入する形にした。`core/sync` 内に `rusqlite` / `Sqlite*Repository` 参照はない。
-- `app/rust/src/sync_store.rs` を追加し、`todori-storage` のSQLite repositoryを `LocalSyncStore` へ接続するadapterにした。
+- `app/rust/src/sync_store.rs` を追加し、`taskveil-storage` のSQLite repositoryを `LocalSyncStore` へ接続するadapterにした。
 - `app/rust/src/dev_key_store.rs` を `core/crypto/src/dev_key_store.rs` へ移設し、`security-framework` 依存を `core/crypto` のApple target依存へ移した。
 - `app/rust/src/support.rs` を追加し、FRB公開関数ではないランタイム状態・account helper・repository openerを `api.rs` から分離した。
 - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行した。公開APIは変更なし。生成差分は `app/lib/src/rust/api.dart` の非公開関数コメント更新のみ。

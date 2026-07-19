@@ -1,8 +1,8 @@
 {
   "@@locale": "en",
-  "appTitle": "Todori",
+  "appTitle": "Taskveil",
   "defaultInboxName": "Inbox",
-  "defaultListMissing": "Default list is missing. Restart Todori or check local database provisioning.",
+  "defaultListMissing": "Default list is missing. Restart Taskveil or check local database provisioning.",
   "listsTitle": "Lists",
   "listsSectionTitle": "Lists",
   "listsEmpty": "No lists yet. Tap + to create one.",
@@ -172,7 +172,7 @@
     }
   },
   "homeEmptyTitle": "Start with a list.",
-  "homeEmptyBody": "Create a list, then Todori will open straight into your tasks.",
+  "homeEmptyBody": "Create a list, then Taskveil will open straight into your tasks.",
   "homeNewListButton": "New list",
   "homeClearTitle": "A little room to breathe.",
   "homeClearBody": "Nothing is waiting here. Add a task whenever you are ready.",
@@ -360,8 +360,8 @@
   "reminderLimitReached": "You can set up to 5 reminders for one task.",
   "reminderDuplicateTime": "A reminder already exists at that time.",
   "reminderMustBeFuture": "Choose a future time.",
-  "reminderSavedNotificationFailed": "The reminder was saved, but Todori could not schedule the local notification.",
-  "reminderPermissionDenied": "Notifications are off. The reminder was saved, but Todori could not schedule a local notification.",
+  "reminderSavedNotificationFailed": "The reminder was saved, but Taskveil could not schedule the local notification.",
+  "reminderPermissionDenied": "Notifications are off. The reminder was saved, but Taskveil could not schedule a local notification.",
   "failedToSaveReminder": "Failed to save reminder: {error}",
   "@failedToSaveReminder": {
     "placeholders": {
@@ -370,7 +370,7 @@
       }
     }
   },
-  "reminderNotificationTitle": "Todori reminder",
+  "reminderNotificationTitle": "Taskveil reminder",
   "reminderNotificationBody": "A task reminder is due.",
   "reminderSnoozeOneHourAction": "+1 hour",
   "changePriorityTooltip": "Change priority",
@@ -524,17 +524,17 @@
   "organizationSafetyFailed": "Could not verify the Safety number. Reload it and compare again.",
   "onboardingWelcomeTitle": "Make room for what matters",
   "onboardingWelcomeBody": "A calm place for plans, small promises, and the next thing worth doing. No scores. No noise.",
-  "onboardingWelcomeArtworkSemantics": "A quiet leaf representing Todori",
+  "onboardingWelcomeArtworkSemantics": "A quiet leaf representing Taskveil",
   "onboardingPrivacyTitle": "Private by design",
   "onboardingPrivacyBody": "Your local database is encrypted on this device. When you choose to sync, task content is encrypted before it leaves.",
   "onboardingPrivacyNote": "Without sync, your tasks live only on this device and may be unrecoverable if the device is lost or the app is removed.",
   "onboardingPrivacyArtworkSemantics": "A shield representing local protection and encrypted sync",
   "onboardingBeginTitle": "Begin with one small thing",
-  "onboardingBeginBody": "Add what needs your attention. Todori stays quiet until you need it.",
+  "onboardingBeginBody": "Add what needs your attention. Taskveil stays quiet until you need it.",
   "onboardingBeginArtworkSemantics": "A settled check mark representing a completed task",
   "onboardingStartButton": "Start gently",
-  "onboardingSaveFailed": "Todori couldn't save this choice. Try again to continue.",
-  "onboardingLoadFailed": "Todori couldn't read its local settings.",
+  "onboardingSaveFailed": "Taskveil couldn't save this choice. Try again to continue.",
+  "onboardingLoadFailed": "Taskveil couldn't read its local settings.",
   "retryButton": "Try again",
   "onboardingPagePosition": "Page {current} of {total}",
   "@onboardingPagePosition": {
@@ -568,13 +568,13 @@
   "focusLongBreakMinutesLabel": "Long break",
   "focusLongBreakEveryLabel": "Long break after",
   "focusNotificationsLabel": "Completion notification",
-  "focusNotificationsBody": "Best effort while Todori is in the background",
+  "focusNotificationsBody": "Best effort while Taskveil is in the background",
   "focusWorkIntervals": "{count} focus sessions",
   "@focusWorkIntervals": {
     "placeholders": {"count": {"type": "int"}}
   },
   "focusRestoring": "Restoring your focus session…",
-  "focusLoadFailed": "Todori couldn't restore this focus session.",
+  "focusLoadFailed": "Taskveil couldn't restore this focus session.",
   "focusActiveConflictTitle": "Another focus session is active",
   "focusActiveConflictBody": "Finish or discard the current session before starting this task.",
   "focusRunningState": "Focusing",
@@ -620,7 +620,7 @@
   "@focusActualOnlyValue": {"placeholders": {"actual": {"type": "String"}}},
   "focusNoActualValue": "No work recorded yet",
   "timerNotificationTitle": "Focus time is complete",
-  "timerNotificationBody": "Open Todori to continue your focus rhythm.",
+  "timerNotificationBody": "Open Taskveil to continue your focus rhythm.",
   "billingTitle": "Pro",
   "billingSubscriptionBody": "Pro includes E2EE sync and encrypted cloud backup. Cancel anytime in Apple subscriptions.",
   "billingStatusFree": "Free",
@@ -694,8 +694,8 @@
   "saveAsTemplateMenuItem": "Save as template",
   "saveAsTemplateTitle": "Save as template",
   "templateSavedMessage": "Template saved.",
-  "failedToStartTodori": "Failed to start Todori: {error}",
-  "@failedToStartTodori": {
+  "failedToStartTaskveil": "Failed to start Taskveil: {error}",
+  "@failedToStartTaskveil": {
     "placeholders": {
       "error": {
         "type": "String"

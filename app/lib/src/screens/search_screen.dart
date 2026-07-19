@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/ui/task_components.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/ui/task_components.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 /// Immersive, task-first search. This route intentionally lives outside the
 /// product shell so the query remains the only navigation context on screen.

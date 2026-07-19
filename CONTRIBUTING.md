@@ -1,10 +1,10 @@
-# Contributing to Todori
+# Contributing to Taskveil
 
-Thank you for considering a contribution to Todori. This document summarizes the essentials for contributing.
+Thank you for considering a contribution to Taskveil. This document summarizes the essentials for contributing.
 
 ## License
 
-Todori is licensed under **AGPL-3.0-only** (see [`LICENSE`](./LICENSE)). By contributing, you agree that your contribution is licensed under the same terms.
+Taskveil is licensed under **AGPL-3.0-only** (see [`LICENSE`](./LICENSE)). By contributing, you agree that your contribution is licensed under the same terms.
 
 ## Contributor License Agreement (CLA)
 

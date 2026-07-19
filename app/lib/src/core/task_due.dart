@@ -1,4 +1,4 @@
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/src/rust/api.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 

@@ -1,11 +1,11 @@
-use todori_domain::{
+use taskveil_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
     unarchive_list as domain_unarchive_list, update_due, update_estimated_minutes, update_note,
     update_priority, update_scheduled_at, update_title, validate_parent_for, ActiveTimerSession,
     CompletedTimerSession, List, Task, TaskDue, TaskStatus, Uuid,
 };
-use todori_storage::{
+use taskveil_storage::{
     open_encrypted, CalendarOccurrence, CalendarOccurrenceKind as StorageCalendarOccurrenceKind,
     CalendarRange as StorageCalendarRange, HomeTask, ListRepository, Reminder, ReminderRepository,
     SqliteWriteTx, StorageError, TaskRepository, TaskUndoEntry, TaskUndoOperation,
@@ -22,7 +22,7 @@ use crate::{
     UpdateTaskInput,
 };
 
-use super::{now_ms, CryptoRuntimeState, LocalMutationState, TodoriClient};
+use super::{now_ms, CryptoRuntimeState, LocalMutationState, TaskveilClient};
 
 #[derive(Debug, Clone)]
 pub struct CreateTaskCommand {
@@ -70,18 +70,18 @@ pub struct HomeTaskView {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CalendarRange {
-    pub start_on: todori_domain::CivilDate,
-    pub end_on: todori_domain::CivilDate,
-    pub start_at: todori_domain::UtcInstant,
-    pub end_at: todori_domain::UtcInstant,
+    pub start_on: taskveil_domain::CivilDate,
+    pub end_on: taskveil_domain::CivilDate,
+    pub start_at: taskveil_domain::UtcInstant,
+    pub end_at: taskveil_domain::UtcInstant,
 }
 
 impl CalendarRange {
     pub fn new(
-        start_on: todori_domain::CivilDate,
-        end_on: todori_domain::CivilDate,
-        start_at: todori_domain::UtcInstant,
-        end_at: todori_domain::UtcInstant,
+        start_on: taskveil_domain::CivilDate,
+        end_on: taskveil_domain::CivilDate,
+        start_at: taskveil_domain::UtcInstant,
+        end_at: taskveil_domain::UtcInstant,
     ) -> Result<Self, ClientError> {
         if start_on >= end_on || start_at >= end_at {
             return Err(ClientError::InvalidCalendarRange);
@@ -98,17 +98,17 @@ impl CalendarRange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CalendarOccurrenceKind {
     DateDue {
-        due_on: todori_domain::CivilDate,
+        due_on: taskveil_domain::CivilDate,
     },
     DateTimeDue {
-        due_at: todori_domain::UtcInstant,
-        time_zone: todori_domain::IanaTimeZone,
+        due_at: taskveil_domain::UtcInstant,
+        time_zone: taskveil_domain::IanaTimeZone,
     },
     Scheduled {
-        scheduled_at: todori_domain::UtcInstant,
+        scheduled_at: taskveil_domain::UtcInstant,
     },
     Completed {
-        completed_at: todori_domain::UtcInstant,
+        completed_at: taskveil_domain::UtcInstant,
     },
 }
 
@@ -155,7 +155,7 @@ enum CreateListMode {
     },
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     pub fn local_time_zone(&self) -> Result<String, ClientError> {
         iana_time_zone::get_timezone().map_err(|_| ClientError::LocalTimeZoneUnavailable)
     }
@@ -632,7 +632,7 @@ impl TodoriClient {
     }
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     fn mutation_service(&self) -> SqliteMutationService {
         SqliteMutationService::new_secret(self.db_path.clone(), self.db_key())
     }
@@ -660,7 +660,7 @@ impl TodoriClient {
         lists.sort_by(|a, b| (a.sort_order.as_str(), a.id).cmp(&(b.sort_order.as_str(), b.id)));
         let rank = match fractional_index_after(lists.last().map(|list| list.sort_order.as_str())) {
             Ok(rank) => rank,
-            Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+            Err(taskveil_domain::DomainError::SortOrderSpaceExhausted) => {
                 let ranks = rebalance_ranks(lists.len() + 1)?;
                 for (mut list, rank) in lists.into_iter().zip(ranks.iter()) {
                     if list.sort_order != *rank {
@@ -714,7 +714,7 @@ impl TodoriClient {
         let rank =
             match fractional_index_after(siblings.last().map(|task| task.sort_order.as_str())) {
                 Ok(rank) => rank,
-                Err(todori_domain::DomainError::SortOrderSpaceExhausted) => {
+                Err(taskveil_domain::DomainError::SortOrderSpaceExhausted) => {
                     let ranks = rebalance_ranks(siblings.len() + 1)?;
                     for (mut sibling, rank) in siblings.into_iter().zip(ranks.iter()) {
                         if sibling.sort_order != *rank {
@@ -964,7 +964,7 @@ fn validate_reorder_ids(
         || next_task_id == Some(task_id)
         || (previous_task_id.is_some() && previous_task_id == next_task_id)
     {
-        return Err(todori_domain::DomainError::InvalidSortOrderBoundary.into());
+        return Err(taskveil_domain::DomainError::InvalidSortOrderBoundary.into());
     }
     Ok(())
 }
@@ -988,7 +988,7 @@ fn insertion_index(
             let previous = find(previous)?;
             let next = find(next)?;
             if previous + 1 != next {
-                return Err(todori_domain::DomainError::InvalidSortOrderBoundary.into());
+                return Err(taskveil_domain::DomainError::InvalidSortOrderBoundary.into());
             }
             Ok(next)
         }
@@ -1062,18 +1062,18 @@ impl From<Reminder> for ReminderView {
 mod tests {
     use std::sync::Mutex;
 
-    use tempfile::TempDir;
-    use todori_domain::{
+    use taskveil_domain::{
         new_list, new_task, ActiveTimerSession, CompletedTimerSession, TimerFinishKind, TimerMode,
         TimerPhase, TimerRunState,
     };
-    use todori_storage::{
+    use taskveil_storage::{
         ListRepository, OwnedSqliteWriteTx, ReminderRepository, SettingsRepository,
         SqliteListRepository, SqliteReminderRepository, SqliteSettingsRepository,
         SqliteSyncStateRepository, SqliteTaskRepository, SqliteTimerSessionRepository,
         SyncStateRepository, TaskRepository, TimerSessionRepository,
     };
-    use todori_sync::{LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY};
+    use taskveil_sync::{LocalSyncKeys, SYNC_LOCAL_HLC_SETTING_KEY};
+    use tempfile::TempDir;
 
     use super::*;
     use crate::{
@@ -1095,7 +1095,7 @@ mod tests {
         lists.insert(list).unwrap();
         lists.delete_with_tasks(list_id).unwrap();
         drop(lists);
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1138,7 +1138,7 @@ mod tests {
             .unwrap();
         transaction.commit().unwrap();
 
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1179,7 +1179,7 @@ mod tests {
         SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
             .insert(task.clone())
             .unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1297,7 +1297,7 @@ mod tests {
                  BEGIN SELECT RAISE(ABORT, 'fail timer outbox'); END;",
             )
             .unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1409,7 +1409,7 @@ mod tests {
             BASE_MS,
         )
         .unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1446,7 +1446,7 @@ mod tests {
     #[test]
     fn update_task_rejects_priority_outside_public_contract_before_writing() {
         let temp = TempDir::new().unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: temp.path().join("profile.sqlite3"),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1476,7 +1476,7 @@ mod tests {
     #[test]
     fn create_task_rejects_invalid_estimate_before_writing() {
         let temp = TempDir::new().unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: temp.path().join("profile.sqlite3"),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1517,7 +1517,7 @@ mod tests {
         SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
             .insert(list.clone())
             .unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1557,7 +1557,7 @@ mod tests {
             SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
                 .insert(list.clone())
                 .unwrap();
-            let client = TodoriClient {
+            let client = TaskveilClient {
                 db_dir: temp.path().to_path_buf(),
                 db_path: db_path.clone(),
                 db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1620,7 +1620,7 @@ mod tests {
             BASE_MS,
         )
         .unwrap();
-        let ready = TodoriClient {
+        let ready = TaskveilClient {
             db_dir: ready_temp.path().to_path_buf(),
             db_path: ready_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1696,7 +1696,7 @@ mod tests {
             ))
             .unwrap();
 
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),
@@ -1755,7 +1755,7 @@ mod tests {
             )
             .unwrap();
 
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path: db_path.clone(),
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),

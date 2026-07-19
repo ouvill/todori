@@ -26,7 +26,7 @@
 
 ## 3. ゴール
 
-- serverの通常queryをtable owner / superuser / BYPASSRLSではないruntime loginで実行し、NOLOGIN group role`todori_app`の権限を`INHERIT`する。
+- serverの通常queryをtable owner / superuser / BYPASSRLSではないruntime loginで実行し、NOLOGIN group role`taskveil_app`の権限を`INHERIT`する。
 - tenant/user contextをtransaction-localに設定し、Neonのtransaction poolと両立させる。
 - tenant所有データをRLS policyと`FORCE ROW LEVEL SECURITY`で分離する。
 - SQLからtenant条件を省略しても別tenantの読取・更新・削除ができず、別tenantへのinsertも拒否されることを実Postgresで検証する。
@@ -36,9 +36,9 @@
 
 ### やること
 
-- `todori_app` NOLOGIN / NOBYPASSRLS role、table権限、RLS policy、`FORCE ROW LEVEL SECURITY`を追加する前方migration。
+- `taskveil_app` NOLOGIN / NOBYPASSRLS role、table権限、RLS policy、`FORCE ROW LEVEL SECURITY`を追加する前方migration。
 - `tenants`、`tenant_members`、`tenant_seq`、`tenant_key_bundles`、`list_key_bundles`、`sync_records`、`sync_records_history`をtenant/user contextで保護する。
-- migration接続とapplication poolを分離し、application pool接続時にruntime loginのrole属性・非owner・`todori_app`権限継承を検証する。
+- migration接続とapplication poolを分離し、application pool接続時にruntime loginのrole属性・非owner・`taskveil_app`権限継承を検証する。
 - 認証済みuser / tenant contextを`set_config(..., true)`で短いtransactionへ設定する共通helper。
 - contextなし、tenant A context、tenant B context、誤tenant writeを検証するcross-tenant integration test。
 - ローカル起動とDB migration runbookへruntime role要件を記録する。
@@ -53,10 +53,10 @@
 
 ## 5. 実装手順
 
-1. RLS migrationを追加し、`todori_app`の属性・権限、各tableのpolicyと`FORCE ROW LEVEL SECURITY`を冪等に定義する。
+1. RLS migrationを追加し、`taskveil_app`の属性・権限、各tableのpolicyと`FORCE ROW LEVEL SECURITY`を冪等に定義する。
 2. `db` moduleにapplication poolとtransaction-local user / tenant context helperを追加する。
 3. OPAQUE登録・ログイン・session認証と全tenant queryをcontext付きtransactionへ移す。
-4. test fixtureをmigration/admin poolとapplication poolへ分け、既存API testを実際の`todori_app` roleで通す。
+4. test fixtureをmigration/admin poolとapplication poolへ分け、既存API testを実際の`taskveil_app` roleで通す。
 5. RLS catalog、実効role、contextなしfail-closed、WHERE省略時のtenant分離、誤tenant write拒否を専用integration testで検証する。
 6. ローカル起動scriptとrunbookを新しい接続境界へ合わせる。
 7. 統合HEADで品質ゲートを実行し、実装結果を完了報告へ記録する。
@@ -64,14 +64,14 @@
 
 ## 6. 受け入れ基準
 
-- [x] `todori_app`がNOLOGIN / NOSUPERUSER / NOBYPASSRLSで、application poolのruntime loginがLOGIN / non-owner / NOSUPERUSER / INHERIT / NOBYPASSRLSかつ`todori_app`権限を利用できる。
+- [x] `taskveil_app`がNOLOGIN / NOSUPERUSER / NOBYPASSRLSで、application poolのruntime loginがLOGIN / non-owner / NOSUPERUSER / INHERIT / NOBYPASSRLSかつ`taskveil_app`権限を利用できる。
 - [x] 対象7tableでRLS policyと`FORCE ROW LEVEL SECURITY`が有効である。
 - [x] tenant/user contextはtransaction-localであり、commit / rollback後にpool接続へ残留しない。
 - [x] contextなしのapplication queryがtenant所有行を取得できない。
 - [x] `WHERE tenant_id = ...`を省略した読取でも現在tenantの行だけが返り、別tenantの暗号blob・鍵bundle・membership・sequenceへ到達しない。
 - [x] 現在tenant contextから別tenantの更新・削除は0件となり、別tenant IDでのinsertはRLS violationになる。
 - [x] OPAQUE登録・ログイン、鍵bundle、push/pull、full resync、tombstone GCの既存統合testが成功する。
-- [x] runtime loginとmigration ownerの分離、`todori_app` membership、秘密情報を残さない接続設定がrunbookに記録されている。
+- [x] runtime loginとmigration ownerの分離、`taskveil_app` membership、秘密情報を残さない接続設定がrunbookに記録されている。
 - [x] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`が成功する。
 - [x] `sh app/tool/check_client_boundaries.sh`、`sh app/tool/test_client_boundaries.sh`、`git diff --check`が成功する。
 - [x] Flutter / FRB公開surfaceを変更していない。
@@ -101,8 +101,8 @@
 ### 実装結果
 
 - 作業日: 2026-07-11
-- 結果: migration `202607110001_rls_hardening.sql`を追加し、NOLOGIN / NOSUPERUSER / NOBYPASSRLSのgroup role `todori_app`、対象7tableのRLS policyと`FORCE ROW LEVEL SECURITY`を実装した。`tenants` / `tenant_members`のuser fallbackはSELECT専用とし、writeは認証後tenant context一致だけを許可する。
-- 接続境界: `DATABASE_MIGRATION_URL`をdirect owner / migration専用、`DATABASE_URL`をpooled non-owner runtime login専用とした。runtime loginはLOGIN / NOSUPERUSER / INHERIT / NOBYPASSRLS、`todori_app`権限利用可、対象table非ownerを接続時に検証し、Neon transaction poolで保持されないsession-level `SET ROLE`には依存しない。
+- 結果: migration `202607110001_rls_hardening.sql`を追加し、NOLOGIN / NOSUPERUSER / NOBYPASSRLSのgroup role `taskveil_app`、対象7tableのRLS policyと`FORCE ROW LEVEL SECURITY`を実装した。`tenants` / `tenant_members`のuser fallbackはSELECT専用とし、writeは認証後tenant context一致だけを許可する。
+- 接続境界: `DATABASE_MIGRATION_URL`をdirect owner / migration専用、`DATABASE_URL`をpooled non-owner runtime login専用とした。runtime loginはLOGIN / NOSUPERUSER / INHERIT / NOBYPASSRLS、`taskveil_app`権限利用可、対象table非ownerを接続時に検証し、Neon transaction poolで保持されないsession-level `SET ROLE`には依存しない。
 - Context: OPAQUE登録は生成済みuser / tenant、loginは認証済みuserからmembership探索後tenant、session認証はtoken/device確認後user→membership→tenantの順でtransaction-local contextを設定する。全tenant queryは短いcontext付きtransactionへ移した。
 - 証拠: `application_role_and_rls_policies_fail_closed_and_isolate_tenants`でgroup/runtime role属性、owner / BYPASSRLS接続拒否、7tableのRLS+FORCE、contextなしfail-closed、複数tenant所属、WHERE省略read分離、history分離、user-only membership昇格拒否、cross-tenant insert/update/delete拒否、commit/rollback後context resetを実Postgresで確認した。serverのauth 1件、RLS 1件、sync v2 14件が成功した。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`、bridge release build、`flutter analyze`、`flutter test`（130成功、visual QA harness 1 skip）、hardcoded string check、client boundary check / negative test、`bash -n tool/dev_server.sh`、`git diff --check`が成功した。Rustの既存Keychain実物test 1件と手動performance test 1件はignoredである。

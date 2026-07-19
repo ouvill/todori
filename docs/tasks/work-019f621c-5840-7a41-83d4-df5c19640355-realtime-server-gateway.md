@@ -10,7 +10,7 @@ milestone: maintenance
 
 ## 1. 背景とコンテキスト
 
-Workerはtenant identityやsessionを検証しない。Todori serverが既存request-time認証を正本として短命ticketを発行し、accepted push commit後だけ認証済みbest-effort publishを行う必要がある。
+Workerはtenant identityやsessionを検証しない。Taskveil serverが既存request-time認証を正本として短命ticketを発行し、accepted push commit後だけ認証済みbest-effort publishを行う必要がある。
 
 ## 2. 事前に読むべきファイル
 
@@ -89,7 +89,7 @@ Workerはtenant identityやsessionを検証しない。Todori serverが既存req
 
 ### 検証
 
-- `cargo test -p todori-server`: PASS。lib 7/7、`auth_server` 1/1、`realtime_gateway` 2/2、`rls_hardening` 1/1、`sync_v2` 20/20。
+- `cargo test -p taskveil-server`: PASS。lib 7/7、`auth_server` 1/1、`realtime_gateway` 2/2、`rls_hardening` 1/1、`sync_v2` 20/20。
 - `cargo test --workspace`: PASS。
 - `cargo fmt --all -- --check`、workspace clippy、app Rust release、Flutter analyze / test、hardcoded / boundary script、Workerの`npm ci` / typecheck / Vitest / Wrangler dry-run build、`git diff --check`: すべてPASS。
 - Node標準`crypto.createHmac`による独立再計算でticket / publish / channel / deviceの共通vectorが一致した。

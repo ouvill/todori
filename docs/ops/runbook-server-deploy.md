@@ -1,6 +1,6 @@
 # サーバーデプロイrunbook
 
-この文書はTodoriサーバーの初回/更新デプロイ手順ドラフトである。2026-07-08時点では実AWS/Neon環境へのデプロイは未実施であり、ローカル運用のみ確認済みである。実クレデンシャル、AWSアカウントID、ECRリポジトリ名、Lambda関数名、Neon connection string、実ドメインはpublic repoに書かず、private側または人間管理とする。
+この文書はTaskveilサーバーの初回/更新デプロイ手順ドラフトである。2026-07-08時点では実AWS/Neon環境へのデプロイは未実施であり、ローカル運用のみ確認済みである。実クレデンシャル、AWSアカウントID、ECRリポジトリ名、Lambda関数名、Neon connection string、実ドメインはpublic repoに書かず、private側または人間管理とする。
 
 ## 1. 前提
 
@@ -18,7 +18,7 @@
 |---|---|
 | `<AWS_ACCOUNT_ID>` | ECR registry / IAM / Lambda操作 |
 | `<AWS_REGION>` | 初期想定は `eu-central-1` |
-| `<ECR_REPOSITORY>` | todori-serverイメージ保管先 |
+| `<ECR_REPOSITORY>` | taskveil-serverイメージ保管先 |
 | `<LAMBDA_FUNCTION>` | 更新対象Lambda関数 |
 | `<NEON_RUNTIME_DATABASE_URL>` | Neon pooled connection string。non-owner runtime loginを使用 |
 | `<NEON_MIGRATION_DATABASE_URL>` | Neon direct connection string。schema owner / migration専用 |
@@ -85,7 +85,7 @@ Neon project / database、runtime用pooled endpoint、migration用direct endpoin
 
 初回migrationは [`docs/ops/runbook-db-migration.md`](./runbook-db-migration.md) に従い、ローカルでリハーサルしてから適用する。
 
-runtime loginはschema ownerと分離し、LOGIN / NOSUPERUSER / NOCREATEDB / NOCREATEROLE / INHERIT / NOBYPASSRLSとする。migration適用後に`todori_app` membershipを付与する。通常Lambda requestにはruntime用pooled URLだけを使い、transaction poolで保持されないsession-level `SET ROLE`へ依存しない。
+runtime loginはschema ownerと分離し、LOGIN / NOSUPERUSER / NOCREATEDB / NOCREATEROLE / INHERIT / NOBYPASSRLSとする。migration適用後に`taskveil_app` membershipを付与する。通常Lambda requestにはruntime用pooled URLだけを使い、transaction poolで保持されないsession-level `SET ROLE`へ依存しない。
 
 ### 4.5 Lambda作成または更新
 
@@ -99,7 +99,7 @@ aws lambda update-function-code \
 
 aws lambda update-function-configuration \
   --function-name <LAMBDA_FUNCTION> \
-  --environment "Variables={DATABASE_URL=<NEON_RUNTIME_DATABASE_URL>,DATABASE_MIGRATION_URL=<NEON_MIGRATION_DATABASE_URL>,RUST_LOG=info,todori_server=info}" \
+  --environment "Variables={DATABASE_URL=<NEON_RUNTIME_DATABASE_URL>,DATABASE_MIGRATION_URL=<NEON_MIGRATION_DATABASE_URL>,RUST_LOG=info,taskveil_server=info}" \
   --region <AWS_REGION>
 ```
 

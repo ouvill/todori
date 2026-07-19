@@ -113,11 +113,11 @@
 - DB schema migrationは原則行わない。既存 `sort_order TEXT NOT NULL` を使う。
 - 新規Rust crate / pub package / UI frameworkは原則追加しない。どうしても必要な場合は、人間の事前承認を得て、理由・代替案・追加versionを完了報告へ記録する。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
+- `taskveil-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
 
 ## 5. 実装手順（例）
 
-1. `git -C todori status --short` で作業ツリーを確認する。
+1. `git -C taskveil status --short` で作業ツリーを確認する。
 2. 2章のファイルを読み、現在の `sort_order` 生成、`create_task`、`TaskRepository::update`、`TasksNotifier`、Tasks画面、widget fakeの構造を確認する。
 3. `core/domain` にfractional index生成関数とunit testを追加する。
 4. `app/rust/src/api.rs` の `create_task` を、対象兄弟の末尾 `sort_order` をRust側で生成する形へ変更する。
@@ -332,7 +332,7 @@
 
 ### public/private境界
 
-- `todori-private/` は読まず、変更していない。
+- `taskveil-private/` は読まず、変更していない。
 - public repoへprivate側の課金、収益、法務、監査、公開前ロードマップ等の詳細は転記していない。
 
 ### 未解決事項・要人間判断

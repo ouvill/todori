@@ -5,8 +5,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
-const timerNotificationCategoryId = 'todori_timer_v1';
-const timerNotificationChannelId = 'todori_timers';
+const timerNotificationCategoryId = 'taskveil_timer_v1';
+const timerNotificationChannelId = 'taskveil_timers';
 
 class TimerNotificationPayload {
   const TimerNotificationPayload({required this.sessionId});

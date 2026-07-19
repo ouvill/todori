@@ -6,7 +6,7 @@
 
 ## 1. 背景とコンテキスト
 
-Phase 2 P2-M4として、P2-M1〜P2-M3で実装したクライアント同期基盤、同期サーバー、鍵階層/アカウント接続を統合し、Todoriの実同期エンジンを動かす。
+Phase 2 P2-M4として、P2-M1〜P2-M3で実装したクライアント同期基盤、同期サーバー、鍵階層/アカウント接続を統合し、Taskveilの実同期エンジンを動かす。
 
 同期フローは `docs/03_技術仕様書.md` §6.4を厳密に正とする。ローカル書込は即時DB反映と同時にoutboxへopを積み、ACKまでは保持する。pushはbatch送信し、accepted/no-op/superseded/rejectを処理する。pullは `since` cursorで受信し、復号、フィールドレベルLWWマージ、ローカルDB反映、cursor前進を行う。マージ結果でローカル側が勝ったフィールドがある場合は、必ずローカルHLCをtickして新しい `op.hlc` でマージ済みblobを再pushする。同一HLCで内容だけ異なる再pushは禁止である。
 
@@ -213,7 +213,7 @@ UXは「静かな同期」を優先する。手動同期APIと、アプリ起動
 
 追加/変更したRust依存crate:
 
-- `server/Cargo.toml` dev-dependenciesに `tempfile.workspace = true` と `todori-storage.workspace = true` を追加した。用途は `server/tests/sync_server.rs` の2ローカルSQLCipher DB統合テスト。
+- `server/Cargo.toml` dev-dependenciesに `tempfile.workspace = true` と `taskveil-storage.workspace = true` を追加した。用途は `server/tests/sync_server.rs` の2ローカルSQLCipher DB統合テスト。
 - ルート `Cargo.toml` への新規crate追加はない。`Cargo.lock` は上記dev-dependencies参照分の解決で更新された。
 
 storage変更:
@@ -271,7 +271,7 @@ FRB公開API:
 Flutter変更:
 
 - `SyncStatusNotifier` / `syncStatusProvider` を追加した。
-- app起動時は `_TodoriAppShell` が `syncStatusProvider` をwatchし、ログイン済みなら初回syncを起動する。
+- app起動時は `_TaskveilAppShell` が `syncStatusProvider` をwatchし、ログイン済みなら初回syncを起動する。
 - `WidgetsBindingObserver` で `AppLifecycleState.resumed` を検知し、ログイン済みかつ実行中でなければsyncを起動する。
 - ログイン時のみ30秒periodic pollを開始する。未ログイン時はpollしない。
 - account register/login/logout後の同期状態は `syncStatusProvider` が `accountProvider.future` をwatchすることで追従する。明示invalidateはRiverpod実行中例外を起こしたため外した。
@@ -319,10 +319,10 @@ Flutter widget test:
 - `cargo clippy --workspace -- -D warnings`: 成功
 - `cargo test --workspace`: 成功
   - `server/tests/sync_server.rs`: 5 passed
-  - `todori_storage`: 48 passed, 1 ignored
-  - `todori_sync`: 29 passed
-  - `todori_app_bridge`: 4 passed, 1 ignored
-- `cargo test -p todori-server sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox --test sync_server -- --nocapture`: 成功
+  - `taskveil_storage`: 48 passed, 1 ignored
+  - `taskveil_sync`: 29 passed
+  - `taskveil_app_bridge`: 4 passed, 1 ignored
+- `cargo test -p taskveil-server sync_engine_two_local_dbs_converge_conflicts_deletes_and_persist_outbox --test sync_server -- --nocapture`: 成功
 - `cd app && flutter analyze`: 成功
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
 - `cd app && flutter test`: 成功（123 passed、visual QA harness 1 skipped）

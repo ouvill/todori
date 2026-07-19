@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 class AppLoadingState extends StatelessWidget {
   const AppLoadingState({super.key});

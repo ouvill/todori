@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn derive_key_is_deterministic() {
         let ikm = b"some input key material";
-        let info = b"todori/test";
+        let info = b"taskveil/test";
         assert_eq!(derive_key(ikm, info), derive_key(ikm, info));
     }
 
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn derive_key_differs_by_ikm() {
-        let info = b"todori/test";
+        let info = b"taskveil/test";
         assert_ne!(derive_key(b"ikm-a", info), derive_key(b"ikm-b", info));
     }
 }

@@ -1,4 +1,4 @@
-# docs/tasks ── Todoriの実装作業
+# docs/tasks ── Taskveilの実装作業
 
 このディレクトリは、標準・重要変更の指示書と完了証拠を置く。UUIDv7 pilot以降の新規work itemは1件1 MarkdownファイルとYAML front matterで管理する。
 

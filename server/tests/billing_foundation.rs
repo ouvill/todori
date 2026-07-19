@@ -11,18 +11,18 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::PgPool;
-use testcontainers_modules::{
-    postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync},
-};
-use todori_server::{
+use taskveil_server::{
     billing::{
         BillingEnvironment, BillingProvider, BillingService, ProviderError, ProviderFuture,
         ProviderSnapshot, ProviderSubscriptionSnapshot, SubscriptionStatus, MONTHLY_PRODUCT_ID,
     },
     build_router, db, AppState,
 };
-use todori_sync::protocol::{SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER};
+use taskveil_sync::protocol::{SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER};
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -78,13 +78,13 @@ impl Fixture {
         let admin_pool = db::connect(&database_url).await.unwrap();
         db::run_migrations(&admin_pool).await.unwrap();
         raw_sql(
-            "CREATE ROLE todori_billing_test LOGIN PASSWORD 'todori-billing-test'
+            "CREATE ROLE taskveil_billing_test LOGIN PASSWORD 'taskveil-billing-test'
              NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
         )
         .execute(&admin_pool)
         .await
         .unwrap();
-        raw_sql("GRANT todori_app TO todori_billing_test")
+        raw_sql("GRANT taskveil_app TO taskveil_billing_test")
             .execute(&admin_pool)
             .await
             .unwrap();
@@ -160,8 +160,9 @@ impl Fixture {
         .await
         .unwrap();
 
-        let application_url =
-            format!("postgres://todori_billing_test:todori-billing-test@{host}:{port}/postgres");
+        let application_url = format!(
+            "postgres://taskveil_billing_test:taskveil-billing-test@{host}:{port}/postgres"
+        );
         let application_pool = db::connect_application(&application_url).await.unwrap();
         let provider = FakeProvider::new(snapshot(SubscriptionStatus::Expired, false));
         let billing =
@@ -439,7 +440,7 @@ async fn superseded_active_snapshot_cannot_restore_access_after_revocation() {
 
     let mut stale = snapshot(SubscriptionStatus::Active, true);
     stale.refresh_token = Some(Uuid::now_v7());
-    let error = todori_server::billing::apply_snapshot(
+    let error = taskveil_server::billing::apply_snapshot(
         &fixture.admin_pool,
         fixture.user_id,
         fixture.provider_app_user_id,
@@ -820,7 +821,7 @@ async fn subscription_id_cannot_be_replayed_to_another_account() {
         .execute(&fixture.admin_pool)
         .await
         .unwrap();
-    let error = todori_server::billing::apply_snapshot(
+    let error = taskveil_server::billing::apply_snapshot(
         &fixture.admin_pool,
         other_user,
         other_customer,

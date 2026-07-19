@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/core/realtime_sync.dart';
+import 'package:taskveil/src/core/realtime_sync.dart';
 
 import 'support/fake_realtime.dart';
 

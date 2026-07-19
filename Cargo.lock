@@ -3417,6 +3417,165 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskveil-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "taskveil-client",
+]
+
+[[package]]
+name = "taskveil-client"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "iana-time-zone",
+ "serde",
+ "serde_json",
+ "taskveil-crypto",
+ "taskveil-domain",
+ "taskveil-storage",
+ "taskveil-sync",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
+name = "taskveil-crypto"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "aws-lc-rs",
+ "aws-lc-sys",
+ "bip39",
+ "chacha20poly1305",
+ "core-foundation",
+ "core-foundation-sys",
+ "hex",
+ "hkdf 0.12.4",
+ "jni",
+ "opaque-ke",
+ "rand 0.8.6",
+ "security-framework",
+ "security-framework-sys",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "taskveil-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "rrule",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "taskveil-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "taskveil-client",
+]
+
+[[package]]
+name = "taskveil-server"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "axum",
+ "base64",
+ "chrono",
+ "hmac 0.12.1",
+ "http",
+ "opaque-ke",
+ "rand 0.8.6",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx-core",
+ "sqlx-postgres",
+ "taskveil-client",
+ "taskveil-crypto",
+ "taskveil-domain",
+ "taskveil-storage",
+ "taskveil-sync",
+ "tempfile",
+ "testcontainers-modules",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "taskveil-storage"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "rusqlite",
+ "serde_json",
+ "taskveil-crypto",
+ "taskveil-domain",
+ "tempfile",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "taskveil-sync"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "base64",
+ "chrono",
+ "hkdf 0.12.4",
+ "hmac 0.12.1",
+ "opaque-ke",
+ "proptest",
+ "rand 0.8.6",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "taskveil-crypto",
+ "taskveil-domain",
+ "thiserror 2.0.18",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "taskveil-xtask"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "taskveil_app_bridge"
+version = "0.1.0"
+dependencies = [
+ "flutter_rust_bridge",
+ "taskveil-client",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3581,165 +3740,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "todori-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "todori-client",
-]
-
-[[package]]
-name = "todori-client"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "iana-time-zone",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "todori-crypto",
- "todori-domain",
- "todori-storage",
- "todori-sync",
- "zeroize",
-]
-
-[[package]]
-name = "todori-crypto"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "aws-lc-rs",
- "aws-lc-sys",
- "bip39",
- "chacha20poly1305",
- "core-foundation",
- "core-foundation-sys",
- "hex",
- "hkdf 0.12.4",
- "jni",
- "opaque-ke",
- "rand 0.8.6",
- "security-framework",
- "security-framework-sys",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "uuid",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "todori-domain"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "rrule",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
-name = "todori-mcp-server"
-version = "0.1.0"
-dependencies = [
- "todori-client",
-]
-
-[[package]]
-name = "todori-server"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "axum",
- "base64",
- "chrono",
- "hmac 0.12.1",
- "http",
- "opaque-ke",
- "rand 0.8.6",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx-core",
- "sqlx-postgres",
- "tempfile",
- "testcontainers-modules",
- "thiserror 2.0.18",
- "todori-client",
- "todori-crypto",
- "todori-domain",
- "todori-storage",
- "todori-sync",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "todori-storage"
-version = "0.1.0"
-dependencies = [
- "hex",
- "rusqlite",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "todori-crypto",
- "todori-domain",
- "uuid",
-]
-
-[[package]]
-name = "todori-sync"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "base64",
- "chrono",
- "hkdf 0.12.4",
- "hmac 0.12.1",
- "opaque-ke",
- "proptest",
- "rand 0.8.6",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "todori-crypto",
- "todori-domain",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "todori-xtask"
-version = "0.1.0"
-dependencies = [
- "uuid",
-]
-
-[[package]]
-name = "todori_app_bridge"
-version = "0.1.0"
-dependencies = [
- "flutter_rust_bridge",
- "todori-client",
-]
 
 [[package]]
 name = "tokio"

@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/router.dart';
-import 'package:todori/src/rust/api.dart' show TimerFinishKindDto;
-import 'package:todori/src/screens/focus_screen.dart';
-import 'package:todori/src/timer/timer_engine.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/router.dart';
+import 'package:taskveil/src/rust/api.dart' show TimerFinishKindDto;
+import 'package:taskveil/src/screens/focus_screen.dart';
+import 'package:taskveil/src/timer/timer_engine.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -29,7 +29,7 @@ void main() {
       final router = buildAppRouter();
 
       await tester.pumpWidget(
-        TodoriApp(
+        TaskveilApp(
           router: router,
           overrides: [
             bridgeServiceProvider.overrideWithValue(fake),
@@ -127,7 +127,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(
+        TaskveilApp(
           router: router,
           overrides: [bridgeServiceProvider.overrideWithValue(fake)],
         ),
@@ -170,7 +170,7 @@ void main() {
     Future<GoRouter> pumpFreshApp() async {
       final router = buildAppRouter();
       await tester.pumpWidget(
-        TodoriApp(
+        TaskveilApp(
           router: router,
           overrides: [
             bridgeServiceProvider.overrideWithValue(fake),
@@ -224,7 +224,7 @@ void main() {
     final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 11));
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [
           bridgeServiceProvider.overrideWithValue(fake),
@@ -272,7 +272,7 @@ void main() {
     );
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [
           bridgeServiceProvider.overrideWithValue(fake),
@@ -309,7 +309,7 @@ void main() {
       );
       final router = buildAppRouter();
       await tester.pumpWidget(
-        TodoriApp(
+        TaskveilApp(
           router: router,
           overrides: [bridgeServiceProvider.overrideWithValue(fake)],
         ),
@@ -380,7 +380,7 @@ void main() {
       );
       final router = buildAppRouter();
       await tester.pumpWidget(
-        TodoriApp(
+        TaskveilApp(
           router: router,
           overrides: [bridgeServiceProvider.overrideWithValue(fake)],
         ),
@@ -435,7 +435,7 @@ void main() {
     final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 9));
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [
           bridgeServiceProvider.overrideWithValue(fake),
@@ -484,7 +484,7 @@ void main() {
     final clock = _MutableTimerClock(DateTime.utc(2026, 7, 14, 10));
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [
           bridgeServiceProvider.overrideWithValue(fake),
@@ -564,7 +564,7 @@ void main() {
     );
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -600,7 +600,7 @@ void main() {
     );
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -630,7 +630,7 @@ void main() {
     final list = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -640,7 +640,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text("Todori couldn't restore this focus session."),
+      find.text("Taskveil couldn't restore this focus session."),
       findsOneWidget,
     );
     final back = find.byTooltip('Back');

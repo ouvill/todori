@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 Future<String?> showAppTextInputDialog({
   required BuildContext context,

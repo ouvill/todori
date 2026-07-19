@@ -7,14 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/screens/calendar_screen.dart';
-import 'package:todori/src/ui/task_components.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/screens/calendar_screen.dart';
+import 'package:taskveil/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -641,7 +641,7 @@ Future<String> _createInbox(FakeBridgeService fake) async {
 
 Future<void> _pumpApp(WidgetTester tester, BridgeService bridge) async {
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(bridge)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(bridge)]),
   );
   await tester.pumpAndSettle();
 }

@@ -2,13 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/rust/api.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
-const reminderNotificationCategoryId = 'todori_reminder_v1';
-const reminderSnoozeActionId = 'todori_snooze_1h';
+const reminderNotificationCategoryId = 'taskveil_reminder_v1';
+const reminderSnoozeActionId = 'taskveil_snooze_1h';
 const reminderSnoozeDuration = Duration(hours: 1);
 
 typedef NotificationResponseHandler =
@@ -215,9 +215,9 @@ class FlutterLocalReminderNotificationGateway
           categoryIdentifier: reminderNotificationCategoryId,
         ),
         android: AndroidNotificationDetails(
-          'todori_reminders',
-          'Todori reminders',
-          channelDescription: 'Local reminders scheduled by Todori',
+          'taskveil_reminders',
+          'Taskveil reminders',
+          channelDescription: 'Local reminders scheduled by Taskveil',
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -347,7 +347,7 @@ class ReminderNotificationService {
     }
     if (failedCount > 0) {
       debugPrint(
-        'Todori reminder reopen could not schedule '
+        'Taskveil reminder reopen could not schedule '
         '$failedCount notification(s).',
       );
     }
@@ -386,7 +386,7 @@ class ReminderNotificationService {
     }
     if (failedCount > 0) {
       debugPrint(
-        'Todori reminder reconciliation could not schedule '
+        'Taskveil reminder reconciliation could not schedule '
         '$failedCount notification(s).',
       );
     }

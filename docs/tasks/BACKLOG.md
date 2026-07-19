@@ -1,4 +1,4 @@
-# Todori バックログ
+# Taskveil バックログ
 
 UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLater、Quick fixes、Icebox、人間作業はpilot後の移行判断まで保持するが、新規候補や新形式work itemの状態はこのファイルへ追加しない。新形式の状態は各 `work-*.md` のfront matter、長期方向は [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
 

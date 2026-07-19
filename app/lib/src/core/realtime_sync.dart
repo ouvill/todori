@@ -91,7 +91,7 @@ typedef RealtimeEventSink = void Function(RealtimeObservation observation);
 void discardRealtimeObservation(RealtimeObservation _) {}
 
 void systemRealtimeEventSink(RealtimeObservation observation) {
-  developer.log(jsonEncode(observation.toJson()), name: 'todori.realtime');
+  developer.log(jsonEncode(observation.toJson()), name: 'taskveil.realtime');
 }
 
 abstract interface class RealtimeTimer {

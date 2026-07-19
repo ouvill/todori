@@ -8,7 +8,7 @@
 
 Phase 2 P2-M2として、E2EE同期のサーバー中核を `server/` crate に実装する。対象はPostgresスキーマ、OPAQUE登録/ログインAPI、セッショントークン、tenant認可、push/pull API、`tenant_seq` によるseq採番、`sync_records_history` 退避、§6.6のサーバー不変条件である。
 
-TodoriのサーバーはE2EEデータの中身を解釈せず、暗号blobと最小限の同期メタデータだけを扱う。同期はADR-005の「最新状態方式 + クライアント再push」であり、サーバーは `incoming.hlc > stored.hlc` の場合だけ最新行を更新する。task-69で見つかった「再push時にrecord HLCが同値になり得る」問題は、クライアントが再push前に必ずHLCをtickして新しい `op.hlc` で送る規約として `docs/03_技術仕様書.md` §6.4へ本タスク内で1文追記する。
+TaskveilのサーバーはE2EEデータの中身を解釈せず、暗号blobと最小限の同期メタデータだけを扱う。同期はADR-005の「最新状態方式 + クライアント再push」であり、サーバーは `incoming.hlc > stored.hlc` の場合だけ最新行を更新する。task-69で見つかった「再push時にrecord HLCが同値になり得る」問題は、クライアントが再push前に必ずHLCをtickして新しい `op.hlc` で送る規約として `docs/03_技術仕様書.md` §6.4へ本タスク内で1文追記する。
 
 `server/` は最終的にAWS Lambda上で動かすが、本タスクではローカルHTTPサーバーとして起動できるところまでを実装する。Lambdaアダプタ層は将来差し替えられる薄いバイナリ境界に留め、ハンドラとサービス層はLambdaイベントに依存しない純粋関数寄りの構成にする。
 
@@ -32,7 +32,7 @@ TodoriのサーバーはE2EEデータの中身を解釈せず、暗号blobと最
 
 ## 3. ゴール
 
-- `server/` を `axum` + `sqlx(Postgres)` + `tokio` のAPIサーバーとして実装し、ローカルで `cargo run -p todori-server` できること。
+- `server/` を `axum` + `sqlx(Postgres)` + `tokio` のAPIサーバーとして実装し、ローカルで `cargo run -p taskveil-server` できること。
 - `server/migrations` にPostgres用sqlx migrationを追加し、users/devices/tenants相当、セッション、OPAQUE ephemeral、`sync_records`、`tenant_seq`、`sync_records_history` を作成できること。
 - `opaque-ke 3.0.0` による登録/ログインの2往復エンドポイントを実装し、中間状態をPostgres ephemeral tableへ短期保存し、consume時に削除すること。
 - OPAQUE完了時にランダムなセッショントークンを発行し、DBにはハッシュと有効期限だけを保存すること。
@@ -97,7 +97,7 @@ TodoriのサーバーはE2EEデータの中身を解釈せず、暗号blobと最
 9. pullサービスを実装し、`since` / `limit` / `next_since` / `has_more` の境界値をテストする。
 10. `cleanup_expired_opaque_states(pool, now)` のような関数を用意し、期限切れephemeralを削除できることをテストする。EventBridge Schedulerで呼ぶ実ジョブ化はスコープ外。
 11. `docs/03_技術仕様書.md` §6.4へ再push HLC tick規約を1文追記する。
-12. `cargo test -p todori-server`、`cargo test --workspace`、品質ゲートを実行する。
+12. `cargo test -p taskveil-server`、`cargo test --workspace`、品質ゲートを実行する。
 13. 本ファイルへ `## 9. 完了報告` を追記し、README/BACKLOGを完了状態へ更新する。
 
 ## 6. 受け入れ基準
@@ -193,7 +193,7 @@ TodoriのサーバーはE2EEデータの中身を解釈せず、暗号blobと最
 
 OPAQUE実装:
 
-- CipherSuiteは `todori_crypto::TodoriCipherSuite`（opaque-ke 3.0.0、Ristretto255、TripleDh、Argon2）を使用した。
+- CipherSuiteは `taskveil_crypto::TaskveilCipherSuite`（opaque-ke 3.0.0、Ristretto255、TripleDh、Argon2）を使用した。
 - OPAQUE messageはHTTP JSON上でbase64文字列として扱う。
 - 登録startは `opaque_registration_states` に `state_id/email/device_name/expires_at` を保存し、finishで `DELETE ... RETURNING` によりconsume削除する。
 - ログインstartは `opaque_login_states` に `state_id/user_id/device_name/server_login_state/expires_at` を保存し、finishで `DELETE ... RETURNING` によりconsume削除する。
@@ -235,7 +235,7 @@ testcontainers Postgres統合テスト:
 - `migration_creates_sync_server_schema_and_health_works`: migration適用、主要テーブル存在、`/health`。
 - `opaque_registration_login_reuse_expiry_and_cleanup_are_enforced`: OPAQUE登録、ログイン、誤パスワード失敗、state再利用不可、期限切れ、cleanup。
 - `push_pull_seq_invariants_tenant_isolation_and_revoked_devices_are_enforced`: Bearer認証、accepted/no_op/superseded/same-HLC-different-blob reject、seq順序、history退避、pull paging、blob/batch/pull limit/HLC未来拒否、物理DELETE APIなし、tenant分離、revoked device拒否。
-- 個別実行結果: `cargo test -p todori-server --test sync_server` 成功（3 passed）。
+- 個別実行結果: `cargo test -p taskveil-server --test sync_server` 成功（3 passed）。
 - workspace実行結果: `cargo test --workspace` 成功（server統合テスト3 passedを含む）。
 
 新規依存crate:
@@ -262,8 +262,8 @@ docs/03 §6.4の再push HLC tick規約:
 
 - `cargo fmt --all -- --check`: 成功。
 - `cargo clippy --workspace -- -D warnings`: 成功。
-- `cargo test -p todori-server --test sync_server`: 成功（3 passed）。
-- `cargo test --workspace`: 成功（`todori-storage` task-67性能test ignored 1件、`todori_app_bridge` real Keychain test ignored 1件）。
+- `cargo test -p taskveil-server --test sync_server`: 成功（3 passed）。
+- `cargo test --workspace`: 成功（`taskveil-storage` task-67性能test ignored 1件、`taskveil_app_bridge` real Keychain test ignored 1件）。
 - `cd app && flutter analyze`: 成功。
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
 - `cd app && flutter test`: 成功（116 passed、visual QA harness 1 skipped）。

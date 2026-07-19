@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/screens/calendar_screen.dart';
-import 'package:todori/src/screens/focus_screen.dart';
-import 'package:todori/src/screens/home_screen.dart';
-import 'package:todori/src/screens/lists_screen.dart';
-import 'package:todori/src/screens/menu_screen.dart';
-import 'package:todori/src/screens/search_screen.dart';
-import 'package:todori/src/screens/task_detail_screen.dart';
-import 'package:todori/src/screens/templates_screen.dart';
+import 'package:taskveil/src/screens/calendar_screen.dart';
+import 'package:taskveil/src/screens/focus_screen.dart';
+import 'package:taskveil/src/screens/home_screen.dart';
+import 'package:taskveil/src/screens/lists_screen.dart';
+import 'package:taskveil/src/screens/menu_screen.dart';
+import 'package:taskveil/src/screens/search_screen.dart';
+import 'package:taskveil/src/screens/task_detail_screen.dart';
+import 'package:taskveil/src/screens/templates_screen.dart';
 
 import '../tool/design_lab.dart';
 import 'support/design_lab_fixture.dart';

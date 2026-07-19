@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-Phase 1計画書のM4-03は、Dynamic Type、スクリーンリーダーラベル、コントラストの確認項目が通ることを完了条件としている。TodoriはHome中心のタスク一覧、詳細画面、リスト管理、ボトムシート、スワイプ、D&D、チップ類を持つため、見た目のpolish完了後にアクセシビリティの横断検証を行う必要がある。
+Phase 1計画書のM4-03は、Dynamic Type、スクリーンリーダーラベル、コントラストの確認項目が通ることを完了条件としている。TaskveilはHome中心のタスク一覧、詳細画面、リスト管理、ボトムシート、スワイプ、D&D、チップ類を持つため、見た目のpolish完了後にアクセシビリティの横断検証を行う必要がある。
 
 本タスクは検証パスであり、視覚デザイン変更は行わない。修正はa11y属性、Semantics、Tooltip、タップ領域に限定する。色コントラスト不足が見つかった場合も、このタスクでは色調整せず、計算結果と要人間判断として完了報告へ記録する。
 
@@ -217,7 +217,7 @@ Reduce Motion確認:
 macOS VoiceOver手動確認手順（人間実行用）:
 
 1. `cd app && flutter build macos --debug` を実行する。
-2. `open build/macos/Build/Products/Debug/todori.app` で起動する。
+2. `open build/macos/Build/Products/Debug/taskveil.app` で起動する。
 3. macOSでVoiceOverを有効化する（`Command + F5`）。
 4. Homeで `VO + Right` を使い、ヘッダー、Overdue/Today/Tomorrow/Upcoming見出し、タスク行、チェックボックス、クイック追加バーを順に読む。
 5. タスク行がタイトル、状態、優先度、期日、リスト名または親タスク名、開く操作を含むことを確認する。
@@ -231,10 +231,10 @@ macOS VoiceOver手動確認手順（人間実行用）:
 
 - `cargo fmt --all -- --check`: 成功。
 - `cargo clippy --workspace -- -D warnings`: 成功。
-- `cargo test --workspace`: 成功（todori_app_bridgeのreal Keychain ignored 1件は既存どおり）。
+- `cargo test --workspace`: 成功（taskveil_app_bridgeのreal Keychain ignored 1件は既存どおり）。
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
 - `cd app && flutter analyze`: 成功。
-- `cd app && flutter test`: 成功（114 passed、visual QA harness 1 skipped）。並列実行時にiOS ephemeral再生成と競合したため、`app/ios/Flutter/ephemeral/Packages/.packages` を一度 `/private/tmp/todori_ios_ephemeral_packages_task66` へ退避し、単独再実行で成功。
+- `cd app && flutter test`: 成功（114 passed、visual QA harness 1 skipped）。並列実行時にiOS ephemeral再生成と競合したため、`app/ios/Flutter/ephemeral/Packages/.packages` を一度 `/private/tmp/taskveil_ios_ephemeral_packages_task66` へ退避し、単独再実行で成功。
 - `sh app/tool/check_hardcoded_strings.sh`: 成功。
 - `cd app && sh tool/visual_qa.sh`: 成功（41 tests）。
 

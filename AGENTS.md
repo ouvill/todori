@@ -1,14 +1,14 @@
 # AGENTS.md
 
-このファイルはCodex CLIが自動で読み込む開発ハンドブックである。Todoriリポジトリで作業する前に必ず読むこと。
+このファイルはCodex CLIが自動で読み込む開発ハンドブックである。Taskveilリポジトリで作業する前に必ず読むこと。
 
 ## プロジェクト概要
 
-Todoriは E2EE（エンドツーエンド暗号化）Todoアプリである。UIはFlutter、コアロジックはRustで実装し、両者を `flutter_rust_bridge`（バージョン `2.12.0` 固定）で接続する。
+Taskveilは E2EE（エンドツーエンド暗号化）Todoアプリである。UIはFlutter、コアロジックはRustで実装し、両者を `flutter_rust_bridge`（バージョン `2.12.0` 固定）で接続する。
 
 ## リリース状態と互換性
 
-Todoriは現在、一般リリース前である。
+Taskveilは現在、一般リリース前である。
 
 プロダクトオーナーがこの状態を変更するまで、既存client、wire protocol、API、local DB schema、server schema、開発データとの後方互換性は要件としない。
 
@@ -37,10 +37,10 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `core/domain` ── 純粋ロジック・ユースケース（リスト/タスク操作、ステータス遷移、サブタスク制約検証等）
 - `core/crypto` ── OPAQUE PoC、AEAD、HKDF、Device Key
 - `core/storage` ── SQLCipher + rusqlite。`TaskRepository` / `ListRepository`
-- `core/client` ── package `todori-client` / crate `todori_client`。Flutter / CLI / MCPが共有する唯一のprofile・application service入口
+- `core/client` ── package `taskveil-client` / crate `taskveil_client`。Flutter / CLI / MCPが共有する唯一のprofile・application service入口
 - `core/sync` ── frontend非依存の同期protocol、state machine、暗号record処理
 - `app/` ── Flutterアプリ本体
-- `app/rust` ── flutter_rust_bridge用のブリッジcrate（crate名 `todori_app_bridge`）
+- `app/rust` ── flutter_rust_bridge用のブリッジcrate（crate名 `taskveil_app_bridge`）
 - `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
 - `cli` ── CLI雛形。共通client/profile層への実接続はバックログ
 - `mcp-server` ── MCPサーバー雛形。共通client/profile層への実接続はバックログ
@@ -66,8 +66,8 @@ sh app/tool/test_client_boundaries.sh
 - UI文字列は必ずARB化する（`app/lib/l10n/app_en.arb` + `app_ja.arb`）。文字列の直書きは `app/tool/check_hardcoded_strings.sh` が検出する。
 - 状態管理はRiverpod 3.x（`AsyncNotifier` + `invalidateSelf`）を用いる。`riverpod_generator` は使わない。ルーティングは `go_router` を用い、ルート定義は `app/lib/src/router.dart` に集約する。
 - 秘密情報（パスワード、Device Key、導出鍵、exportKey等）をログやDebug出力に含めてはならない。
-- `core/` はcrate群の配置ディレクトリでありcrate名ではない。Cargo packageは `todori-<role>`、Rust crate名は `todori_<role>` とし、bare `core` package/lib、dependency alias、曖昧なumbrella crateを作らない。`todori_app_bridge`だけはCargo / pod / FRB stemの固定契約として例外とする。
-- Flutter bridge、CLI、MCPのTodori共通入口は `todori-client` の `TodoriClient` とする。frontend adapterから `todori-crypto` / `todori-domain` / `todori-storage` / `todori-sync`へ直接依存せず、repository、暗号鍵、同期coordinatorを保持しない。`app/rust`はFRB公開関数、process内client handle、typed input / DTO変換だけに限定する。新しい共通機能は先に `core/client` のfrontend-neutral APIとして実装する。ローカル暗号化データ境界は`LocalProfile`、それを開く設定は`LocalProfileConfig`と呼び、ユーザー表示profileやruntime facadeと混同しない。詳細は `docs/dev/client-profile-architecture.md` を参照する。
+- `core/` はcrate群の配置ディレクトリでありcrate名ではない。Cargo packageは `taskveil-<role>`、Rust crate名は `taskveil_<role>` とし、bare `core` package/lib、dependency alias、曖昧なumbrella crateを作らない。`taskveil_app_bridge`だけはCargo / pod / FRB stemの固定契約として例外とする。
+- Flutter bridge、CLI、MCPのTaskveil共通入口は `taskveil-client` の `TaskveilClient` とする。frontend adapterから `taskveil-crypto` / `taskveil-domain` / `taskveil-storage` / `taskveil-sync`へ直接依存せず、repository、暗号鍵、同期coordinatorを保持しない。`app/rust`はFRB公開関数、process内client handle、typed input / DTO変換だけに限定する。新しい共通機能は先に `core/client` のfrontend-neutral APIとして実装する。ローカル暗号化データ境界は`LocalProfile`、それを開く設定は`LocalProfileConfig`と呼び、ユーザー表示profileやruntime facadeと混同しない。詳細は `docs/dev/client-profile-architecture.md` を参照する。
 - 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。新規の標準・重要変更は `work-<UUIDv7>-<slug>.md` で管理し、状態はYAML front matterへ記録する。既存の連番taskは履歴として変更しない。`docs/tasks/PLAYBOOK.md` のフェーズを通し、`## 9. 完了報告` は実装結果と独立検証の共同記録とする。軽量作業ではtask文書を省略できる。
 
 ## 環境
@@ -79,14 +79,14 @@ sh app/tool/test_client_boundaries.sh
 
 ## 重要な設計制約・ハマりどころ（変更・違反禁止）
 
-1. **命名の三位一体**: cargoパッケージ名 = pod名 = FRB stem = `todori_app_bridge`。cargokitはパッケージ名から `lib<名前>.a` を探し、FRBローダーは `<stem>.framework` を探すため、どれか一つでも変えると壊れる。
+1. **命名の三位一体**: cargoパッケージ名 = pod名 = FRB stem = `taskveil_app_bridge`。cargokitはパッケージ名から `lib<名前>.a` を探し、FRBローダーは `<stem>.framework` を探すため、どれか一つでも変えると壊れる。
 2. **`.cargo/config.toml` のiOS 15 target別linker flagを消さない**。消すとiOS実機ターゲットで `___chkstk_darwin` 未定義のリンクエラーが発生する（vendoredのOpenSSL/SQLCipherがSDK最新でビルドされるため）。`IPHONEOS_DEPLOYMENT_TARGET`をglobalな`[env]`へ戻すとmacOS向けAWS-LCにも誤適用されるため禁止する。
 3. **FRB再生成**: Rust API（`app/rust/src/api.rs`）を変更したら、リポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行する。生成物（`frb_generated.*`、`app/lib/src/rust/` 配下）はコミット対象であり、**手編集禁止**である。
-4. **SQLCipher鍵は常にDevice Key由来**（HKDF、`info=todori/local-db-key/v1`）。この文脈文字列は互換性に関わるため変更禁止であり、テストで値が固定されている。
+4. **暗号・端末保存のTaskveil namespaceはv1固定**。HKDFは`taskveil/local-db-key/v1`と`taskveil/recovery-key-wrap-key/v1`、key wrap AAD magicは`TWK1`を使う。Apple Keychain serviceは`com.taskveil.app.device-key.v1`、`com.taskveil.app.session-token.v1`、`com.taskveil.app.device-identity.v1`、`com.taskveil.app.account-root-wrapped.v1`、`com.taskveil.app.local-key-capsule.{active,pending}.v1`、Androidはalias `com.taskveil.app.local-capsule-seal.v1`、preferences `taskveil_local_capsules_v1`、AAD `taskveil/android-local-capsule/v1/...`を固定契約とする。これらは人間承認なしに変更しない。暗号suite、sync protocol、DB schema、capsule plaintext形式のversionは独立したversion空間であり、このnamespace v1へ合わせて巻き戻さない。
 5. local key capsuleはproductionでApple Data Protection KeychainまたはAndroid Keystore AES-256-GCM sealerを使う。`FileDeviceKeyStore` / file capsule store / `InMemoryDeviceKeyStore` はdevelopment・test専用であり、release processでは平文storeを明示的に拒否する。
 6. `sort_order` は暫定連番（`'a0'`, `'a1'`, ...）である。fractional index本実装はM3のタスクである。
-7. macOS実行: `cd app && flutter build macos --debug` でビルドし、実行後のアプリの実データは `~/Library/Containers/dev.todori.todori/` に生成される。DBが暗号化されているかは `head -c 16 <db> | xxd` で乱数ヘッダを確認して検証する。
-8. iOS向けコア検証手法（確立済み）: `cargo test --no-run --target aarch64-apple-ios-sim -p todori-crypto -p todori-storage` → `xcrun simctl boot <device>` → `xcrun simctl spawn <device> <test binary>`。
+7. macOS実行: `cd app && flutter build macos --debug` でビルドし、実行後のアプリの実データは `~/Library/Containers/com.taskveil.app/` に生成される。DBが暗号化されているかは `head -c 16 <db> | xxd` で乱数ヘッダを確認して検証する。
+8. iOS向けコア検証手法（確立済み）: `cargo test --no-run --target aarch64-apple-ios-sim -p taskveil-crypto -p taskveil-storage` → `xcrun simctl boot <device>` → `xcrun simctl spawn <device> <test binary>`。
 9. Flutter widget testの `FontLoader` は同一familyへ複数フォントを追加してもグリフフォールバックしない（Skiaがweight近似で1書体を選ぶ）。日本語フォールバックは `TextStyle.fontFamilyFallback` に別family（例: Hiragino Sans）を指定する。visual QAハーネス（`app/test/visual_qa/`）はこの方式で実フォントを登録している。
 
 ## サンドボックス実行時の既知の制約（codex exec / workspace-write）

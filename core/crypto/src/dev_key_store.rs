@@ -18,17 +18,17 @@ const WRAPPED_ACCOUNT_ROOT_FILE_NAME: &str = "account-root.wrapped";
 const ACTIVE_CAPSULE_FILE_NAME: &str = "local-key.active.capsule";
 const PENDING_CAPSULE_FILE_NAME: &str = "local-key.pending.capsule";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-key";
+const KEYCHAIN_SERVICE: &str = "com.taskveil.app.device-key.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "dev.todori.todori.session-token.v2";
+const SESSION_TOKEN_KEYCHAIN_SERVICE: &str = "com.taskveil.app.session-token.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const DEVICE_IDENTITY_KEYCHAIN_SERVICE: &str = "dev.todori.todori.device-identity.v1";
+const DEVICE_IDENTITY_KEYCHAIN_SERVICE: &str = "com.taskveil.app.device-identity.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE: &str = "dev.todori.todori.account-root-wrapped.v1";
+const WRAPPED_ACCOUNT_ROOT_KEYCHAIN_SERVICE: &str = "com.taskveil.app.account-root-wrapped.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const ACTIVE_CAPSULE_KEYCHAIN_SERVICE: &str = "dev.todori.todori.local-key-capsule.active.v2";
+const ACTIVE_CAPSULE_KEYCHAIN_SERVICE: &str = "com.taskveil.app.local-key-capsule.active.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-const PENDING_CAPSULE_KEYCHAIN_SERVICE: &str = "dev.todori.todori.local-key-capsule.pending.v2";
+const PENDING_CAPSULE_KEYCHAIN_SERVICE: &str = "com.taskveil.app.local-key-capsule.pending.v1";
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 const KEYCHAIN_ACCOUNT: &str = "default";
 #[cfg(any(target_os = "ios", target_os = "macos"))]

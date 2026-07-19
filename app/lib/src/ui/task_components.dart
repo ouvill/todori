@@ -6,12 +6,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/core/task_tree.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/core/task_tree.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 /// Design-direction priority accent tokens (`docs/design/visual-direction.md`
 /// Design Tokens table): high=coral, medium=amber, low=softSage.

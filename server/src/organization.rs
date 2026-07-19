@@ -1,11 +1,11 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::organization::{
+use taskveil_crypto::organization::{
     derive_safety_number, AccountRootPublicKeys, DeviceCertificate, HybridDekPackage,
     HybridScopeKind, SignedDeviceRevocation,
 };
-use todori_sync::organization::{
+use taskveil_sync::organization::{
     OrganizationDeviceDto, OrganizationDeviceRevocationRequest, OrganizationDeviceRosterDto,
     OrganizationInviteRequest, OrganizationKeyManifest, OrganizationMemberResponse,
     OrganizationSafetyConfirmRequest, OrganizationSafetyResponse, RecipientPackageRequest,

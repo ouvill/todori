@@ -12,7 +12,7 @@ milestone: maintenance
 
 現在のFlutter clientはログイン中に30秒周期で同期を実行する。これによりforegroundで2台の端末を開いていても、変更端末のpushと受信端末のpullがpoll周期まで遅れ、変更がない場合もpreflight / pull / closure ACKを繰り返す。
 
-Todoriの同期correctnessはPostgres上のcurrent state、server採番`seq`、device continuity、clientのpull / merge / push state machineが担っている。リアルタイム性を追加するときもこの境界を変えず、WebSocketは同期の正本ではなく同期実行を早める欠落可能な通知として扱う必要がある。
+Taskveilの同期correctnessはPostgres上のcurrent state、server採番`seq`、device continuity、clientのpull / merge / push state machineが担っている。リアルタイム性を追加するときもこの境界を変えず、WebSocketは同期の正本ではなく同期実行を早める欠落可能な通知として扱う必要がある。
 
 プロダクトオーナーは2026-07-15に、AWS統一を要件とせず、Cloudflare Durable Objectsをリアルタイム通知レイヤーの第一候補として設計を文書化する方針を示した。初稿にはserver-to-Worker認証、`high_water` metadata、hibernation後のexpiry、local commit後schedulerに欠陥があったため、同日に最小hint、用途別HMAC鍵、固定interval、Flutter lifecycle境界へ修正する判断を承認した。本work itemは修正版の設計契約を確定し、runtime実装を後続work itemへ分割する。
 

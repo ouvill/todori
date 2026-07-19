@@ -1,30 +1,30 @@
-//! Frontend-independent Todori client application services.
+//! Frontend-independent Taskveil client application services.
 //!
 //! This crate is the shared entry point for Flutter, CLI, and MCP. It owns
 //! transaction boundaries that span domain rows and local sync bookkeeping.
 //!
-//! Frontends must enter through [`TodoriClient`]. Low-level storage and sync
+//! Frontends must enter through [`TaskveilClient`]. Low-level storage and sync
 //! orchestration types are deliberately not part of the normal public API:
 //!
 //! ```no_run
-//! use todori_client::{LocalProfileConfig, TodoriClient};
+//! use taskveil_client::{LocalProfileConfig, TaskveilClient};
 //!
-//! let client = TodoriClient::open(LocalProfileConfig::new("/tmp/todori", "Inbox"))?;
-//! # Ok::<(), todori_client::ClientError>(())
+//! let client = TaskveilClient::open(LocalProfileConfig::new("/tmp/taskveil", "Inbox"))?;
+//! # Ok::<(), taskveil_client::ClientError>(())
 //! ```
 //!
 //! The superseded pre-release names are intentionally unavailable:
 //!
 //! ```compile_fail
-//! use todori_client::{ClientProfile, ProfileConfig};
+//! use taskveil_client::{ClientProfile, ProfileConfig};
 //! ```
 //!
 //! ```compile_fail
-//! use todori_client::SqliteMutationService;
+//! use taskveil_client::SqliteMutationService;
 //! ```
 //!
 //! ```compile_fail
-//! use todori_client::SqliteSyncStore;
+//! use taskveil_client::SqliteSyncStore;
 //! ```
 
 mod crud_service;
@@ -50,11 +50,11 @@ pub use runtime::{
     CalendarOccurrenceKind, CalendarOccurrenceView, CalendarRange, CreateScheduleCommand,
     CreateTaskCommand, HomeTaskView, LocalProfileConfig, ReminderView, ReorderTaskCommand,
     ReplaceTemplateSnapshotCommand, SaveTemplateCommand, SetTaskStatusCommand, SettlementSummary,
-    TaskUndoKind, TaskUndoView, TodoriClient, UpdateScheduleCommand, UpdateTaskCommand,
+    TaskUndoKind, TaskUndoView, TaskveilClient, UpdateScheduleCommand, UpdateTaskCommand,
     UpdateTemplateCommand,
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
-pub use todori_domain::{
+pub use taskveil_domain::{
     pomodoro_target_reached_at, ActiveTimerSession, CivilDate, CompletedTimerSession,
     DueValueError, IanaTimeZone, List, RecurrenceSchedule, ScheduleCursor, Streak, Task, TaskDue,
     TaskStatus, TaskTemplate, TemplateNode, TemplateSnapshot, TimerFinishKind, TimerMode,
@@ -66,7 +66,7 @@ pub use chrono;
 /// Unstable low-level primitives for cross-crate integration tests.
 ///
 /// Product frontends must not enable this feature. These exports may change as
-/// the internal client implementation evolves; [`TodoriClient`] is the only
+/// the internal client implementation evolves; [`TaskveilClient`] is the only
 /// supported application entry point.
 #[cfg(feature = "test-support")]
 pub mod test_support {

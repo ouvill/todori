@@ -40,9 +40,9 @@
 - [x] outboxに既に行があるレコードはスキップされる。
 - [x] タスクが `created_at` 昇順でenqueueされる。
 - [x] DEK欠落リストのレコードはスキップされ、他は処理される。
-- [x] `cargo test -p todori-sync` が成功する。
-- [x] `cargo build -p todori_app_bridge` が成功する。
-- [x] `cargo clippy -p todori_app_bridge -p todori-sync -- -D warnings` が成功する。
+- [x] `cargo test -p taskveil-sync` が成功する。
+- [x] `cargo build -p taskveil_app_bridge` が成功する。
+- [x] `cargo clippy -p taskveil_app_bridge -p taskveil-sync -- -D warnings` が成功する。
 - [x] `cargo fmt --all -- --check` が成功する。
 
 ## 7. 制約・注意事項
@@ -88,10 +88,10 @@
 
 ### 検証結果
 
-- `cargo test -p todori-sync`: 成功。33 passed。
-- `cargo test -p todori-storage`: 成功。48 passed / 1 ignored。
-- `cargo build -p todori_app_bridge`: 成功。
-- `cargo clippy -p todori_app_bridge -p todori-sync -- -D warnings`: 成功。
+- `cargo test -p taskveil-sync`: 成功。33 passed。
+- `cargo test -p taskveil-storage`: 成功。48 passed / 1 ignored。
+- `cargo build -p taskveil_app_bridge`: 成功。
+- `cargo clippy -p taskveil_app_bridge -p taskveil-sync -- -D warnings`: 成功。
 - `cargo fmt --all -- --check`: 成功。
 
 ### run_sync_now pushループ最終コード

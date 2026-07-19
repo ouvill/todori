@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/router.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/router.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 import '../test/support/design_lab_fixture.dart';
 
@@ -96,7 +96,7 @@ class DesignLabBaseline {
   final DesignLabFixture fixture;
   final GoRouter router;
 
-  Widget get root => TodoriApp(
+  Widget get root => TaskveilApp(
     router: router,
     overrides: [bridgeServiceProvider.overrideWithValue(fixture.fake)],
   );
@@ -119,8 +119,8 @@ class _CandidateApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Todori Design Lab Candidate',
-      theme: buildTodoriTheme(Brightness.light),
+      title: 'Taskveil Design Lab Candidate',
+      theme: buildTaskveilTheme(Brightness.light),
       home: candidate == null
           ? _CandidateEmptyState(requestedId: requestedId)
           : Builder(builder: candidate!.builder),

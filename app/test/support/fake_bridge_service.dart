@@ -1,11 +1,11 @@
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/core/providers.dart'
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/core/providers.dart'
     show
         defaultSyncServerUrl,
         onboardingCompletedSettingKey,
         syncServerUrlSettingKey;
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/src/rust/api.dart';
 
 TaskDueDto testDateOnlyDueFromMillis(int value) =>
     dateOnlyDue(DateTime.fromMillisecondsSinceEpoch(value));

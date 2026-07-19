@@ -31,10 +31,10 @@ task-97 / ADR-016は、aggregate scope / epochやserver-visible hierarchy metada
 
 ### やること
 
-- `todori-sync`: breaking protocol、closure proof / ACK、pull-before-push orchestration、terminal reconcile、rebase分類、dependency cascade。
-- `todori-server`: terminal tombstone、history purge、device continuity / proof schema、version / generation / high-water write guard。
-- `todori-storage`: breaking local schema、durable origin / server-seen、closure crash recovery、classification sweep、dependency照会、reseed順、DEK retirement guard。
-- `todori-client`: 共通`TodoriClient::sync_now`経路へ新しい順序とstorage adapterを統合する。
+- `taskveil-sync`: breaking protocol、closure proof / ACK、pull-before-push orchestration、terminal reconcile、rebase分類、dependency cascade。
+- `taskveil-server`: terminal tombstone、history purge、device continuity / proof schema、version / generation / high-water write guard。
+- `taskveil-storage`: breaking local schema、durable origin / server-seen、closure crash recovery、classification sweep、dependency照会、reseed順、DEK retirement guard。
+- `taskveil-client`: 共通`TaskveilClient::sync_now`経路へ新しい順序とstorage adapterを統合する。
 - 必須focused test、server統合test、複数device収束test、全品質ゲート。
 - transaction / APIの確定に必要な範囲だけ`docs/03_技術仕様書.md`を外科的に更新する。
 

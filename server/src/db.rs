@@ -16,7 +16,7 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
         .await?;
     let role = query::<Postgres>(
         "SELECT r.rolcanlogin, r.rolsuper, r.rolinherit, r.rolbypassrls,
-                pg_has_role(current_user, 'todori_app', 'USAGE') AS has_app_privileges,
+                pg_has_role(current_user, 'taskveil_app', 'USAGE') AS has_app_privileges,
                 EXISTS (
                     SELECT 1
                     FROM pg_class c
@@ -52,7 +52,7 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
     if !is_safe {
         pool.close().await;
         return Err(sqlx_core::Error::InvalidArgument(
-            "DATABASE_URL must use a non-owner LOGIN role that inherits todori_app and cannot bypass RLS"
+            "DATABASE_URL must use a non-owner LOGIN role that inherits taskveil_app and cannot bypass RLS"
                 .to_string(),
         ));
     }
@@ -115,7 +115,7 @@ pub async fn set_tenant_context(
     tx: &mut PgTransaction<'_>,
     tenant_id: Uuid,
 ) -> Result<(), sqlx_core::Error> {
-    query::<Postgres>("SELECT set_config('todori.tenant_id', $1, true)")
+    query::<Postgres>("SELECT set_config('taskveil.tenant_id', $1, true)")
         .bind(tenant_id.to_string())
         .execute(&mut **tx)
         .await?;
@@ -126,7 +126,7 @@ pub async fn set_user_context(
     tx: &mut PgTransaction<'_>,
     user_id: Uuid,
 ) -> Result<(), sqlx_core::Error> {
-    query::<Postgres>("SELECT set_config('todori.user_id', $1, true)")
+    query::<Postgres>("SELECT set_config('taskveil.user_id', $1, true)")
         .bind(user_id.to_string())
         .execute(&mut **tx)
         .await?;

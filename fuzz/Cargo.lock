@@ -1646,6 +1646,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "taskveil-crypto"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "aws-lc-rs",
+ "bip39",
+ "chacha20poly1305",
+ "core-foundation",
+ "core-foundation-sys",
+ "hkdf",
+ "jni",
+ "opaque-ke",
+ "rand 0.8.6",
+ "security-framework",
+ "security-framework-sys",
+ "sha2",
+ "thiserror 2.0.18",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "taskveil-domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "rrule",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "taskveil-fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "taskveil-crypto",
+ "taskveil-sync",
+ "uuid",
+]
+
+[[package]]
+name = "taskveil-sync"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "hkdf",
+ "hmac",
+ "opaque-ke",
+ "rand 0.8.6",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "taskveil-crypto",
+ "taskveil-domain",
+ "thiserror 2.0.18",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1709,73 +1776,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "todori-crypto"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "aws-lc-rs",
- "bip39",
- "chacha20poly1305",
- "core-foundation",
- "core-foundation-sys",
- "hkdf",
- "jni",
- "opaque-ke",
- "rand 0.8.6",
- "security-framework",
- "security-framework-sys",
- "sha2",
- "thiserror 2.0.18",
- "uuid",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "todori-domain"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "rrule",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
-name = "todori-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "todori-crypto",
- "todori-sync",
- "uuid",
-]
-
-[[package]]
-name = "todori-sync"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "hkdf",
- "hmac",
- "opaque-ke",
- "rand 0.8.6",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "todori-crypto",
- "todori-domain",
- "uuid",
- "zeroize",
-]
 
 [[package]]
 name = "tokio"

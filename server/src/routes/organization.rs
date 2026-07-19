@@ -4,7 +4,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use todori_sync::organization::{
+use taskveil_sync::organization::{
     OrganizationDeviceRevocationRequest, OrganizationDeviceRosterDto, OrganizationInviteRequest,
     OrganizationMemberResponse, OrganizationSafetyConfirmRequest, OrganizationSafetyResponse,
     RecipientPackageRequest, RecipientPackageResponse,
@@ -158,10 +158,10 @@ async fn authenticate(
 
 fn require_current_protocol(headers: &HeaderMap) -> Result<(), AppError> {
     let value = headers
-        .get(todori_sync::protocol::SYNC_PROTOCOL_VERSION_HEADER)
+        .get(taskveil_sync::protocol::SYNC_PROTOCOL_VERSION_HEADER)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u16>().ok());
-    if value != Some(todori_sync::protocol::SYNC_PROTOCOL_VERSION) {
+    if value != Some(taskveil_sync::protocol::SYNC_PROTOCOL_VERSION) {
         return Err(AppError::bad_request("unsupported sync protocol"));
     }
     Ok(())

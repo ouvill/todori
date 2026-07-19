@@ -1,21 +1,21 @@
 PODS:
   - FlutterMacOS (1.0.0)
-  - todori_app_bridge (0.0.1):
+  - taskveil_app_bridge (0.0.1):
     - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - todori_app_bridge (from `Flutter/ephemeral/.symlinks/plugins/todori_app_bridge/macos`)
+  - taskveil_app_bridge (from `Flutter/ephemeral/.symlinks/plugins/taskveil_app_bridge/macos`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
-  todori_app_bridge:
-    :path: Flutter/ephemeral/.symlinks/plugins/todori_app_bridge/macos
+  taskveil_app_bridge:
+    :path: Flutter/ephemeral/.symlinks/plugins/taskveil_app_bridge/macos
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  todori_app_bridge: 23a59c621efb416731c6621f641bb0e9576e2691
+  taskveil_app_bridge: 6f6ac01823799ff8fcc93e14ad955693e576f6d9
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 

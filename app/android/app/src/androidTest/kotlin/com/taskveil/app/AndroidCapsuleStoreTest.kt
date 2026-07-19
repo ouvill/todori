@@ -1,4 +1,4 @@
-package dev.todori.todori
+package com.taskveil.app
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -45,7 +45,7 @@ class AndroidCapsuleStoreTest {
 
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val key = keyStore.getKey(
-            "dev.todori.todori.local-capsule-seal.v2",
+            "com.taskveil.app.local-capsule-seal.v1",
             null,
         ) as SecretKey
         assertNull("Android Keystore AES key must not be exportable", key.encoded)

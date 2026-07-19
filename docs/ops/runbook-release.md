@@ -1,6 +1,6 @@
 # クライアントリリースrunbook
 
-Todoriクライアントのリリース手順の骨子を定義する。2026-07-15時点ではpre-releaseであり、最初の一般リリースは課金基盤完成後まで延期している。ストア提出、署名、Developer Program、公開告知、公開不可の判断事項は人間作業である。詳細な事業運用、価格、実証明書情報はpublic repoに書かない。
+Taskveilクライアントのリリース手順の骨子を定義する。2026-07-15時点ではpre-releaseであり、最初の一般リリースは課金基盤完成後まで延期している。ストア提出、署名、Developer Program、公開告知、公開不可の判断事項は人間作業である。詳細な事業運用、価格、実証明書情報はpublic repoに書かない。
 
 ## 1. 対象
 
@@ -49,7 +49,7 @@ app/tool/visual_qa.sh
 タグ例:
 
 ```sh
-git tag -a v<MAJOR>.<MINOR>.<PATCH> -m "Todori v<MAJOR>.<MINOR>.<PATCH>"
+git tag -a v<MAJOR>.<MINOR>.<PATCH> -m "Taskveil v<MAJOR>.<MINOR>.<PATCH>"
 ```
 
 実際のtag作成とpushは人間判断で行う。

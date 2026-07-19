@@ -7,7 +7,7 @@
 
 `docs/07_Phase1計画書.md` のマイルストーンM2「ブリッジとUI骨格」は、M2-03「Flutterの画面遷移骨格と状態管理方針を実装する」を定義している（完了条件: リスト一覧、タスク一覧、タスク詳細へ遷移できるwidget testが通ること）。このタスクは同項目に対応する。
 
-task-08で `todori-app-bridge` にリスト/タスク操作のユースケース単位API（`initCore` / `createList` / `getLists` / `createTask` / `getTasks` / `setTaskStatus` / `trashTask` / `restoreTask` / `getTrashedTasks`）がDart側へ公開済みである。本タスクはこのブリッジAPIの上に、Flutterアプリの画面遷移骨格（リスト一覧→タスク一覧→タスク詳細）と状態管理方針を確立する。状態管理はRiverpodの採用が決定済みであり、`riverpod_generator` は使わず素の記法（`AsyncNotifier` / `AsyncNotifierProvider` / `Provider`）を用いる（コード生成をビルドパイプラインに増やさないため）。ルーティングは `go_router` を用いる。依存パッケージ（`flutter_riverpod ^3.3.2` / `go_router ^17.3.0` / `path_provider ^2.1.6`）は既に `app/pubspec.yaml` に追加済みであり、本タスクの実行環境はネットワークアクセス不可であるためこれ以上の新規パッケージ追加は行わない。
+task-08で `taskveil-app-bridge` にリスト/タスク操作のユースケース単位API（`initCore` / `createList` / `getLists` / `createTask` / `getTasks` / `setTaskStatus` / `trashTask` / `restoreTask` / `getTrashedTasks`）がDart側へ公開済みである。本タスクはこのブリッジAPIの上に、Flutterアプリの画面遷移骨格（リスト一覧→タスク一覧→タスク詳細）と状態管理方針を確立する。状態管理はRiverpodの採用が決定済みであり、`riverpod_generator` は使わず素の記法（`AsyncNotifier` / `AsyncNotifierProvider` / `Provider`）を用いる（コード生成をビルドパイプラインに増やさないため）。ルーティングは `go_router` を用いる。依存パッケージ（`flutter_riverpod ^3.3.2` / `go_router ^17.3.0` / `path_provider ^2.1.6`）は既に `app/pubspec.yaml` に追加済みであり、本タスクの実行環境はネットワークアクセス不可であるためこれ以上の新規パッケージ追加は行わない。
 
 本タスクはUIの「骨格」を確立するものであり、デザインの磨き込みや全機能CRUD UIは `docs/07_Phase1計画書.md` M3の範囲である。
 
@@ -36,7 +36,7 @@ task-08で `todori-app-bridge` にリスト/タスク操作のユースケース
    - `tasksProvider = AsyncNotifierProvider.family<TasksNotifier, List<TaskDto>, String>`（`listId` 別のactiveタスク一覧。`createTask` / `setStatus` / `trashTask` 呼び出し成功後は `ref.invalidateSelf()` で自身を再取得する）
    - `taskDetailProvider = Provider.family<AsyncValue<TaskDto?>, TaskDetailArgs>`（タスク詳細用。`tasksProvider` の結果を `ref.watch` して該当タスクをクライアント側で検索する方針とする。専用のget-by-idブリッジAPIが存在しないため、単一のキャッシュ/正とする発想で `tasksProvider` から導出する旨をコメントに明記する）
    - 変更系操作（`createList` / `createTask` / `setTaskStatus` / `trashTask`）はNotifierのメソッドとして実装し、ブリッジ呼び出し成功後に `ref.invalidateSelf()` で関連providerを再取得する方針を各クラスのdocコメントに明記する
-3. **アプリ初期化**: `app/lib/main.dart` を書き換える。`main()` で `RustLib.init()` → `path_provider` の `getApplicationSupportDirectory()` 配下のディレクトリで `initCore` → `ProviderScope` + `MaterialApp.router` を起動する。初期化失敗時は素朴なエラー画面を表示する。既存のカウンター/greeting表示は削除する。ルーター/ProviderScopeを注入可能なトップレベルwidget `TodoriApp` に分離し、widget testからは初期化なし・フェイク `BridgeService` のoverrideのみで組み立てられる構造にする。
+3. **アプリ初期化**: `app/lib/main.dart` を書き換える。`main()` で `RustLib.init()` → `path_provider` の `getApplicationSupportDirectory()` 配下のディレクトリで `initCore` → `ProviderScope` + `MaterialApp.router` を起動する。初期化失敗時は素朴なエラー画面を表示する。既存のカウンター/greeting表示は削除する。ルーター/ProviderScopeを注入可能なトップレベルwidget `TaskveilApp` に分離し、widget testからは初期化なし・フェイク `BridgeService` のoverrideのみで組み立てられる構造にする。
 4. **go_routerルーティング**: `app/lib/src/router.dart`（新規）を作成する。ルートは `/lists`（初期）→ `/lists/:listId/tasks` → `/lists/:listId/tasks/:taskId`（詳細）とする。UIモード拡張点（Phase 3、`docs/07_Phase1計画書.md` §5参照）としてルート定義を一箇所に集約する旨をコメントに明記する。
 5. **画面3枚**（`app/lib/src/screens/` 配下、シンプルUI・Material 3の素朴なwidgetでよい）を実装する。
    - `lists_screen.dart`: リスト一覧（`AsyncValue` のloading/error/data三態を素直に描画する）。FAB→ダイアログでリスト名入力→作成する。`sort_order` は暫定で `'a0'`, `'a1'`... のような単純連番文字列を生成するヘルパーでよい（fractional index本実装はM3である旨コメントに明記する）。タップでタスク一覧へ遷移する。
@@ -71,7 +71,7 @@ task-08で `todori-app-bridge` にリスト/タスク操作のユースケース
 3. `app/lib/src/core/providers.dart` を新規作成し、`bridgeServiceProvider` / `listsProvider` / `tasksProvider` / `taskDetailProvider` とそれぞれのNotifierを実装する。
 4. `app/lib/src/router.dart` を新規作成し、go_routerのルート定義を実装する。
 5. `app/lib/src/screens/lists_screen.dart` / `tasks_screen.dart` / `task_detail_screen.dart` を新規作成し、各画面を実装する。
-6. `app/lib/main.dart` を書き換え、`TodoriApp` を分離しつつ `main()` でのネイティブ初期化とエラー画面表示を実装する。
+6. `app/lib/main.dart` を書き換え、`TaskveilApp` を分離しつつ `main()` でのネイティブ初期化とエラー画面表示を実装する。
 7. `app/test/widget_test.dart` を全面置き換え、フェイク `BridgeService` を用いたwidget testを実装する。
 8. `cd app && flutter analyze` と `cd app && flutter test` を実行して確認する。
 9. 最後に `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace` を実行し、Rust側の回帰がないことを確認する（本タスクではRust側は変更しないため、既存の緑を維持するだけでよい）。
@@ -112,7 +112,7 @@ task-08で `todori-app-bridge` にリスト/タスク操作のユースケース
 - `app/lib/src/core/providers.dart` を追加し、`bridgeServiceProvider` / `listsProvider`（`AsyncNotifierProvider`）/ `tasksProvider`（`AsyncNotifierProvider.family`、`listId` をキーとする）/ `taskDetailProvider`（`Provider.family`、`tasksProvider` の結果から導出）と、暫定sort_order生成ヘルパーを実装した。
 - `app/lib/src/router.dart` を追加し、go_routerによる `/lists` → `/lists/:listId/tasks` → `/lists/:listId/tasks/:taskId` のルート定義を実装した。
 - `app/lib/src/screens/lists_screen.dart` / `tasks_screen.dart` / `task_detail_screen.dart` を追加し、リスト一覧・タスク一覧・タスク詳細の3画面を実装した。
-- `app/lib/main.dart` を書き換えた。`main()` で `RustLib.init()` → `getApplicationSupportDirectory()` 配下のディレクトリで `initCore` → `TodoriApp` を起動する構成にした。`TodoriApp` は `overrides` / `router` を注入可能にし、widget testからはネイティブ初期化なしで組み立てられるようにした。初期化失敗時はエラー画面を表示する。
+- `app/lib/main.dart` を書き換えた。`main()` で `RustLib.init()` → `getApplicationSupportDirectory()` 配下のディレクトリで `initCore` → `TaskveilApp` を起動する構成にした。`TaskveilApp` は `overrides` / `router` を注入可能にし、widget testからはネイティブ初期化なしで組み立てられるようにした。初期化失敗時はエラー画面を表示する。
 - `app/test/widget_test.dart` を全面置き換え、インメモリのフェイク `BridgeService` を `ProviderScope` でoverrideするwidget testを5件実装した。
 
 ### 作成したファイル一覧と役割
@@ -123,7 +123,7 @@ task-08で `todori-app-bridge` にリスト/タスク操作のユースケース
 - `app/lib/src/screens/lists_screen.dart`: リスト一覧画面。
 - `app/lib/src/screens/tasks_screen.dart`: タスク一覧画面。
 - `app/lib/src/screens/task_detail_screen.dart`: タスク詳細画面。
-- `app/lib/main.dart`（書き換え）: アプリ初期化（`RustLib.init` → `initCore`）と `TodoriApp` の起動。
+- `app/lib/main.dart`（書き換え）: アプリ初期化（`RustLib.init` → `initCore`）と `TaskveilApp` の起動。
 - `app/test/widget_test.dart`（全面置換）: フェイク `BridgeService` を用いたwidget test。
 
 ### providerの構成（invalidate戦略）

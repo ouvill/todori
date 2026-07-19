@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-local DBにはFTS5によるtask検索があり、`todori-client`とFRB Rust APIも`search_tasks`を公開している。一方、production Dart層の`BridgeService`、Riverpod状態、専用routeが未接続であるため、既存検索機能をユーザーが利用できない。
+local DBにはFTS5によるtask検索があり、`taskveil-client`とFRB Rust APIも`search_tasks`を公開している。一方、production Dart層の`BridgeService`、Riverpod状態、専用routeが未接続であるため、既存検索機能をユーザーが利用できない。
 
 本taskでは既存FTS契約を変更せず、title / noteを対象とするdebounce付き検索状態とimmersive Search routeをproductionへ接続する。検索結果はtask statusやlist archive状態で隠さず、削除済みtaskだけを除外する。
 

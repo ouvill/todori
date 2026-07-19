@@ -1,16 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:todori/src/billing/billing_store.dart';
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/core/realtime_sync.dart';
-import 'package:todori/src/core/task_tree.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/notifications/reminder_notifications.dart';
-import 'package:todori/src/timer/timer_engine.dart';
-import 'package:todori/src/timer/timer_notifications.dart';
-import 'package:todori/src/timer/timer_settings.dart';
-import 'package:todori/src/rust/api.dart'
+import 'package:taskveil/src/billing/billing_store.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/core/realtime_sync.dart';
+import 'package:taskveil/src/core/task_tree.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/notifications/reminder_notifications.dart';
+import 'package:taskveil/src/timer/timer_engine.dart';
+import 'package:taskveil/src/timer/timer_notifications.dart';
+import 'package:taskveil/src/timer/timer_settings.dart';
+import 'package:taskveil/src/rust/api.dart'
     show
         AccountAuthResultDto,
         AccountSessionStateDto,

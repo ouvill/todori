@@ -1,7 +1,7 @@
 //! Strict encrypted sync envelope v4.
 
+use taskveil_crypto::{decrypt, encrypt, CryptoError, CRYPTO_SUITE_ID};
 use thiserror::Error;
-use todori_crypto::{decrypt, encrypt, CryptoError, CRYPTO_SUITE_ID};
 use uuid::Uuid;
 
 use crate::field_map::SyncPlaintext;
@@ -149,7 +149,7 @@ fn aad(
 mod tests {
     use super::*;
     use crate::hlc::Hlc;
-    use todori_domain::{new_list, List};
+    use taskveil_domain::{new_list, List};
 
     const GENERATION: u64 = 7;
 

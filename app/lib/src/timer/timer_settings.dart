@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/timer/timer_notifications.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/timer/timer_notifications.dart';
 
 const timerSettingsKey = 'timer_settings_v1';
 

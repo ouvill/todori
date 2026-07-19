@@ -7,11 +7,11 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, Utc};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::{
+use taskveil_crypto::{
     organization::{AccountRootPublicKeys, DeviceCertificate},
     CRYPTO_SUITE_ID,
 };
-use todori_sync::{
+use taskveil_sync::{
     account::{ActiveKeyBundleDto, HistoricalKeyBundleDto, ListDekBundleDto},
     organization::OrganizationKeyManifest,
     parse_envelope_header,
@@ -256,8 +256,8 @@ pub async fn preflight(
     }
     tx.commit().await?;
     Ok(SyncCapabilities {
-        protocol_version: todori_sync::protocol::SYNC_PROTOCOL_VERSION,
-        envelope_version: todori_sync::ENVELOPE_VERSION,
+        protocol_version: taskveil_sync::protocol::SYNC_PROTOCOL_VERSION,
+        envelope_version: taskveil_sync::ENVELOPE_VERSION,
         gc_horizon_seq,
         continuity_seq,
         continuity_generation,
@@ -1494,7 +1494,7 @@ async fn require_scope_recipient_rows(
             ));
         }
         let wrapped: Vec<u8> = row.try_get("wrapped_dek")?;
-        if todori_crypto::organization::HybridDekPackage::decode(&wrapped).is_err() {
+        if taskveil_crypto::organization::HybridDekPackage::decode(&wrapped).is_err() {
             return Err(AppError::conflict(
                 "rotation recipient coverage is incomplete",
             ));

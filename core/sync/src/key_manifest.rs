@@ -4,12 +4,12 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use taskveil_crypto::CRYPTO_SUITE_ID;
 use thiserror::Error;
-use todori_crypto::CRYPTO_SUITE_ID;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-pub const PERSONAL_MANIFEST_AUTH_INFO: &[u8] = b"todori/personal-key-manifest-auth/v1";
+pub const PERSONAL_MANIFEST_AUTH_INFO: &[u8] = b"taskveil/personal-key-manifest-auth/v1";
 const MANIFEST_MAGIC: &[u8; 4] = b"TKM1";
 
 type HmacSha256 = Hmac<Sha256>;

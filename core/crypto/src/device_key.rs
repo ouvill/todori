@@ -14,7 +14,7 @@ pub const DEVICE_KEY_LEN: usize = 32;
 /// SQLCipher用ローカルDB鍵をDKから導出する際のHKDF context。
 ///
 /// バージョン付き文字列として固定し、将来の鍵用途追加や導出仕様変更と分離する。
-pub const LOCAL_DB_KEY_INFO: &[u8] = b"todori/local-db-key/v1";
+pub const LOCAL_DB_KEY_INFO: &[u8] = b"taskveil/local-db-key/v1";
 
 /// OSキーチェーン抽象が返すエラー。
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -113,11 +113,11 @@ mod tests {
     fn derive_local_db_key_is_deterministic_and_context_is_fixed() {
         let device_key = [0x42; DEVICE_KEY_LEN];
         let expected = [
-            52, 203, 119, 73, 63, 167, 63, 59, 54, 15, 231, 141, 31, 197, 89, 220, 75, 31, 214,
-            157, 187, 18, 192, 167, 125, 52, 56, 209, 103, 156, 95, 166,
+            137, 221, 82, 0, 183, 204, 95, 225, 145, 230, 227, 23, 92, 212, 53, 122, 141, 34, 46,
+            212, 39, 151, 152, 84, 173, 214, 39, 202, 115, 123, 121, 14,
         ];
 
-        assert_eq!(LOCAL_DB_KEY_INFO, b"todori/local-db-key/v1");
+        assert_eq!(LOCAL_DB_KEY_INFO, b"taskveil/local-db-key/v1");
         assert_eq!(
             derive_local_db_key(&device_key),
             derive_local_db_key(&device_key)

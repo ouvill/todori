@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use todori_crypto::{
+use taskveil_crypto::{
     delete_account_secret,
     key_hierarchy::{
         unwrap_account_root_private_key_with_master_key, unwrap_master_key_with_device_key,
@@ -15,13 +15,13 @@ use todori_crypto::{
     store_account_secret, AccountSecretKind, LocalKeyCapsuleSlot, LocalKeyCapsuleStore,
     PlatformLocalKeyCapsuleStore,
 };
-use todori_domain::Uuid;
-use todori_storage::{
+use taskveil_domain::Uuid;
+use taskveil_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, RecurrenceRepository,
     SqliteLocalCryptoRepository, SqliteSyncStateRepository, StorageError, TaskRepository,
     TimerSessionRepository,
 };
-use todori_sync::{
+use taskveil_sync::{
     account::{
         unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountClientError,
         AccountKeyMaterial, AccountListDekMaterial, BillingResponseDto, OrganizationRosterTrust,
@@ -32,7 +32,7 @@ use todori_sync::{
 use zeroize::Zeroizing;
 
 use super::{
-    now_ms, CryptoRuntimeState, TodoriClient, ACCOUNT_DEVICE_ID_SETTING_KEY,
+    now_ms, CryptoRuntimeState, TaskveilClient, ACCOUNT_DEVICE_ID_SETTING_KEY,
     ACCOUNT_EMAIL_SETTING_KEY, ACCOUNT_MK_GENERATION_SETTING_KEY, ACCOUNT_ROOT_PUBLIC_SETTING_KEY,
     ACCOUNT_SESSION_EXPIRES_AT_SETTING_KEY, ACCOUNT_TENANT_ID_SETTING_KEY,
     ACCOUNT_USER_ID_SETTING_KEY,
@@ -65,7 +65,7 @@ struct OrganizationTrustPin {
 }
 
 impl OrganizationTrustPin {
-    fn candidate(response: &todori_sync::organization::OrganizationSafetyResponse) -> Self {
+    fn candidate(response: &taskveil_sync::organization::OrganizationSafetyResponse) -> Self {
         Self {
             owner_root_public: response.owner_root_public.clone(),
             member_root_public: response.member_root_public.clone(),
@@ -80,7 +80,7 @@ impl OrganizationTrustPin {
         }
     }
 
-    fn matches(&self, response: &todori_sync::organization::OrganizationSafetyResponse) -> bool {
+    fn matches(&self, response: &taskveil_sync::organization::OrganizationSafetyResponse) -> bool {
         self.owner_root_public == response.owner_root_public
             && self.member_root_public == response.member_root_public
             && self.digest == response.digest
@@ -137,7 +137,7 @@ impl OrganizationTrustPin {
 }
 
 fn organization_safety_state(
-    mut response: todori_sync::organization::OrganizationSafetyResponse,
+    mut response: taskveil_sync::organization::OrganizationSafetyResponse,
     locally_verified: bool,
 ) -> OrganizationSafetyState {
     if !locally_verified {
@@ -172,7 +172,7 @@ fn decode_trust_root(value: &str) -> Result<AccountRootPublicKeys, ClientError> 
     .map_err(|_| ClientError::AccountRequest)
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     pub async fn organization_safety_number(
         &self,
         tenant_id: String,
@@ -944,11 +944,11 @@ impl TodoriClient {
                 .begin_write_transaction()
                 .map_err(|_| ClientError::SyncRun)?;
             let mut clock = || now_ms().map_err(|error| error.to_string());
-            todori_sync::enqueue_rotation_backfill(
+            taskveil_sync::enqueue_rotation_backfill(
                 &mut transaction,
                 &sync_keys,
                 &device_id.to_string(),
-                todori_sync::BackfillRecords {
+                taskveil_sync::BackfillRecords {
                     lists: &lists,
                     templates: &templates,
                     schedules: &schedules,
@@ -976,7 +976,7 @@ impl TodoriClient {
             crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
         marker_store
             .set_setting(
-                todori_sync::KEY_ROTATION_PENDING_SETTING_KEY,
+                taskveil_sync::KEY_ROTATION_PENDING_SETTING_KEY,
                 "0",
                 now_ms()?,
             )
@@ -987,7 +987,7 @@ impl TodoriClient {
 
     pub(super) fn local_lists_including_archived(
         &self,
-    ) -> Result<Vec<todori_domain::List>, ClientError> {
+    ) -> Result<Vec<taskveil_domain::List>, ClientError> {
         self.with_list_repository(|repository| {
             let mut lists = repository.list_all()?;
             lists.extend(repository.list_archived()?);
@@ -1048,7 +1048,7 @@ impl TodoriClient {
                 .iter()
                 .map(|entry| entry.list_id.clone())
                 .collect::<Vec<_>>();
-            if let Some(material) = todori_sync::ensure_list_dek_for_list(
+            if let Some(material) = taskveil_sync::ensure_list_dek_for_list(
                 server_url,
                 tenant_id,
                 session_token,
@@ -1102,7 +1102,7 @@ impl TodoriClient {
 
     fn verify_local_safety_participant(
         &self,
-        response: &todori_sync::organization::OrganizationSafetyResponse,
+        response: &taskveil_sync::organization::OrganizationSafetyResponse,
     ) -> Result<(), ClientError> {
         let local_user_id = parse_uuid(
             &self
@@ -1313,7 +1313,7 @@ impl TodoriClient {
         Ok(false)
     }
 
-    fn active_capsule(&self) -> Result<todori_crypto::LocalKeyCapsule, ClientError> {
+    fn active_capsule(&self) -> Result<taskveil_crypto::LocalKeyCapsule, ClientError> {
         PlatformLocalKeyCapsuleStore::new(&self.db_dir)
             .load(LocalKeyCapsuleSlot::Active)
             .map_err(ClientError::KeyStore)?
@@ -1486,18 +1486,18 @@ fn merge_remote_and_pending_local_keys(
 mod tests {
     use std::sync::Mutex;
 
+    use taskveil_domain::new_list;
+    use taskveil_storage::{ListRepository, SqliteListRepository};
+    use taskveil_sync::LocalSyncStore;
     use tempfile::TempDir;
-    use todori_domain::new_list;
-    use todori_storage::{ListRepository, SqliteListRepository};
-    use todori_sync::LocalSyncStore;
 
     use super::*;
     use crate::{LocalMutationContext, SqliteMutationService, SqliteSyncStore};
 
-    fn open_test_client(db_dir: &std::path::Path, db_key: [u8; 32]) -> TodoriClient {
-        let db_path = db_dir.join("todori.db");
+    fn open_test_client(db_dir: &std::path::Path, db_key: [u8; 32]) -> TaskveilClient {
+        let db_path = db_dir.join("taskveil.db");
         drop(open_encrypted(&db_path, &db_key).expect("open encrypted test database"));
-        TodoriClient {
+        TaskveilClient {
             db_dir: db_dir.to_path_buf(),
             db_path,
             db_key: Mutex::new(Zeroizing::new(db_key)),
@@ -1521,7 +1521,7 @@ mod tests {
             lookup_key: "pro".to_string(),
             status: "in_grace_period".to_string(),
             sync_allowed: true,
-            store_product_identifier: Some("dev.todori.todori.pro.monthly".to_string()),
+            store_product_identifier: Some("com.taskveil.app.pro.monthly".to_string()),
             expires_at: Some(1_800_000_000_000),
             grace_expires_at: Some(1_801_382_400_000),
             will_renew: Some(false),
@@ -1560,7 +1560,7 @@ mod tests {
     fn organization_trust_pin_is_strict_and_root_changes_require_reconfirmation() {
         let owner = Uuid::now_v7();
         let member = Uuid::now_v7();
-        let response = todori_sync::organization::OrganizationSafetyResponse {
+        let response = taskveil_sync::organization::OrganizationSafetyResponse {
             owner_user_id: owner,
             member_user_id: member,
             owner_root_public: "owner-root".to_string(),
@@ -1800,7 +1800,7 @@ mod tests {
             .set_cursor(super::super::INITIAL_BACKFILL_CURSOR_NAME, 1, 10)
             .unwrap();
 
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),

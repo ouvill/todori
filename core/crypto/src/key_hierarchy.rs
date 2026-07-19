@@ -16,10 +16,10 @@ pub const KEY_LEN: usize = 32;
 pub const ACCOUNT_ROOT_PRIVATE_KEY_LEN: usize = 64;
 pub const INITIAL_KEY_GENERATION: u64 = 1;
 
-pub const KEK_PW_INFO: &[u8] = b"todori/kek-pw/v1";
-pub const RECOVERY_KEY_INFO: &[u8] = b"todori/recovery-key-wrap-key/v2";
+pub const KEK_PW_INFO: &[u8] = b"taskveil/kek-pw/v1";
+pub const RECOVERY_KEY_INFO: &[u8] = b"taskveil/recovery-key-wrap-key/v1";
 
-const WRAP_AAD_MAGIC: &[u8; 4] = b"TWK2";
+const WRAP_AAD_MAGIC: &[u8; 4] = b"TWK1";
 const WRAP_AAD_LEN: usize = 63;
 
 #[derive(Clone, Copy)]
@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn twk2_aad_matches_canonical_63_byte_golden_vector() {
+    fn twk1_aad_matches_canonical_63_byte_golden_vector() {
         let aad = wrap_aad(
             WrapPurpose::MasterKeyByPassword,
             7,
@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(
             aad,
             [
-                0x54, 0x57, 0x4b, 0x32, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x54, 0x57, 0x4b, 0x31, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
                 0x0d, 0x0e, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

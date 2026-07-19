@@ -11,22 +11,22 @@ use chrono::{Duration, Utc};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, raw_sql::raw_sql};
 use sqlx_postgres::PgPool;
-use testcontainers_modules::{
-    postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync},
-};
-use todori_server::{
+use taskveil_server::{
     billing::{BillingEnvironment, BillingService},
     build_router, build_router_with_realtime, db,
     realtime::{RealtimeGateway, RealtimeSettings, RealtimeTicketResponse},
     AppState,
 };
-use todori_sync::{
+use taskveil_sync::{
     protocol::{
         PushOp, PushRequest, PushResponse, PushStatus, SyncCollection, SyncRecordState,
         SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER,
     },
     Hlc,
+};
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -49,13 +49,13 @@ impl Fixture {
         let admin_pool = db::connect(&database_url).await.unwrap();
         db::run_migrations(&admin_pool).await.unwrap();
         raw_sql(
-            "CREATE ROLE todori_realtime_test LOGIN PASSWORD 'todori-realtime-test'
+            "CREATE ROLE taskveil_realtime_test LOGIN PASSWORD 'taskveil-realtime-test'
              NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
         )
         .execute(&admin_pool)
         .await
         .unwrap();
-        raw_sql("GRANT todori_app TO todori_realtime_test")
+        raw_sql("GRANT taskveil_app TO taskveil_realtime_test")
             .execute(&admin_pool)
             .await
             .unwrap();
@@ -86,7 +86,7 @@ impl Fixture {
                  current_period_ends_at, access_expires_at, will_renew,
                  provider_observed_at, last_seen_at)
              VALUES ($1, 'revenuecat', 'sandbox', $2,
-                     'dev.todori.todori.pro.monthly', 'test-product', 'active', TRUE,
+                     'com.taskveil.app.pro.monthly', 'test-product', 'active', TRUE,
                      now() + interval '1 day', now() + interval '1 day', TRUE, now(), now())",
         )
         .bind(user_id)
@@ -169,8 +169,9 @@ impl Fixture {
         .await
         .unwrap();
 
-        let application_url =
-            format!("postgres://todori_realtime_test:todori-realtime-test@{host}:{port}/postgres");
+        let application_url = format!(
+            "postgres://taskveil_realtime_test:taskveil-realtime-test@{host}:{port}/postgres"
+        );
         let application_pool = db::connect_application(&application_url).await.unwrap();
         Self {
             application_pool,
@@ -241,7 +242,7 @@ async fn ticket_inherits_sync_auth_and_disabled_mode_returns_503() {
     let payload = String::from_utf8(URL_SAFE_NO_PAD.decode(segments[0]).unwrap()).unwrap();
     let fields: serde_json::Value = serde_json::from_str(&payload).unwrap();
     let expected_payload = format!(
-        "{{\"kid\":\"ticket-current\",\"aud\":\"todori-realtime\",\"channel\":\"{}\",\"device\":\"{}\",\"iat\":{},\"exp\":{}}}",
+        "{{\"kid\":\"ticket-current\",\"aud\":\"taskveil-realtime\",\"channel\":\"{}\",\"device\":\"{}\",\"iat\":{},\"exp\":{}}}",
         fields["channel"].as_str().unwrap(),
         fields["device"].as_str().unwrap(),
         fields["iat"].as_i64().unwrap(),

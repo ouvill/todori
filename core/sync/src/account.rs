@@ -5,8 +5,7 @@ use chrono::{DateTime, Utc};
 use opaque_ke::{ClientLogin, ClientRegistration, CredentialResponse, RegistrationResponse};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use todori_crypto::{
+use taskveil_crypto::{
     key_hierarchy::{
         derive_kek_pw, derive_recovery_wrap_key, generate_list_dek, generate_master_key,
         generate_recovery_key, generate_tenant_root_dek,
@@ -24,8 +23,9 @@ use todori_crypto::{
         AccountRootPublicKeys, DeviceCertificate, DeviceIdentity, DeviceProofOfPossession,
         HybridDekPackage, OrganizationCryptoError, SignedDeviceRevocation, DEVICE_CHALLENGE_LEN,
     },
-    TodoriCipherSuite, CRYPTO_SUITE_ID,
+    TaskveilCipherSuite, CRYPTO_SUITE_ID,
 };
+use thiserror::Error;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -109,7 +109,7 @@ pub struct OrganizationDekDelivery<'a> {
     pub sender_root: &'a AccountRootPublicKeys,
     pub recipient: &'a crate::organization::OrganizationDeviceDto,
     pub expected_recipient_root: &'a AccountRootPublicKeys,
-    pub scope_kind: todori_crypto::organization::HybridScopeKind,
+    pub scope_kind: taskveil_crypto::organization::HybridScopeKind,
     pub scope_id: Uuid,
     pub generation: u64,
     pub dek: &'a [u8; KEY_LEN],
@@ -165,7 +165,7 @@ pub fn wrap_organization_dek_for_verified_device(
         now_ms,
         recipient.revoked,
     )?;
-    Ok(todori_crypto::organization::wrap_dek_for_device(
+    Ok(taskveil_crypto::organization::wrap_dek_for_device(
         sender_identity.private(),
         verified_sender,
         verified_recipient,
@@ -208,7 +208,7 @@ pub fn unwrap_organization_dek_from_verified_device(
         now_ms,
         false,
     )?;
-    Ok(todori_crypto::organization::unwrap_dek_for_device(
+    Ok(taskveil_crypto::organization::unwrap_dek_for_device(
         recipient_identity.private(),
         verified_sender,
         verified_recipient,
@@ -383,7 +383,7 @@ impl AccountClient {
     ) -> Result<AccountRegisterOutcome, AccountClientError> {
         let mut rng = OsRng;
         let password = Zeroizing::new(password.as_bytes().to_vec());
-        let client_start = ClientRegistration::<TodoriCipherSuite>::start(&mut rng, &password)
+        let client_start = ClientRegistration::<TaskveilCipherSuite>::start(&mut rng, &password)
             .map_err(|_| AccountClientError::Opaque)?;
         let start = self
             .post_json::<OpaqueStartResponse>(
@@ -398,9 +398,10 @@ impl AccountClient {
             )
             .await?;
         validate_opaque_start(&start)?;
-        let server_message =
-            RegistrationResponse::<TodoriCipherSuite>::deserialize(&decode_base64(&start.message)?)
-                .map_err(|_| AccountClientError::Opaque)?;
+        let server_message = RegistrationResponse::<TaskveilCipherSuite>::deserialize(
+            &decode_base64(&start.message)?,
+        )
+        .map_err(|_| AccountClientError::Opaque)?;
         let client_finish = client_start
             .state
             .finish(
@@ -467,7 +468,7 @@ impl AccountClient {
     ) -> Result<AccountLoginOutcome, AccountClientError> {
         let mut rng = OsRng;
         let password = Zeroizing::new(password.as_bytes().to_vec());
-        let client_start = ClientLogin::<TodoriCipherSuite>::start(&mut rng, &password)
+        let client_start = ClientLogin::<TaskveilCipherSuite>::start(&mut rng, &password)
             .map_err(|_| AccountClientError::Opaque)?;
         let start = self
             .post_json::<OpaqueStartResponse>(
@@ -483,7 +484,7 @@ impl AccountClient {
             .await?;
         validate_opaque_start(&start)?;
         let server_message =
-            CredentialResponse::<TodoriCipherSuite>::deserialize(&decode_base64(&start.message)?)
+            CredentialResponse::<TaskveilCipherSuite>::deserialize(&decode_base64(&start.message)?)
                 .map_err(|_| AccountClientError::Opaque)?;
         let client_finish = client_start
             .state
@@ -722,7 +723,7 @@ impl AccountClient {
         &self,
         tenant_id: Uuid,
         device_id: Uuid,
-        package: &todori_crypto::organization::HybridDekPackage,
+        package: &taskveil_crypto::organization::HybridDekPackage,
         session_token: &str,
     ) -> Result<(), AccountClientError> {
         let response: crate::organization::RecipientPackageResponse = self
@@ -744,18 +745,18 @@ impl AccountClient {
     pub async fn load_recipient_package(
         &self,
         tenant_id: Uuid,
-        scope_kind: todori_crypto::organization::HybridScopeKind,
+        scope_kind: taskveil_crypto::organization::HybridScopeKind,
         scope_id: Uuid,
         generation: u64,
         session_token: &str,
-    ) -> Result<todori_crypto::organization::HybridDekPackage, AccountClientError> {
+    ) -> Result<taskveil_crypto::organization::HybridDekPackage, AccountClientError> {
         let path = format!(
             "/v2/tenants/{tenant_id}/organization/recipients/{}/{scope_id}/{generation}",
             scope_kind as u8
         );
         let response: crate::organization::RecipientPackageResponse =
             self.get_protocol_json(&path, session_token).await?;
-        let package = todori_crypto::organization::HybridDekPackage::decode(&decode_base64(
+        let package = taskveil_crypto::organization::HybridDekPackage::decode(&decode_base64(
             &response.package,
         )?)?;
         if package.scope_kind != scope_kind

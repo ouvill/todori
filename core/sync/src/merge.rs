@@ -277,7 +277,9 @@ fn canonical<T: Serialize>(value: &T) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::Hlc;
-    use todori_domain::{new_task, RecurrenceSchedule, ScheduleCursor, TaskDue, TaskStatus, Uuid};
+    use taskveil_domain::{
+        new_task, RecurrenceSchedule, ScheduleCursor, TaskDue, TaskStatus, Uuid,
+    };
     fn h(counter: u32, device: &str) -> Hlc {
         Hlc {
             wall_ms: 1,
@@ -398,7 +400,7 @@ mod tests {
 
     #[test]
     fn timer_session_merge_is_idempotent_but_never_merges_different_content() {
-        use todori_domain::{CompletedTimerSession, TimerFinishKind, TimerMode};
+        use taskveil_domain::{CompletedTimerSession, TimerFinishKind, TimerMode};
 
         let session = CompletedTimerSession {
             id: Uuid::now_v7(),

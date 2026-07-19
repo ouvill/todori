@@ -1,4 +1,4 @@
-//! Production OPAQUE authentication primitives for Todori's fixed RFC 9807
+//! Production OPAQUE authentication primitives for Taskveil's fixed RFC 9807
 //! ciphersuite and Argon2id profile.
 
 use opaque_ke::{key_exchange::tripledh::TripleDh, CipherSuite};
@@ -9,16 +9,16 @@ pub const ARGON2_MEMORY_KIB: u32 = 64 * 1024;
 pub const ARGON2_ITERATIONS: u32 = 3;
 pub const ARGON2_PARALLELISM: u32 = 4;
 
-/// Todori's RFC 9807 OPAQUE ciphersuite.
+/// Taskveil's RFC 9807 OPAQUE ciphersuite.
 ///
 /// OPRF and key exchange group: Ristretto255, matching the crate's default
 /// modern prime-order group support and avoiding legacy finite-field groups.
 /// KSF: Argon2id via `argon2::Argon2<'static>` so password records resist
 /// offline guessing. Hash: the Ristretto255 VOPRF suite's SHA-512 hash, selected
 /// by `opaque-ke` for this group and suitable for OPAQUE's HKDF transcript use.
-pub struct TodoriCipherSuite;
+pub struct TaskveilCipherSuite;
 
-impl CipherSuite for TodoriCipherSuite {
+impl CipherSuite for TaskveilCipherSuite {
     type OprfCs = opaque_ke::Ristretto255;
     type KeyExchange = TripleDh<opaque_ke::Ristretto255, sha2::Sha512>;
     type Ksf = argon2::Argon2<'static>;
@@ -33,13 +33,13 @@ pub fn production_argon2() -> &'static argon2::Argon2<'static> {
             ARGON2_PARALLELISM,
             None,
         )
-        .expect("fixed Todori Argon2 parameters are valid");
+        .expect("fixed Taskveil Argon2 parameters are valid");
         argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
     })
 }
 
 pub fn registration_parameters(
-) -> opaque_ke::ClientRegistrationFinishParameters<'static, 'static, TodoriCipherSuite> {
+) -> opaque_ke::ClientRegistrationFinishParameters<'static, 'static, TaskveilCipherSuite> {
     opaque_ke::ClientRegistrationFinishParameters {
         ksf: Some(production_argon2()),
         ..Default::default()
@@ -47,7 +47,7 @@ pub fn registration_parameters(
 }
 
 pub fn login_parameters(
-) -> opaque_ke::ClientLoginFinishParameters<'static, 'static, 'static, TodoriCipherSuite> {
+) -> opaque_ke::ClientLoginFinishParameters<'static, 'static, 'static, TaskveilCipherSuite> {
     opaque_ke::ClientLoginFinishParameters {
         ksf: Some(production_argon2()),
         ..Default::default()
@@ -69,10 +69,10 @@ mod tests {
     const PASSWORD: &[u8] = b"correct horse battery staple";
     const WRONG_PASSWORD: &[u8] = b"correct horse battery stapler";
     const CREDENTIAL_ID: &[u8] = b"user:alice@example.com";
-    const KEK_INFO: &[u8] = b"todori/kek-pw/v1";
-    const MK_AAD: &[u8] = b"todori/master-key-wrap/v1";
+    const KEK_INFO: &[u8] = b"taskveil/kek-pw/v1";
+    const MK_AAD: &[u8] = b"taskveil/master-key-wrap/v1";
 
-    type ServerRecord = ServerRegistration<TodoriCipherSuite>;
+    type ServerRecord = ServerRegistration<TaskveilCipherSuite>;
 
     struct Rfc9807CipherSuite;
 
@@ -119,7 +119,7 @@ mod tests {
     impl CryptoRng for FixedRng {}
 
     struct RegistrationFixture {
-        server_setup: ServerSetup<TodoriCipherSuite>,
+        server_setup: ServerSetup<TaskveilCipherSuite>,
         server_record: ServerRecord,
         registration_export_key: Vec<u8>,
     }
@@ -140,15 +140,15 @@ mod tests {
         })
     }
 
-    fn registration_parameters<'a>() -> ClientRegistrationFinishParameters<'a, 'a, TodoriCipherSuite>
-    {
+    fn registration_parameters<'a>(
+    ) -> ClientRegistrationFinishParameters<'a, 'a, TaskveilCipherSuite> {
         ClientRegistrationFinishParameters {
             ksf: Some(test_argon2()),
             ..Default::default()
         }
     }
 
-    fn login_parameters<'a>() -> ClientLoginFinishParameters<'a, 'a, 'a, TodoriCipherSuite> {
+    fn login_parameters<'a>() -> ClientLoginFinishParameters<'a, 'a, 'a, TaskveilCipherSuite> {
         ClientLoginFinishParameters {
             ksf: Some(test_argon2()),
             ..Default::default()
@@ -158,10 +158,10 @@ mod tests {
     fn register(password: &[u8]) -> Result<RegistrationFixture, ProtocolError> {
         let mut client_rng = OsRng;
         let mut server_rng = OsRng;
-        let server_setup = ServerSetup::<TodoriCipherSuite>::new(&mut server_rng);
+        let server_setup = ServerSetup::<TaskveilCipherSuite>::new(&mut server_rng);
 
         let client_start =
-            ClientRegistration::<TodoriCipherSuite>::start(&mut client_rng, password)?;
+            ClientRegistration::<TaskveilCipherSuite>::start(&mut client_rng, password)?;
         let server_start =
             ServerRegistration::start(&server_setup, client_start.message, CREDENTIAL_ID)?;
         let client_finish = client_start.state.finish(
@@ -180,14 +180,14 @@ mod tests {
     }
 
     fn login(
-        server_setup: &ServerSetup<TodoriCipherSuite>,
+        server_setup: &ServerSetup<TaskveilCipherSuite>,
         server_record: ServerRecord,
         password: &[u8],
     ) -> Result<LoginFixture, ProtocolError> {
         let mut client_rng = OsRng;
         let mut server_rng = OsRng;
 
-        let client_start = ClientLogin::<TodoriCipherSuite>::start(&mut client_rng, password)?;
+        let client_start = ClientLogin::<TaskveilCipherSuite>::start(&mut client_rng, password)?;
         let server_start = ServerLogin::start(
             &mut server_rng,
             server_setup,
@@ -201,7 +201,7 @@ mod tests {
         let server_login_state_bytes = server_start.state.serialize().to_vec();
 
         let restored_server_login =
-            ServerLogin::<TodoriCipherSuite>::deserialize(&server_login_state_bytes)?;
+            ServerLogin::<TaskveilCipherSuite>::deserialize(&server_login_state_bytes)?;
         let client_finish = client_start.state.finish(
             &mut client_rng,
             password,
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn rfc9807_appendix_c_real_vector_1_matches_registration_outputs() {
         // RFC 9807 Appendix C.1.1 uses Identity KSF so the core protocol can
-        // be checked independently of Todori's production Argon2id profile.
+        // be checked independently of Taskveil's production Argon2id profile.
         let decode = |value: &str| hex::decode(value).expect("valid RFC 9807 vector hex");
         let password = decode("436f7272656374486f72736542617474657279537461706c65");
         let credential_id = decode("31323334");
@@ -328,7 +328,7 @@ mod tests {
         let mut server_rng = OsRng;
 
         let client_start =
-            ClientLogin::<TodoriCipherSuite>::start(&mut client_rng, WRONG_PASSWORD)?;
+            ClientLogin::<TaskveilCipherSuite>::start(&mut client_rng, WRONG_PASSWORD)?;
         let server_start = ServerLogin::start(
             &mut server_rng,
             &fixture.server_setup,
@@ -353,7 +353,7 @@ mod tests {
     fn server_setup_roundtrips_through_bytes() -> Result<(), ProtocolError> {
         let fixture = register(PASSWORD)?;
         let bytes = fixture.server_setup.serialize();
-        let restored_setup = ServerSetup::<TodoriCipherSuite>::deserialize(&bytes)?;
+        let restored_setup = ServerSetup::<TaskveilCipherSuite>::deserialize(&bytes)?;
         let login = login(&restored_setup, fixture.server_record, PASSWORD)?;
 
         assert_eq!(bytes.as_slice(), login.server_setup_bytes.as_slice());

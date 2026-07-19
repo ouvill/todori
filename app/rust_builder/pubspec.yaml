@@ -1,5 +1,5 @@
-name: todori_app_bridge
-description: "Todori Rustコア(todori-app-bridge)をFlutterビルドに組み込むビルドユーティリティ"
+name: taskveil_app_bridge
+description: "Taskveil Rustコア(taskveil-app-bridge)をFlutterビルドに組み込むビルドユーティリティ"
 version: 0.0.1
 publish_to: none
 

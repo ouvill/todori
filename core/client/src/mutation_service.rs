@@ -3,22 +3,22 @@ use std::path::PathBuf;
 #[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 
-use thiserror::Error;
-use todori_domain::{
+use taskveil_domain::{
     update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
     update_title, CompletedTimerSession, List, RecurrenceSchedule, Task, TaskDue, TaskTemplate,
     Uuid,
 };
-use todori_storage::{
+use taskveil_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
-use todori_sync::{
+use taskveil_sync::{
     enqueue_list_sync, enqueue_schedule_sync, enqueue_task_sync, enqueue_template_sync,
     enqueue_timer_session_sync, next_local_revision, EncryptedSyncState, LocalMutationSyncStore,
     LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
     SyncCollection,
 };
+use thiserror::Error;
 use zeroize::Zeroizing;
 
 #[derive(Debug, Error)]
@@ -26,9 +26,9 @@ pub enum ClientError {
     #[error("storage operation failed: {0}")]
     Storage(#[from] StorageError),
     #[error("domain operation failed: {0}")]
-    Domain(#[from] todori_domain::DomainError),
+    Domain(#[from] taskveil_domain::DomainError),
     #[error("recurrence operation failed: {0}")]
-    Recurrence(#[from] todori_domain::RecurrenceError),
+    Recurrence(#[from] taskveil_domain::RecurrenceError),
     #[error("local sync preparation failed")]
     Sync,
     #[error("local sync key is unavailable for list {0}")]
@@ -36,7 +36,7 @@ pub enum ClientError {
     #[error("profile I/O failed")]
     Io(#[source] std::io::Error),
     #[error("profile secret store failed")]
-    KeyStore(#[source] todori_crypto::KeyStoreError),
+    KeyStore(#[source] taskveil_crypto::KeyStoreError),
     #[error("account request failed")]
     AccountRequest,
     #[error("a Pro entitlement is required")]
@@ -96,7 +96,7 @@ pub struct UpdateTaskInput {
 
 /// Low-level SQLite mutation primitive exposed only through `test-support`.
 ///
-/// Product frontends use `TodoriClient`; this type exists for transactional
+/// Product frontends use `TaskveilClient`; this type exists for transactional
 /// integration tests that must exercise mutation and outbox atomicity.
 pub struct SqliteMutationService {
     pub(crate) db_path: PathBuf,
@@ -382,16 +382,16 @@ fn local_record_to_storage(
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-    use todori_domain::{new_list, new_task};
-    use todori_storage::{
+    use taskveil_domain::{new_list, new_task};
+    use taskveil_storage::{
         ListRepository, SettingsRepository, SqliteListRepository, SqliteSettingsRepository,
         SqliteSyncStateRepository, SqliteTaskRepository, SyncRecordSemanticState, SyncRecordState,
         SyncStateRepository, TaskRepository,
     };
-    use todori_sync::{
+    use taskveil_sync::{
         Hlc, LocalSyncKeys, SyncPlaintext, SYNC_LOCAL_HLC_SETTING_KEY, TASKS_COLLECTION,
     };
+    use tempfile::TempDir;
 
     use super::*;
 

@@ -5,12 +5,12 @@
 // bundled Material Icons font loaded so nothing renders as "tofu" -- and
 // rasterizes each one to a PNG under `build/visual_qa/` for design review.
 //
-// Every test in this file is skipped unless the `TODORI_VISUAL_QA=1`
+// Every test in this file is skipped unless the `TASKVEIL_VISUAL_QA=1`
 // environment variable is set, so a plain `flutter test` (and CI) never
 // pays the cost of loading real fonts or writing screenshots to disk.
 //
 // Usage: `sh tool/visual_qa.sh` from `app/`, or directly:
-//   TODORI_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
+//   TASKVEIL_VISUAL_QA=1 flutter test test/visual_qa/visual_qa_screenshots_test.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -24,12 +24,12 @@ import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/billing/billing_store.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/router.dart';
-import 'package:todori/src/rust/api.dart'
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/billing/billing_store.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/router.dart';
+import 'package:taskveil/src/rust/api.dart'
     show
         ActiveTimerSessionDto,
         BillingStateDto,
@@ -42,20 +42,20 @@ import 'package:todori/src/rust/api.dart'
         TimerModeDto,
         TimerPhaseDto,
         TimerRunStateDto;
-import 'package:todori/src/screens/calendar_screen.dart';
-import 'package:todori/src/screens/account_screen.dart';
-import 'package:todori/src/screens/focus_screen.dart';
-import 'package:todori/src/screens/search_screen.dart';
-import 'package:todori/src/timer/timer_engine.dart' show TimerClock;
-import 'package:todori/src/ui/states.dart';
-import 'package:todori/src/ui/task_components.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/screens/calendar_screen.dart';
+import 'package:taskveil/src/screens/account_screen.dart';
+import 'package:taskveil/src/screens/focus_screen.dart';
+import 'package:taskveil/src/screens/search_screen.dart';
+import 'package:taskveil/src/timer/timer_engine.dart' show TimerClock;
+import 'package:taskveil/src/ui/states.dart';
+import 'package:taskveil/src/ui/task_components.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 import '../../tool/design_lab.dart';
 import '../support/design_lab_fixture.dart';
 import '../support/fake_bridge_service.dart';
 
-const _visualQaEnvFlag = 'TODORI_VISUAL_QA';
+const _visualQaEnvFlag = 'TASKVEIL_VISUAL_QA';
 
 bool get _visualQaEnabled => Platform.environment[_visualQaEnvFlag] == '1';
 
@@ -99,7 +99,7 @@ void main() {
     _setMobileViewport(tester);
     final fake = FakeBridgeService(onboardingCompleted: false);
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('Make room for what matters'), findsOneWidget);
@@ -111,7 +111,7 @@ void main() {
     _useJaLocale(tester);
     final fake = FakeBridgeService(onboardingCompleted: false);
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('大切なことに、余白を'), findsOneWidget);
@@ -125,7 +125,7 @@ void main() {
     _useTextScale(tester, 2.0);
     final fake = FakeBridgeService(onboardingCompleted: false);
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('Make room for what matters'), findsOneWidget);
@@ -375,7 +375,7 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _screenshot(tester, 'home_tasks_empty');
@@ -386,7 +386,7 @@ void main() {
     final fake = _PendingHomeVisualBridge();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     for (var attempt = 0; attempt < 10; attempt += 1) {
       await tester.pump(const Duration(milliseconds: 100));
@@ -404,7 +404,7 @@ void main() {
     final fake = _ErrorListsVisualBridge();
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -422,7 +422,7 @@ void main() {
     final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -477,7 +477,7 @@ void main() {
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
         child: MaterialApp.router(
           debugShowCheckedModeBanner: false,
-          theme: buildTodoriTheme(Brightness.light),
+          theme: buildTaskveilTheme(Brightness.light),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
@@ -860,7 +860,7 @@ void main() {
         ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: buildTodoriTheme(Brightness.light),
+          theme: buildTaskveilTheme(Brightness.light),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) =>
@@ -1105,7 +1105,7 @@ void main() {
     );
     final router = buildAppRouter();
     await tester.pumpWidget(
-      TodoriApp(
+      TaskveilApp(
         router: router,
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       ),
@@ -1157,7 +1157,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: buildTodoriTheme(Brightness.light),
+          theme: buildTaskveilTheme(Brightness.light),
           home: Scaffold(
             body: Center(
               child: StatefulBuilder(
@@ -1235,7 +1235,7 @@ void main() {
     await fake.setTaskStatus(taskId: done.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lists').last);
@@ -1363,7 +1363,7 @@ void main() {
     await fake.createTask(listId: work.id, title: '四半期レビュー資料を作成する');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lists').last);
@@ -1476,7 +1476,7 @@ void main() {
     await fake.setTaskStatus(taskId: done.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lists').last);
@@ -1509,7 +1509,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('task-done-${parent.id}')));
@@ -1570,7 +1570,7 @@ Future<void> _pumpFocusVisual(
           color: AppColors.canvas,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          theme: buildTodoriTheme(Brightness.light),
+          theme: buildTaskveilTheme(Brightness.light),
           builder: (context, child) => ColoredBox(
             color: AppColors.canvas,
             child: Directionality(
@@ -1584,7 +1584,7 @@ Future<void> _pumpFocusVisual(
     );
   } else {
     final router = buildAppRouter();
-    await tester.pumpWidget(TodoriApp(router: router, overrides: overrides));
+    await tester.pumpWidget(TaskveilApp(router: router, overrides: overrides));
     await tester.pumpAndSettle();
     router.go('/focus/$listId/${task.id}');
   }
@@ -1708,7 +1708,7 @@ Future<void> _pumpRestoredFocusVisual(WidgetTester tester) async {
   );
   final router = buildAppRouter();
   await tester.pumpWidget(
-    TodoriApp(
+    TaskveilApp(
       router: router,
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
     ),
@@ -1735,14 +1735,14 @@ Future<void> _pumpFocusErrorVisual(WidgetTester tester) async {
   );
   final router = buildAppRouter();
   await tester.pumpWidget(
-    TodoriApp(
+    TaskveilApp(
       router: router,
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
     ),
   );
   await tester.pumpAndSettle();
   router.go('/focus/$listId/${task.id}');
-  final errorText = find.text("Todori couldn't restore this focus session.");
+  final errorText = find.text("Taskveil couldn't restore this focus session.");
   for (var attempt = 0; attempt < 10; attempt += 1) {
     await tester.pump(const Duration(milliseconds: 100));
     if (errorText.evaluate().isNotEmpty) {
@@ -1779,7 +1779,7 @@ Future<void> _pumpFocusRestoringVisual(WidgetTester tester) async {
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: buildTodoriTheme(Brightness.light),
+        theme: buildTaskveilTheme(Brightness.light),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: FocusScreen(listId: inbox.id, taskId: task.id),
@@ -1820,7 +1820,7 @@ Future<void> _pumpFocusConflictVisual(WidgetTester tester) async {
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: buildTodoriTheme(Brightness.light),
+        theme: buildTaskveilTheme(Brightness.light),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: FocusScreen(listId: inbox.id, taskId: target.id),
@@ -1832,7 +1832,7 @@ Future<void> _pumpFocusConflictVisual(WidgetTester tester) async {
 }
 
 /// Seeds two lists ("Inbox" as the home list, "仕事" as a second list) with a
-/// realistic, mixed set of tasks and pumps [TodoriApp] on top of them:
+/// realistic, mixed set of tasks and pumps [TaskveilApp] on top of them:
 ///
 /// - priorities: high, medium, low, and none all appear.
 /// - due values: date-only, exact datetime with a foreign IANA zone, overdue,
@@ -1848,7 +1848,7 @@ Future<DesignLabFixture> _seedRealisticData(
   final fixture = await createDesignLabFixture();
 
   await tester.pumpWidget(
-    TodoriApp(
+    TaskveilApp(
       router: router,
       overrides: [bridgeServiceProvider.overrideWithValue(fixture.fake)],
     ),
@@ -1900,7 +1900,7 @@ Future<void> _pumpSearchVisual(
   bool settle = true,
 }) async {
   await tester.pumpWidget(
-    TodoriApp(
+    TaskveilApp(
       overrides: [
         bridgeServiceProvider.overrideWithValue(fake),
         taskSearchDebounceDurationProvider.overrideWithValue(Duration.zero),
@@ -2077,7 +2077,7 @@ Future<void> _pumpCalendarVisual(
   bool settle = true,
 }) async {
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
   await tester.tap(find.byIcon(LucideIcons.calendarDays300).last);
@@ -2102,7 +2102,7 @@ Future<void> _pumpCalendarVisualRtl(
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        theme: buildTodoriTheme(Brightness.light),
+        theme: buildTaskveilTheme(Brightness.light),
         home: const Directionality(
           textDirection: TextDirection.rtl,
           child: CalendarScreen(),
@@ -2145,7 +2145,7 @@ Future<void> _seedArchivedListData(WidgetTester tester) async {
   await fake.archiveList(listId: work.id);
 
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 }
@@ -2172,7 +2172,7 @@ Future<void> _seedTemplateVisualData(WidgetTester tester) async {
     timeZone: 'Asia/Tokyo',
   );
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 }
@@ -2260,7 +2260,7 @@ class _BillingVisualBridge extends FakeBridgeService {
     status: status,
     syncAllowed: syncAllowed,
     storeProductIdentifier: syncAllowed
-        ? 'dev.todori.todori.pro.monthly'
+        ? 'com.taskveil.app.pro.monthly'
         : null,
     willRenew: syncAllowed,
     environment: 'sandbox',
@@ -2288,15 +2288,15 @@ class _BillingVisualStore implements BillingStore {
   @override
   Future<List<BillingProduct>> products() async => const [
     BillingProduct(
-      identifier: 'dev.todori.todori.pro.monthly',
-      title: 'Todori Pro Monthly',
+      identifier: 'com.taskveil.app.pro.monthly',
+      title: 'Taskveil Pro Monthly',
       description: 'Monthly Pro',
       price: 'Localized monthly price',
       isAnnual: false,
     ),
     BillingProduct(
-      identifier: 'dev.todori.todori.pro.yearly',
-      title: 'Todori Pro Yearly',
+      identifier: 'com.taskveil.app.pro.yearly',
+      title: 'Taskveil Pro Yearly',
       description: 'Yearly Pro',
       price: 'Localized yearly price',
       isAnnual: true,

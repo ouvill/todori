@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-TodoriのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/storage/src/schema.sql` を `open_encrypted` 時に `execute_batch` してスキーマを用意している。現状は `PRAGMA user_version` によるスキーマバージョン管理がなく、今後の列追加・削除・データ移行を安全に積み重ねるためのマイグレーション実行機構がない。
+TaskveilのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/storage/src/schema.sql` を `open_encrypted` 時に `execute_batch` してスキーマを用意している。現状は `PRAGMA user_version` によるスキーマバージョン管理がなく、今後の列追加・削除・データ移行を安全に積み重ねるためのマイグレーション実行機構がない。
 
 2026-07-06人間裁定でDBスキーママイグレーション機構の整備が確定し、2026-07-07の削除モデル裁定（`docs/05_設計判断記録.md` ADR-009、`docs/02_機能仕様書.md` F-07/F-09改訂）により、Phase 1でリストのアーカイブ機能を導入することが決まった。task-37（リストのアーカイブ/解除）は `lists.archived_at` を前提とするため、本タスクでマイグレーション基盤と最初の実マイグレーションを用意する。
 
@@ -126,7 +126,7 @@ TodoriのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/
 ## 7. 制約・注意事項
 
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更禁止。特に `docs/03_技術仕様書.md` と実装上の事実が矛盾した場合は、仕様書を書き換えず完了報告の「未解決事項」に記録する。
-- SQLCipher鍵はDevice Key由来のHKDF（`info=todori/local-db-key/v1`）である。この導出文脈文字列や鍵導出仕様を変更しない。
+- SQLCipher鍵はDevice Key由来のHKDF（`info=taskveil/local-db-key/v1`）である。この導出文脈文字列や鍵導出仕様を変更しない。
 - 誤鍵判定のためにDBを開く際も、鍵・Device Key・導出鍵・DB内容をログやDebug出力に含めない。
 - 新規DBと既存DBで別々の最終スキーマ定義を持たない。最終状態の一貫性をテストで確認する。
 - `schema.sql` を最新スキーマの一括作成ファイルとして雑に更新するだけで終わらせない。baseline v1とv2以降の差分が実行順として追える形にする。
@@ -197,7 +197,7 @@ TodoriのローカルDBはSQLCipherで暗号化されたSQLiteであり、`core/
   - 追加: `latest_schema_reopen_does_not_reapply_migrations`
   - 追加: `failed_migration_rolls_back_archived_at_and_user_version`
   - 追加: `unsupported_newer_schema_version_is_rejected`
-  - `cargo test -p todori-storage`: exit 0、20 tests passed
+  - `cargo test -p taskveil-storage`: exit 0、20 tests passed
 - `PRAGMA` で確認した証拠:
   - 新規DB / v1 DB / legacy `user_version = 0` DBのテストで `PRAGMA user_version = 2` を確認。
   - 新規DB / v1 DB / legacy `user_version = 0` DBのテストで `PRAGMA table_info(lists)` に `archived_at` が存在し、typeが `INTEGER`、notnullが `0` であることを確認。

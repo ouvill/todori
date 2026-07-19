@@ -5,17 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/core/task_due.dart';
+import 'package:taskveil/src/core/task_due.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/screens/task_detail_screen.dart';
-import 'package:todori/src/ui/task_components.dart';
-import 'package:todori/src/ui/task_completion_motion.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/screens/task_detail_screen.dart';
+import 'package:taskveil/src/ui/task_components.dart';
+import 'package:taskveil/src/ui/task_completion_motion.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -40,7 +40,7 @@ Future<FakeBridgeService> _pumpAppWithSeedData(
   );
 
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 
@@ -267,7 +267,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -286,7 +286,7 @@ void main() {
     await fake.createDefaultList(name: '受信箱', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -311,7 +311,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('作成日表示を確認する'));
@@ -340,7 +340,7 @@ void main() {
     await fake.createTaskReminder(taskId: task.id, remindAt: remindAt);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Review reminder chip'));
@@ -381,7 +381,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Plan reminder sequence'));
@@ -515,7 +515,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -593,7 +593,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.byType(FloatingActionButton), findsNothing);
@@ -668,7 +668,7 @@ void main() {
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Work');
@@ -707,7 +707,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('quick-add-open')));
@@ -746,7 +746,7 @@ void main() {
       await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -793,7 +793,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -829,7 +829,7 @@ void main() {
       final tomorrow = today + const Duration(days: 1).inMilliseconds;
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -930,7 +930,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('quick-add-open')));
@@ -972,7 +972,7 @@ void main() {
       final work = await fake.createList(name: 'Work', sortOrder: 'a1');
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('quick-add-open')));
@@ -1085,7 +1085,7 @@ void main() {
     await fake.archiveList(listId: archived.id);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
@@ -1137,7 +1137,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -1204,7 +1204,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -1258,7 +1258,7 @@ void main() {
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('quick-add-open')));
@@ -1331,7 +1331,7 @@ void main() {
     await fake.setTaskStatus(taskId: closedChild.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -1585,7 +1585,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -1667,7 +1667,7 @@ void main() {
     await fake.setTaskStatus(taskId: closedRoot.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -1724,7 +1724,7 @@ void main() {
     await fake.setTaskStatus(taskId: closedChild.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -1761,7 +1761,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'とても長い日本語のリスト名と English project name');
@@ -1803,7 +1803,7 @@ void main() {
       await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -1844,7 +1844,7 @@ void main() {
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: '受信箱', sortOrder: 'a0');
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('quick-add-open')));
@@ -1921,7 +1921,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -2013,7 +2013,7 @@ void main() {
         priority: 1,
       );
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Keep the brief intact'));
@@ -2076,7 +2076,7 @@ void main() {
       estimatedMinutes: 25,
     );
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('Scheduled only task'), findsOneWidget);
@@ -2178,7 +2178,7 @@ void main() {
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
@@ -2219,7 +2219,7 @@ void main() {
     await fake.archiveList(listId: work.id);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
@@ -2249,7 +2249,7 @@ void main() {
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -2276,7 +2276,7 @@ void main() {
       await fake.setTaskStatus(taskId: completed.id, status: 'done');
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await _openListsScreen(tester);
@@ -2318,7 +2318,7 @@ void main() {
     await fake.createList(name: 'Work', sortOrder: 'a1');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
@@ -2337,7 +2337,7 @@ void main() {
     await fake.archiveList(listId: archive.id);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);
@@ -2407,7 +2407,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('Complete from Inbox'), findsOneWidget);
@@ -2635,7 +2635,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -2699,7 +2699,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -2776,7 +2776,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -2816,7 +2816,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -2894,7 +2894,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -2934,7 +2934,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -2967,7 +2967,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3004,7 +3004,7 @@ void main() {
     final listId = (await fake.getLists()).first.id;
     final task = await fake.createTask(listId: listId, title: 'Swipe due');
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3035,7 +3035,7 @@ void main() {
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -3063,7 +3063,7 @@ void main() {
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -3110,7 +3110,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -3158,7 +3158,7 @@ void main() {
     await fake.setTaskStatus(taskId: parent.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -3188,7 +3188,7 @@ void main() {
     await fake.setTaskStatus(taskId: task.id, status: 'wont_do');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -3275,7 +3275,7 @@ void main() {
     await fake.setTaskStatus(taskId: task.id, status: 'done');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
@@ -3307,7 +3307,7 @@ void main() {
     await fake.setTaskStatus(taskId: skipped.id, status: 'wont_do');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3332,7 +3332,7 @@ void main() {
     final third = await fake.createTask(listId: listId, title: 'Third task');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3416,7 +3416,7 @@ void main() {
       await fake.setTaskStatus(taskId: closed.id, status: 'done');
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await _openListFromHome(tester, 'Inbox');
@@ -3510,7 +3510,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3597,7 +3597,7 @@ void main() {
     await fake.setTaskStatus(taskId: wontDoChild.id, status: 'wont_do');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3671,7 +3671,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3785,7 +3785,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3865,7 +3865,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -3911,7 +3911,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -4007,7 +4007,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Parent detail task'));
@@ -4106,7 +4106,7 @@ void main() {
     await fake.setTaskStatus(taskId: wontDo.id, status: 'wont_do');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('completed-section-toggle')));
@@ -4165,7 +4165,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Detail parent checkbox task'));
@@ -4216,7 +4216,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Child detail task'));
@@ -4265,7 +4265,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Short title'));
@@ -4323,7 +4323,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Detail parent'));
@@ -4379,7 +4379,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -4423,7 +4423,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Parent task'));
@@ -4549,7 +4549,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Stable inline title'));
@@ -4704,7 +4704,7 @@ void main() {
     final task = await fake.createTask(listId: listId, title: 'Buy milk');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListFromHome(tester, 'Inbox');
@@ -4779,7 +4779,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
 
@@ -4819,7 +4819,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
       );
       await tester.pumpAndSettle();
 
@@ -4859,7 +4859,7 @@ void main() {
     await fake.archiveList(listId: archived.id);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await _openListsScreen(tester);

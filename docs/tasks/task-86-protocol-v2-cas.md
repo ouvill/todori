@@ -90,7 +90,7 @@ latest-one encrypted blobを`revision_hlc` LWWで更新すると、同じbaseか
 - 作業日: 2026-07-10
 - 結果: sync push/pullをshared typed protocol v2へ置換し、`base_revision_hlc` CAS、tagged live/tombstone、semantic fence、current envelope conflictを実装した。local schema v11はrecord単位outbox head、UUID `op_id`、server revision付きsemantic stateへ破壊的移行し、domain rowとlocal crypto cacheだけを保持する。
 - Atomicity: Accepted/NoOpのop-id ACKとcurrent revision更新、Conflict/Supersededのop-id guard、remote HLC observe、domain/state適用、replacement head生成をowned `BEGIN IMMEDIATE`で確定する。deferredはrollbackし、送信中に新headへ置換された旧responseはdomain/stateへ触れない。
-- 証拠: server CAS/semantic/schema/route 3 tests + auth 1 test、`todori-sync` 47 tests、`todori-storage` 64 tests（1 ignored）、`todori-client` 17 tests、bridge 1 testが成功。正しいchanged-field clockを与えた`conflict_current_merges_distinct_fields_and_rebases_without_first_client`、stale-response race、undecryptable current保持、owned transaction commit/drop rollbackを含む。
+- 証拠: server CAS/semantic/schema/route 3 tests + auth 1 test、`taskveil-sync` 47 tests、`taskveil-storage` 64 tests（1 ignored）、`taskveil-client` 17 tests、bridge 1 testが成功。正しいchanged-field clockを与えた`conflict_current_merges_distinct_fields_and_rebases_without_first_client`、stale-response race、undecryptable current保持、owned transaction commit/drop rollbackを含む。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker/Postgres込み`cargo test --workspace`、bridge release build、`flutter analyze`、`flutter test`（124 passed / visual QA harness 1 skipped）、hardcoded-string check、`git diff --check`が成功。
 - Verifier: 初回監査のACK/reconcile atomicity、remote HLC observe、status shape指摘を修正後、独立再検証PASS（実装上のP1/P2なし）。
 - Commits: `d8d7561`、`7d41701`、`f4e2504`、`27e10a2`、`d9eb85d`、`2458795`、`3412c68`。

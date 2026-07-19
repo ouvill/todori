@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use todori_domain::{List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_domain::{List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 
 use crate::{
     account::{AccountClient, ListDekBundleDto},
@@ -369,7 +369,7 @@ where
     S: LocalSyncStore,
     N: FnMut() -> Result<i64, String>,
 {
-    if preflight.suite_id != todori_crypto::CRYPTO_SUITE_ID
+    if preflight.suite_id != taskveil_crypto::CRYPTO_SUITE_ID
         || context.keys.tenant_id != context.tenant_id
         || context.keys.tenant_generation != preflight.active_key_generation
         || context.keys.tenant_generation < preflight.minimum_write_generation
@@ -2605,8 +2605,8 @@ where
 mod tests {
     use std::collections::HashMap;
 
-    use todori_crypto::key_hierarchy::KEY_LEN;
-    use todori_domain::{new_task, CompletedTimerSession, TimerFinishKind, TimerMode};
+    use taskveil_crypto::key_hierarchy::KEY_LEN;
+    use taskveil_domain::{new_task, CompletedTimerSession, TimerFinishKind, TimerMode};
     use zeroize::Zeroizing;
 
     use super::*;
@@ -3797,7 +3797,7 @@ mod tests {
         let plaintext_json = serde_json::to_vec(&plaintext).unwrap();
         let mut aad = Vec::new();
         aad.extend_from_slice(b"TDA4");
-        aad.extend_from_slice(&todori_crypto::CRYPTO_SUITE_ID.to_be_bytes());
+        aad.extend_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
         aad.extend_from_slice(&1_u64.to_be_bytes());
         aad.extend_from_slice(test_tenant_id().as_bytes());
         aad.extend_from_slice(&(TASKS_COLLECTION.len() as u16).to_be_bytes());
@@ -3805,9 +3805,9 @@ mod tests {
         aad.extend_from_slice(record_id.as_bytes());
         let mut blob = Vec::new();
         blob.extend_from_slice(b"TDE4");
-        blob.extend_from_slice(&todori_crypto::CRYPTO_SUITE_ID.to_be_bytes());
+        blob.extend_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
         blob.extend_from_slice(&1_u64.to_be_bytes());
-        blob.extend_from_slice(&todori_crypto::encrypt(&dek, &plaintext_json, &aad).unwrap());
+        blob.extend_from_slice(&taskveil_crypto::encrypt(&dek, &plaintext_json, &aad).unwrap());
         let record = PullRecord {
             record_id,
             collection: SyncCollection::Tasks,
@@ -4098,7 +4098,7 @@ mod tests {
         let descriptor = crate::protocol::KeyManifestDescriptor {
             scope: crate::KeyScope::Tenant,
             list_id: None,
-            suite_id: todori_crypto::CRYPTO_SUITE_ID,
+            suite_id: taskveil_crypto::CRYPTO_SUITE_ID,
             generation: 2,
             status: crate::RotationStatus::Active,
             minimum_write_generation: 2,

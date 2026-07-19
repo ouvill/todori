@@ -3,7 +3,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use todori_crypto::organization::{
+use taskveil_crypto::organization::{
     sign_account_root_payload, verify_account_root_payload, AccountRootPrivateKeys,
     AccountRootPublicKeys, AccountRootSignature, OrganizationCryptoError, ED25519_SIGNATURE_LEN,
     ML_DSA_65_SIGNATURE_LEN, ROOT_FINGERPRINT_LEN,
@@ -14,7 +14,7 @@ use crate::{account::ActiveKeyBundleDto, KeyScope, RotationStatus};
 use crate::{KeyManifest, KeyManifestError};
 
 const ORGANIZATION_MANIFEST_MAGIC: &[u8; 4] = b"TOM1";
-const ORGANIZATION_MANIFEST_DOMAIN: &[u8] = b"todori/organization-key-manifest/v1";
+const ORGANIZATION_MANIFEST_DOMAIN: &[u8] = b"taskveil/organization-key-manifest/v1";
 
 #[derive(Debug, thiserror::Error)]
 pub enum OrganizationManifestError {
@@ -41,10 +41,10 @@ pub fn verify_organization_active_bundle(
     tenant_id: Uuid,
     minimum_generation: u64,
     owner_root: &AccountRootPublicKeys,
-    recipient_certificate: &todori_crypto::organization::DeviceCertificate,
+    recipient_certificate: &taskveil_crypto::organization::DeviceCertificate,
     expected_recipient_fingerprints: &[[u8; 32]],
 ) -> Result<(), OrganizationBundleError> {
-    if bundle.suite_id != todori_crypto::CRYPTO_SUITE_ID
+    if bundle.suite_id != taskveil_crypto::CRYPTO_SUITE_ID
         || bundle.generation == 0
         || bundle.generation < minimum_generation
         || !bundle.wrapped_tenant_root_dek.is_empty()
@@ -340,7 +340,7 @@ pub struct RecipientPackageResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todori_crypto::organization::{
+    use taskveil_crypto::organization::{
         generate_account_root, generate_device_keys, issue_device_certificate,
     };
 
@@ -417,7 +417,7 @@ mod tests {
         .unwrap();
         let signed = OrganizationKeyManifest::sign(manifest, &root.private, &root.public).unwrap();
         let bundle = ActiveKeyBundleDto {
-            suite_id: todori_crypto::CRYPTO_SUITE_ID,
+            suite_id: taskveil_crypto::CRYPTO_SUITE_ID,
             generation: 3,
             wrapped_tenant_root_dek: String::new(),
             signed_manifest: STANDARD.encode(signed.encode().unwrap()),

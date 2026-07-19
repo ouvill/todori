@@ -215,7 +215,7 @@ task-36で `core/storage` のマイグレーションランナーと `lists.arch
   - `archive_list(list, now_ms)` は `archived_at` が `None` の場合だけ `Some(now_ms)` と `updated_at = now_ms` を設定する。
   - `unarchive_list(list, now_ms)` は `archived_at` が `Some` の場合だけ `None` と `updated_at = now_ms` を設定する。
   - archive/unarchiveはいずれも同じ操作の再実行時に既存の `archived_at` / `updated_at` を変更しない冪等動作とした。
-  - `todori_domain` root exportへ `archive_list` / `unarchive_list` を追加した。
+  - `taskveil_domain` root exportへ `archive_list` / `unarchive_list` を追加した。
   - 既定インボックス保護は単体の `List` では判定できないため、Rust API層とUI/fake層で `sort_order` 最小の通常リストを基準に実装した。
 - storage実装:
   - `ListRepository` に `list_archived()` を追加した。
@@ -231,7 +231,7 @@ task-36で `core/storage` のマイグレーションランナーと `lists.arch
   - `get_lists()` はstorageの `list_all()` 経由で非アーカイブリストのみ返す。
   - `archive_list` は対象が非アーカイブで、かつ通常一覧の先頭リストの場合に `default inbox cannot be archived` を返す。
   - `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` は標準PATHではFlutter SDK cache書き込み不可によりexit 1。
-  - 同じコマンドを `/private/tmp/todori-frb-fakebin` の `flutter --version` 一時ラッパーをPATH先頭に置いて再実行し、exit 0、出力 `Done!`。内部の `dart fix` / `dart format` はFlutter SDK cache書き込み不可で警告失敗したため、同梱Dart SDKで `dart format lib/src/rust` を別途実行した。
+  - 同じコマンドを `/private/tmp/taskveil-frb-fakebin` の `flutter --version` 一時ラッパーをPATH先頭に置いて再実行し、exit 0、出力 `Done!`。内部の `dart fix` / `dart format` はFlutter SDK cache書き込み不可で警告失敗したため、同梱Dart SDKで `dart format lib/src/rust` を別途実行した。
   - FRB生成差分は `app/rust/src/frb_generated.rs`、`app/lib/src/rust/api.dart`、`app/lib/src/rust/frb_generated.dart`。
 - Dart側実装:
   - `BridgeService` / `FrbBridgeService` に `getArchivedLists`、`archiveList`、`unarchiveList` を追加した。
@@ -256,7 +256,7 @@ task-36で `core/storage` のマイグレーションランナーと `lists.arch
   - `showArchivedListsTooltip`
   - `hideArchivedListsTooltip`
   - `flutter gen-l10n` は標準wrapperではFlutter SDK cache書き込み不可によりexit 1。
-  - `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true /Users/youhei/workspaces/sdk/flutter/bin/cache/dart-sdk/bin/dart /Users/youhei/workspaces/sdk/flutter/packages/flutter_tools/bin/flutter_tools.dart --suppress-analytics gen-l10n` はexit 0。
+  - `HOME=/private/tmp/taskveil-flutter-home FLUTTER_ALREADY_LOCKED=true /Users/youhei/workspaces/sdk/flutter/bin/cache/dart-sdk/bin/dart /Users/youhei/workspaces/sdk/flutter/packages/flutter_tools/bin/flutter_tools.dart --suppress-analytics gen-l10n` はexit 0。
 - 追加/更新したテスト:
   - domain: `archive_list_sets_archived_at_and_updated_at`
   - domain: `archive_list_is_idempotent_when_already_archived`
@@ -275,18 +275,18 @@ task-36で `core/storage` のマイグレーションランナーと `lists.arch
   - after予定: `app/build/visual_qa/lists.png`
   - expanded予定: `app/build/visual_qa/lists_archived.png`
   - `sh app/tool/visual_qa.sh`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、visual QA test実行前に停止。
-  - 直接実行 `TODORI_VISUAL_QA=1 ... flutter_tools.dart test test/visual_qa/visual_qa_screenshots_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
+  - 直接実行 `TASKVEIL_VISUAL_QA=1 ... flutter_tools.dart test test/visual_qa/visual_qa_screenshots_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
   - `app/build/visual_qa/lists_archived.png` は生成されていない。
   - after画像の目視確認は実施していない。
 - 品質ゲートの実行結果:
   - `cargo fmt --all -- --check`: exit 0
-  - `cargo clippy --workspace -- -D warnings`: 1回目exit 101（`todori_domain` root export漏れ）。`core/domain/src/lib.rs` 修正後の再実行はexit 0。
+  - `cargo clippy --workspace -- -D warnings`: 1回目exit 101（`taskveil_domain` root export漏れ）。`core/domain/src/lib.rs` 修正後の再実行はexit 0。
   - `cargo test --workspace`: exit 0。Rust tests 84 passed。
   - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: exit 0。
   - `cd app && flutter analyze`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、解析前に停止。
-  - 直接実行 `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics analyze`: exit 0、`No issues found!`
+  - 直接実行 `HOME=/private/tmp/taskveil-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics analyze`: exit 0、`No issues found!`
   - `cd app && flutter test`: exit 1。Flutter SDK cache配下 `engine.stamp.tmp.*` / `engine.realm` への書き込みが `Operation not permitted` で、テスト実行前に停止。
-  - 直接実行 `HOME=/private/tmp/todori-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics test test/widget_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
+  - 直接実行 `HOME=/private/tmp/taskveil-flutter-home FLUTTER_ALREADY_LOCKED=true ... flutter_tools.dart --suppress-analytics test test/widget_test.dart`: exit 1。`127.0.0.1:0` のserver socket作成が `Operation not permitted` で、test load時に停止。
   - `sh app/tool/check_hardcoded_strings.sh`: exit 0
   - `git diff --check`: exit 0
 - 変更ファイル一覧:

@@ -1,11 +1,11 @@
-# Todori visual direction
+# Taskveil visual direction
 
 > Status: design source for later UI tasks
 > Last updated: 2026-07-04
 
 実装時の具体値と判断規則は `ui-spec.md` に拘束仕様として定義されている。実装判断は ui-spec.md を優先すること。
 
-This document is the public design source for Todori's Phase 1 UI work after
+This document is the public design source for Taskveil's Phase 1 UI work after
 task-22. Image mocks are direction references, not pixel-perfect acceptance
 criteria. Later Flutter tasks should preserve the product judgment here while
 adapting layouts to real data, i18n, accessibility, and platform constraints.
@@ -43,7 +43,7 @@ tooltip/semantic labels.
 
 ## Concept
 
-Todori should feel like a quiet everyday object: soft, friendly, and elegant
+Taskveil should feel like a quiet everyday object: soft, friendly, and elegant
 without becoming childish or decorative.
 
 - The interface should reduce pressure. It helps the user decide what to do,
@@ -63,20 +63,20 @@ without becoming childish or decorative.
 
 Primary task-22 mocks:
 
-- [List overview](../../assets/brand/generated/todori-design-direction-lists.webp)
-- [Task list](../../assets/brand/generated/todori-design-direction-tasks.webp)
-- [Task detail](../../assets/brand/generated/todori-design-direction-task-detail.webp)
-- [Trash and restore](../../assets/brand/generated/todori-design-direction-trash-restore.webp)
-- [Empty state and dialog](../../assets/brand/generated/todori-design-direction-empty-dialog.webp)
-- [Mobile focus task list](../../assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp)
-- [Focus timer](../../assets/brand/generated/todori-design-direction-focus-timer.webp)
+- [List overview](../../assets/brand/generated/taskveil-design-direction-lists.webp)
+- [Task list](../../assets/brand/generated/taskveil-design-direction-tasks.webp)
+- [Task detail](../../assets/brand/generated/taskveil-design-direction-task-detail.webp)
+- [Trash and restore](../../assets/brand/generated/taskveil-design-direction-trash-restore.webp)
+- [Empty state and dialog](../../assets/brand/generated/taskveil-design-direction-empty-dialog.webp)
+- [Mobile focus task list](../../assets/brand/generated/taskveil-design-direction-mobile-focus-tasks.webp)
+- [Focus timer](../../assets/brand/generated/taskveil-design-direction-focus-timer.webp)
 
 Earlier reference inputs:
 
-- [Mobile product mood](../../assets/brand/generated/todori-mobile-product.png)
-- [Desktop product mood](../../assets/brand/generated/todori-desktop-product.png)
-- [Mascot refined kit](../../assets/brand/generated/todori-mascot-kit-refined-no-border.png)
-- [Mascot kit](../../assets/brand/generated/todori-mascot-kit-no-sticker-border.png)
+- [Mobile product mood](../../assets/brand/generated/taskveil-mobile-product.png)
+- [Desktop product mood](../../assets/brand/generated/taskveil-desktop-product.png)
+- [Mascot refined kit](../../assets/brand/generated/taskveil-mascot-kit-refined-no-border.png)
+- [Mascot kit](../../assets/brand/generated/taskveil-mascot-kit-no-sticker-border.png)
 
 ## Layout Principles
 
@@ -324,7 +324,7 @@ drive accessibility.
 - Mascot-led UI or a constant assistant/avatar presence.
 - Cute sticker-heavy screens.
 - SaaS dashboard hardness with dense charts and status panels.
-- Material default surfaces without Todori's color/spacing refinement.
+- Material default surfaces without Taskveil's color/spacing refinement.
 - Heavy gradients, heavy shadows, nested cards, decorative blobs.
 - Confetti, trophies, streaks, productivity pressure language.
 - Bottom navigation as a default requirement before the information

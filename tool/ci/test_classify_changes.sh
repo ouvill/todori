@@ -8,8 +8,8 @@ fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT HUP INT TERM
 
 git -C "$fixture" init -q
-git -C "$fixture" config user.name "Todori CI test"
-git -C "$fixture" config user.email "ci-test@todori.invalid"
+git -C "$fixture" config user.name "Taskveil CI test"
+git -C "$fixture" config user.email "ci-test@taskveil.invalid"
 
 mkdir -p "$fixture/docs" "$fixture/core/domain/src" "$fixture/.github/workflows"
 printf '%s\n' '# Readme' > "$fixture/README.md"

@@ -9,14 +9,14 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'Todori';
+  String get appTitle => 'Taskveil';
 
   @override
   String get defaultInboxName => 'Inbox';
 
   @override
   String get defaultListMissing =>
-      'Default list is missing. Restart Todori or check local database provisioning.';
+      'Default list is missing. Restart Taskveil or check local database provisioning.';
 
   @override
   String get listsTitle => 'Lists';
@@ -304,7 +304,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeEmptyBody =>
-      'Create a list, then Todori will open straight into your tasks.';
+      'Create a list, then Taskveil will open straight into your tasks.';
 
   @override
   String get homeNewListButton => 'New list';
@@ -579,11 +579,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reminderSavedNotificationFailed =>
-      'The reminder was saved, but Todori could not schedule the local notification.';
+      'The reminder was saved, but Taskveil could not schedule the local notification.';
 
   @override
   String get reminderPermissionDenied =>
-      'Notifications are off. The reminder was saved, but Todori could not schedule a local notification.';
+      'Notifications are off. The reminder was saved, but Taskveil could not schedule a local notification.';
 
   @override
   String failedToSaveReminder(String error) {
@@ -591,7 +591,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get reminderNotificationTitle => 'Todori reminder';
+  String get reminderNotificationTitle => 'Taskveil reminder';
 
   @override
   String get reminderNotificationBody => 'A task reminder is due.';
@@ -963,7 +963,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingWelcomeArtworkSemantics =>
-      'A quiet leaf representing Todori';
+      'A quiet leaf representing Taskveil';
 
   @override
   String get onboardingPrivacyTitle => 'Private by design';
@@ -985,7 +985,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingBeginBody =>
-      'Add what needs your attention. Todori stays quiet until you need it.';
+      'Add what needs your attention. Taskveil stays quiet until you need it.';
 
   @override
   String get onboardingBeginArtworkSemantics =>
@@ -996,11 +996,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingSaveFailed =>
-      'Todori couldn\'t save this choice. Try again to continue.';
+      'Taskveil couldn\'t save this choice. Try again to continue.';
 
   @override
   String get onboardingLoadFailed =>
-      'Todori couldn\'t read its local settings.';
+      'Taskveil couldn\'t read its local settings.';
 
   @override
   String get retryButton => 'Try again';
@@ -1059,7 +1059,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get focusNotificationsBody =>
-      'Best effort while Todori is in the background';
+      'Best effort while Taskveil is in the background';
 
   @override
   String focusWorkIntervals(int count) {
@@ -1070,7 +1070,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get focusRestoring => 'Restoring your focus session…';
 
   @override
-  String get focusLoadFailed => 'Todori couldn\'t restore this focus session.';
+  String get focusLoadFailed =>
+      'Taskveil couldn\'t restore this focus session.';
 
   @override
   String get focusActiveConflictTitle => 'Another focus session is active';
@@ -1195,7 +1196,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get timerNotificationBody =>
-      'Open Todori to continue your focus rhythm.';
+      'Open Taskveil to continue your focus rhythm.';
 
   @override
   String get billingTitle => 'Pro';
@@ -1407,7 +1408,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get templateSavedMessage => 'Template saved.';
 
   @override
-  String failedToStartTodori(String error) {
-    return 'Failed to start Todori: $error';
+  String failedToStartTaskveil(String error) {
+    return 'Failed to start Taskveil: $error';
   }
 }

@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-Todoriは将来的にOSSとして公開する方針がある。task-11でGitHub ActionsのPhase 1品質ゲートが整備され、public repository化すればGitHub-hosted standard runnerのコスト面でも有利になる。一方で、TodoriはE2EE Todoアプリであり、暗号設計、同期設計、課金・事業方針、未実装のセキュリティ事項、CI/runner設定など、公開前に確認すべき情報が多い。
+Taskveilは将来的にOSSとして公開する方針がある。task-11でGitHub ActionsのPhase 1品質ゲートが整備され、public repository化すればGitHub-hosted standard runnerのコスト面でも有利になる。一方で、TaskveilはE2EE Todoアプリであり、暗号設計、同期設計、課金・事業方針、未実装のセキュリティ事項、CI/runner設定など、公開前に確認すべき情報が多い。
 
 このタスクは、リポジトリを実際にpublic化する前に、公開してよい状態かを監査し、公開ブロッカー、公開前に整えるべきOSS基本文書、CI/Actions運用上の注意点を棚卸しするためのものである。
 
@@ -34,7 +34,7 @@ Todoriは将来的にOSSとして公開する方針がある。task-11でGitHub 
 
 ## 3. ゴール
 
-Todoriリポジトリをpublic repositoryとして公開できるかを判断するため、以下を明文化する。
+Taskveilリポジトリをpublic repositoryとして公開できるかを判断するため、以下を明文化する。
 
 - 公開ブロッカーの有無（秘密情報、個人情報、公開不適切な事業・法務・セキュリティ情報など）
 - OSS基本文書の整備状況（README、LICENSE、CONTRIBUTING、CLA、SECURITY、Code of Conductなど）

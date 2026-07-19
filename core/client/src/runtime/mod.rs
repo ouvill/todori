@@ -22,14 +22,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use todori_crypto::{derive_local_db_key, PlatformLocalKeyCapsuleStore};
-use todori_storage::{
+use taskveil_crypto::{derive_local_db_key, PlatformLocalKeyCapsuleStore};
+use taskveil_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
     SqliteListRepository, SqliteLocalCryptoRepository, SqliteRecurrenceRepository,
     SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
     SqliteTimerSessionRepository,
 };
-use todori_sync::SyncRunSummary;
+use taskveil_sync::SyncRunSummary;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -68,12 +68,12 @@ impl LocalProfileConfig {
     }
 }
 
-/// Frontend-neutral application facade for one local Todori profile.
+/// Frontend-neutral application facade for one local Taskveil profile.
 ///
 /// Flutter, CLI, and MCP use this type for application operations. The type
 /// owns runtime state and coordinates storage, crypto, account, and sync; it is
 /// not a user-facing account profile model.
-pub struct TodoriClient {
+pub struct TaskveilClient {
     pub(crate) db_dir: PathBuf,
     pub(crate) db_path: PathBuf,
     db_key: Mutex<Zeroizing<[u8; 32]>>,
@@ -111,10 +111,10 @@ pub(crate) enum LocalMutationState {
     AccountBoundUnavailable,
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     pub fn open(config: LocalProfileConfig) -> Result<Self, ClientError> {
         std::fs::create_dir_all(&config.db_dir).map_err(ClientError::Io)?;
-        let db_path = config.db_dir.join("todori.db");
+        let db_path = config.db_dir.join("taskveil.db");
         let mut capsule_store = PlatformLocalKeyCapsuleStore::new(&config.db_dir);
         let capsule = resolve_active_capsule(&mut capsule_store, &db_path)?;
         let db_key = Zeroizing::new(derive_local_db_key(capsule.device_key()));
@@ -307,12 +307,12 @@ pub(super) fn now_ms() -> Result<i64, ClientError> {
 
 #[cfg(test)]
 mod async_contract_tests {
-    use super::TodoriClient;
+    use super::TaskveilClient;
 
     fn assert_send<T: Send>(_: T) {}
 
     #[allow(dead_code)]
-    fn network_api_futures_are_send(client: &TodoriClient) {
+    fn network_api_futures_are_send(client: &TaskveilClient) {
         assert_send(client.account_register(
             "user@example.com".into(),
             "password".into(),

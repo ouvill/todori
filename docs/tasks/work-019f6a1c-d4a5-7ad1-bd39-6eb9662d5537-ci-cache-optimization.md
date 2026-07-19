@@ -107,8 +107,8 @@ GitHub Actionsの直近成功runでは、docs-only PRでもRust、Flutter、Work
 
 #### A/B結果
 
-- [cold run / attempt 1](https://github.com/ouvill/todori/actions/runs/29486163712): 現行Rust target cache 3分12秒、sccache 11分47秒。sccacheは全体hit 9.74%、Rust hit 0%、miss 3,502、cache write error 1,518だった。現行jobの約2.47 GB target archive復元は76秒だった。
-- [warm run / attempt 2](https://github.com/ouvill/todori/actions/runs/29486163712/attempts/2): 現行Rust target cache 2分27秒、sccache 6分10秒。sccacheは全体hit 64.95%、Rust hit 87.92%まで上がったが、C/C++ miss 1,240、cache write error 528が残り、現行jobより3分43秒遅かった。
+- [cold run / attempt 1](https://github.com/ouvill/taskveil/actions/runs/29486163712): 現行Rust target cache 3分12秒、sccache 11分47秒。sccacheは全体hit 9.74%、Rust hit 0%、miss 3,502、cache write error 1,518だった。現行jobの約2.47 GB target archive復元は76秒だった。
+- [warm run / attempt 2](https://github.com/ouvill/taskveil/actions/runs/29486163712/attempts/2): 現行Rust target cache 2分27秒、sccache 6分10秒。sccacheは全体hit 64.95%、Rust hit 87.92%まで上がったが、C/C++ miss 1,240、cache write error 528が残り、現行jobより3分43秒遅かった。
 - sccacheはcoldで約3.7倍、warmでも約2.5倍遅く、GitHub Actions Cache backendへの細粒度I/OとC/C++ buildのmissがこのworkspaceでは不利だった。通常CIには採用せず、現行target archiveを維持する。
 - 同じwarm runのFlutter jobは4分39秒だった。cold runの6分06秒の内訳はCargo restore 29秒、Flutter SDK restore 81秒、FRB regenerate 53秒、Rust release library build 36秒、Flutter analyze 24秒、Flutter test 117秒であり、Flutter testだけでなくSDK復元、bindgen/FRB、Rust buildも主要因である。
 

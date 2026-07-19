@@ -31,7 +31,7 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 
 ### やること
 
-- `todori-client`へasync `RealtimeTicket`取得API、FRBへ`RealtimeTicketDto`を追加する。
+- `taskveil-client`へasync `RealtimeTicket`取得API、FRBへ`RealtimeTicketDto`を追加する。
 - Dartへ`web_socket_channel 3.0.3`をdirect dependencyとして追加する。
 - connection lifecycle、ticket refresh、reconnect backoff、fixed frame parserを実装する。
 - 250ms debounce、single-flight dirty follow-up、5分safety / 30秒fallback pollingを実装する。
@@ -45,7 +45,7 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 
 ## 5. 実装手順
 
-1. `todori-client` / FRB / BridgeServiceへticket DTOを薄く接続し、FRB生成物を2.12.0で再生成する。
+1. `taskveil-client` / FRB / BridgeServiceへticket DTOを薄く接続し、FRB生成物を2.12.0で再生成する。
 2. WebSocket connectorをtest double可能なDart interfaceとして実装する。
 3. foreground / login connect、background / logout / dispose close、期限30秒前refreshを実装する。
 4. 1、2、4、8、16、30秒 + jitter reconnectとconnected / disconnected polling切替を実装する。
@@ -64,14 +64,14 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 
 ## 7. 制約・注意事項
 
-- WebSocket接続はFlutter lifecycle adapter、ticket認証は`todori-client`、同期state machineは`todori-sync`の責務を維持する。
+- WebSocket接続はFlutter lifecycle adapter、ticket認証は`taskveil-client`、同期state machineは`taskveil-sync`の責務を維持する。
 - `app/rust`へnetwork client、runtime、secretを持たせない。
 - `web_socket_channel`以外のnetwork / lifecycle dependencyを追加しない。
 - anonymous / account-bound unavailable時のlocal CRUDを壊さない。
 
 ## 8. 完了報告に含めるべき内容
 
-- TodoriClient / FRB / Dart interface変更
+- TaskveilClient / FRB / Dart interface変更
 - scheduler、connection、polling state machineの観測証拠
 - mutation coverageとwidget / provider test結果
 - 実端末・本番Workerで残る確認事項
@@ -80,7 +80,7 @@ logged-in foreground clientが短命ticketでWebSocketへ接続し、valid chang
 
 ### 実装
 
-- `todori-client`にactive sync contextを内部利用する`RealtimeTicket`取得APIを追加し、session token、tenant / device IDをfrontendへ公開せず、FRB 2.12.0で`RealtimeTicketDto`生成物を再生成した。
+- `taskveil-client`にactive sync contextを内部利用する`RealtimeTicket`取得APIを追加し、session token、tenant / device IDをfrontendへ公開せず、FRB 2.12.0で`RealtimeTicketDto`生成物を再生成した。
 - `web_socket_channel 3.0.3`をdirect dependencyにし、ticketをAuthorization headerだけで渡す`wss`接続を実装した。query、fragment、userinfo、`/v1/connect`以外のpathは拒否する。
 - login / foregroundで接続し、background / logout / disposeで切断するlifecycle、期限30秒前ticket更新、1 / 2 / 4 / 8 / 16 / 30秒 + jitterの再接続を実装した。
 - 整数`v: 1`と`type: changed`だけの固定frameを受理し、binary、invalid JSON、`v: 1.0`、unknown、追加metadata frameを無視する。

@@ -76,7 +76,7 @@
 2. **`core/storage`**:
    - `ListRepository::update` が名称変更（`name` + `updated_at`）を正しく永続化することを確認する。追加実装が必要な場合のみ行う（既存実装で足りる場合は変更不要）。
 3. **`app/rust/src/api.rs`**:
-   - `rename_list(list_id: String, name: String) -> Result<ListDto, String>` を追加する。既存の `domain_delete_task` 等のエイリアスパターンに倣い、`todori_domain::rename_list` を `use ... as domain_rename_list;` でインポートして名前衝突を避ける。
+   - `rename_list(list_id: String, name: String) -> Result<ListDto, String>` を追加する。既存の `domain_delete_task` 等のエイリアスパターンに倣い、`taskveil_domain::rename_list` を `use ... as domain_rename_list;` でインポートして名前衝突を避ける。
    - 変更後、リポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行して生成物を更新する（FRB `2.12.0` 固定、手編集禁止）。
 4. **Dart（bridge / provider）**:
    - `BridgeService`（`app/lib/src/core/bridge_service.dart`）に `renameList` を追加し、`FrbBridgeService` 実装と `FakeBridgeService`（`app/test/support/fake_bridge_service.dart`）の両方に実装する。
@@ -102,7 +102,7 @@
 - 既定インボックスの自動プロビジョニング機構の新規実装（上記「既定インボックス保護について」1節参照。既存のバックログ・別タスクの対象）。
 - `lists` テーブルへの新規スキーマ列（`is_default` / `deleted_at` 等）の追加（task-36 のマイグレーション機構整備が前提）。
 - 新規pub/crate依存の追加。
-- `docs/01〜03`、`todori-private/`、`.github/` の変更。
+- `docs/01〜03`、`taskveil-private/`、`.github/` の変更。
 - Lists画面・Home画面以外のスコープ外画面（Tasks/Detail/Trash等）の見た目変更。
 
 ## 5. 実装手順例
@@ -193,7 +193,7 @@
   - 既存単体テスト `sqlite_list_repository_roundtrips_and_lists_by_sort_order` が `name` 更新後の `get` を確認していることを確認した。
 - `app/rust/src/api.rs` 追加内容:
   - `pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String>`
-  - `todori_domain::rename_list` は `domain_rename_list` として import した。
+  - `taskveil_domain::rename_list` は `domain_rename_list` として import した。
   - API内で `repository.get(list_id)`、`domain_rename_list(list, name, now_ms)`、`repository.update(updated.clone())`、`list_to_dto(updated)` を実行する。
 - FRB / l10n 生成:
   - 実行: `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`

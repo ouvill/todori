@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-/// The retained part of Todori's task-completion timeline.
+/// The retained part of Taskveil's task-completion timeline.
 ///
 /// Checkbox fill, check, halo, and title strike are owned by the task row
 /// components. This controller keeps the completed row in its original

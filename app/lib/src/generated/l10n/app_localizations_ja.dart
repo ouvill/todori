@@ -9,14 +9,14 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get appTitle => 'Todori';
+  String get appTitle => 'Taskveil';
 
   @override
   String get defaultInboxName => 'インボックス';
 
   @override
   String get defaultListMissing =>
-      '既定リストが見つかりません。Todoriを再起動するか、ローカルDBの初期化状態を確認してください。';
+      '既定リストが見つかりません。Taskveilを再起動するか、ローカルDBの初期化状態を確認してください。';
 
   @override
   String get listsTitle => 'リスト';
@@ -567,11 +567,11 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get reminderSavedNotificationFailed =>
-      'リマインダーは保存しましたが、Todoriはローカル通知を登録できませんでした。';
+      'リマインダーは保存しましたが、Taskveilはローカル通知を登録できませんでした。';
 
   @override
   String get reminderPermissionDenied =>
-      '通知がオフです。リマインダーは保存しましたが、Todoriはローカル通知を登録できませんでした。';
+      '通知がオフです。リマインダーは保存しましたが、Taskveilはローカル通知を登録できませんでした。';
 
   @override
   String failedToSaveReminder(String error) {
@@ -579,7 +579,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get reminderNotificationTitle => 'Todori リマインダー';
+  String get reminderNotificationTitle => 'Taskveil リマインダー';
 
   @override
   String get reminderNotificationBody => 'タスクのリマインダー時刻です。';
@@ -942,7 +942,7 @@ class AppLocalizationsJa extends AppLocalizations {
       '予定も、小さな約束も、次に向き合うことも。点数や騒がしさのない、静かな居場所です。';
 
   @override
-  String get onboardingWelcomeArtworkSemantics => 'Todoriを表す静かな葉';
+  String get onboardingWelcomeArtworkSemantics => 'Taskveilを表す静かな葉';
 
   @override
   String get onboardingPrivacyTitle => 'プライバシーを守る';
@@ -963,7 +963,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get onboardingBeginBody =>
-      '気になっていることを追加しましょう。必要なときまで、Todoriは静かに待っています。';
+      '気になっていることを追加しましょう。必要なときまで、Taskveilは静かに待っています。';
 
   @override
   String get onboardingBeginArtworkSemantics => '静かな完了を表すチェックマーク';
@@ -1033,7 +1033,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get focusNotificationsLabel => '終了時に通知';
 
   @override
-  String get focusNotificationsBody => 'Todoriがバックグラウンド中は可能な範囲で通知します';
+  String get focusNotificationsBody => 'Taskveilがバックグラウンド中は可能な範囲で通知します';
 
   @override
   String focusWorkIntervals(int count) {
@@ -1164,7 +1164,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get timerNotificationTitle => '集中時間が終わりました';
 
   @override
-  String get timerNotificationBody => 'Todoriを開いて、次のリズムへ進みましょう。';
+  String get timerNotificationBody => 'Taskveilを開いて、次のリズムへ進みましょう。';
 
   @override
   String get billingTitle => 'Pro';
@@ -1366,7 +1366,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get templateSavedMessage => 'テンプレートを保存しました。';
 
   @override
-  String failedToStartTodori(String error) {
-    return 'Todoriの起動に失敗しました: $error';
+  String failedToStartTaskveil(String error) {
+    return 'Taskveilの起動に失敗しました: $error';
   }
 }

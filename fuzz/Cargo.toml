@@ -1,5 +1,5 @@
 [package]
-name = "todori-fuzz"
+name = "taskveil-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -9,8 +9,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "=0.4.13"
-todori-crypto = { path = "../core/crypto" }
-todori-sync = { path = "../core/sync" }
+taskveil-crypto = { path = "../core/crypto" }
+taskveil-sync = { path = "../core/sync" }
 uuid = "=1.24.0"
 
 [[bin]]

@@ -1,14 +1,14 @@
 use std::path::Path;
 
-use todori_crypto::{
+use taskveil_crypto::{
     derive_local_db_key, LocalKeyCapsule, LocalKeyCapsuleSlot, LocalKeyCapsuleStore,
     PlatformLocalKeyCapsuleStore,
 };
-use todori_storage::{open_encrypted, rekey_encrypted_database, StorageError};
+use taskveil_storage::{open_encrypted, rekey_encrypted_database, StorageError};
 use zeroize::Zeroizing;
 
 use crate::{
-    runtime::{CryptoRuntimeState, TodoriClient, ACCOUNT_USER_ID_SETTING_KEY},
+    runtime::{CryptoRuntimeState, TaskveilClient, ACCOUNT_USER_ID_SETTING_KEY},
     ClientError, Uuid,
 };
 
@@ -20,7 +20,7 @@ pub(crate) enum DeviceKeyRotationStep {
     ActivePromoted,
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     /// Rotates the local Device Key and SQLCipher key using the crash-safe
     /// active/pending capsule protocol. Returns the committed DK generation.
     pub fn rotate_device_key(&self) -> Result<u64, ClientError> {
@@ -51,9 +51,9 @@ impl TodoriClient {
             &self.db_path,
             |new_device_key| match wrapping_material {
                 Some((user_id, master_key)) => {
-                    todori_crypto::key_hierarchy::wrap_master_key_with_device_key(
+                    taskveil_crypto::key_hierarchy::wrap_master_key_with_device_key(
                         user_id,
-                        todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
+                        taskveil_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
                         &master_key,
                         new_device_key,
                     )
@@ -205,12 +205,12 @@ fn same_capsule_key(left: &LocalKeyCapsule, right: &LocalKeyCapsule) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use taskveil_crypto::{InMemoryLocalKeyCapsuleStore, LocalKeyCapsuleStore};
     use tempfile::TempDir;
-    use todori_crypto::{InMemoryLocalKeyCapsuleStore, LocalKeyCapsuleStore};
 
     fn fixture() -> (TempDir, std::path::PathBuf, InMemoryLocalKeyCapsuleStore) {
         let temp = TempDir::new().unwrap();
-        let db_path = temp.path().join("todori.db");
+        let db_path = temp.path().join("taskveil.db");
         let mut store = InMemoryLocalKeyCapsuleStore::default();
         let active = resolve_active_capsule(&mut store, &db_path).unwrap();
         open_encrypted(&db_path, &derive_local_db_key(active.device_key())).unwrap();
@@ -279,9 +279,9 @@ mod tests {
         let user_id = Uuid::now_v7();
         let master_key = Zeroizing::new([0x6d; 32]);
         let active = store.load(LocalKeyCapsuleSlot::Active).unwrap().unwrap();
-        let old_wrap = todori_crypto::key_hierarchy::wrap_master_key_with_device_key(
+        let old_wrap = taskveil_crypto::key_hierarchy::wrap_master_key_with_device_key(
             user_id,
-            todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
+            taskveil_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
             &master_key,
             active.device_key(),
         )
@@ -299,9 +299,9 @@ mod tests {
             &mut store,
             &db_path,
             |new_device_key| {
-                todori_crypto::key_hierarchy::wrap_master_key_with_device_key(
+                taskveil_crypto::key_hierarchy::wrap_master_key_with_device_key(
                     user_id,
-                    todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
+                    taskveil_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
                     &master_key,
                     new_device_key,
                 )
@@ -314,9 +314,9 @@ mod tests {
 
         let new_wrap = committed.wrapped_master_key().unwrap();
         assert_ne!(new_wrap, old_wrap);
-        let unwrapped = todori_crypto::key_hierarchy::unwrap_master_key_with_device_key(
+        let unwrapped = taskveil_crypto::key_hierarchy::unwrap_master_key_with_device_key(
             user_id,
-            todori_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
+            taskveil_crypto::key_hierarchy::INITIAL_KEY_GENERATION,
             new_wrap,
             committed.device_key(),
         )

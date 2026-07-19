@@ -41,7 +41,7 @@ ADR-017は、期限を`未設定 / 日付のみ / 日時指定`の排他的なta
 - domainへ検証済み`CivilDate`、`UtcInstant`、`IanaTimeZone`と`TaskDue` tagged unionを追加する。
 - local DBを`due_kind` / `due_on` / `due_at_ms` / `due_time_zone` + CHECK constraintへbreaking更新し、Home query / index / sortを更新する。
 - sync plaintextを`due: Clocked<Option<TaskDue>>`へbreaking更新し、merge、apply、enqueue、strict decode testを更新する。
-- `todori-client`とFRBをtyped due input / DTOへ置き換え、FRB生成物を正規手順で再生成する。
+- `taskveil-client`とFRBをtyped due input / DTOへ置き換え、FRB生成物を正規手順で再生成する。
 - Flutterの作成・編集UIに「日付のみ / 日時指定」を追加し、表示、semantics、Today / overdue分類、sortを更新する。
 - 英日ARB、fake bridge、widget test、visual QAを新契約へ更新する。
 - 旧開発profile / serverデータの再作成手順とprotocol version gateを記録する。
@@ -60,7 +60,7 @@ ADR-017は、期限を`未設定 / 日付のみ / 日時指定`の排他的なta
 2. domain型とserialization shapeを先に固定し、invalid date、unknown timezone、DST gap / fold、範囲外instantのerror契約をtest化する。
 3. baseline schemaと最新migrationをbreaking更新し、CHECK constraint、Home query、index、repository round-tripをtestする。
 4. syncの`due` compound field、strict decode、field-clock merge、CAS stale merge/retryを更新し、date / datetime切替競合をtestする。
-5. `todori-client`のcreate / update / undoをtyped dueへ変更し、domain更新 + HLC + outboxが同一transactionであることを維持する。
+5. `taskveil-client`のcreate / update / undoをtyped dueへ変更し、domain更新 + HLC + outboxが同一transactionであることを維持する。
 6. FRB APIをtyped due DTOへ変更してcodegenし、Dart bridgeとfakeを追従させる。
 7. 作成sheet、詳細編集、task row、Today / overdue、sortを新意味論へ変更し、timezone差とDST境界をwidget test化する。
 8. 旧開発profile / serverデータを再作成して2-device同期を確認し、visual QAと全品質ゲートを実行する。
@@ -117,9 +117,9 @@ ADR-017は、期限を`未設定 / 日付のみ / 日時指定`の排他的なta
 - DB / sync: local schemaをv17へ更新し、`due_kind / due_on / due_at_ms / due_time_zone`のCHECK constraintを追加した。sync protocolをv4、envelopeをv3へ更新し、`due: Clocked<Option<TaskDue>>`を1つのatomic fieldとしてmergeする。
 - timezone / UI: IANA zoneのlocal wall timeからinstantを生成し、DST gapは拒否、foldは決定的なinstantを選んでIANA IDとUTC offsetを表示する。作成sheet、詳細、swipe期限変更、Today / overdue / sort、英日ARBをtyped dueへ更新した。Today分類は`期限超過 > scheduled_atが本日 > 残りの期限section`の優先順位とし、dueとscheduledの併存時も重複表示せずscheduled Todayを維持する。
 - 互換性: v16の空DBだけをv17へ移行する。taskを持つv16 profileは値を推測せずopenを停止してprofile再作成を要求し、旧sync payloadもprotocol / envelope version gateで停止する。互換layer、dual read/write、midnight推測はない。
-- 再作成手順: アプリを終了し、開発端末のApplication Support配下にある`todori-db` profile directoryを削除して再起動する。local server dataは`docker rm -f todori-dev-postgres`後に`tool/dev_server.sh`で再作成する。本番データには適用しない。
+- 再作成手順: アプリを終了し、開発端末のApplication Support配下にある`taskveil-db` profile directoryを削除して再起動する。local server dataは`docker rm -f taskveil-dev-postgres`後に`tool/dev_server.sh`で再作成する。本番データには適用しない。
 - 証拠: `due_values_validate_and_roundtrip_as_tagged_union`、`v16_empty_database_migrates_to_typed_due_and_rejects_mixed_shape`、`v16_profile_with_ambiguous_due_data_requires_recreation`、`due_mode_switch_merges_as_one_atomic_field`、`production_two_client_distinct_fields_and_due_mode_conflict_converge`、`task_due_test.dart`、`create sheet stores an exact deadline with IANA time zone`が成功した。server経由2-client testではAのDateとBのDateTime競合後にBの後発値へ両local DBが収束した。
-- iOS Simulator: iPhone 17 / iOS 26.5へ`flutter run --debug`でbuild・install・launchした。残存v16 profileは`replace_task_due_semantics`が設計どおり再作成要求で停止し、Simulator上のTodoriをuninstallして再install後、fresh v17 profileでnative core初期化エラーなくオンボーディングを描画し、Application Support配下へ`todori-db/todori.db`が作成された。Simulator操作を自動化するintegration test / IDB / Maestro基盤は未導入のため、これは起動・migration・fresh profileのsmoke testである。
+- iOS Simulator: iPhone 17 / iOS 26.5へ`flutter run --debug`でbuild・install・launchした。残存v16 profileは`replace_task_due_semantics`が設計どおり再作成要求で停止し、Simulator上のTaskveilをuninstallして再install後、fresh v17 profileでnative core初期化エラーなくオンボーディングを描画し、Application Support配下へ`taskveil-db/taskveil.db`が作成された。Simulator操作を自動化するintegration test / IDB / Maestro基盤は未導入のため、これは起動・migration・fresh profileのsmoke testである。
 - Visual QA: `sh app/tool/visual_qa.sh`は57 test成功、63 PNGを全件目視した。`task_due_mode_sheet.png`とforeign IANA zoneを含むHome fixtureで、日付のみ / 日時指定、期限切れ、狭幅、日本語、dark、text scale 2.0に描画異常なし。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、Docker統合testを含む`cargo test --workspace`、`flutter analyze`、release Rust build後の`flutter test`（143成功、visual QA harness 1件は通常実行でskip）、hardcoded strings、client boundaries、`git diff --check`が成功した。
 - FRB: `TaskDueInput` / `TaskDueDto`を`Date { dueOn }` / `DateTime { dueAt: DateTime, timeZone }`のFreezed sealed unionとして`flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml`で生成した。`kind: String`、nullable product shape、`dueAtMs`はDart期限APIに存在しない。

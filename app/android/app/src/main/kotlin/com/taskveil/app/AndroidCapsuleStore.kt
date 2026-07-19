@@ -1,4 +1,4 @@
-package dev.todori.todori
+package com.taskveil.app
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -18,8 +18,8 @@ import javax.crypto.spec.GCMParameterSpec
  */
 object AndroidCapsuleStore {
     private const val KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "dev.todori.todori.local-capsule-seal.v2"
-    private const val PREFERENCES = "todori_local_capsules_v2"
+    private const val KEY_ALIAS = "com.taskveil.app.local-capsule-seal.v1"
+    private const val PREFERENCES = "taskveil_local_capsules_v1"
     private const val NONCE_LENGTH = 12
     private const val TAG_BITS = 128
 
@@ -27,7 +27,7 @@ object AndroidCapsuleStore {
     private var applicationContext: Context? = null
 
     init {
-        System.loadLibrary("todori_app_bridge")
+        System.loadLibrary("taskveil_app_bridge")
     }
 
     @JvmStatic
@@ -115,7 +115,7 @@ object AndroidCapsuleStore {
     private fun preferenceKey(namespace: String, slot: String) = "$namespace:$slot"
 
     private fun aad(namespace: String, slot: String) =
-        "todori/android-local-capsule/v2/$namespace/$slot".toByteArray(Charsets.UTF_8)
+        "taskveil/android-local-capsule/v1/$namespace/$slot".toByteArray(Charsets.UTF_8)
 
     private fun requireNamespace(namespace: String) {
         require(namespace.matches(Regex("p[0-9a-f]{32}"))) { "invalid profile namespace" }

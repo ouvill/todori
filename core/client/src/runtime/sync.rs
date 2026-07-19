@@ -1,8 +1,8 @@
 use std::{future::Future, pin::Pin};
 
-use todori_crypto::{load_account_secret, AccountSecretKind};
-use todori_storage::{RecurrenceRepository, TaskRepository, TimerSessionRepository};
-use todori_sync::{
+use taskveil_crypto::{load_account_secret, AccountSecretKind};
+use taskveil_storage::{RecurrenceRepository, TaskRepository, TimerSessionRepository};
+use taskveil_sync::{
     account::{AccountClient, AccountClientError},
     ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
     LocalSyncWriteTransaction, SyncKeyRefresher, SyncRunSummary,
@@ -10,11 +10,11 @@ use todori_sync::{
 use zeroize::Zeroizing;
 
 use super::{
-    now_ms, CryptoRuntimeState, SyncRuntimeState, TodoriClient, INITIAL_BACKFILL_CURSOR_NAME,
+    now_ms, CryptoRuntimeState, SyncRuntimeState, TaskveilClient, INITIAL_BACKFILL_CURSOR_NAME,
 };
 use crate::{ClientError, RealtimeTicket, SqliteSyncStore, SyncStatus};
 
-impl TodoriClient {
+impl TaskveilClient {
     pub fn sync_status(&self) -> Result<SyncStatus, ClientError> {
         let logged_in = self.has_active_sync_context();
         let state = self.sync_state()?;
@@ -110,7 +110,7 @@ impl TodoriClient {
             self.run_initial_backfill_if_needed(store)
                 .map_err(|error| error.to_string())
         };
-        let mut summary = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
+        let mut summary = taskveil_sync::run_sync_now_with_key_refresh_and_pre_push(
             context.clone(),
             &mut store,
             &mut clock,
@@ -132,7 +132,7 @@ impl TodoriClient {
             if !settlement.outbox_changed {
                 break;
             }
-            let follow_up = todori_sync::run_sync_now_with_key_refresh_and_pre_push(
+            let follow_up = taskveil_sync::run_sync_now_with_key_refresh_and_pre_push(
                 context.clone(),
                 &mut store,
                 &mut clock,
@@ -245,11 +245,11 @@ impl TodoriClient {
         let mut transaction = store
             .begin_write_transaction()
             .map_err(|_| ClientError::SyncRun)?;
-        todori_sync::enqueue_backfill(
+        taskveil_sync::enqueue_backfill(
             &mut transaction,
             &context.keys,
             &context.device_id,
-            todori_sync::BackfillRecords {
+            taskveil_sync::BackfillRecords {
                 lists: &lists,
                 templates: &templates,
                 schedules: &schedules,
@@ -280,7 +280,7 @@ impl TodoriClient {
         let device_id = crypto.device_id().to_string();
         let keys = crypto.sync_keys().clone();
         let manifest_auth_key =
-            todori_sync::derive_personal_manifest_auth_key(crypto.master_key()).ok()?;
+            taskveil_sync::derive_personal_manifest_auth_key(crypto.master_key()).ok()?;
         drop(account);
         let token = load_account_secret(&self.db_dir, AccountSecretKind::SessionToken).ok()??;
         let token = Zeroizing::new(String::from_utf8(token).ok()?);
@@ -318,7 +318,7 @@ fn add_sync_summary(target: &mut SyncRunSummary, value: &SyncRunSummary) {
 }
 
 struct SyncRunningGuard<'a> {
-    client: &'a TodoriClient,
+    client: &'a TaskveilClient,
 }
 
 impl Drop for SyncRunningGuard<'_> {
@@ -330,7 +330,7 @@ impl Drop for SyncRunningGuard<'_> {
 }
 
 struct ProductionKeyRefresher<'a> {
-    client: &'a TodoriClient,
+    client: &'a TaskveilClient,
 }
 
 impl SyncKeyRefresher for ProductionKeyRefresher<'_> {

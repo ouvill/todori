@@ -72,7 +72,7 @@ F-25と技術仕様は1タスクに複数の通知時刻を許容するが、現
 - reminderはSQLCipher DBとOSローカル通知だけで扱う。
 - payload、log、完了報告へtask本文、鍵、tenant/device識別子を含めない。
 - FRB生成物とl10n生成物は手編集しない。
-- 元の`todori/` worktreeを変更しない。
+- 元の`taskveil/` worktreeを変更しない。
 
 ## 8. 完了報告に含めるべき内容
 

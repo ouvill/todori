@@ -42,9 +42,9 @@ describe("ticket authentication", () => {
     const request = new Request("https://example.com/v1/publish", {
       body: vector.publish.body,
       headers: {
-        "X-Todori-Realtime-Key-Id": vector.publish.key_id,
-        "X-Todori-Realtime-Signature": vector.publish.signature,
-        "X-Todori-Realtime-Timestamp": String(vector.publish.timestamp),
+        "X-Taskveil-Realtime-Key-Id": vector.publish.key_id,
+        "X-Taskveil-Realtime-Signature": vector.publish.signature,
+        "X-Taskveil-Realtime-Timestamp": String(vector.publish.timestamp),
       },
       method: "POST",
     });
@@ -74,11 +74,11 @@ describe("ticket authentication", () => {
     const identifiers = fixture.opaque_identifiers;
     expect(await signFixtureInput(
       identifiers.channel_key_base64url,
-      `todori-realtime-channel-v1\n${identifiers.tenant_id}`,
+      `taskveil-realtime-channel-v1\n${identifiers.tenant_id}`,
     )).toBe(identifiers.channel);
     expect(await signFixtureInput(
       identifiers.channel_key_base64url,
-      `todori-realtime-device-v1\n${identifiers.tenant_id}\n${identifiers.device_id}`,
+      `taskveil-realtime-device-v1\n${identifiers.tenant_id}\n${identifiers.device_id}`,
     )).toBe(identifiers.device);
   });
 
@@ -86,7 +86,7 @@ describe("ticket authentication", () => {
     const now = Math.floor(Date.now() / 1000);
     const payload = {
       kid: env.TICKET_KEY_CURRENT_ID,
-      aud: "todori-realtime" as const,
+      aud: "taskveil-realtime" as const,
       channel: CHANNEL,
       device: DEVICE_A,
       iat: now,
@@ -122,7 +122,7 @@ describe("ticket authentication", () => {
 
     const now = Math.floor(Date.now() / 1000);
     const token = await issueTicket({
-      aud: "todori-realtime",
+      aud: "taskveil-realtime",
       channel: CHANNEL,
       device: "E".repeat(43),
       exp: now + 300,
@@ -151,11 +151,11 @@ describe("ticket authentication", () => {
     const wrongAudience = await signedRawTicket(base);
     expect((await connectWithToken(wrongAudience)).status).toBe(401);
 
-    const reordered = await signedRawTicket({ aud: "todori-realtime", kid: base.kid,
+    const reordered = await signedRawTicket({ aud: "taskveil-realtime", kid: base.kid,
       channel: CHANNEL, device: DEVICE_A, iat: now, exp: now + 300 });
     expect((await connectWithToken(reordered)).status).toBe(401);
 
-    const extra = await signedRawTicket({ ...base, aud: "todori-realtime", extra: true });
+    const extra = await signedRawTicket({ ...base, aud: "taskveil-realtime", extra: true });
     expect((await connectWithToken(extra)).status).toBe(401);
   });
 });

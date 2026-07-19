@@ -75,8 +75,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # workspace-local crates
-todori-domain = { path = "core/domain" }
-todori-crypto = { path = "core/crypto" }
-todori-client = { path = "core/client" }
-todori-sync = { path = "core/sync" }
-todori-storage = { path = "core/storage" }
+taskveil-domain = { path = "core/domain" }
+taskveil-crypto = { path = "core/crypto" }
+taskveil-client = { path = "core/client" }
+taskveil-sync = { path = "core/sync" }
+taskveil-storage = { path = "core/storage" }

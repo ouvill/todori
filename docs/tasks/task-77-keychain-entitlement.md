@@ -37,7 +37,7 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 
 ### やること
 
-- `app/macos/Runner/DebugProfile.entitlements` と `Release.entitlements` に `keychain-access-groups = $(AppIdentifierPrefix)dev.todori.todori` を追加する。
+- `app/macos/Runner/DebugProfile.entitlements` と `Release.entitlements` に `keychain-access-groups = $(AppIdentifierPrefix)com.taskveil.app` を追加する。
 - `app/ios/Runner/Runner.entitlements` がなければ作成し、Runner targetのDebug/Profile/Releaseへ配線する。
 - `core/crypto/src/dev_key_store.rs` でData Protection Keychain queryに `kSecAttrAccessGroup` を指定する。
 - access groupは署名時に展開されたentitlementから実行時に取得し、Personal Team/有料Teamのどちらでも同じ設定で動くようにする。
@@ -73,7 +73,7 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 
 共通受け入れ基準は `docs/tasks/README.md` の「共通受け入れ基準」を満たすこと。
 
-- [x] macOS Debug/Profile/Release用entitlementsに `keychain-access-groups` があり、値が `$(AppIdentifierPrefix)dev.todori.todori` で、app sandboxが維持されている。
+- [x] macOS Debug/Profile/Release用entitlementsに `keychain-access-groups` があり、値が `$(AppIdentifierPrefix)com.taskveil.app` で、app sandboxが維持されている。
 - [x] iOS Runner targetに `Runner.entitlements` が配線され、同じ `keychain-access-groups` 値を持つ。
 - [x] Device Keyとaccount secretのData Protection Keychain queryが `kSecUseDataProtectionKeychain`、`kSecAttrAccessGroup`、`AfterFirstUnlockThisDeviceOnly` 相当を使う。
 - [x] macOS legacy login keychain + ACLは `-34018` などentitlementなし/未署名時のフォールバックとして残り、正規経路ではない旨がコードコメントで分かる。
@@ -124,8 +124,8 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 
 ### 実装結果
 
-- macOS Debug/Profile/Release用entitlementsに `keychain-access-groups` を追加した。値は `$(AppIdentifierPrefix)dev.todori.todori`。`com.apple.security.app-sandbox` はDebugProfile/Releaseとも維持した。
-- iOS `app/ios/Runner/Runner.entitlements` を作成し、Runner targetのDebug/Profile/Releaseへ `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;` を配線した。値はmacOSと同じ `$(AppIdentifierPrefix)dev.todori.todori`。
+- macOS Debug/Profile/Release用entitlementsに `keychain-access-groups` を追加した。値は `$(AppIdentifierPrefix)com.taskveil.app`。`com.apple.security.app-sandbox` はDebugProfile/Releaseとも維持した。
+- iOS `app/ios/Runner/Runner.entitlements` を作成し、Runner targetのDebug/Profile/Releaseへ `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;` を配線した。値はmacOSと同じ `$(AppIdentifierPrefix)com.taskveil.app`。
 - `core/crypto/src/dev_key_store.rs` で実行中アプリの `keychain-access-groups` entitlementを `SecTaskCopyValueForEntitlement` で読み取り、Data Protection Keychainの `PasswordOptions::set_access_group` に渡すようにした。
 - Device Key storeとaccount secret storeの両方に同じaccess group指定を適用した。
 - Data Protection Keychain経路は既存どおり `use_protected_keychain()` と `AccessibleAfterFirstUnlockThisDeviceOnly` 相当を維持した。
@@ -136,8 +136,8 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 ### エンタイトルメントとaccess group値
 
 - entitlement key: `keychain-access-groups`
-- tracked value: `$(AppIdentifierPrefix)dev.todori.todori`
-- runtime Keychain access group: 署名済みアプリのentitlementから取得した `<TEAMID>.dev.todori.todori`
+- tracked value: `$(AppIdentifierPrefix)com.taskveil.app`
+- runtime Keychain access group: 署名済みアプリのentitlementから取得した `<TEAMID>.com.taskveil.app`
 
 ### フォールバック条件
 
@@ -149,7 +149,7 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 
 - `cargo fmt --all -- --check`: 成功。
 - `cargo clippy --workspace -- -D warnings`: 成功。
-- `cargo test -p todori-crypto`: 成功。28 passed / 1 ignored。実Keychain ignored testの扱いは従来どおり。
+- `cargo test -p taskveil-crypto`: 成功。28 passed / 1 ignored。実Keychain ignored testの扱いは従来どおり。
 - `cargo test --workspace`: 成功。実Keychain ignored testと性能ignored testは従来どおり。
 - `cd app && flutter analyze`: 成功。
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
@@ -194,9 +194,9 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 #### 追補検証結果
 
 - `flutter build macos --debug`: 失敗。XcodeのSwift Package Manager依存解決が、sandbox外の `/Users/youhei/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/fluttergeneratedpluginswiftpackage.dia` へdiagnosticsを書き込めず `Operation not permitted`。同時にCoreSimulatorService接続無効のログも出た。署名エラーには到達していない。
-- `env HOME=/private/tmp/todori-build-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --debug`: 同じSwiftPM diagnostics書き込みエラーで失敗。Xcodeは実ユーザーの `~/Library/Caches/org.swift.swiftpm` を使い続けた。
+- `env HOME=/private/tmp/taskveil-build-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --debug`: 同じSwiftPM diagnostics書き込みエラーで失敗。Xcodeは実ユーザーの `~/Library/Caches/org.swift.swiftpm` を使い続けた。
 - `flutter build ios --simulator --debug`: 失敗。macOS buildと同じくSwiftPM依存解決中に `/Users/youhei/Library/Caches/org.swift.swiftpm/...` への書き込みが `Operation not permitted`。署名エラーには到達していない。
-- `cargo test -p todori-crypto`: 成功。28 passed / 1 ignored。
+- `cargo test -p taskveil-crypto`: 成功。28 passed / 1 ignored。
 - `cd app && flutter analyze`: 成功。
 - `cd app && flutter test`: 成功。123 passed / 1 skipped。
 - `sh app/tool/check_hardcoded_strings.sh`: 成功。
@@ -221,7 +221,7 @@ task-64と直近修正で、iOS/macOSのDevice Keyとaccount secretはApple Keyc
 
 #### legacy Keychainアイテムの整理
 
-旧adhocビルドが残したlegacy Keychainアイテム（`dev.todori.todori.device-key` など）が、新署名バイナリからのアクセス時にパスワード確認を誘発した。そのためlegacyアイテムと `~/Library/Containers/dev.todori.todori` を削除し、クリーン状態から再検証した。
+旧adhocビルドが残したlegacy Keychainアイテム（`com.taskveil.app.device-key` など）が、新署名バイナリからのアクセス時にパスワード確認を誘発した。そのためlegacyアイテムと `~/Library/Containers/com.taskveil.app` を削除し、クリーン状態から再検証した。
 
 #### 最終検証結果
 

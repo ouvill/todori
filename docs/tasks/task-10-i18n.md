@@ -15,7 +15,7 @@
 
 - `docs/tasks/task-09-ui-skeleton.md`（本タスクの前提となる画面骨格の指示書と完了報告。3画面・`main.dart`・widget testの構成を把握する）
 - `app/lib/src/screens/lists_screen.dart` / `tasks_screen.dart` / `task_detail_screen.dart`（現在英語ハードコードされている全UI文字列）
-- `app/lib/main.dart`（`TodoriApp` の `MaterialApp.router` 構成、初期化失敗時のエラー画面の文字列）
+- `app/lib/main.dart`（`TaskveilApp` の `MaterialApp.router` 構成、初期化失敗時のエラー画面の文字列）
 - `app/test/widget_test.dart`（既存widget testが `find.text('Lists')` 等、文字列で要素を検索している箇所）
 - `app/pubspec.yaml`（`flutter_localizations` / `intl` が追加済みであることの確認。`flutter:` セクションの現状）
 - `docs/02_機能仕様書.md` F-48「多言語対応」
@@ -38,12 +38,12 @@
    - タスク一覧画面: AppBarタイトル「Tasks」、空状態「No tasks yet. Tap + to create one.」、エラー表示「Failed to load tasks: $error」、FABのtooltip「New task」
    - タスク作成ダイアログ: タイトル「New task」、入力欄ラベル「Title」、「Cancel」、「Create」
    - タスク詳細画面: AppBarタイトル「Task detail」、エラー表示「Failed to load task: $error」、「Task not found.」、「Status: $status」、「Priority: $priority」、「Created at: $createdAt」、「Move to trash」ボタン
-   - `main.dart` の初期化失敗時エラー表示「Failed to start Todori: $error」
+   - `main.dart` の初期化失敗時エラー表示「Failed to start Taskveil: $error」
 
    プレースホルダを含む文字列（`$error` / `$status` / `$priority` / `$createdAt` 等）はARBのplaceholder構文（`"failedToLoadLists": "Failed to load lists: {error}"` と対応する `"@failedToLoadLists": {"placeholders": {"error": {"type": "String"}}}`）を用いる。ja訳は自然な日本語とする（例: Lists→リスト、Tasks→タスク、New list→新しいリスト、Cancel→キャンセル、Create→作成、Move to trash→ゴミ箱へ移動、No lists yet. Tap + to create one.→リストがありません。+をタップして作成してください。等。実際の訳文はエージェントの裁量で自然な日本語にしてよい）。
 4. **アプリ全体へのローカライズ配線**: `app/lib/main.dart` の `MaterialApp.router` に `localizationsDelegates: AppLocalizations.localizationsDelegates` と `supportedLocales: AppLocalizations.supportedLocales` を設定し、システム言語に追従させる（F-48）。`title:` の固定文字列指定に代えて `onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle` を用いる。初期化失敗時のエラー画面（`MaterialApp` の方）は `AppLocalizations` に依存させてよいが、`ProviderScope`/ルーティングより前段で発生しうる失敗であるため、ローカライズ配線が使えない場合は英語文字列のままでよい旨を判断し、実装した方針を完了報告に記載する。
 5. **画面・ダイアログの文字列置換**: 3画面（`lists_screen.dart` / `tasks_screen.dart` / `task_detail_screen.dart`）内の全 `Text(...)` ・tooltip・ダイアログ文言・`InputDecoration.labelText` 等を `AppLocalizations.of(context)!.<key>` 参照に置換する。`StatelessWidget`/`ConsumerWidget` の `build(BuildContext context, ...)` から素直に `AppLocalizations.of(context)!` を呼べる箇所はそれを使う。`_NewListDialog` / `_NewTaskDialog` のような `StatefulWidget` 内でも `build` メソッド内であれば同様に呼べる。
-6. **既存widget testの追随修正**: `app/test/widget_test.dart` は `find.text('Lists')` 等、英語文字列で要素を検索している。デフォルトロケールはテスト実行環境ではen想定であるため、原則として既存のenアサーション文字列は維持できるはずだが、ARB化によって文言が変わった場合（例: エラー文言のプレースホルダ形式が変わった等）はテスト側の期待値も追随修正する。修正は必要最小限に留め、既存のテスト意図（画面遷移・状態反映の検証）は変更しない。`TodoriApp` をテストでpumpする際に `AppLocalizations.delegate`（またはenロケール）がwidget test環境で解決されることを確認する（`MaterialApp.router` に `localizationsDelegates` を設定すれば `flutter_test` の既定ロケール=enで自動解決されるはずである）。
+6. **既存widget testの追随修正**: `app/test/widget_test.dart` は `find.text('Lists')` 等、英語文字列で要素を検索している。デフォルトロケールはテスト実行環境ではen想定であるため、原則として既存のenアサーション文字列は維持できるはずだが、ARB化によって文言が変わった場合（例: エラー文言のプレースホルダ形式が変わった等）はテスト側の期待値も追随修正する。修正は必要最小限に留め、既存のテスト意図（画面遷移・状態反映の検証）は変更しない。`TaskveilApp` をテストでpumpする際に `AppLocalizations.delegate`（またはenロケール）がwidget test環境で解決されることを確認する（`MaterialApp.router` に `localizationsDelegates` を設定すれば `flutter_test` の既定ロケール=enで自動解決されるはずである）。
 7. **直書き検出スクリプト**: `app/tool/check_hardcoded_strings.sh`（新規、実行可能なshellスクリプト）を追加する。`app/lib/src/screens/` 配下と `app/lib/main.dart` を対象に、`Text('...')` / `Text("...")` のようなハードコード文字列リテラルをgrep等で検出する素朴な実装でよい。`AppLocalizations.of(context)!.xxx` 経由の参照は文字列リテラルを直接 `Text()` に渡さないため誤検知しにくいが、`Text(someVariable)` のような変数参照や `Icon` 等は対象外とし、検出パターン・既知の除外（あれば）をスクリプト内コメントに明記する。検出0件でexit 0、1件以上検出したらexit 1で該当ファイル・行を表示する。
 8. **動作検証テスト**: `app/test/l10n_test.dart`（新規）を作成し、`AppLocalizations.delegate.load(const Locale('ja'))` と `const Locale('en')` それぞれで `AppLocalizations` インスタンスをロードし、主要キー（例: `appTitle` / `listsTitle` / `tasksTitle` / `createButton` / `cancelButton`）がen/jaで異なる訳文を返すことを確認する軽量テストを実装する。
 
@@ -115,8 +115,8 @@
 ### ARBキー数と主要キー
 
 - 通常キー数は23件である。
-- 主要キー: `appTitle`, `listsTitle`, `listsEmpty`, `failedToLoadLists`, `newListTooltip`, `newListTitle`, `nameLabel`, `cancelButton`, `createButton`, `tasksTitle`, `tasksEmpty`, `failedToLoadTasks`, `newTaskTooltip`, `newTaskTitle`, `titleLabel`, `taskDetailTitle`, `failedToLoadTask`, `taskNotFound`, `taskStatus`, `taskPriority`, `taskCreatedAt`, `moveToTrashButton`, `failedToStartTodori`。
-- プレースホルダ付きキーは `failedToLoadLists(error)`, `failedToLoadTasks(error)`, `failedToLoadTask(error)`, `taskStatus(status)`, `taskPriority(priority)`, `taskCreatedAt(createdAt)`, `failedToStartTodori(error)` とした。
+- 主要キー: `appTitle`, `listsTitle`, `listsEmpty`, `failedToLoadLists`, `newListTooltip`, `newListTitle`, `nameLabel`, `cancelButton`, `createButton`, `tasksTitle`, `tasksEmpty`, `failedToLoadTasks`, `newTaskTooltip`, `newTaskTitle`, `titleLabel`, `taskDetailTitle`, `failedToLoadTask`, `taskNotFound`, `taskStatus`, `taskPriority`, `taskCreatedAt`, `moveToTrashButton`, `failedToStartTaskveil`。
+- プレースホルダ付きキーは `failedToLoadLists(error)`, `failedToLoadTasks(error)`, `failedToLoadTask(error)`, `taskStatus(status)`, `taskPriority(priority)`, `taskCreatedAt(createdAt)`, `failedToStartTaskveil(error)` とした。
 
 ### 生成構成
 
@@ -136,7 +136,7 @@ output-dir: lib/src/generated/l10n
 ### widget test修正内容
 
 - `app/test/widget_test.dart` は変更していない。英語ARBの文言を既存の英語ハードコード文言と揃えたため、既存の `find.text('Lists')` 等のアサーション意図を維持できる。
-- `TodoriApp` 側に `localizationsDelegates` / `supportedLocales` を設定したため、widget test環境の既定ロケール（en）で既存アサーションが解決される構成である。
+- `TaskveilApp` 側に `localizationsDelegates` / `supportedLocales` を設定したため、widget test環境の既定ロケール（en）で既存アサーションが解決される構成である。
 
 ### 直書き検出スクリプト
 

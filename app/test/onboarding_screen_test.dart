@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -20,7 +20,7 @@ class _FailingOnboardingSettingsFake extends FakeBridgeService {
 Future<void> _pumpFirstRun(WidgetTester tester, FakeBridgeService fake) async {
   await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 }
@@ -54,7 +54,7 @@ void main() {
     expect(find.byKey(const ValueKey('quick-add-open')), findsOneWidget);
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     expect(find.text('Make room for what matters'), findsNothing);

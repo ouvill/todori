@@ -275,7 +275,7 @@
   - `git diff --check`: exit 0
 - 検証時の環境対応:
   - 初回 `flutter analyze` は `app/macos/Flutter/ephemeral/Packages/.packages` がディレクトリとして存在しFlutter toolが削除できずexit 1になった。
-  - 当該生成物を `/private/tmp/todori-task43-packages-dir-<timestamp>` へ退避し、`flutter analyze` を再実行してexit 0を確認した。
+  - 当該生成物を `/private/tmp/taskveil-task43-packages-dir-<timestamp>` へ退避し、`flutter analyze` を再実行してexit 0を確認した。
 - 変更ファイル一覧:
   - `app/lib/src/screens/lists_screen.dart`
   - `app/lib/src/screens/task_detail_screen.dart`

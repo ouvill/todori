@@ -63,7 +63,7 @@
 ### やらないこと
 
 - タスク行の構成・メタデータ、l10nキー構成、Lucide置換、Lab task_list構成の本番反映（それぞれ別タスク）。
-- 和文フォントの新規同梱、新規pub依存、Rust/FRB/DB変更、`docs/01〜03`・`todori-private/`・`.github/` 変更。
+- 和文フォントの新規同梱、新規pub依存、Rust/FRB/DB変更、`docs/01〜03`・`taskveil-private/`・`.github/` 変更。
 - Newsreaderをタスクタイトルやセクション見出しへ拡大適用しない。セリフは「28px級以上かつ1画面1〜2箇所」の規則を厳守し、Todayヘッダー以外への適用は範囲外とする。
 - `app/assets/fonts/Lora/` の削除。アセット自体はDesign Lab比較用に残す。
 

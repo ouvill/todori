@@ -35,13 +35,13 @@ git diff --check
 
 | 契約 | 再現可能な証拠 |
 |---|---|
-| RFC 9807 OPAQUE / wrong password / production Argon2id | `cargo test -p todori-crypto opaque::tests` |
-| BIP39 24語 / 256-bit entropy / checksum / NFKD | `cargo test -p todori-crypto key_hierarchy::tests::recovery_key` とzero-entropy vector test |
-| FIPS 203 / 204 KATと実primitive | `cargo test -p todori-crypto organization::tests` |
-| wrong AAD / generation / suite / envelope v3拒否 | `cargo test -p todori-sync envelope::tests` |
-| preparedからretired、failure injection | `cargo test -p todori-client device_key_rotation::tests` と `cargo test -p todori-sync rotation::tests` |
-| 3端末offline / removal / crash / history / expired device | `cargo test -p todori-sync rotation::tests::three_device_offline_removal_crash_and_retirement_converge` とDocker `sync_v2` |
-| public-key substitution / certificate / roster / recipient / manifest攻撃 | `cargo test -p todori-crypto organization::tests`、`cargo test -p todori-sync organization::tests`、Docker `auth_server` |
+| RFC 9807 OPAQUE / wrong password / production Argon2id | `cargo test -p taskveil-crypto opaque::tests` |
+| BIP39 24語 / 256-bit entropy / checksum / NFKD | `cargo test -p taskveil-crypto key_hierarchy::tests::recovery_key` とzero-entropy vector test |
+| FIPS 203 / 204 KATと実primitive | `cargo test -p taskveil-crypto organization::tests` |
+| wrong AAD / generation / suite / envelope v3拒否 | `cargo test -p taskveil-sync envelope::tests` |
+| preparedからretired、failure injection | `cargo test -p taskveil-client device_key_rotation::tests` と `cargo test -p taskveil-sync rotation::tests` |
+| 3端末offline / removal / crash / history / expired device | `cargo test -p taskveil-sync rotation::tests::three_device_offline_removal_crash_and_retirement_converge` とDocker `sync_v2` |
+| public-key substitution / certificate / roster / recipient / manifest攻撃 | `cargo test -p taskveil-crypto organization::tests`、`cargo test -p taskveil-sync organization::tests`、Docker `auth_server` |
 
 ## 2. Platform実機gate
 

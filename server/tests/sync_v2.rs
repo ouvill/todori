@@ -19,32 +19,27 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::PgPool;
-use tempfile::TempDir;
-use testcontainers_modules::{
-    postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync},
-};
-use todori_client::test_support::{
+use taskveil_client::test_support::{
     persist_local_crypto_context, LocalCryptoIdentity, LocalMutationContext, SqliteMutationService,
     SqliteSyncStore, UpdateTaskInput,
 };
-use todori_crypto::{
+use taskveil_crypto::{
     key_hierarchy::{wrap_list_dek_with_master_key, wrap_tenant_root_dek_with_master_key},
     CRYPTO_SUITE_ID,
 };
-use todori_server::{
+use taskveil_server::{
     auth::AuthContext,
     billing::{BillingEnvironment, BillingService},
     build_router, db,
     sync::{self, gc_tombstones},
     AppState,
 };
-use todori_storage::{
+use taskveil_storage::{
     open_encrypted, ListRepository, NewSyncOutboxEntry, SqliteListRepository,
     SqliteSyncStateRepository, SqliteTaskRepository, SyncOutboxState, SyncQuarantineEntry,
     SyncStateRepository, TaskRepository,
 };
-use todori_sync::{
+use taskveil_sync::{
     account::{unwrap_list_dek_bundles, AccountClient},
     decrypt_plaintext, encrypt_plaintext,
     protocol::{
@@ -55,6 +50,11 @@ use todori_sync::{
     ActiveSyncContext, Hlc, KeyManifest, KeyScope, LocalMutationSyncStore, LocalSyncKeys,
     LocalSyncStore, RotationStatus, SyncKeyRefresher, SyncPlaintext, SYNC_CURSOR_NAME,
 };
+use tempfile::TempDir;
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -63,7 +63,7 @@ fn active_manifest(scope: KeyScope, tenant_id: Uuid, list_id: Option<Uuid>) -> V
 }
 
 fn test_manifest_auth_key() -> zeroize::Zeroizing<[u8; 32]> {
-    todori_sync::derive_personal_manifest_auth_key(&[0x41; 32]).unwrap()
+    taskveil_sync::derive_personal_manifest_auth_key(&[0x41; 32]).unwrap()
 }
 
 fn signed_manifest(
@@ -122,7 +122,7 @@ fn signed_manifest_after(
 fn test_capabilities(tenant_id: Uuid, protocol_version: u16) -> SyncCapabilities {
     SyncCapabilities {
         protocol_version,
-        envelope_version: todori_sync::ENVELOPE_VERSION,
+        envelope_version: taskveil_sync::ENVELOPE_VERSION,
         gc_horizon_seq: 0,
         continuity_seq: 0,
         continuity_generation: 0,
@@ -164,13 +164,13 @@ impl Fixture {
         let pool = db::connect(&database_url).await.unwrap();
         db::run_migrations(&pool).await.unwrap();
         raw_sql(
-            "CREATE ROLE todori_runtime_test LOGIN PASSWORD 'todori-runtime-test'
+            "CREATE ROLE taskveil_runtime_test LOGIN PASSWORD 'taskveil-runtime-test'
              NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
         )
         .execute(&pool)
         .await
         .unwrap();
-        raw_sql("GRANT todori_app TO todori_runtime_test")
+        raw_sql("GRANT taskveil_app TO taskveil_runtime_test")
             .execute(&pool)
             .await
             .unwrap();
@@ -203,7 +203,7 @@ impl Fixture {
                  current_period_ends_at, access_expires_at, will_renew,
                  provider_observed_at, last_seen_at)
              VALUES ($1, 'revenuecat', 'sandbox', $2,
-                     'dev.todori.todori.pro.monthly', 'test-product', 'active', TRUE,
+                     'com.taskveil.app.pro.monthly', 'test-product', 'active', TRUE,
                      now() + interval '1 day', now() + interval '1 day', TRUE, now(), now())",
         )
         .bind(user_id)
@@ -277,8 +277,9 @@ impl Fixture {
         .await
         .unwrap();
 
-        let application_url =
-            format!("postgres://todori_runtime_test:todori-runtime-test@{host}:{port}/postgres");
+        let application_url = format!(
+            "postgres://taskveil_runtime_test:taskveil-runtime-test@{host}:{port}/postgres"
+        );
         let application_pool = db::connect_application(&application_url).await.unwrap();
         let app = build_router(AppState {
             pool: application_pool.clone(),
@@ -295,7 +296,7 @@ impl Fixture {
         }
     }
 
-    async fn push(&self, op: PushOp) -> todori_sync::protocol::PushResult {
+    async fn push(&self, op: PushOp) -> taskveil_sync::protocol::PushResult {
         self.close_continuity().await;
         sync::push(
             &self.pool,
@@ -349,7 +350,7 @@ impl Fixture {
             &self.pool,
             self.tenant_id,
             self.auth.clone(),
-            todori_sync::protocol::ContinuityAckRequest { proof },
+            taskveil_sync::protocol::ContinuityAckRequest { proof },
         )
         .await
         .unwrap();
@@ -392,19 +393,19 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
     let temp = TempDir::new().unwrap();
     let db_path = temp.path().join("quarantine.sqlite3");
     let now = Utc::now().timestamp_millis() - 20_000;
-    let good = todori_domain::new_list(
+    let good = taskveil_domain::new_list(
         "Recovered".to_string(),
         "3fffffffffffffffffffffffffffffff".to_string(),
         now,
     )
     .unwrap();
-    let missing = todori_domain::new_list(
+    let missing = taskveil_domain::new_list(
         "Waiting".to_string(),
         "7fffffffffffffffffffffffffffffff".to_string(),
         now + 1,
     )
     .unwrap();
-    let corrupt = todori_domain::new_list(
+    let corrupt = taskveil_domain::new_list(
         "Corrupt".to_string(),
         "bfffffffffffffffffffffffffffffff".to_string(),
         now + 2,
@@ -819,7 +820,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         assert_eq!(hlc_count, 0, "HLC rollback at failure stage {name}");
     }
 
-    let unknown = todori_domain::new_list(
+    let unknown = taskveil_domain::new_list(
         "Future".to_string(),
         "dfffffffffffffffffffffffffffffff".to_string(),
         now + 3,
@@ -845,7 +846,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         &SyncPlaintext::from_list(&unknown, mutation.clone()).unwrap(),
     )
     .unwrap();
-    unknown_blob[0] = todori_sync::ENVELOPE_VERSION + 1;
+    unknown_blob[0] = taskveil_sync::ENVELOPE_VERSION + 1;
     assert!(sync::push(
         &fixture.pool,
         fixture.tenant_id,
@@ -876,7 +877,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
     let temp = TempDir::new().unwrap();
     let db_path = temp.path().join("quarantine-starvation.sqlite3");
     let now = Utc::now().timestamp_millis() - 10_000;
-    let waiting = todori_domain::new_list(
+    let waiting = taskveil_domain::new_list(
         "Recovered after corrupt rows".to_string(),
         "7fffffffffffffffffffffffffffffff".to_string(),
         now,
@@ -912,7 +913,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
                 revision_hlc: format!("corrupt-{seq}"),
                 state: SyncOutboxState::Live {
                     mutation_hlc: format!("corrupt-mutation-{seq}"),
-                    blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+                    blob: vec![taskveil_sync::ENVELOPE_VERSION, 1],
                 },
                 reason: "authentication_failed".to_string(),
                 required_list_id: None,
@@ -1014,7 +1015,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
                     counter.fetch_add(1, Ordering::SeqCst);
                     axum::Json(test_capabilities(
                         tenant_id,
-                        todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
+                        taskveil_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                     ))
                 }
             }),
@@ -1025,7 +1026,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
                 let counter = push_counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::PushResponse { results: vec![] })
+                    axum::Json(taskveil_sync::protocol::PushResponse { results: vec![] })
                 }
             }),
         );
@@ -1049,7 +1050,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
             revision_hlc: revision,
             state: SyncOutboxState::Live {
                 mutation_hlc: mutation,
-                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+                blob: vec![taskveil_sync::ENVELOPE_VERSION, 1],
             },
             created_at: Utc::now().timestamp_millis(),
         })
@@ -1076,7 +1077,7 @@ async fn unsupported_preflight_durably_blocks_outbox_before_push() {
         .unwrap());
     assert!(store.get_cursor_seq(SYNC_CURSOR_NAME).unwrap().is_none());
     assert!(store
-        .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
+        .get_setting(taskveil_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
         .unwrap()
         .is_some());
 
@@ -1112,7 +1113,7 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                         if query.since == 1 {
                             let mut capabilities = test_capabilities(
                                 tenant_id,
-                                todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
+                                taskveil_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                             );
                             capabilities.gc_horizon_seq = 2;
                             capabilities.continuity_seq = 1;
@@ -1122,7 +1123,7 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                         }
                         let mut capabilities = test_capabilities(
                             tenant_id,
-                            todori_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
+                            taskveil_sync::protocol::SYNC_PROTOCOL_VERSION + 1,
                         );
                         capabilities.gc_horizon_seq = 2;
                         axum::Json(capabilities).into_response()
@@ -1136,7 +1137,7 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
                 let counter = start_counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::ResyncStartResponse {
+                    axum::Json(taskveil_sync::protocol::ResyncStartResponse {
                         base_seq: 2,
                         generation: 1,
                     })
@@ -1175,7 +1176,7 @@ async fn continuity_410_still_enforces_protocol_upgrade_before_resync() {
     assert_eq!(preflight_count.load(Ordering::SeqCst), 1);
     assert_eq!(start_count.load(Ordering::SeqCst), 0);
     assert!(store
-        .get_setting(todori_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
+        .get_setting(taskveil_sync::SYNC_UPGRADE_REQUIRED_SETTING_KEY)
         .unwrap()
         .is_some());
 }
@@ -1198,7 +1199,7 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
             axum::routing::get(move || async move {
                 let mut capabilities = test_capabilities(
                     proof_tenant_id,
-                    todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+                    taskveil_sync::protocol::SYNC_PROTOCOL_VERSION,
                 );
                 capabilities.gc_horizon_seq = 2;
                 capabilities.continuity_seq = 1;
@@ -1213,7 +1214,7 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
                 let counter = start_counter.clone();
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::ResyncStartResponse {
+                    axum::Json(taskveil_sync::protocol::ResyncStartResponse {
                         base_seq: 2,
                         generation: 1,
                     })
@@ -1223,7 +1224,7 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
         .route(
             "/v2/tenants/{tenant_id}/resync/base",
             axum::routing::get(|| async {
-                axum::Json(todori_sync::protocol::BaseScanResponse {
+                axum::Json(taskveil_sync::protocol::BaseScanResponse {
                     records: Vec::new(),
                     next_cursor: None,
                     has_more: false,
@@ -1236,12 +1237,12 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
                 let closed = closed_for_pull.clone();
                 async move {
                     closed.store(true, Ordering::SeqCst);
-                    axum::Json(todori_sync::protocol::PullResponse {
+                    axum::Json(taskveil_sync::protocol::PullResponse {
                         records: Vec::new(),
                         next_since: 2,
                         has_more: false,
                         high_water: 2,
-                        closure_proof: Some(todori_sync::protocol::ClosureProof {
+                        closure_proof: Some(taskveil_sync::protocol::ClosureProof {
                             proof_id: Uuid::now_v7(),
                             tenant_id: proof_tenant_id,
                             device_id: proof_device_id,
@@ -1255,18 +1256,18 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
         .route(
             "/v2/tenants/{tenant_id}/push",
             axum::routing::post(
-                move |axum::Json(request): axum::Json<todori_sync::protocol::PushRequest>| {
+                move |axum::Json(request): axum::Json<taskveil_sync::protocol::PushRequest>| {
                     let closed = closed_for_push.clone();
                     let violation = violation.clone();
                     async move {
                         if !closed.load(Ordering::SeqCst) {
                             violation.store(true, Ordering::SeqCst);
                         }
-                        axum::Json(todori_sync::protocol::PushResponse {
+                        axum::Json(taskveil_sync::protocol::PushResponse {
                             results: request
                                 .ops
                                 .into_iter()
-                                .map(|op| todori_sync::protocol::PushResult {
+                                .map(|op| taskveil_sync::protocol::PushResult {
                                     op_id: op.op_id,
                                     record_id: op.record_id,
                                     collection: op.collection,
@@ -1283,7 +1284,7 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
         .route(
             "/v2/tenants/{tenant_id}/continuity/ack",
             axum::routing::post(|| async {
-                axum::Json(todori_sync::protocol::ContinuityAckResponse {
+                axum::Json(taskveil_sync::protocol::ContinuityAckResponse {
                     continuity_seq: 2,
                     continuity_generation: 1,
                 })
@@ -1311,17 +1312,17 @@ async fn gc_horizon_full_resync_closes_before_local_outbox_push() {
             revision_hlc: revision_hlc.clone(),
             state: SyncOutboxState::Live {
                 mutation_hlc: mutation_hlc.clone(),
-                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+                blob: vec![taskveil_sync::ENVELOPE_VERSION, 1],
             },
             created_at: Utc::now().timestamp_millis(),
         })
         .unwrap();
     repository
-        .put_record_state(todori_storage::SyncRecordState {
+        .put_record_state(taskveil_storage::SyncRecordState {
             record_id,
             collection: "tasks".to_string(),
             current_revision_hlc: None,
-            state: todori_storage::SyncRecordSemanticState::Live {
+            state: taskveil_storage::SyncRecordSemanticState::Live {
                 mutation_hlc,
                 plaintext_json: "{}".to_string(),
             },
@@ -1374,19 +1375,19 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
             axum::routing::get(move || async move {
                 axum::Json(test_capabilities(
                     tenant_id,
-                    todori_sync::protocol::SYNC_PROTOCOL_VERSION,
+                    taskveil_sync::protocol::SYNC_PROTOCOL_VERSION,
                 ))
             }),
         )
         .route(
             "/v2/tenants/{tenant_id}/pull",
             axum::routing::get(move || async move {
-                axum::Json(todori_sync::protocol::PullResponse {
+                axum::Json(taskveil_sync::protocol::PullResponse {
                     records: Vec::new(),
                     next_since: 1,
                     has_more: false,
                     high_water: 1,
-                    closure_proof: Some(todori_sync::protocol::ClosureProof {
+                    closure_proof: Some(taskveil_sync::protocol::ClosureProof {
                         proof_id: Uuid::now_v7(),
                         tenant_id,
                         device_id: proof_device_id,
@@ -1404,7 +1405,7 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
                     if counter.fetch_add(1, Ordering::SeqCst) == 0 {
                         return (StatusCode::INTERNAL_SERVER_ERROR, "retry").into_response();
                     }
-                    axum::Json(todori_sync::protocol::ContinuityAckResponse {
+                    axum::Json(taskveil_sync::protocol::ContinuityAckResponse {
                         continuity_seq: 1,
                         continuity_generation: 0,
                     })
@@ -1415,15 +1416,15 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
         .route(
             "/v2/tenants/{tenant_id}/push",
             axum::routing::post(
-                move |axum::Json(request): axum::Json<todori_sync::protocol::PushRequest>| {
+                move |axum::Json(request): axum::Json<taskveil_sync::protocol::PushRequest>| {
                     let pushed = pushed_flag.clone();
                     async move {
                         pushed.store(true, Ordering::SeqCst);
-                        axum::Json(todori_sync::protocol::PushResponse {
+                        axum::Json(taskveil_sync::protocol::PushResponse {
                             results: request
                                 .ops
                                 .into_iter()
-                                .map(|op| todori_sync::protocol::PushResult {
+                                .map(|op| taskveil_sync::protocol::PushResult {
                                     op_id: op.op_id,
                                     record_id: op.record_id,
                                     collection: op.collection,
@@ -1448,11 +1449,11 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
     let mutation_hlc = hlc(-200, 0, "ack-crash-mutation");
     let mut repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
     repository
-        .put_record_state(todori_storage::SyncRecordState {
+        .put_record_state(taskveil_storage::SyncRecordState {
             record_id,
             collection: "tasks".to_string(),
             current_revision_hlc: None,
-            state: todori_storage::SyncRecordSemanticState::Live {
+            state: taskveil_storage::SyncRecordSemanticState::Live {
                 mutation_hlc: mutation_hlc.clone(),
                 plaintext_json: "{}".to_string(),
             },
@@ -1468,7 +1469,7 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
             revision_hlc,
             state: SyncOutboxState::Live {
                 mutation_hlc,
-                blob: vec![todori_sync::ENVELOPE_VERSION, 1],
+                blob: vec![taskveil_sync::ENVELOPE_VERSION, 1],
             },
             created_at: 1,
         })
@@ -1518,7 +1519,7 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     let path_a = temp.path().join("offline-list-a.sqlite3");
     let path_b = temp.path().join("offline-list-b.sqlite3");
     let now = Utc::now().timestamp_millis() - 10_000;
-    let initial = todori_domain::new_list(
+    let initial = taskveil_domain::new_list(
         "Initial".to_string(),
         "3fffffffffffffffffffffffffffffff".to_string(),
         now,
@@ -1572,13 +1573,14 @@ async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decry
     );
     assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
 
-    let local_context = todori_client::test_support::load_local_crypto_context(
+    let local_context = taskveil_client::test_support::load_local_crypto_context(
         &path_a,
         &DB_KEY_A,
         Some(MASTER_KEY),
     )
     .unwrap();
-    let todori_client::test_support::LocalCryptoAvailability::Ready(local_context) = local_context
+    let taskveil_client::test_support::LocalCryptoAvailability::Ready(local_context) =
+        local_context
     else {
         panic!("local crypto context");
     };
@@ -1751,7 +1753,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
     let path_a = temp.path().join("client-a.sqlite3");
     let path_b = temp.path().join("client-b.sqlite3");
     let now = Utc::now().timestamp_millis() - 10_000;
-    let list = todori_domain::new_list(
+    let list = taskveil_domain::new_list(
         "Shared".to_string(),
         "7fffffffffffffffffffffffffffffff".to_string(),
         now,
@@ -1809,7 +1811,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
         .unwrap();
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut seed_now = || Ok(now + 1);
-    todori_sync::enqueue_list_sync(
+    taskveil_sync::enqueue_list_sync(
         &mut store_a,
         &sync_a.keys,
         &sync_a.device_id,
@@ -1822,7 +1824,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
     let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let task = client_a
         .create_task(
-            todori_client::test_support::CreateTaskInput {
+            taskveil_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "Base title".to_string(),
                 parent_task_id: None,
@@ -1879,7 +1881,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
                 title: "Title from A".to_string(),
                 note: "Base note".to_string(),
                 priority: 0,
-                due: Some(todori_domain::TaskDue::date("2026-07-12").unwrap()),
+                due: Some(taskveil_domain::TaskDue::date("2026-07-12").unwrap()),
                 scheduled_at: None,
                 estimated_minutes: None,
                 now_ms: now + 200,
@@ -1895,7 +1897,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
                 note: "Note from B".to_string(),
                 priority: 0,
                 due: Some(
-                    todori_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap(),
+                    taskveil_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap(),
                 ),
                 scheduled_at: None,
                 estimated_minutes: None,
@@ -1943,7 +1945,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
     assert_eq!(plaintext.title.value, "Title from A");
     assert_eq!(plaintext.note.value, "Note from B");
     let expected_due =
-        Some(todori_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap());
+        Some(taskveil_domain::TaskDue::date_time(now + 86_400_000, "Asia/Tokyo").unwrap());
     assert_eq!(plaintext.due.value, expected_due.clone());
 
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
@@ -1976,7 +1978,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
     let path_a = temp.path().join("rank-client-a.sqlite3");
     let path_b = temp.path().join("rank-client-b.sqlite3");
     let now = Utc::now().timestamp_millis() - 10_000;
-    let list = todori_domain::new_list(
+    let list = taskveil_domain::new_list(
         "Shared ranks".to_string(),
         "7fffffffffffffffffffffffffffffff".to_string(),
         now,
@@ -2034,7 +2036,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         .unwrap();
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut seed_now = || Ok(now + 1);
-    todori_sync::enqueue_list_sync(
+    taskveil_sync::enqueue_list_sync(
         &mut store_a,
         &sync_a.keys,
         &sync_a.device_id,
@@ -2047,7 +2049,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
     let client_b = SqliteMutationService::new(path_b.clone(), DB_KEY_B);
     let target = client_a
         .create_task(
-            todori_client::test_support::CreateTaskInput {
+            taskveil_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "reorder target".to_string(),
                 parent_task_id: None,
@@ -2092,7 +2094,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
 
     let concurrent_a = client_a
         .create_task(
-            todori_client::test_support::CreateTaskInput {
+            taskveil_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "same gap A".to_string(),
                 parent_task_id: None,
@@ -2108,7 +2110,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         .unwrap();
     let concurrent_b = client_b
         .create_task(
-            todori_client::test_support::CreateTaskInput {
+            taskveil_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "same gap B".to_string(),
                 parent_task_id: None,
@@ -2182,7 +2184,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
 
     client_a
         .reorder_task(
-            todori_client::test_support::ReorderTaskInput {
+            taskveil_client::test_support::ReorderTaskInput {
                 task_id: target.id,
                 previous_task_id: Some(previous),
                 next_task_id: Some(next),
@@ -2234,7 +2236,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
     let temp = TempDir::new().unwrap();
     let path = temp.path().join("deletion-cascade.sqlite3");
     let now = Utc::now().timestamp_millis() - 10_000;
-    let list = todori_domain::new_list(
+    let list = taskveil_domain::new_list(
         "Deleted remotely".to_string(),
         "7fffffffffffffffffffffffffffffff".to_string(),
         now,
@@ -2291,7 +2293,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
     let mutation_service = SqliteMutationService::new(path.clone(), DB_KEY);
     let late_task = mutation_service
         .create_task(
-            todori_client::test_support::CreateTaskInput {
+            taskveil_client::test_support::CreateTaskInput {
                 list_id: list.id,
                 title: "offline late descendant".to_string(),
                 parent_task_id: None,
@@ -2331,7 +2333,7 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
 
     assert!(matches!(
         SqliteTaskRepository::new(open_encrypted(&path, &DB_KEY).unwrap()).get(late_task.id),
-        Err(todori_storage::StorageError::NotFound(_))
+        Err(taskveil_storage::StorageError::NotFound(_))
     ));
     let row = query(
         "SELECT delete_hlc, encrypted_blob FROM sync_records
@@ -2384,7 +2386,7 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::account::ListDekBundleDto {
+        taskveil_sync::account::ListDekBundleDto {
             list_id,
             generation: 1,
             wrapped_list_dek: STANDARD.encode(
@@ -2640,7 +2642,7 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
 
     let server_url = fixture.serve().await;
     let preflight =
-        todori_sync::SyncEngine::new(server_url, fixture.tenant_id, fixture.token.clone())
+        taskveil_sync::SyncEngine::new(server_url, fixture.tenant_id, fixture.token.clone())
             .unwrap()
             .preflight(0)
             .await
@@ -2652,7 +2654,7 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         .active_key_bundle(fixture.tenant_id, &fixture.token)
         .await
         .unwrap();
-    let (tenant_dek, list_materials) = todori_sync::account::unwrap_active_key_bundle(
+    let (tenant_dek, list_materials) = taskveil_sync::account::unwrap_active_key_bundle(
         fixture.tenant_id,
         &active_bundle,
         &MASTER_KEY,
@@ -2661,7 +2663,7 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
     assert_eq!(*tenant_dek, [0x22; 32]);
     assert_eq!(list_materials[0].generation, 2);
     assert_eq!(*list_materials[0].dek, [0x23; 32]);
-    let historical = todori_sync::account::unwrap_historical_key_bundles(
+    let historical = taskveil_sync::account::unwrap_historical_key_bundles(
         fixture.tenant_id,
         &active_bundle.migrating_generations,
         &MASTER_KEY,
@@ -3138,7 +3140,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::account::ListDekBundleDto {
+        taskveil_sync::account::ListDekBundleDto {
             list_id: blocked_list_id,
             generation: 1,
             wrapped_list_dek: STANDARD.encode([7_u8; 32]),
@@ -3182,7 +3184,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: wrong_tenant
         },
     )
@@ -3194,7 +3196,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: wrong_device
         },
     )
@@ -3204,7 +3206,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: proof.clone(),
         },
     )
@@ -3214,7 +3216,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: proof.clone(),
         },
     )
@@ -3240,7 +3242,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::account::ListDekBundleDto {
+        taskveil_sync::account::ListDekBundleDto {
             list_id: resync_blocked_list_id,
             generation: 1,
             wrapped_list_dek: STANDARD.encode([8_u8; 32]),
@@ -3300,7 +3302,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: full_resync_proof.clone(),
         },
     )
@@ -3323,7 +3325,7 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::protocol::ContinuityAckRequest {
+        taskveil_sync::protocol::ContinuityAckRequest {
             proof: full_resync_proof,
         },
     )
@@ -3340,7 +3342,7 @@ async fn list_key_retirement_waits_for_tombstone_gc_and_device_closure() {
         &fixture.pool,
         fixture.tenant_id,
         fixture.auth.clone(),
-        todori_sync::account::ListDekBundleDto {
+        taskveil_sync::account::ListDekBundleDto {
             list_id,
             generation: 1,
             wrapped_list_dek: STANDARD.encode([9_u8; 32]),
@@ -3830,7 +3832,7 @@ async fn fuzzy_base_uses_stable_keys_and_delta_recovers_behind_cursor_changes() 
     assert_eq!(closure.records[0].record_id, behind_cursor);
     assert!(!closure.has_more);
     assert_eq!(closure.next_since, closure.high_water);
-    assert!(todori_sync::delta_reached_closure(
+    assert!(taskveil_sync::delta_reached_closure(
         closure.next_since,
         closure.has_more,
         closure.high_water
@@ -3867,7 +3869,7 @@ async fn empty_resync_closes_and_base_scan_is_not_limited_to_start_seq() {
     .await
     .unwrap();
     assert!(empty_delta.records.is_empty());
-    assert!(todori_sync::delta_reached_closure(
+    assert!(taskveil_sync::delta_reached_closure(
         empty_delta.next_since,
         empty_delta.has_more,
         empty_delta.high_water
@@ -3970,7 +3972,7 @@ async fn gc_horizon_can_exceed_max_active_seq_and_empty_delta_reaches_high_water
     assert_eq!(page.next_since, 2);
     assert_eq!(page.high_water, 2);
     assert!(!page.has_more);
-    assert!(todori_sync::delta_reached_closure(
+    assert!(taskveil_sync::delta_reached_closure(
         page.next_since,
         page.has_more,
         page.high_water
@@ -3986,8 +3988,8 @@ async fn request_status(
 ) -> StatusCode {
     let mut builder = Request::builder().method(method).uri(uri);
     builder = builder.header(
-        todori_sync::protocol::SYNC_PROTOCOL_VERSION_HEADER,
-        todori_sync::protocol::SYNC_PROTOCOL_VERSION.to_string(),
+        taskveil_sync::protocol::SYNC_PROTOCOL_VERSION_HEADER,
+        taskveil_sync::protocol::SYNC_PROTOCOL_VERSION.to_string(),
     );
     if let Some(token) = token {
         builder = builder.header("authorization", format!("Bearer {token}"));

@@ -99,7 +99,7 @@ P2-M5前半 task-73 で削除同期ADR-010ドラフト、削除tombstone blob空
 ## 7. 制約・注意事項
 
 - `flutter_rust_bridge` はRust/Dartとも `=2.12.0` 固定であり、更新しない。
-- cargoパッケージ名、pod名、FRB stem の `todori_app_bridge` を変更しない。
+- cargoパッケージ名、pod名、FRB stem の `taskveil_app_bridge` を変更しない。
 - `.cargo/config.toml` の `IPHONEOS_DEPLOYMENT_TARGET=15.0` を消さない。
 - Rust APIを変更した場合はFRB再生成が必要だが、本タスクでは原則API変更を避ける。
 - `FileDeviceKeyStore` はAndroid/Linuxの暫定fallbackとしてのみ扱い、本番安全性を主張しない。
@@ -148,19 +148,19 @@ P2-M5前半 task-73 で削除同期ADR-010ドラフト、削除tombstone blob空
 - `flutter doctor -v`
 - `cd app/rust && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release`
 - `cd app && flutter build apk --debug`
-- `cd app && env GRADLE_USER_HOME=/private/tmp/todori-gradle flutter build apk --debug`
+- `cd app && env GRADLE_USER_HOME=/private/tmp/taskveil-gradle flutter build apk --debug`
 - `cd app && flutter build macos --release`
-- `cd app && env HOME=/private/tmp/todori-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --release`
-- `cd app && env CFFIXED_USER_HOME=/private/tmp/todori-home HOME=/private/tmp/todori-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --release`
+- `cd app && env HOME=/private/tmp/taskveil-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --release`
+- `cd app && env CFFIXED_USER_HOME=/private/tmp/taskveil-home HOME=/private/tmp/taskveil-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --release`
 - `cd app && flutter build ios --simulator --debug`
-- `cargo tree -p todori_app_bridge --target aarch64-linux-android | grep security-framework || true`
+- `cargo tree -p taskveil_app_bridge --target aarch64-linux-android | grep security-framework || true`
 
 プラットフォーム別ビルド結果:
 
 | 対象 | コマンド | 結果 | 成果物/エラー |
 |---|---|---|---|
-| Android Rust FFI | `cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release` | 成功 | `app/android/app/src/main/jniLibs/arm64-v8a/libtodori_app_bridge.so`、13MB。生成物は検証後に削除した |
-| Android APK debug | `flutter build apk --debug` | 失敗（環境） | 初回は `~/.gradle/...gradle-9.1.0-all.zip.lck` 作成不可。`GRADLE_USER_HOME=/private/tmp/todori-gradle` 再試行では `~/.android/cache/... Operation not permitted` と `NDK not configured. Preferred NDK version is '28.2.13676358'` |
+| Android Rust FFI | `cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release` | 成功 | `app/android/app/src/main/jniLibs/arm64-v8a/libtaskveil_app_bridge.so`、13MB。生成物は検証後に削除した |
+| Android APK debug | `flutter build apk --debug` | 失敗（環境） | 初回は `~/.gradle/...gradle-9.1.0-all.zip.lck` 作成不可。`GRADLE_USER_HOME=/private/tmp/taskveil-gradle` 再試行では `~/.android/cache/... Operation not permitted` と `NDK not configured. Preferred NDK version is '28.2.13676358'` |
 | macOS release | `flutter build macos --release` | 失敗（環境） | SwiftPM依存解決前に `~/Library/Caches/org.swift.swiftpm/... Operation not permitted`。`CFFIXED_USER_HOME` 再試行では `sandbox-exec: sandbox_apply: Operation not permitted` |
 | iOS Simulator debug | `flutter build ios --simulator --debug` | 失敗（環境） | SwiftPM依存解決前に `~/Library/Caches/org.swift.swiftpm/... Operation not permitted`。CoreSimulatorService接続不可、log書き込み不可も併発 |
 
@@ -177,8 +177,8 @@ P2-M5前半 task-73 で削除同期ADR-010ドラフト、削除tombstone blob空
 - Android targetで `ensure_device_key_with_migration` が未使用警告になった。Apple platform専用の移行helperであり、Androidでは呼ばれないため、`#[cfg(any(test, target_os = "ios", target_os = "macos"))]` を付けてAndroid build warningを解消した。
 - `reqwest` は `rustls-tls` / `webpki-roots` 経路でAndroid向けにコンパイルされた。
 - SQLCipherは `rusqlite` の `bundled-sqlcipher-vendored-openssl` 経路でAndroid向けにコンパイルされた。
-- `cargo tree -p todori_app_bridge --target aarch64-linux-android | grep security-framework || true` は出力なし。Apple `security-framework` 依存はAndroid targetへ入っていない。
-- FRB/cargokitの名前不整合は見つからなかった。Android Rust FFIの成果物名は `libtodori_app_bridge.so`。
+- `cargo tree -p taskveil_app_bridge --target aarch64-linux-android | grep security-framework || true` は出力なし。Apple `security-framework` 依存はAndroid targetへ入っていない。
+- FRB/cargokitの名前不整合は見つからなかった。Android Rust FFIの成果物名は `libtaskveil_app_bridge.so`。
 
 DeviceKeyStore fallback確認:
 
@@ -199,12 +199,12 @@ README/BACKLOG更新内容:
 - `cargo fmt --all -- --check`: 成功
 - `cargo clippy --workspace -- -D warnings`: 成功
 - `cargo test --workspace`: 成功
-  - `todori-crypto`: 24 passed
-  - `todori-domain`: 40 passed
+  - `taskveil-crypto`: 24 passed
+  - `taskveil-domain`: 40 passed
   - `server/tests/sync_server.rs`: 5 passed
-  - `todori-storage`: 48 passed, 1 ignored
-  - `todori-sync`: 29 passed
-  - `todori_app_bridge`: 4 passed, 1 ignored
+  - `taskveil-storage`: 48 passed, 1 ignored
+  - `taskveil-sync`: 29 passed
+  - `taskveil_app_bridge`: 4 passed, 1 ignored
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
 - `cd app && flutter analyze`: 成功
 - `cd app && flutter test`: 成功（123 passed、visual QA harness 1 skipped）
@@ -269,11 +269,11 @@ README/BACKLOG更新内容:
 
 - `app/android/app/build.gradle.kts`
 
-### 追記: todori_app_bridge AARメタデータ要件対応
+### 追記: taskveil_app_bridge AARメタデータ要件対応
 
 作業日: 2026-07-08
 
-- Android APKビルドで `:todori_app_bridge` モジュールが compile SDK 33でコンパイルされ、AARメタデータ要件15件により失敗したため、`app/rust_builder/android/build.gradle` の `compileSdkVersion` を `36` へ変更した。
+- Android APKビルドで `:taskveil_app_bridge` モジュールが compile SDK 33でコンパイルされ、AARメタデータ要件15件により失敗したため、`app/rust_builder/android/build.gradle` の `compileSdkVersion` を `36` へ変更した。
 - `minSdkVersion 19`、`ndkVersion android.ndkVersion`、namespace、cargokit/FRB設定は維持した。
 - サンドボックスではGradle実行不可のため、`flutter build apk --debug` による再検証は未実行。親環境でAndroid buildを再検証する。
 

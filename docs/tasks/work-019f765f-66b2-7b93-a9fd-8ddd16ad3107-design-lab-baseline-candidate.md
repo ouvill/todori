@@ -29,7 +29,7 @@ Interactive Design Labは、採用済みUIをfake widgetとして複製し続け
 
 ## 3. ゴール
 
-- Design Labの既定baselineがproduction `TodoriApp`、production router、production providerをfake dataで実行する。
+- Design Labの既定baselineがproduction `TaskveilApp`、production router、production providerをfake dataで実行する。
 - Candidateは未採用差分だけをregistry経由で実行し、採用済み画面の複製を持たない。
 - production Visual QAとinteractive baselineが同じfixtureを使う。
 - 旧全面mock、独立state、旧IA、書体比較をcurrent harnessから除去する。
@@ -64,7 +64,7 @@ Interactive Design Labは、採用済みUIをfake widgetとして複製し続け
 
 ## 6. 受け入れ基準
 
-- [x] baselineが実際の`TodoriApp`でHome / Calendar / Lists / Menuを表示し、Search / Templates / Task detail / Focusへproduction routeで遷移できる。
+- [x] baselineが実際の`TaskveilApp`でHome / Calendar / Lists / Menuを表示し、Search / Templates / Task detail / Focusへproduction routeで遷移できる。
 - [x] fixtureに期限・予定、優先度、3階層subtask、完了、複数reminder、template、日英混在が含まれる。
 - [x] candidate registryがID、target route、hypothesis、UI Spec delta、work itemを必須にし、重複を拒否する。
 - [x] active candidate 0件で明示的な空状態を表示する。
@@ -92,7 +92,7 @@ Interactive Design Labは、採用済みUIをfake widgetとして複製し続け
 ### 実装結果
 
 - 作業日: 2026-07-19
-- 結果: `DesignLabMode`と`DesignLabCandidate`を追加し、既定baselineを`FakeBridgeService`を注入したproduction `TodoriApp` / routerへ置き換えた。Candidateはactive registryの未採用差分だけをproduction theme上で起動し、0件時は追加方法を示す空状態を表示する。
+- 結果: `DesignLabMode`と`DesignLabCandidate`を追加し、既定baselineを`FakeBridgeService`を注入したproduction `TaskveilApp` / routerへ置き換えた。Candidateはactive registryの未採用差分だけをproduction theme上で起動し、0件時は追加方法を示す空状態を表示する。
 - Fixture: `DesignLabFixture`をinteractive baselineとproduction Visual QAで共有した。期限・予定、優先度、見積、3階層subtask、done / wont-do、複数reminder、template / weekly schedule、日英混在を含む。
 - 整理: current `main`にあった旧全面mock、独立state、旧IA、採用済みprototype、書体比較、外部font取得script、旧interactive testを削除した。旧parity branchは未統合・非採用のまま保存し、quiet-daybook worktreeとprivate repoには変更を加えていない。
 - 証拠: `design_lab_baseline_candidate_test.dart`の5 test、`flutter analyze`、release Rust bridge build後の`flutter test` 275件（Visual QA 1件は通常どおり環境flag未指定でskip）、hardcoded strings、client boundary / negative test、Cargo fmt / clippy / workspace test、`git diff --check`が成功した。

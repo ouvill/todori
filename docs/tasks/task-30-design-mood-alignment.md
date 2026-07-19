@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpolishを重ねたが、参照画像（`assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp` / `assets/brand/generated/todori-design-direction-tasks.webp` / `assets/brand/generated/todori-design-direction-task-detail.webp`）の雰囲気には近づいていない。
+task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpolishを重ねたが、参照画像（`assets/brand/generated/taskveil-design-direction-mobile-focus-tasks.webp` / `assets/brand/generated/taskveil-design-direction-tasks.webp` / `assets/brand/generated/taskveil-design-direction-task-detail.webp`）の雰囲気には近づいていない。
 
 親レビューで、task-28後に恒久化したスクリーンショット基盤（`app/tool/visual_qa.sh` と `app/test/visual_qa/visual_qa_screenshots_test.dart`）の出力と参照画像を比較した結果、根本原因は次の5点と特定された。
 
@@ -46,7 +46,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - `app/test/visual_qa/visual_qa_screenshots_test.dart`
 - `app/tool/visual_qa.sh`
 - `app/tool/check_hardcoded_strings.sh`
-- 参照画像: `assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp` / `assets/brand/generated/todori-design-direction-tasks.webp` / `assets/brand/generated/todori-design-direction-task-detail.webp`
+- 参照画像: `assets/brand/generated/taskveil-design-direction-mobile-focus-tasks.webp` / `assets/brand/generated/taskveil-design-direction-tasks.webp` / `assets/brand/generated/taskveil-design-direction-task-detail.webp`
 
 必要に応じて、現在の実装で参照されている `app/lib/src/generated/l10n/` の生成結果も確認する。ただし生成物は手編集しない。
 
@@ -134,7 +134,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - 新規pub依存なし。フォントはアセットとしてバンドルし、`google_fonts` パッケージ等は使わない。
 - Lists画面・Trash画面の構成変更なし（テーマ変更（フォント/色トークン）の波及のみ許容する）。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` の変更禁止。
-- `todori-private/` 配下、`.github/` 配下の変更禁止。
+- `taskveil-private/` 配下、`.github/` 配下の変更禁止。
 - 画像モックのピクセル再現はしない。i18n・Dynamic Type・狭幅・48pxタップ領域・tooltip/semanticsを壊さない。
 
 ## 5. 実装手順例
@@ -181,7 +181,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - [ ] `app/assets/fonts/Lora/OFL.txt` と `app/assets/fonts/Inter/OFL.txt` が同梱されている。
 - [ ] `app/pubspec.yaml` にLora/Interの `fonts:` 定義があり、新規pub依存が追加されていない。
 - [ ] `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` が変更されていない。
-- [ ] `todori-private/` と `.github/` が変更されていない。
+- [ ] `taskveil-private/` と `.github/` が変更されていない。
 - [ ] `docs/tasks/task-30-design-mood-alignment.md` の末尾に完了報告が追記され、8章の項目がすべて記載されている。
 
 ## 7. 制約・注意事項
@@ -190,7 +190,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - `docs/design/visual-direction.md` はpublic repoのデザイン正本である。実装判断がずれた場合でも、この指示書のスコープでは正本自体の更新は必須にしない（矛盾を発見した場合は完了報告の未解決事項に記録する）。
 - フォントはGoogle Fonts（Lora, Inter）由来のOFL（SIL Open Font License）ライセンスファイルを必ず同梱する。ライセンスファイルなしでフォントバイナリだけを追加しない。
 - `google_fonts` パッケージ等の新規pub依存は追加しない。フォントはアセットとしてバンドルし、`pubspec.yaml` の `fonts:` セクションで登録する。
-- `visual_qa_screenshots_test.dart` はデフォルトでskipされる設計を維持し、`TODORI_VISUAL_QA=1` のときのみ実行されるようにする（既存の仕組みを壊さない）。
+- `visual_qa_screenshots_test.dart` はデフォルトでskipされる設計を維持し、`TASKVEIL_VISUAL_QA=1` のときのみ実行されるようにする（既存の仕組みを壊さない）。
 - before/afterのスクリーンショット比較は、`app/build/visual_qa_before/` と `app/build/visual_qa/` のパスを完了報告に明記する。両ディレクトリはコミット対象にしない。
 - UI文字列は必ずARB化する。`Text('...')`、`Tooltip(message: '...')` などの直書きを残さない。
 - `flutter_rust_bridge` は `2.12.0` 固定であり、Rust側crateとDart側pubのバージョン一致を崩さない。
@@ -217,7 +217,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - 品質ゲート6点、`check_hardcoded_strings.sh`、`git diff --check` の実行結果
 - やらなかったことが守られていること（新機能なし、新規pub依存なし、Rust/FRB/DB/domain/storage変更なし、Lists/Trash構成変更なし）
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` を変更していないこと
-- `todori-private/` と `.github/` を変更していないこと
+- `taskveil-private/` と `.github/` を変更していないこと
 - public/private境界の確認結果
 - 未解決事項・要人間判断
 
@@ -253,7 +253,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 - `app/test/visual_qa/visual_qa_screenshots_test.dart`
 - `app/tool/visual_qa.sh`
 - `app/tool/check_hardcoded_strings.sh`
-- 参照画像: `assets/brand/generated/todori-design-direction-mobile-focus-tasks.webp` / `-tasks.webp` / `-task-detail.webp`（`sips`でPNGへ変換してReadツールで目視）
+- 参照画像: `assets/brand/generated/taskveil-design-direction-mobile-focus-tasks.webp` / `-tasks.webp` / `-task-detail.webp`（`sips`でPNGへ変換してReadツールで目視）
 
 `docs/tasks/PLAYBOOK.md` と `docs/tasks/BACKLOG.md` はリポジトリに現存しなかった（`docs/tasks/README.md` のタスク一覧とAGENTS.mdの記述で代替した）。未解決事項に記録する。
 
@@ -358,7 +358,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない（`git status` で確認済み）。
 
-### `todori-private/` と `.github/` の変更有無
+### `taskveil-private/` と `.github/` の変更有無
 
 - どちらも変更していない（`git status` に該当パスの差分なし）。
 
@@ -370,7 +370,7 @@ task-25/28/29でLists / Tasks / Task detail / Trash / Dialog / Empty stateのpol
 
 1. `docs/tasks/PLAYBOOK.md` と `docs/tasks/BACKLOG.md` が指示書2章に記載されているが、現在のリポジトリに存在しなかった。`docs/tasks/README.md` のタスク一覧とAGENTS.mdの記述で代替して読み進めた。ファイル構成とタスク指示書の記述に差異がある可能性がある。
 2. 指示書は「FontLoaderは同一familyに複数フォントを追加登録でき、後続がグリフフォールバックになる」と明記しているが、実機検証の結果、重み(weight)の異なる複数typefaceが同一family内にある場合はこの仕組みが機能せず（tofu表示になる）、`ThemeData.fontFamilyFallback` を使った別family方式に変更する必要があった。指示書のFontLoader前提が現在のFlutter engineの挙動と一致しない可能性があり、他タスクでも同様の技法を使う場合は注意が必要。
-3. Task detail画面の主タスク自体のPriority表現について、指示書F章は「メタデータチップはC.と同じ文法（Status表記はdetailでは残してよい）」と記載しており、Priorityについての明示的な例外記述はなかったため、C章の「Priorityチップを行から削除する」をdetailの主タスクにも適用し、priority dot + tooltip/semanticsのみで伝える実装にした。参照画像（`todori-design-direction-task-detail.webp`）では「High priority」という文言付きチップが描かれているが、visual-direction.mdの「Calibration Rule」（画像は方向性の参考であり最終レイアウトの真実ではない）に従い、指示書本文の記述を優先した。この解釈が意図と異なる場合は別タスクでの手直しが必要。
+3. Task detail画面の主タスク自体のPriority表現について、指示書F章は「メタデータチップはC.と同じ文法（Status表記はdetailでは残してよい）」と記載しており、Priorityについての明示的な例外記述はなかったため、C章の「Priorityチップを行から削除する」をdetailの主タスクにも適用し、priority dot + tooltip/semanticsのみで伝える実装にした。参照画像（`taskveil-design-direction-task-detail.webp`）では「High priority」という文言付きチップが描かれているが、visual-direction.mdの「Calibration Rule」（画像は方向性の参考であり最終レイアウトの真実ではない）に従い、指示書本文の記述を優先した。この解釈が意図と異なる場合は別タスクでの手直しが必要。
 4. priority dotの色をbrightness(light/dark)で分岐させず、design-directionのトークン色（coral/amber/softSage）に固定した。ダークテーマでのコントラスト・視認性は今回の`visual_qa`ハーネス（ライトテーマのみスクリーンショット）で未検証。
 5. `AppProtectionSignal` ウィジェットクラスは完全に削除した（未使用になったため）。将来的に設定/オンボーディング画面でセキュリティ説明用に同種のUIが必要になった場合は、再実装が必要になる。
 6. Trash画面の日付表示（`taskDeletedAt` / Trash行のDueチップ）は今回のDue相対化・プレフィックス除去の対象外とした（Trash画面の構成変更をしない、という指示書のスコープ制約に従い、`formatDueDate`（絶対日付・YYYY-MM-DD）をそのまま維持）。相対日付表記との一貫性が将来的に議論になる可能性がある。

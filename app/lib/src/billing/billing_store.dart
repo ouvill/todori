@@ -4,10 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
 const _revenueCatApiKey = String.fromEnvironment(
-  'TODORI_REVENUECAT_IOS_API_KEY',
+  'TASKVEIL_REVENUECAT_IOS_API_KEY',
 );
 const _revenueCatEnvironment = String.fromEnvironment(
-  'TODORI_REVENUECAT_ENVIRONMENT',
+  'TASKVEIL_REVENUECAT_ENVIRONMENT',
 );
 
 enum BillingPurchaseOutcome { purchased, cancelled, pending, failed }
@@ -43,7 +43,7 @@ abstract interface class BillingStore {
   Future<Uri?> managementUrl();
 
   /// RevenueCat logout is intentionally not called because it creates an
-  /// anonymous customer. The next Todori login switches to the server-issued
+  /// anonymous customer. The next Taskveil login switches to the server-issued
   /// custom App User ID with [Purchases.logIn].
   Future<void> accountLoggedOut();
 }
@@ -140,10 +140,10 @@ class RevenueCatBillingStore implements BillingStore {
   }
 
   static bool _isMonthly(Package package) =>
-      package.storeProduct.identifier == 'dev.todori.todori.pro.monthly';
+      package.storeProduct.identifier == 'com.taskveil.app.pro.monthly';
 
   static bool _isAnnual(Package package) =>
-      package.storeProduct.identifier == 'dev.todori.todori.pro.yearly';
+      package.storeProduct.identifier == 'com.taskveil.app.pro.yearly';
 
   static BillingPurchaseOutcome _purchaseError(PlatformException error) {
     return switch (PurchasesErrorHelper.getErrorCode(error)) {

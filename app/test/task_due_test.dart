@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/rust/api.dart';
 
 TaskDueDto testDateTimeDueFromMillis(int value, {String timeZone = 'UTC'}) =>
     dateTimeDueFromInstant(

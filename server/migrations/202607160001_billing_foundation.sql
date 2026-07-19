@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS account_entitlements (
     PRIMARY KEY (user_id, environment, lookup_key)
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing_customers TO todori_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing_events TO todori_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON billing_subscriptions TO todori_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON account_entitlements TO todori_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON billing_customers TO taskveil_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON billing_events TO taskveil_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON billing_subscriptions TO taskveil_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON account_entitlements TO taskveil_app;

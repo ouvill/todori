@@ -50,7 +50,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 **A. Design Labモックの追加**
 
 - test-onlyのFlutter widgetとしてDesign Labを追加する。
-- 本番theme（`buildTodoriTheme`）、既存spacing、Material Icons、実フォント読み込みを使う。
+- 本番theme（`buildTaskveilTheme`）、既存spacing、Material Icons、実フォント読み込みを使う。
 - 最低3案のPNGを生成する:
   - calm Today案: 余白と見出しを活かした、静かなToday面。
   - dense Today案: 作業アプリとして密度を上げたToday面。
@@ -75,7 +75,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 - 外部アイコンセットや新規pub依存を追加しない。
 - 新規画像アセットを追加しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `.github/` と `todori-private/` は変更しない。
+- `.github/` と `taskveil-private/` は変更しない。
 
 ## 5. 実装手順例
 
@@ -103,7 +103,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 - [x] `sh app/tool/check_hardcoded_strings.sh` が成功している。
 - [x] `git diff --check` が成功している。
 - [x] `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` が変更されていない。
-- [x] `.github/` と `todori-private/` が変更されていない。
+- [x] `.github/` と `taskveil-private/` が変更されていない。
 
 ## 7. 制約・注意事項
 
@@ -124,7 +124,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 - 実行した検証コマンドと結果
 - 外部依存、新規画像アセット、本番i18nキーを追加していないこと
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` を変更していないこと
-- `.github/` と `todori-private/` を変更していないこと
+- `.github/` と `taskveil-private/` を変更していないこと
 - 未解決事項（なければ「なし」）
 
 ## 9. 完了報告
@@ -154,7 +154,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 
 - `app/test/visual_qa/design_lab_mocks.dart` を追加し、test-onlyの `DesignLabMockApp` と3種類のFlutterモックを実装した。
 - `app/test/visual_qa/visual_qa_screenshots_test.dart` にDesign Lab用のスクリーンショットtestを3件追加した。
-- `DesignLabMockApp` は本番 `buildTodoriTheme`、既存spacing、Material Icons、visual QAの実フォント読み込みを使う。
+- `DesignLabMockApp` は本番 `buildTaskveilTheme`、既存spacing、Material Icons、visual QAの実フォント読み込みを使う。
 - 本番route、provider、DB seed、FRB、Rust API、ARB、本番画面ファイルは変更していない。
 
 ### 追加したDesign Lab PNG
@@ -189,7 +189,7 @@ task-28〜32で本番UIの見た目は段階的に整ってきたが、まだ「
 - 新規画像アセットは追加していない。
 - 本番i18nキーは追加していない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
-- `.github/` と `todori-private/` は変更していない。
+- `.github/` と `taskveil-private/` は変更していない。
 
 ### 独立調査
 

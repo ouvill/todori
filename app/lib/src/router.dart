@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:todori/src/screens/account_screen.dart';
-import 'package:todori/src/screens/calendar_screen.dart';
-import 'package:todori/src/screens/calendar_settings_screen.dart';
-import 'package:todori/src/screens/focus_screen.dart';
-import 'package:todori/src/screens/home_screen.dart';
-import 'package:todori/src/screens/lists_screen.dart';
-import 'package:todori/src/screens/menu_screen.dart';
-import 'package:todori/src/screens/search_screen.dart';
-import 'package:todori/src/screens/task_detail_screen.dart';
-import 'package:todori/src/screens/tasks_screen.dart';
-import 'package:todori/src/screens/templates_screen.dart';
-import 'package:todori/src/ui/app_navigation_shell.dart';
+import 'package:taskveil/src/screens/account_screen.dart';
+import 'package:taskveil/src/screens/calendar_screen.dart';
+import 'package:taskveil/src/screens/calendar_settings_screen.dart';
+import 'package:taskveil/src/screens/focus_screen.dart';
+import 'package:taskveil/src/screens/home_screen.dart';
+import 'package:taskveil/src/screens/lists_screen.dart';
+import 'package:taskveil/src/screens/menu_screen.dart';
+import 'package:taskveil/src/screens/search_screen.dart';
+import 'package:taskveil/src/screens/task_detail_screen.dart';
+import 'package:taskveil/src/screens/tasks_screen.dart';
+import 'package:taskveil/src/screens/templates_screen.dart';
+import 'package:taskveil/src/ui/app_navigation_shell.dart';
 
 /// Centralizes all route definitions for the app in one place.
 ///

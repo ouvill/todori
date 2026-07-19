@@ -1,4 +1,4 @@
-package dev.todori.todori
+package com.taskveil.app
 
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity

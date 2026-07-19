@@ -1,4 +1,4 @@
-//! `todori-storage`: ローカルストレージアクセス層。
+//! `taskveil-storage`: ローカルストレージアクセス層。
 //!
 //! SQLCipherで暗号化されたSQLite上に `ListRepository` / `TaskRepository` を実装する
 //! （`docs/03_技術仕様書.md` §5）。
@@ -6,8 +6,7 @@
 use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
-use thiserror::Error;
-use todori_domain::{
+use taskveil_domain::{
     fractional_index_after, new_default_list, restored_active_duration_ms,
     validate_active_timer_session, validate_active_timer_update, validate_completed_timer_session,
     ActiveTimerSession, CivilDate, CompletedTimerSession, DomainError, IanaTimeZone, List,
@@ -15,6 +14,7 @@ use todori_domain::{
     TaskStatus, TaskTemplate, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant,
     Uuid,
 };
+use thiserror::Error;
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
@@ -1459,7 +1459,7 @@ pub fn open_encrypted(path: &Path, key: &[u8; 32]) -> Result<Connection, Storage
 /// SQLCipher operation has completed.
 ///
 /// SQLCipher performs `PRAGMA rekey` atomically at the database-file boundary.
-/// The active/pending capsule coordinator in `todori-client` deliberately
+/// The active/pending capsule coordinator in `taskveil-client` deliberately
 /// performs new-key reopen verification as a separate crash boundary.
 pub fn rekey_encrypted_database(
     path: &Path,
@@ -6870,12 +6870,12 @@ fn undo_operation_from_str(value: &str) -> Result<TaskUndoOperation, StorageErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
-    use todori_crypto::{derive_local_db_key, ensure_device_key, InMemoryDeviceKeyStore};
-    use todori_domain::{
+    use taskveil_crypto::{derive_local_db_key, ensure_device_key, InMemoryDeviceKeyStore};
+    use taskveil_domain::{
         new_list, new_task, transition_task, update_title, TemplateNode, TemplateSnapshot,
         TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
     };
+    use tempfile::NamedTempFile;
 
     const KEY: [u8; 32] = [0x11; 32];
     const WRONG_KEY: [u8; 32] = [0x22; 32];
@@ -8562,7 +8562,7 @@ mod tests {
             accumulated_active_ms: 5_000,
             target_duration_ms: Some(25_000),
         };
-        let reached_at = todori_domain::pomodoro_target_reached_at(&pomodoro).unwrap();
+        let reached_at = taskveil_domain::pomodoro_target_reached_at(&pomodoro).unwrap();
         assert_eq!(reached_at, 35_000);
         SqliteTimerSessionRepository::new(open_encrypted(file.path(), &KEY).unwrap())
             .start_active(pomodoro.clone(), 15_000)

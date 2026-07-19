@@ -1,4 +1,4 @@
-# Todori 開発プレイブック
+# Taskveil 開発プレイブック
 
 標準・重要変更レーンの作業を、複数branch / worktreeでも一貫して進めるためのフェーズと完了条件を定める。レーン、work item形式、共通品質ゲートの詳細は [`README.md`](./README.md) を正本とする。
 
@@ -23,14 +23,14 @@
 IDは次のコマンドで生成する。コマンドはIDを1件表示するだけで、task文書、branch、worktree、commit、pushを作成しない。
 
 ```sh
-cargo run -q -p todori-xtask -- work-id
+cargo run -q -p taskveil-xtask -- work-id
 ```
 
 - **将来候補を登録する**: 計画用branch / worktreeで `status: backlog` のwork itemを作り、実装前にmainへ取り込む。
 - **作成と同時に着手する**: UUIDv7を生成し、そのIDを含むbranch / worktreeを作り、最初の変更として `status: active` のwork itemを作る。
 - **main登録済み候補へ着手する**: 対象の `backlog` work itemのIDを含むbranch / worktreeを作り、`status: active` へ更新してから実装する。
 
-branchは `work/<UUIDv7>-<slug>`、worktreeは `../todori-work-<UUIDv7先頭8桁>-<slug>` を標準とする。1 worktreeで扱うwork itemは原則1件とする。
+branchは `work/<UUIDv7>-<slug>`、worktreeは `../taskveil-work-<UUIDv7先頭8桁>-<slug>` を標準とする。1 worktreeで扱うwork itemは原則1件とする。
 
 ## フェーズ
 

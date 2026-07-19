@@ -1,4 +1,4 @@
-# Todori UI Spec ── 拘束力のある具体値と判断規則
+# Taskveil UI Spec ── 拘束力のある具体値と判断規則
 
 > Status: binding implementation spec
 > Last updated: 2026-07-14
@@ -32,7 +32,7 @@
 
 ### Design Lab境界
 
-- Design Labのproduction baselineはfake dataを注入した実際の`TodoriApp`、production router、provider、l10n、semantics、componentで描画する。採用済み画面をLab専用widgetとして複製しない。
+- Design Labのproduction baselineはfake dataを注入した実際の`TaskveilApp`、production router、provider、l10n、semantics、componentで描画する。採用済み画面をLab専用widgetとして複製しない。
 - Candidateは未採用の差分だけをregistryへ登録し、対象route、仮説、本書との差分、対応work itemを必須とする。既定ではproduction theme / componentを再利用し、比較に必要な差分だけをLab専用widgetにする。
 - 採用または却下したCandidateを実行可能なarchiveとして残さない。採用時は本書の裁定、production実装、production Visual QA、Candidate削除を同一work itemで完了し、履歴はwork itemとgitに残す。
 - production codeからDesign Lab、Visual QA、fake bridgeへの依存をboundary checkまたは同等の静的検査で検出する。依存方向はDesign Lab / testからproductionへの一方向だけを許可する。
@@ -252,7 +252,7 @@ Undoスナックバーは4秒程度で自動消滅する。永続表示にしな
   - Loraは本番から退役（decommission）。アセットはDesign Lab比較用にリポジトリへ残すが、pubspecのfonts定義から外し、アプリには同梱しない
   - Zen Old Minchoは当時のLab実験専用で、productionへ同梱しなかった
 - **2026-07-06 人間裁定（ダークモード）**: ダークモードは対応方針だが直近スコープ外。Phase 1リリースはライトモードのみを正式サポートし、リリース前にthemeModeをlight固定する。dark系トークン・コードは残置し、正式対応の再開はBACKLOGで管理する。それまで新規UI実装はライトモードでの検証のみを必須とする。
-- **2026-07-07 人間裁定（北極星アプリ）**: 操作感・体験品質の参照基準は TickTick および Todoist とする。デザイン批評・実装判断で迷った場合は「TickTick/Todoistならどうするか」を判断補助に使う（ビジュアルトーンは既存のTodoriブランド＝深緑/セージ/セリフ見出しを維持し、両アプリの操作感・密度・応答性・モーションの水準を参照する）。
+- **2026-07-07 人間裁定（北極星アプリ）**: 操作感・体験品質の参照基準は TickTick および Todoist とする。デザイン批評・実装判断で迷った場合は「TickTick/Todoistならどうするか」を判断補助に使う（ビジュアルトーンは既存のTaskveilブランド＝深緑/セージ/セリフ見出しを維持し、両アプリの操作感・密度・応答性・モーションの水準を参照する）。
 - **2026-07-07 人間裁定（データ保持原則）**: 完了済みタスク（done/wont_do）は振り返りのための記録資産であり、リスト削除を含むいかなる整理操作でも暗黙に失われてはならない。リスト削除はリストの論理削除とし、完了済みタスクは削除済みリストに紐付いたまま保全する（未完了タスクはゴミ箱へ、復元時は既定インボックスへremap）。振り返り（ログブック）UIはPhase 3検討。ゴミ箱の完全削除機能を将来実装する場合も、この原則との整合（完了済み履歴を巻き込まない設計）を確認すること。
 - **2026-07-07 人間裁定（削除モデル）**: ゴミ箱を廃止し、削除は恒久削除とする。削除導線は詳細画面のサブメニュー＋不可逆警告の追加確認（一覧のスワイプ等の即時削除導線は設けない）。削除Undoなし。完了・編集Undoは維持する。保全経路はアーカイブとする。データ保持原則（同日裁定、上記）の「暗黙に失われてはならない」は、警告つき明示的削除を妨げない。詳細は `docs/05_設計判断記録.md` ADR-009参照。
 - **2026-07-07 人間裁定（Home改善サイクル第1回）**: `assets/brand/explorations/home-20260707/` の3案（A: TickTick方向、B: Todoist方向、C: 現行構造polish）を比較し、A案の構造（効率重視・Overdue/Todayグルーピング・常設quick add・swipe前提）とC案の行表現を組み合わせたハイブリッドを採用する。人間調整として、横幅の外マージンと内paddingを圧縮し、トップ部分を圧縮し、Tomorrow/Upcomingセクションを含める。これによりルートは「Today」ではなく「Home」と再定義する。`flutter_animate` / `flutter_slidable` の追加はこの裁定で承認済みだが、実装は個別タスク指示書の範囲に従う。

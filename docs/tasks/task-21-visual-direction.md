@@ -5,9 +5,9 @@
 
 ## 1. 背景とコンテキスト
 
-task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、metadata、empty/loading/error state、dialogの基盤が追加され、Lists / Tasks / TaskDetail の画面文法が揃い始めた。一方、現状のUIはまだMaterial標準寄りの整理段階であり、Todoriのプロダクトらしさを示す視覚的な方向性は薄い。
+task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、metadata、empty/loading/error state、dialogの基盤が追加され、Lists / Tasks / TaskDetail の画面文法が揃い始めた。一方、現状のUIはまだMaterial標準寄りの整理段階であり、Taskveilのプロダクトらしさを示す視覚的な方向性は薄い。
 
-参考画像 `assets/brand/generated/todori-mobile-product.png` は、深いグリーン/淡いセージ、白い大きな面、priority dot、due chip、サブタスク階層線、下部ナビ風の構成、鍵アイコンによる安心シグナルが印象的である。ただし、この画像は広告用モックであり、実アプリの情報設計・既存ルート・MVPスコープをそのまま置き換えるものではない。
+参考画像 `assets/brand/generated/taskveil-mobile-product.png` は、深いグリーン/淡いセージ、白い大きな面、priority dot、due chip、サブタスク階層線、下部ナビ風の構成、鍵アイコンによる安心シグナルが印象的である。ただし、この画像は広告用モックであり、実アプリの情報設計・既存ルート・MVPスコープをそのまま置き換えるものではない。
 
 このタスクでは、参考画像の方向性を「実アプリとして疲れない密度」に調整し、task-20で追加された既存UI foundationへ小さく反映する。ゴミ箱画面・復元UI、並び替え、通知へ進む前に、既存のLists / Tasks / TaskDetailが同じブランド文法を持つ状態にする。
 
@@ -21,7 +21,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 - `docs/tasks/task-18-task-editing-ui.md`
 - `docs/tasks/task-19-subtasks-ui.md`
 - `docs/tasks/task-20-ui-foundation.md`
-- `assets/brand/generated/todori-mobile-product.png`
+- `assets/brand/generated/taskveil-mobile-product.png`
 - `app/lib/main.dart`
 - `app/lib/src/ui/theme.dart`
 - `app/lib/src/ui/task_components.dart`
@@ -53,7 +53,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 ### やること
 
 1. **themeの色調整**:
-   - `app/lib/src/ui/theme.dart` の既存 `buildTodoriTheme` を中心に、参考画像由来の深いグリーン、淡いセージ、白いsurfaceをMaterial 3 `ColorScheme` の範囲で反映する。
+   - `app/lib/src/ui/theme.dart` の既存 `buildTaskveilTheme` を中心に、参考画像由来の深いグリーン、淡いセージ、白いsurfaceをMaterial 3 `ColorScheme` の範囲で反映する。
    - `ColorScheme.fromSeed` を使い続けてもよいが、必要なら `primary` / `primaryContainer` / `surface` / `surfaceContainer*` / `outlineVariant` などを最小限上書きする。
    - light themeを主対象にする。dark themeは破綻しない範囲で同じ方針を反映し、読めないコントラストを作らない。
    - `AppSpacing` などtask-20の小さなtokenは維持し、巨大なdesign token体系へ広げない。
@@ -100,7 +100,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 - Riverpod、go_router、FRB、Rust API、DB schema、domain usecaseを変更しない。
 - 本格的なセキュリティ状態画面、鍵管理画面、アプリロック、生体認証、Keychain本実装を追加しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
+- `taskveil-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
 
 ## 5. 実装手順（例）
 
@@ -117,7 +117,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 
 ## 6. 受け入れ基準
 
-- [ ] `assets/brand/generated/todori-mobile-product.png` を参考にした視覚方向性が、実アプリの既存UI foundationへ反映されている。
+- [ ] `assets/brand/generated/taskveil-mobile-product.png` を参考にした視覚方向性が、実アプリの既存UI foundationへ反映されている。
 - [ ] 深いグリーン、淡いセージ、白いsurfaceの方向性が `ThemeData` / `ColorScheme` / 既存tokenの範囲で整理されている。
 - [ ] 新規pub依存、UIフレームワーク、icon packageが追加されていない。
 - [ ] `AppTaskRow` または同等の共通部品にpriority dotが追加され、Tasks画面とTaskDetailのサブタスク表示で同じ文法になっている。
@@ -185,7 +185,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
   - `docs/tasks/task-18-task-editing-ui.md`
   - `docs/tasks/task-19-subtasks-ui.md`
   - `docs/tasks/task-20-ui-foundation.md`
-  - `assets/brand/generated/todori-mobile-product.png`
+  - `assets/brand/generated/taskveil-mobile-product.png`
   - `app/lib/main.dart`
   - `app/lib/src/ui/theme.dart`
   - `app/lib/src/ui/task_components.dart`
@@ -326,7 +326,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
 - `cd app && flutter test`: 成功（Flutter 20件）。
 - `sh app/tool/check_hardcoded_strings.sh`: 成功。
-- `git -C todori diff --check`: 成功。
+- `git -C taskveil diff --check`: 成功。
 
 ### やらなかったこと
 
@@ -335,7 +335,7 @@ task-20で `app/lib/src/ui/` 配下に `ThemeData`、spacing、共通task row、
 - 下部ナビ、Today/Upcoming/Projects/Settings、Focus timer、Forest、ゴミ箱画面・復元UI、Undo、並び替え、通知、検索、タグ、設定画面は実装していない。
 - 本格的なセキュリティ状態画面、鍵管理画面、アプリロック、生体認証、Keychain本実装は追加していない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
-- `todori-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
+- `taskveil-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
 
 ### 未解決事項・要人間判断
 

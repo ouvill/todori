@@ -1,4 +1,4 @@
-# Todori realtime Worker
+# Taskveil realtime Worker
 
 This Worker is a lossy foreground wake-up provider. PostgreSQL and the existing
 HTTPS push/pull API remain the only sync authority. The Worker never stores or

@@ -25,11 +25,11 @@ const DEVICE_PROOF_MAGIC: &[u8; 4] = b"TDP1";
 const DEVICE_IDENTITY_MAGIC: &[u8; 4] = b"TDI1";
 const DEVICE_REVOCATION_MAGIC: &[u8; 4] = b"TDR1";
 const HYBRID_PACKAGE_MAGIC: &[u8; 4] = b"THP1";
-const HYBRID_TRANSCRIPT_MAGIC: &[u8] = b"todori-hybrid-dek-wrap-v1";
-const HYBRID_WRAP_INFO: &[u8] = b"todori/hybrid-dek-wrap-key/v1";
-const SAFETY_NUMBER_MAGIC: &[u8] = b"todori-safety-number-v1";
-const RECIPIENT_KEY_FINGERPRINT_MAGIC: &[u8] = b"todori-recipient-key-fingerprint-v1";
-const DEVICE_REVOCATION_DOMAIN: &[u8] = b"todori/device-revocation/v1";
+const HYBRID_TRANSCRIPT_MAGIC: &[u8] = b"taskveil-hybrid-dek-wrap-v1";
+const HYBRID_WRAP_INFO: &[u8] = b"taskveil/hybrid-dek-wrap-key/v1";
+const SAFETY_NUMBER_MAGIC: &[u8] = b"taskveil-safety-number-v1";
+const RECIPIENT_KEY_FINGERPRINT_MAGIC: &[u8] = b"taskveil-recipient-key-fingerprint-v1";
+const DEVICE_REVOCATION_DOMAIN: &[u8] = b"taskveil/device-revocation/v1";
 
 pub const ED25519_PUBLIC_KEY_LEN: usize = 32;
 pub const ED25519_SIGNATURE_LEN: usize = 64;
@@ -1457,7 +1457,7 @@ mod tests {
     fn aws_lc_official_acvp_known_answer_tests_pass() {
         // AWS-LC's BORINGSSL_self_test runs its embedded ACVP-derived FIPS 203
         // ML-KEM and FIPS 204 ML-DSA known-answer tests. Keeping this call in
-        // Todori's gate verifies the exact aws-lc-sys artifact selected by the
+        // Taskveil's gate verifies the exact aws-lc-sys artifact selected by the
         // pinned aws-lc-rs dependency, in addition to our ML-KEM-768 / ML-DSA-65
         // operational test above.
         assert_eq!(unsafe { aws_lc_sys::BORINGSSL_self_test() }, 1);

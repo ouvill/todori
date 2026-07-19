@@ -1,4 +1,4 @@
-//! `todori-crypto`: 鍵導出・レコード暗号化を提供する crate。
+//! `taskveil-crypto`: 鍵導出・レコード暗号化を提供する crate。
 //!
 //! 詳細は `docs/03_技術仕様書.md` §4 暗号設計 を参照。
 //!
@@ -35,5 +35,5 @@ pub use local_capsule::{
 };
 pub use opaque::{
     login_parameters as opaque_login_parameters,
-    registration_parameters as opaque_registration_parameters, TodoriCipherSuite,
+    registration_parameters as opaque_registration_parameters, TaskveilCipherSuite,
 };

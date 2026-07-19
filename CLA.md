@@ -1,6 +1,6 @@
-# Todori Individual Contributor License Agreement (CLA)
+# Taskveil Individual Contributor License Agreement (CLA)
 
-Thank you for your interest in contributing to Todori (the "Project"), maintained by the Project owner ("we" / "us"). This Contributor License Agreement ("Agreement") clarifies the intellectual property rights granted with any contribution you make to the Project. By submitting a contribution (e.g. opening a pull request), you agree to the terms below for that contribution and all future contributions you submit to the Project, unless you notify us otherwise in writing.
+Thank you for your interest in contributing to Taskveil (the "Project"), maintained by the Project owner ("we" / "us"). This Contributor License Agreement ("Agreement") clarifies the intellectual property rights granted with any contribution you make to the Project. By submitting a contribution (e.g. opening a pull request), you agree to the terms below for that contribution and all future contributions you submit to the Project, unless you notify us otherwise in writing.
 
 ## 1. Definitions
 
@@ -38,7 +38,7 @@ Unless otherwise arranged with the maintainers, submitting a pull request to the
 
 ## 参考訳（日本語）
 
-本コントリビューターライセンス契約（CLA）は、Todori（本プロジェクト）のメンテナが管理する個人コントリビューター向けの契約です。プルリクエストの送信等によりコントリビューションを行うことで、以下の内容に同意したものとみなします。
+本コントリビューターライセンス契約（CLA）は、Taskveil（本プロジェクト）のメンテナが管理する個人コントリビューター向けの契約です。プルリクエストの送信等によりコントリビューションを行うことで、以下の内容に同意したものとみなします。
 
 1. **著作権ライセンスの許諾**: あなたはコントリビューションの著作権を保持したまま、プロジェクトオーナーに対し、AGPL-3.0だけでなく**プロジェクトオーナーが選択する他の条件も含めて**再頒布・サブライセンス等を行える、永続的・世界的・非独占的・無償・撤回不能な著作権ライセンスを許諾します。これは、App Store等、AGPL-3.0とそのままでは相性が明快でない可能性がある配布チャネルにおいてもプロジェクトを配布できるようにするための例外的な許諾です。
 2. **特許ライセンスの許諾**: あなたのコントリビューションに必然的に抵触するあなたの特許請求の範囲について、プロジェクトオーナーおよび本プロジェクトのソフトウェアの受領者に対し、永続的・世界的・非独占的・無償・撤回不能な特許ライセンスを許諾します。

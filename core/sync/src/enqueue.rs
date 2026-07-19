@@ -1,5 +1,5 @@
-use todori_crypto::key_hierarchy::KEY_LEN;
-use todori_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_crypto::key_hierarchy::KEY_LEN;
+use taskveil_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 
 use crate::{
     encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
@@ -1129,7 +1129,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use todori_domain::{
+    use taskveil_domain::{
         ScheduleCursor, TaskStatus, TemplateNode, TemplateSnapshot, MAX_TEMPLATE_SNAPSHOT_BYTES,
         TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
     };

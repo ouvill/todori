@@ -2,7 +2,7 @@
 
 > Last updated: 2026-07-09
 
-Todori uses the Apple Data Protection Keychain on iOS and macOS for the Device Key and account secrets. Signed Apple builds should use the app's `keychain-access-groups` entitlement so normal app launch does not show a Keychain password prompt.
+Taskveil uses the Apple Data Protection Keychain on iOS and macOS for the Device Key and account secrets. Signed Apple builds should use the app's `keychain-access-groups` entitlement so normal app launch does not show a Keychain password prompt.
 
 This document is for local development signing. The repository-wide Apple Team ID is fixed to `4DQWW3VH88` for the iOS and macOS Runner targets. Do not commit Apple IDs, certificates, private keys, or provisioning profile identifiers to the repository.
 
@@ -41,21 +41,21 @@ If Xcode asks you to resolve signing locally, keep the same Team ID:
 2. Select the `Runner` target.
 3. Open Signing & Capabilities.
 4. Select the team whose Team ID is `4DQWW3VH88`.
-5. Confirm that the bundle identifier remains `dev.todori.todori`.
+5. Confirm that the bundle identifier remains `com.taskveil.app`.
 6. Build and run from Xcode or Flutter.
 
-## 4. Entitlement Used by Todori
+## 4. Entitlement Used by Taskveil
 
 The tracked entitlements use this keychain access group:
 
 ```text
-$(AppIdentifierPrefix)dev.todori.todori
+$(AppIdentifierPrefix)com.taskveil.app
 ```
 
 At signing time, `$(AppIdentifierPrefix)` is expanded to the selected Team ID prefix. The signed app then has a concrete keychain group such as:
 
 ```text
-<TEAMID>.dev.todori.todori
+<TEAMID>.com.taskveil.app
 ```
 
 The Rust Keychain store reads the signed app's `keychain-access-groups` entitlement at runtime and passes that concrete value to `kSecAttrAccessGroup`.
@@ -77,13 +77,13 @@ With a stable signing identity and access group, macOS does not need the legacy 
 After setting a local Team ID:
 
 1. Build the macOS app in debug mode.
-2. Launch Todori and confirm no Keychain prompt appears on normal startup.
+2. Launch Taskveil and confirm no Keychain prompt appears on normal startup.
 3. Quit and relaunch the app.
 4. Rebuild and relaunch with the same Team selected.
 5. Confirm no Keychain prompt appears and existing encrypted local data opens.
 6. Repeat equivalent launch/relaunch checks on iOS Simulator or a development device when available.
 
-If prompts still appear, confirm that the built app is signed with `keychain-access-groups` and that the access group contains the selected Team ID prefix plus `dev.todori.todori`.
+If prompts still appear, confirm that the built app is signed with `keychain-access-groups` and that the access group contains the selected Team ID prefix plus `com.taskveil.app`.
 
 ## 7. App Store Note
 
@@ -117,5 +117,5 @@ Personal Team signing is enough for local development only. App Store submission
 
 ### 4. 署名ビルド後の初回起動について
 
-- 署名済みビルドは Data Protection Keychain（access group: dev.todori.todori）を使う。旧 adhoc ビルドが legacy Keychain に保存したデバイスキーとは領域が別のため、初回起動時は新規デバイスキー生成となりローカルデータは初期状態になる。
+- 署名済みビルドは Data Protection Keychain（access group: com.taskveil.app）を使う。旧 adhoc ビルドが legacy Keychain に保存したデバイスキーとは領域が別のため、初回起動時は新規デバイスキー生成となりローカルデータは初期状態になる。
 - 起動確認は 2 回行い、Keychain プロンプトが一切出ないことをもって完了とする（task-77 の受け入れ基準）。

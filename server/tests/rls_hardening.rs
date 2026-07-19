@@ -1,10 +1,10 @@
 use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::{PgPool, Postgres};
+use taskveil_server::db;
 use testcontainers_modules::{
     postgres,
     testcontainers::{runners::AsyncRunner, ContainerAsync},
 };
-use todori_server::db;
 use uuid::Uuid;
 
 struct Fixture {
@@ -28,24 +28,24 @@ impl Fixture {
         let admin_pool = db::connect(&database_url).await.unwrap();
         db::run_migrations(&admin_pool).await.unwrap();
         raw_sql(
-            "CREATE ROLE todori_runtime_test LOGIN PASSWORD 'todori-runtime-test'
+            "CREATE ROLE taskveil_runtime_test LOGIN PASSWORD 'taskveil-runtime-test'
              NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
         )
         .execute(&admin_pool)
         .await
         .unwrap();
-        raw_sql("GRANT todori_app TO todori_runtime_test")
+        raw_sql("GRANT taskveil_app TO taskveil_runtime_test")
             .execute(&admin_pool)
             .await
             .unwrap();
         raw_sql(
-            "CREATE ROLE todori_bypass_test LOGIN PASSWORD 'todori-bypass-test'
+            "CREATE ROLE taskveil_bypass_test LOGIN PASSWORD 'taskveil-bypass-test'
              NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS",
         )
         .execute(&admin_pool)
         .await
         .unwrap();
-        raw_sql("GRANT todori_app TO todori_bypass_test")
+        raw_sql("GRANT taskveil_app TO taskveil_bypass_test")
             .execute(&admin_pool)
             .await
             .unwrap();
@@ -165,10 +165,11 @@ impl Fixture {
         .await
         .unwrap();
 
-        let application_url =
-            format!("postgres://todori_runtime_test:todori-runtime-test@{host}:{port}/postgres");
+        let application_url = format!(
+            "postgres://taskveil_runtime_test:taskveil-runtime-test@{host}:{port}/postgres"
+        );
         let bypass_database_url =
-            format!("postgres://todori_bypass_test:todori-bypass-test@{host}:{port}/postgres");
+            format!("postgres://taskveil_bypass_test:taskveil-bypass-test@{host}:{port}/postgres");
         let application_pool = db::connect_application(&application_url).await.unwrap();
         Self {
             admin_pool,
@@ -194,7 +195,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
         .unwrap()
         .try_get("current_user")
         .unwrap();
-    assert_eq!(current_user, "todori_runtime_test");
+    assert_eq!(current_user, "taskveil_runtime_test");
 
     assert!(db::connect_application(&fixture.owner_database_url)
         .await
@@ -205,7 +206,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
 
     let group_role = query::<Postgres>(
         "SELECT rolcanlogin, rolsuper, rolbypassrls
-         FROM pg_roles WHERE rolname = 'todori_app'",
+         FROM pg_roles WHERE rolname = 'taskveil_app'",
     )
     .fetch_one(&fixture.admin_pool)
     .await
@@ -216,8 +217,8 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
 
     let role = query::<Postgres>(
         "SELECT rolcanlogin, rolsuper, rolinherit, rolbypassrls,
-                pg_has_role('todori_runtime_test', 'todori_app', 'USAGE') AS has_app_privileges
-         FROM pg_roles WHERE rolname = 'todori_runtime_test'",
+                pg_has_role('taskveil_runtime_test', 'taskveil_app', 'USAGE') AS has_app_privileges
+         FROM pg_roles WHERE rolname = 'taskveil_runtime_test'",
     )
     .fetch_one(&fixture.admin_pool)
     .await

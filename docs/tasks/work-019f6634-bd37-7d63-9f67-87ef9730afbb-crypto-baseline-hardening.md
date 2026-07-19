@@ -24,7 +24,7 @@ milestone: maintenance
 
 ## 3. ゴール
 
-暗号suite v2を一意に識別し、RFC 9807 OPAQUE、Argon2id 64 MiB / t=3 / p=4、BIP39 24語Recovery、key-wrap v2 AAD、zeroizing秘密鍵containerをproduction経路へ適用する。
+暗号suite v2を一意に識別し、RFC 9807 OPAQUE、Argon2id 64 MiB / t=3 / p=4、BIP39 24語Recovery、Taskveil key-wrap v1 AAD、zeroizing秘密鍵containerをproduction経路へ適用する。
 
 ## 4. スコープ
 
@@ -77,8 +77,8 @@ milestone: maintenance
 ### 実装結果
 
 - 作業日: 2026-07-15
-- 結果: suite ID `0x0002`、OPAQUE `Ristretto255 + 3DH + Argon2id (64 MiB / t=3 / p=4)`、BIP39 English 24語Recovery、固定長wrap v2 AAD、generation 1のaccount bundle、zeroizing秘密鍵containerをproduction経路へ適用した。OPAQUE state・account bundleはsuiteとgenerationを保存・照合し、unknown / old suite、generation 0、必須scopeのnil UUIDを拒否する。旧OPAQUE、旧Recovery、wrap v1、未使用`device_public_key`のreader / writer / fallbackは残していない。
-- 証拠: RFC 9807 Appendix C.1.1 registration vector、BIP39 all-zero entropy vector、wrap v2 63-byte golden vector、wrong password / checksum / AAD / suite / generation / scopeのnegative testを含む`cargo test --workspace`が合格した。`opaque-ke 4.0.1`、`bip39 2.2.2`（`zeroize` feature）をlockした。
+- 結果: suite ID `0x0002`、OPAQUE `Ristretto255 + 3DH + Argon2id (64 MiB / t=3 / p=4)`、BIP39 English 24語Recovery、固定長Taskveil wrap v1 AAD、generation 1のaccount bundle、zeroizing秘密鍵containerをproduction経路へ適用した。OPAQUE state・account bundleはsuiteとgenerationを保存・照合し、unknown / old suite、generation 0、必須scopeのnil UUIDを拒否する。pre-Taskveil OPAQUE / Recovery / wrap contract、未使用`device_public_key`のreader / writer / fallbackは残していない。
+- 証拠: RFC 9807 Appendix C.1.1 registration vector、BIP39 all-zero entropy vector、Taskveil wrap v1 63-byte golden vector、wrong password / checksum / AAD / suite / generation / scopeのnegative testを含む`cargo test --workspace`が合格した。`opaque-ke 4.0.1`、`bip39 2.2.2`（`zeroize` feature）をlockした。
 - Commit: この完了報告を含むcommit
 - 未解決: record envelope、server key-generation schema、rotation coordinatorは後続`work-019f6634-be4c-7240-8c46-fbc81935fc36`で扱う。DK rotation / Android Keystore、Organization hybrid PQC共有、最終統合監査もそれぞれ後続work itemで扱う。
 

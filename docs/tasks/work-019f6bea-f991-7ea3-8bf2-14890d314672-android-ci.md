@@ -55,7 +55,7 @@ Androidの実装済み範囲と未完の実機gateを公開文書で一致させ
 - Emulator jobが`connectedDebugAndroidTest`と同一profileのDevice Key rotation test 2回を実行する。
 - JDK 21、Flutter 3.44.6、Rust 1.97.0、SDK 36、NDK 28.2.13676358、Emulator Actionのcommit SHAが固定される。
 - classifier regression、shell syntax、actionlint、`git diff --check`が合格する。
-- Android arm64 release APKに`libtodori_app_bridge.so`が同梱される。
+- Android arm64 release APKに`libtaskveil_app_bridge.so`が同梱される。
 
 ## 7. 制約・注意事項
 
@@ -78,12 +78,12 @@ Androidの実装済み範囲と未完の実機gateを公開文書で一致させ
 - 作業日: 2026-07-17
 - 結果: プロダクトオーナー承認に基づき、`STATUS.md`、Phase 1 / Phase 2計画書、企画書、READMEをAndroid Rust FFI / Flutter release APK build / Keystore実装済みの状態へ整合した。CIに非docs変更のAndroid arm64 release APK jobと、週次 / `workflow_dispatch`限定のAPI 36 x86_64 Emulator jobを追加した。Emulator jobはKeystore instrumentation testと同一profileのDevice Key rotation test 2回を実行する。初回の実runで、native threadから文字列指定の`FindClass`を使うとapplication classを解決できない問題を検出し、Kotlinから渡された`AndroidCapsuleStore`をJNI `GlobalRef`として保持する本修正を適用した。
 - 固定条件: JDK 21、Flutter 3.44.6、Rust 1.97.0、SDK 36、NDK 28.2.13676358、`ReactiveCircus/android-emulator-runner` commit `a421e43855164a8197daf9d8d40fe71c6996bb0d`。Android Cargo / Gradle cacheはPR restore-only、非PRの成功時だけsaveとした。
-- 証拠: classifier regression 14件、shell syntax、Action SHA固定check、actionlint 1.7.12、`git diff --check`が成功した。ローカルのarm64 release APK buildとx86_64 debug APK buildが成功し、release APKへの`lib/arm64-v8a/libtodori_app_bridge.so`同梱を確認した。main統合後のPR run [29533027680](https://github.com/ouvill/todori/actions/runs/29533027680)はAndroid arm64 release APKを含む全必須jobが成功し、Emulator jobは意図どおりskipされた。手動run [29533049104](https://github.com/ouvill/todori/actions/runs/29533049104)は全jobが成功し、Emulator上でinstrumentation test 2件、Device Key rotation / SQLCipher reopen test 2回が成功した。x86_64 Android Cargo / Gradle cacheは前回のprimary keyから復元された。
+- 証拠: classifier regression 14件、shell syntax、Action SHA固定check、actionlint 1.7.12、`git diff --check`が成功した。ローカルのarm64 release APK buildとx86_64 debug APK buildが成功し、release APKへの`lib/arm64-v8a/libtaskveil_app_bridge.so`同梱を確認した。main統合後のPR run [29533027680](https://github.com/ouvill/taskveil/actions/runs/29533027680)はAndroid arm64 release APKを含む全必須jobが成功し、Emulator jobは意図どおりskipされた。手動run [29533049104](https://github.com/ouvill/taskveil/actions/runs/29533049104)は全jobが成功し、Emulator上でinstrumentation test 2件、Device Key rotation / SQLCipher reopen test 2回が成功した。x86_64 Android Cargo / Gradle cacheは前回のprimary keyから復元された。
 - Commit: Android JNI修正 `1c0cc2e`、main統合後HEAD `32e669b`を含むPR #24のcommit群。
 - 未解決: Pixel 10 / Android 37.1 / 16 KiB page-sizeの前方互換確認と、Android接続実機でのKeystore / Device Key rotation / DB reopen / 同期release gateが残る。
 
 ### 独立検証
 
 - 判定: 合格
-- 根拠: 統合HEAD `32e669b`に対して、classifier regression 14件、shell syntax、actionlint 1.7.12、Rust format、`todori-crypto` test、`git diff --check`、release APKのJNI同梱を再確認した。PR run 29533027680と手動run 29533049104を確認し、PRでのEmulator skip、手動runでのAPI 36 Emulator、instrumentation test 2件、Device Key rotation / SQLCipher reopen test 2回、cache restoreが契約どおりであることを確認した。Critical / High / Medium / Lowの指摘なし。
+- 根拠: 統合HEAD `32e669b`に対して、classifier regression 14件、shell syntax、actionlint 1.7.12、Rust format、`taskveil-crypto` test、`git diff --check`、release APKのJNI同梱を再確認した。PR run 29533027680と手動run 29533049104を確認し、PRでのEmulator skip、手動runでのAPI 36 Emulator、instrumentation test 2件、Device Key rotation / SQLCipher reopen test 2回、cache restoreが契約どおりであることを確認した。Critical / High / Medium / Lowの指摘なし。
 - 検証者: `/root/independent_android_ci_review`

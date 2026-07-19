@@ -230,7 +230,7 @@ jobs:
       - name: Verify iOS arm64 Rust framework
         run: |
           test -s app/build/ios/iphoneos/Runner.app/Runner
-          bridge=app/build/ios/iphoneos/Runner.app/Frameworks/todori_app_bridge.framework/todori_app_bridge
+          bridge=app/build/ios/iphoneos/Runner.app/Frameworks/taskveil_app_bridge.framework/taskveil_app_bridge
           test -s "$bridge"
           lipo "$bridge" -verify_arch arm64
 
@@ -310,7 +310,7 @@ jobs:
       - name: Verify Android arm64 JNI library
         run: |
           test -s app/build/app/outputs/flutter-apk/app-release.apk
-          unzip -p app/build/app/outputs/flutter-apk/app-release.apk lib/arm64-v8a/libtodori_app_bridge.so > /dev/null
+          unzip -p app/build/app/outputs/flutter-apk/app-release.apk lib/arm64-v8a/libtaskveil_app_bridge.so > /dev/null
 
       - name: Save Android build cache
         if: success() && github.event_name != 'pull_request' && steps.android-build-cache.outputs.cache-hit != 'true'

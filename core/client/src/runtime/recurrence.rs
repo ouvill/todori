@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use todori_domain::{
+use taskveil_domain::{
     calculate_streak, next_occurrence_after, scheduled_task_id, validate_and_normalize_rrule,
     virtual_next_occurrence_after_end, RecurrenceProvenance, RecurrenceSchedule, RevisionBoundary,
     ScheduleCursor, Streak, StreakOccurrence, Task, TaskStatus, TaskTemplate, TemplateNode,
     TemplateSnapshot, Uuid, SETTLEMENT_BATCH_SIZE, TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
 };
-use todori_storage::{
+use taskveil_storage::{
     open_encrypted, RecurrenceRepository, SqliteWriteTx, StorageError, TaskRepository,
 };
 
@@ -16,7 +16,7 @@ use crate::mutation_service::{
 };
 use crate::{ClientError, LocalMutationContext};
 
-use super::{now_ms, LocalMutationState, TodoriClient};
+use super::{now_ms, LocalMutationState, TaskveilClient};
 
 #[derive(Debug, Clone)]
 pub struct SaveTemplateCommand {
@@ -63,7 +63,7 @@ pub struct SettlementSummary {
     pub outbox_changed: bool,
 }
 
-impl TodoriClient {
+impl TaskveilClient {
     pub fn validate_recurrence_rule(
         &self,
         rrule: String,
@@ -637,7 +637,7 @@ fn root_node(snapshot: &TemplateSnapshot) -> Result<&TemplateNode, ClientError> 
         .nodes
         .iter()
         .find(|node| node.parent_node_key.is_none())
-        .ok_or(todori_domain::RecurrenceError::InvalidRootCount.into())
+        .ok_or(taskveil_domain::RecurrenceError::InvalidRootCount.into())
 }
 
 fn instantiate_snapshot(
@@ -705,7 +705,7 @@ fn instantiate_snapshot(
             false
         });
         if pending.len() == before {
-            return Err(todori_domain::RecurrenceError::InvalidParent.into());
+            return Err(taskveil_domain::RecurrenceError::InvalidParent.into());
         }
     }
     Ok(tasks)
@@ -814,11 +814,11 @@ fn revision_accepts_occurrence(
 mod tests {
     use std::sync::{atomic::AtomicBool, Mutex};
 
-    use tempfile::TempDir;
-    use todori_domain::{new_list, new_task};
-    use todori_storage::{
+    use taskveil_domain::{new_list, new_task};
+    use taskveil_storage::{
         ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
     };
+    use tempfile::TempDir;
     use zeroize::Zeroizing;
 
     use super::*;
@@ -826,7 +826,7 @@ mod tests {
 
     const DB_KEY: [u8; 32] = [0xb7; 32];
 
-    fn anonymous_client_fixture() -> (TempDir, TodoriClient, todori_domain::List, Task) {
+    fn anonymous_client_fixture() -> (TempDir, TaskveilClient, taskveil_domain::List, Task) {
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("recurrence.sqlite3");
         let mut inbox = new_list("Inbox".into(), "a0".into(), 1_700_000_000_000).unwrap();
@@ -845,7 +845,7 @@ mod tests {
         SqliteTaskRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
             .insert(task.clone())
             .unwrap();
-        let client = TodoriClient {
+        let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
             db_path,
             db_key: Mutex::new(Zeroizing::new(DB_KEY)),

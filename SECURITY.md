@@ -1,10 +1,10 @@
 # Security Policy
 
-Todori is a pre-release E2EE Todo application. Security reports are welcome, especially when they concern encryption, key handling, authentication, local storage, synchronization, or release infrastructure.
+Taskveil is a pre-release E2EE Todo application. Security reports are welcome, especially when they concern encryption, key handling, authentication, local storage, synchronization, or release infrastructure.
 
 ## Supported Versions
 
-Todori has not reached its first stable release yet. Until the first stable release is published, security fixes are applied to the `main` branch only.
+Taskveil has not reached its first stable release yet. Until the first stable release is published, security fixes are applied to the `main` branch only.
 
 Released version support will be documented here once stable releases exist.
 
@@ -34,7 +34,7 @@ Security reports for the following areas are in scope:
 - Server-side control plane data, including wrapped keys, device metadata, organization membership, and subscription-gated synchronization access.
 - CI, build scripts, generated artifacts, release packaging, and dependency or supply-chain issues that could affect shipped binaries.
 
-Todori's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, per-device hybrid X25519 + ML-KEM-768 key delivery, supported-platform device tests, and the product-level multi-device flow have passed their release gates. The implementation has passed an independent internal review, but an internal review is not described as an external audit. Todori must not be described as "audited" until an external cryptographic review is complete and its findings are resolved. Current gate status is published in [`docs/ops/crypto-release-gate.md`](docs/ops/crypto-release-gate.md).
+Taskveil's Organization sharing is not considered release-ready until authenticated device certificates, mandatory Safety number verification, per-device hybrid X25519 + ML-KEM-768 key delivery, supported-platform device tests, and the product-level multi-device flow have passed their release gates. The implementation has passed an independent internal review, but an internal review is not described as an external audit. Taskveil must not be described as "audited" until an external cryptographic review is complete and its findings are resolved. Current gate status is published in [`docs/ops/crypto-release-gate.md`](docs/ops/crypto-release-gate.md).
 
 ## Out of Scope
 
@@ -50,6 +50,6 @@ Please do not perform destructive testing, denial-of-service testing, social eng
 
 ## Disclosure
 
-Todori is not currently promising a bug bounty, fixed response SLA, legal safe harbor, or public advisory timeline. Those policies require maintainer and legal review before they can be offered.
+Taskveil is not currently promising a bug bounty, fixed response SLA, legal safe harbor, or public advisory timeline. Those policies require maintainer and legal review before they can be offered.
 
 The maintainers intend to coordinate fixes privately before public disclosure. Once an issue is fixed, an advisory or release note may summarize the impact and remediation without publishing exploit details that would put users at unnecessary risk.

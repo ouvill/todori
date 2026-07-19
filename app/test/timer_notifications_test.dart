@@ -1,6 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/timer/timer_notifications.dart';
+import 'package:taskveil/src/timer/timer_notifications.dart';
 
 void main() {
   test(
@@ -18,7 +18,7 @@ void main() {
     expect(TimerNotificationPayload.decode(null), isNull);
     expect(
       TimerNotificationPayload.decode(
-        '{"owner":"todori_reminder_v1","sessionId":"session"}',
+        '{"owner":"taskveil_reminder_v1","sessionId":"session"}',
       ),
       isNull,
     );

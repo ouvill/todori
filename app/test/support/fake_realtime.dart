@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:todori/src/core/realtime_sync.dart';
+import 'package:taskveil/src/core/realtime_sync.dart';
 
 class FakeRealtimeTimers {
   final List<FakeRealtimeTimer> timers = [];

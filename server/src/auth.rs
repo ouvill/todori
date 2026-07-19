@@ -9,16 +9,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, row::Row};
 use sqlx_postgres::{PgPool, PgTransaction, Postgres};
-use todori_crypto::{
+use taskveil_crypto::{
     key_hierarchy::INITIAL_KEY_GENERATION,
     organization::{
         verify_device_certificate, verify_device_proof, AccountRootPublicKeys, DeviceCertificate,
         DeviceProofOfPossession, DEVICE_CHALLENGE_LEN, DEVICE_FINGERPRINT_LEN,
         ED25519_SIGNATURE_LEN,
     },
-    TodoriCipherSuite, CRYPTO_SUITE_ID,
+    TaskveilCipherSuite, CRYPTO_SUITE_ID,
 };
-use todori_sync::account::{
+use taskveil_sync::account::{
     AccountKeyBundleDto, DeviceEnrollmentDto, ListDekBundleDto, UpdateKeyWrappersRequest,
 };
 use uuid::Uuid;
@@ -28,9 +28,9 @@ use crate::{db, AppError};
 const OPAQUE_STATE_TTL_MINUTES: i64 = 10;
 const SESSION_TTL_DAYS: i64 = 30;
 
-type TodoriServerSetup = ServerSetup<TodoriCipherSuite>;
-type TodoriServerRegistration = ServerRegistration<TodoriCipherSuite>;
-type TodoriServerLogin = ServerLogin<TodoriCipherSuite>;
+type TaskveilServerSetup = ServerSetup<TaskveilCipherSuite>;
+type TaskveilServerRegistration = ServerRegistration<TaskveilCipherSuite>;
+type TaskveilServerLogin = ServerLogin<TaskveilCipherSuite>;
 
 #[derive(Debug, Deserialize)]
 pub struct OpaqueStartRequest {
@@ -107,7 +107,7 @@ pub async fn register_start(
     let device_name = normalize_device_name(request.device_name);
     let client_message = decode_opaque_message(&request.message)?;
     let registration_request =
-        RegistrationRequest::<TodoriCipherSuite>::deserialize(&client_message)
+        RegistrationRequest::<TaskveilCipherSuite>::deserialize(&client_message)
             .map_err(|_| AppError::bad_request("invalid opaque message"))?;
     let server_setup = get_or_create_server_setup(pool).await?;
     let server_start =
@@ -155,7 +155,7 @@ pub async fn register_finish(
     request: RegisterFinishRequest,
 ) -> Result<SessionResponse, AppError> {
     let upload = decode_opaque_message(&request.message)?;
-    let registration_upload = RegistrationUpload::<TodoriCipherSuite>::deserialize(&upload)
+    let registration_upload = RegistrationUpload::<TaskveilCipherSuite>::deserialize(&upload)
         .map_err(|_| AppError::bad_request("invalid opaque message"))?;
     let server_record = ServerRegistration::finish(registration_upload);
     let server_record_bytes = server_record.serialize().to_vec();
@@ -239,7 +239,7 @@ pub async fn login_start(
     let email = normalize_email(&request.email)?;
     let device_name = normalize_device_name(request.device_name);
     let client_message = decode_opaque_message(&request.message)?;
-    let credential_request = CredentialRequest::<TodoriCipherSuite>::deserialize(&client_message)
+    let credential_request = CredentialRequest::<TaskveilCipherSuite>::deserialize(&client_message)
         .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
     let row = query::<Postgres>(
@@ -273,7 +273,7 @@ pub async fn login_start(
         .try_get("opaque_record")
         .map_err(|_| AppError::internal())?;
     let server_record =
-        TodoriServerRegistration::deserialize(&record_bytes).map_err(|_| AppError::internal())?;
+        TaskveilServerRegistration::deserialize(&record_bytes).map_err(|_| AppError::internal())?;
     let server_setup = get_or_create_server_setup(pool).await?;
     let mut rng = OsRng;
     let login_start = ServerLogin::start(
@@ -326,12 +326,12 @@ pub async fn login_finish(
 ) -> Result<LoginSessionResponse, AppError> {
     let finalization = decode_opaque_message(&request.message)?;
     let credential_finalization =
-        CredentialFinalization::<TodoriCipherSuite>::deserialize(&finalization)
+        CredentialFinalization::<TaskveilCipherSuite>::deserialize(&finalization)
             .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
     let mut tx = pool.begin().await?;
     let state = consume_login_state(&mut tx, request.state_id).await?;
-    let server_login = TodoriServerLogin::deserialize(&state.server_login_state)
+    let server_login = TaskveilServerLogin::deserialize(&state.server_login_state)
         .map_err(|_| AppError::internal())?;
     server_login
         .finish(credential_finalization, ServerLoginParameters::default())
@@ -588,11 +588,11 @@ fn normalize_email(email: &str) -> Result<String, AppError> {
 
 fn normalize_device_name(device_name: Option<String>) -> String {
     let trimmed = device_name
-        .unwrap_or_else(|| "Todori device".to_string())
+        .unwrap_or_else(|| "Taskveil device".to_string())
         .trim()
         .to_string();
     if trimmed.is_empty() {
-        "Todori device".to_string()
+        "Taskveil device".to_string()
     } else {
         trimmed.chars().take(120).collect()
     }
@@ -629,9 +629,9 @@ fn random_device_challenge() -> [u8; DEVICE_CHALLENGE_LEN] {
     challenge
 }
 
-async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, AppError> {
+async fn get_or_create_server_setup(pool: &PgPool) -> Result<TaskveilServerSetup, AppError> {
     let mut rng = OsRng;
-    let generated = TodoriServerSetup::new(&mut rng).serialize().to_vec();
+    let generated = TaskveilServerSetup::new(&mut rng).serialize().to_vec();
     query::<Postgres>(
         "INSERT INTO opaque_server_setup (singleton, opaque_suite_id, setup)
          VALUES (TRUE, $1, $2)
@@ -651,7 +651,7 @@ async fn get_or_create_server_setup(pool: &PgPool) -> Result<TodoriServerSetup, 
     .await?
     .try_get("setup")
     .map_err(|_| AppError::internal())?;
-    TodoriServerSetup::deserialize(&bytes).map_err(|_| AppError::internal())
+    TaskveilServerSetup::deserialize(&bytes).map_err(|_| AppError::internal())
 }
 
 struct RegistrationState {

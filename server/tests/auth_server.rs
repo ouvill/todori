@@ -7,28 +7,28 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::Value;
 use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
 use sqlx_postgres::{PgPool, Postgres};
-use testcontainers_modules::{
-    postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync},
-};
-use todori_crypto::organization::{
+use taskveil_crypto::organization::{
     generate_account_root, AccountRootPublicKeys, DeviceCertificate, HybridScopeKind,
     SignedDeviceRevocation,
 };
-use todori_server::{
+use taskveil_server::{
     auth::AuthContext,
     billing::{BillingEnvironment, BillingService},
     build_router, db, sync, AppState,
 };
-use todori_sync::account::{
+use taskveil_sync::account::{
     unwrap_login_key_bundle, unwrap_organization_dek_from_verified_device, wrap_list_dek_bundle,
     wrap_organization_dek_for_verified_device, AccountClient, AccountClientError,
     AccountKeyBundleDto, ListDekBundleDto, OrganizationDekDelivery, OrganizationRosterTrust,
 };
-use todori_sync::organization::{
+use taskveil_sync::organization::{
     verify_organization_active_bundle, OrganizationDeviceDto, OrganizationKeyManifest,
 };
-use todori_sync::{KeyManifest, KeyScope, RotationStatus, SyncEngine};
+use taskveil_sync::{KeyManifest, KeyScope, RotationStatus, SyncEngine};
+use testcontainers_modules::{
+    postgres,
+    testcontainers::{runners::AsyncRunner, ContainerAsync},
+};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -46,18 +46,18 @@ async fn setup() -> TestApp {
     let pool = db::connect(&database_url).await.unwrap();
     db::run_migrations(&pool).await.unwrap();
     raw_sql(
-        "CREATE ROLE todori_runtime_test LOGIN PASSWORD 'todori-runtime-test'
+        "CREATE ROLE taskveil_runtime_test LOGIN PASSWORD 'taskveil-runtime-test'
          NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
     )
     .execute(&pool)
     .await
     .unwrap();
-    raw_sql("GRANT todori_app TO todori_runtime_test")
+    raw_sql("GRANT taskveil_app TO taskveil_runtime_test")
         .execute(&pool)
         .await
         .unwrap();
     let application_url =
-        format!("postgres://todori_runtime_test:todori-runtime-test@{host}:{port}/postgres");
+        format!("postgres://taskveil_runtime_test:taskveil-runtime-test@{host}:{port}/postgres");
     let application_pool = db::connect_application(&application_url).await.unwrap();
     let app = build_router(AppState {
         pool: application_pool,
@@ -176,7 +176,7 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
                  current_period_ends_at, access_expires_at, will_renew,
                  provider_observed_at, last_seen_at)
              VALUES ($1, 'revenuecat', 'sandbox', 'auth-server-fixture',
-                     'dev.todori.todori.pro.monthly', 'test-product', 'active', TRUE,
+                     'com.taskveil.app.pro.monthly', 'test-product', 'active', TRUE,
                      now() + interval '30 days', now() + interval '30 days', TRUE,
                      now(), now())
              RETURNING id
@@ -186,7 +186,7 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
              source_subscription_id, store_product_identifier, expires_at,
              will_renew, provider_observed_at)
          SELECT $1, 'sandbox', 'pro', 'active', TRUE, id,
-                'dev.todori.todori.pro.monthly', now() + interval '30 days',
+                'com.taskveil.app.pro.monthly', now() + interval '30 days',
                 TRUE, now()
          FROM subscription",
     )
@@ -556,7 +556,7 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         org_tenant_id,
         rotation_auth.clone(),
         sync::PrepareRotationRequest {
-            suite_id: todori_crypto::CRYPTO_SUITE_ID,
+            suite_id: taskveil_crypto::CRYPTO_SUITE_ID,
             generation: 2,
             signed_manifest: STANDARD.encode(prepared_signed.encode().unwrap()),
             wrapped_tenant_root_dek: String::new(),
@@ -798,7 +798,7 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         tenant_dek
     );
     let changed_member_root =
-        todori_crypto::organization::generate_account_root(member_user_id).unwrap();
+        taskveil_crypto::organization::generate_account_root(member_user_id).unwrap();
     query::<Postgres>("UPDATE users SET account_root_public = $2 WHERE id = $1")
         .bind(member_user_id)
         .bind(changed_member_root.public.encode().unwrap())

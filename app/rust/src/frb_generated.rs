@@ -32,7 +32,7 @@ use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
 
-use todori_client::chrono;
+use taskveil_client::chrono;
 
 flutter_rust_bridge::frb_generated_boilerplate!(
     default_stream_sink_codec = SseCodec,
@@ -4912,7 +4912,7 @@ mod io {
 
     // Section: boilerplate
 
-    use todori_client::chrono;
+    use taskveil_client::chrono;
 
     flutter_rust_bridge::frb_generated_boilerplate_io!();
 }

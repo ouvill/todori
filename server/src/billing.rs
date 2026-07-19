@@ -20,8 +20,8 @@ use uuid::Uuid;
 use crate::{auth, db, AppError};
 
 pub const PRO_LOOKUP_KEY: &str = "pro";
-pub const MONTHLY_PRODUCT_ID: &str = "dev.todori.todori.pro.monthly";
-pub const YEARLY_PRODUCT_ID: &str = "dev.todori.todori.pro.yearly";
+pub const MONTHLY_PRODUCT_ID: &str = "com.taskveil.app.pro.monthly";
+pub const YEARLY_PRODUCT_ID: &str = "com.taskveil.app.pro.yearly";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BillingEnvironment {
@@ -214,8 +214,8 @@ pub struct BillingService {
 
 impl BillingService {
     pub fn from_env() -> Result<Self, BillingConfigurationError> {
-        let environment = env::var("TODORI_BILLING_ENVIRONMENT")
-            .map_err(|_| BillingConfigurationError::Missing("TODORI_BILLING_ENVIRONMENT"))?
+        let environment = env::var("TASKVEIL_BILLING_ENVIRONMENT")
+            .map_err(|_| BillingConfigurationError::Missing("TASKVEIL_BILLING_ENVIRONMENT"))?
             .parse()?;
         let sandbox = RevenueCatEnvironmentConfig::from_env(BillingEnvironment::Sandbox)?;
         let production = RevenueCatEnvironmentConfig::from_env(BillingEnvironment::Production)?;
@@ -1334,7 +1334,7 @@ fn verify_webhook_signature(
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let key = b"todori-revenuecat-webhook-authorization";
+    let key = b"taskveil-revenuecat-webhook-authorization";
     let mut left_mac = Hmac::<Sha256>::new_from_slice(key).expect("valid HMAC key");
     left_mac.update(left);
     let left_tag = left_mac.finalize().into_bytes();

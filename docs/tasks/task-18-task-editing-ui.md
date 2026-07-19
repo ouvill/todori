@@ -226,7 +226,7 @@
   - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
   - `cd app && flutter test`: 成功
   - `sh app/tool/check_hardcoded_strings.sh`: 成功
-  - `git -C todori diff --check`: 成功
+  - `git -C taskveil diff --check`: 成功
 - 補足:
   - Flutter/Dart ツールはサンドボックス内では SDK cache への書き込み権限で失敗したため、承認付き実行で `dart format` / `flutter gen-l10n` / `flutter_rust_bridge_codegen generate` / `flutter analyze` / `flutter test` を実行した。
 - 未解決事項・要人間判断:

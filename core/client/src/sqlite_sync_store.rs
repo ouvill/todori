@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use todori_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
-use todori_storage::{
+use taskveil_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_storage::{
     open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
     FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
     PendingListKeyBundle, RecurrenceRepository, SettingsRepository, SqliteListRepository,
@@ -10,7 +10,7 @@ use todori_storage::{
     SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState, SyncStateRepository,
     TaskRepository, TimerSessionRepository,
 };
-use todori_sync::{
+use taskveil_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
     EncryptedSyncState, LocalListAlias, LocalMutationSyncStore, LocalPendingListKeyBundle,
     LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState,
@@ -1083,7 +1083,7 @@ fn storage_pending_to_local(entry: PendingListKeyBundle) -> LocalPendingListKeyB
 }
 
 fn storage_outbox_to_local(
-    entry: todori_storage::SyncOutboxEntry,
+    entry: taskveil_storage::SyncOutboxEntry,
 ) -> Result<LocalSyncOutboxEntry, String> {
     Ok(LocalSyncOutboxEntry {
         op_id: entry.op_id,
@@ -1199,7 +1199,7 @@ fn local_record_to_storage(
     }
 }
 
-fn storage_alias_to_local(alias: todori_storage::ListAlias) -> LocalListAlias {
+fn storage_alias_to_local(alias: taskveil_storage::ListAlias) -> LocalListAlias {
     LocalListAlias {
         alias_list_id: alias.alias_list_id,
         canonical_list_id: alias.canonical_list_id,
@@ -1300,13 +1300,13 @@ fn with_list_repository<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-    use todori_domain::{new_list, new_task};
-    use todori_storage::{
+    use taskveil_domain::{new_list, new_task};
+    use taskveil_storage::{
         ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
         LocalTenantRootKeyBundle, PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
     };
-    use todori_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
+    use taskveil_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
+    use tempfile::tempdir;
 
     const DB_KEY: [u8; 32] = [0x51; 32];
 
@@ -1471,7 +1471,7 @@ mod tests {
                 &mut transaction,
                 &keys,
                 "device",
-                todori_sync::BackfillRecords {
+                taskveil_sync::BackfillRecords {
                     lists: std::slice::from_ref(&list),
                     templates: &[],
                     schedules: &[],
@@ -1490,7 +1490,7 @@ mod tests {
             &mut transaction,
             &keys,
             "device",
-            todori_sync::BackfillRecords {
+            taskveil_sync::BackfillRecords {
                 lists: std::slice::from_ref(&list),
                 templates: &[],
                 schedules: &[],

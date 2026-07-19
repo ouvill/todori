@@ -56,7 +56,7 @@ milestone: maintenance
 developer interfaceは次の1コマンドだけとする。
 
 ```sh
-cargo run -q -p todori-xtask -- work-id
+cargo run -q -p taskveil-xtask -- work-id
 ```
 
 lowercase・hyphenated UUIDv7を1件だけ標準出力する。task文書、branch、worktree、commit、pushは作成しない。YAML parser、front matter validator、状態一覧generator、remote branch集計はpilotへ追加しない。
@@ -86,7 +86,7 @@ branchとworktreeはUUIDv7を含む名前にする。
 
 ```text
 branch:   work/019f6116-8c37-78a2-9ba3-06c03d2a3ea0-canonical-inbox
-worktree: ../todori-work-019f6116-canonical-inbox
+worktree: ../taskveil-work-019f6116-canonical-inbox
 ```
 
 1 worktreeでは原則1件のwork itemを扱う。同じファイルや設計上の不変条件を変更する作業は、通常の実装計画で統合順を決める。

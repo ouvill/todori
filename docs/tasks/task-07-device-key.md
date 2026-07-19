@@ -36,7 +36,7 @@
 1. **`core/crypto/src/device_key.rs`（新規モジュール）**を作成する。
    - `pub const DEVICE_KEY_LEN: usize = 32;`
    - `pub fn generate_device_key() -> [u8; 32]` — `rand::rngs::OsRng`（既存依存）で32byte乱数を生成する。
-   - `pub fn derive_local_db_key(device_key: &[u8; 32]) -> [u8; 32]` — 既存 `kdf::derive_key` を用い、infoにはバージョン付き文脈文字列 `b"todori/local-db-key/v1"` を使用する（§5.3のHKDF導出）。文脈文字列はコード内定数として定義し、ドキュメントコメントで意図を明記すること。
+   - `pub fn derive_local_db_key(device_key: &[u8; 32]) -> [u8; 32]` — 既存 `kdf::derive_key` を用い、infoにはバージョン付き文脈文字列 `b"taskveil/local-db-key/v1"` を使用する（§5.3のHKDF導出）。文脈文字列はコード内定数として定義し、ドキュメントコメントで意図を明記すること。
    - `pub trait DeviceKeyStore` — OSキーチェーン抽象。メソッドは `load(&self) -> Result<Option<[u8; 32]>, KeyStoreError>` / `store(&mut self, key: &[u8; 32]) -> Result<(), KeyStoreError>` / `delete(&mut self) -> Result<(), KeyStoreError>` の3つとする。エラー型 `KeyStoreError` は `thiserror` で定義し、プラットフォーム実装が返しうる失敗を表現できるよう `Backend(String)` のような汎用バリアントを含めること。
    - `pub fn ensure_device_key(store: &mut impl DeviceKeyStore) -> Result<[u8; 32], KeyStoreError>` — §7.1の初回起動フローを表す関数。`load` して存在すればそれを返し、無ければ `generate_device_key` → `store` → 返す。
    - `pub struct InMemoryDeviceKeyStore` — テストダブル兼デスクトップ開発用の暫定実装。`Option<[u8; 32]>` を保持するだけでよい。ドキュメントコメントに「本番のOSキーチェーン実装は後続タスク。平文でメモリ保持するため本番使用禁止」と明記すること。
@@ -47,7 +47,7 @@
    - `ensure_device_key` が初回は生成・保存し、2回目は同じ鍵を返すこと。
    - `delete` 後の `ensure_device_key` は新しい鍵を生成すること。
 4. **`core/storage` に統合テストを追加**する（M1-04完了条件「開発ホスト上のテストダブルでDK生成からDB openまでのテストが通ること」に対応）。
-   - `core/storage/Cargo.toml` の `[dev-dependencies]` に `todori-crypto.workspace = true` を追加する（workspace path依存のためネットワーク不要）。
+   - `core/storage/Cargo.toml` の `[dev-dependencies]` に `taskveil-crypto.workspace = true` を追加する（workspace path依存のためネットワーク不要）。
    - テスト内容: `InMemoryDeviceKeyStore` で `ensure_device_key` → `derive_local_db_key` → `open_encrypted` でDB作成・タスク書き込み → 接続を閉じ、**同じstoreから再度 `ensure_device_key` で得たDK**から導出した鍵で再オープンして読めること。加えて、**異なるDK**から導出した鍵では再オープンに失敗すること。
 5. 秘密鍵素材（DK・導出鍵）を `Debug`/`Display`/ログに出さないこと。`InMemoryDeviceKeyStore` に `#[derive(Debug)]` を付ける場合は、鍵フィールドが出力されない工夫をすること（deriveしない、が最も簡単）。
 
@@ -58,7 +58,7 @@
 - MK/`wrap(MK, DK)` の実装（Phase 2、task-01のPoC参照）。
 - テナント別DBファイル分離の実装（鍵は共通なので本タスクの導出関数はそのまま使える。`docs/03_技術仕様書.md` §5.1参照）。
 - DKローテーション。
-- 新規依存クレートの追加。`rand` / `hkdf` / `sha2` / `thiserror` / `todori-crypto` は既存依存を再利用すること。本タスクの実行環境はネットワークアクセス不可であるため、crates.ioからの新規取得が発生する変更を行ってはならない。
+- 新規依存クレートの追加。`rand` / `hkdf` / `sha2` / `thiserror` / `taskveil-crypto` は既存依存を再利用すること。本タスクの実行環境はネットワークアクセス不可であるため、crates.ioからの新規取得が発生する変更を行ってはならない。
 - zeroize等によるメモリ消去の強化。本タスクでは行わず、必要性を完了報告の未解決事項に記録すること。
 
 ## 5. 実装手順（例）
@@ -66,10 +66,10 @@
 1. `core/crypto/src/kdf.rs` と `core/crypto/src/lib.rs` を再読し、既存のモジュール構成・re-exportスタイルを把握する。
 2. `core/crypto/src/device_key.rs` を新規作成し、`DEVICE_KEY_LEN` / `generate_device_key` / `derive_local_db_key` / `DeviceKeyStore` / `KeyStoreError` / `ensure_device_key` / `InMemoryDeviceKeyStore` を実装する。
 3. `core/crypto/src/lib.rs` に `pub mod device_key;` と re-export を追加する。
-4. `device_key.rs` 内 `#[cfg(test)] mod tests` に単体テストを実装する。文脈文字列 `todori/local-db-key/v1` の値は、既知DK（例: `[0x42; 32]`）に対する導出結果を `[u8; 32]` のバイト配列リテラルとしてテストに埋め込み固定する（`core/crypto` に `hex` 依存は無く、新規依存追加は禁止のためhex文字列は使わない）。
-5. `core/storage/Cargo.toml` の `[dev-dependencies]` に `todori-crypto.workspace = true` を追加する。
+4. `device_key.rs` 内 `#[cfg(test)] mod tests` に単体テストを実装する。文脈文字列 `taskveil/local-db-key/v1` の値は、既知DK（例: `[0x42; 32]`）に対する導出結果を `[u8; 32]` のバイト配列リテラルとしてテストに埋め込み固定する（`core/crypto` に `hex` 依存は無く、新規依存追加は禁止のためhex文字列は使わない）。
+5. `core/storage/Cargo.toml` の `[dev-dependencies]` に `taskveil-crypto.workspace = true` を追加する。
 6. `core/storage/src/lib.rs` の既存 `#[cfg(test)] mod tests` に、DK生成からDB open・再オープンまでの統合テストを追記する。
-7. `cargo test -p todori-crypto device_key::` および `cargo test -p todori-storage` を繰り返し実行しながら実装する。
+7. `cargo test -p taskveil-crypto device_key::` および `cargo test -p taskveil-storage` を繰り返し実行しながら実装する。
 8. 最後に `cargo fmt --all`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace` を実行し全体の品質ゲートを確認する。
 
 ## 6. 受け入れ基準
@@ -77,13 +77,13 @@
 - [ ] `cargo fmt --all -- --check` が差分なしで通過する
 - [ ] `cargo clippy --workspace -- -D warnings` が警告ゼロで通過する
 - [ ] `cargo test --workspace` が全テスト成功する（既存の `core/crypto` / `core/storage` 等のテストも含めすべて成功すること）
-- [ ] `cargo test -p todori-crypto device_key::` の新規テストがすべて成功する
-- [ ] `cargo test -p todori-storage` でDK→DB openの統合テストが成功する（正鍵で読める・異なるDKでは失敗する、の両方を含む）
+- [ ] `cargo test -p taskveil-crypto device_key::` の新規テストがすべて成功する
+- [ ] `cargo test -p taskveil-storage` でDK→DB openの統合テストが成功する（正鍵で読める・異なるDKでは失敗する、の両方を含む）
 
 ## 7. 制約・注意事項
 
 - 既存 `aead` / `kdf` / `opaque` の公開APIを変更しないこと。
-- 文脈文字列 `todori/local-db-key/v1` は将来の互換性に関わるため、テストで値そのものを固定すること（スナップショット的に、既知DKに対する導出結果を `[u8; 32]` バイト配列リテラルとしてテストに埋め込み、意図しない変更を検出できるようにする）。
+- 文脈文字列 `taskveil/local-db-key/v1` は将来の互換性に関わるため、テストで値そのものを固定すること（スナップショット的に、既知DKに対する導出結果を `[u8; 32]` バイト配列リテラルとしてテストに埋め込み、意図しない変更を検出できるようにする）。
 - 秘密鍵素材（DK・導出鍵）を `Debug`/`Display`/ログに出さないこと。
 - 仕様書（`docs/03_技術仕様書.md`）の記述だけでは一意に決まらない実装判断が生じた場合は、独断で仕様書側を変更せず、完了報告の「未解決事項」に記録すること（`docs/tasks/README.md` 共通規約6.）。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` / `docs/04_課金設計書.md` / `docs/07_Phase1計画書.md` は変更しないこと。
@@ -91,7 +91,7 @@
 ## 8. 完了報告に含めるべき内容
 
 - 追加した公開API（trait・関数・型・エラー型）の一覧
-- 文脈文字列（`todori/local-db-key/v1`）の値
+- 文脈文字列（`taskveil/local-db-key/v1`）の値
 - 追加したテストの総数（`core/crypto` / `core/storage` 別）
 - zeroize等メモリ衛生に関する所見（本タスクで対応しなかった理由と、必要性の評価）
 - 未解決事項（あれば）
@@ -104,7 +104,7 @@
 
 - `core/crypto/src/device_key.rs` を追加し、Device Key (DK) の生成、OSキーチェーン抽象、SQLCipher用ローカルDB鍵導出、インメモリテストダブルを実装した。
 - `core/crypto/src/lib.rs` から `device_key` モジュールと主要APIをre-exportした。
-- `core/storage/Cargo.toml` の `[dev-dependencies]` に `todori-crypto.workspace = true` を追加した。
+- `core/storage/Cargo.toml` の `[dev-dependencies]` に `taskveil-crypto.workspace = true` を追加した。
 - `core/storage/src/lib.rs` に、DK生成からDB open、同一DKでの再オープン、異なるDKでの失敗までを確認する統合テストを追加した。
 
 ### 追加した公開API
@@ -120,7 +120,7 @@
 
 ### 文脈文字列
 
-- SQLCipher用ローカルDB鍵導出のHKDF `info` は `todori/local-db-key/v1` とした。
+- SQLCipher用ローカルDB鍵導出のHKDF `info` は `taskveil/local-db-key/v1` とした。
 - `LOCAL_DB_KEY_INFO` と既知DK `[0x42; 32]` に対する導出結果を単体テストで固定し、意図しない変更を検出できるようにした。
 
 ### テスト
@@ -142,8 +142,8 @@
 
 ### 検証
 
-- `cargo test -p todori-crypto device_key::` 成功（5 tests）。
-- `cargo test -p todori-storage` 成功（10 tests）。
+- `cargo test -p taskveil-crypto device_key::` 成功（5 tests）。
+- `cargo test -p taskveil-storage` 成功（10 tests）。
 - `cargo fmt --all -- --check` 成功。
 - `cargo clippy --workspace -- -D warnings` 成功。
 - `cargo test --workspace` 成功。

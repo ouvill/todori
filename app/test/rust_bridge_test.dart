@@ -2,14 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/rust/frb_generated.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/rust/frb_generated.dart';
 
 void main() {
   setUpAll(() async {
     await RustLib.init(
       externalLibrary: ExternalLibrary.open(
-        'rust/target/release/libtodori_app_bridge.dylib',
+        'rust/target/release/libtaskveil_app_bridge.dylib',
       ),
     );
   });
@@ -17,12 +17,12 @@ void main() {
   tearDownAll(RustLib.dispose);
 
   test('greet calls Rust through flutter_rust_bridge', () async {
-    final message = await greet(name: 'Todori');
+    final message = await greet(name: 'Taskveil');
 
-    expect(message, 'Hello Todori from todori-core');
+    expect(message, 'Hello Taskveil from taskveil-core');
   });
 
-  test('createDraftTask returns a todori-domain task JSON string', () async {
+  test('createDraftTask returns a taskveil-domain task JSON string', () async {
     final json = await createDraftTask(title: 'Write bridge test');
     final task = jsonDecode(json) as Map<String, Object?>;
 

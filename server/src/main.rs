@@ -1,9 +1,9 @@
-//! Local HTTP entrypoint for `todori-server`.
+//! Local HTTP entrypoint for `taskveil-server`.
 //!
 //! Lambda-specific adapters stay outside this binary. The reusable router and
 //! services live in the library crate.
 
-use todori_server::{
+use taskveil_server::{
     billing::BillingService, build_router_with_realtime, db, realtime::RealtimeGateway, AppState,
 };
 use tokio::signal;
@@ -16,9 +16,9 @@ async fn main() {
     let billing = BillingService::from_env().expect("invalid billing configuration");
 
     let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for todori-server");
+        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for taskveil-server");
     let migration_database_url = std::env::var("DATABASE_MIGRATION_URL")
-        .expect("DATABASE_MIGRATION_URL is required for todori-server");
+        .expect("DATABASE_MIGRATION_URL is required for taskveil-server");
     let migration_pool = db::connect(&migration_database_url)
         .await
         .expect("failed to connect to migration database");
@@ -28,7 +28,7 @@ async fn main() {
     migration_pool.close().await;
     let pool = db::connect_application(&database_url)
         .await
-        .expect("failed to connect with todori_app role");
+        .expect("failed to connect with taskveil_app role");
 
     let app = build_router_with_realtime(AppState { pool, billing }, realtime);
     let port: u16 = std::env::var("PORT")
@@ -39,7 +39,7 @@ async fn main() {
         .await
         .expect("failed to bind listener");
 
-    tracing::info!("todori-server listening on port {port}");
+    tracing::info!("taskveil-server listening on port {port}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await

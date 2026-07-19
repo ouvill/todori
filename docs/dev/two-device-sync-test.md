@@ -1,6 +1,6 @@
 # 2台同期テスト手順
 
-この手順は、ローカルPostgres + `todori-server` を使って2つのTodoriクライアント間の登録、ログイン、同期を手動確認するための開発用メモである。
+この手順は、ローカルPostgres + `taskveil-server` を使って2つのTaskveilクライアント間の登録、ログイン、同期を手動確認するための開発用メモである。
 
 ## 1. 開発サーバーを起動する
 
@@ -10,7 +10,7 @@
 ./tool/dev_server.sh
 ```
 
-スクリプトは `todori-dev-postgres` コンテナを再利用または作成し、`server/migrations/*.sql` を適用してから `cargo run -p todori-server` を `http://localhost:8080` で起動する。Postgresのホスト側ポートは、5432が埋まっている場合に5433以降の空きポートへ自動でずらす。
+スクリプトは `taskveil-dev-postgres` コンテナを再利用または作成し、`server/migrations/*.sql` を適用してから `cargo run -p taskveil-server` を `http://localhost:8080` で起動する。Postgresのホスト側ポートは、5432が埋まっている場合に5433以降の空きポートへ自動でずらす。
 
 別ターミナルでヘルスチェックする。
 
@@ -23,13 +23,13 @@ curl -i http://localhost:8080/health
 停止はサーバーターミナルで `Ctrl-C`。DBを止める場合は次を実行する。
 
 ```sh
-docker stop todori-dev-postgres
+docker stop taskveil-dev-postgres
 ```
 
 DBを作り直す場合は次を実行する。
 
 ```sh
-docker rm -f todori-dev-postgres
+docker rm -f taskveil-dev-postgres
 ```
 
 ## 2. クライアントを2台起動する
@@ -142,7 +142,7 @@ sync-dev@example.com
 この手順のlocal serverはrealtime環境変数なしでは通知disabledで起動するため、上記だけでWebSocket即時性を確認済みとは扱わない。production credentialを使わない自動統合確認はrepo rootから次を実行する。
 
 ```sh
-cargo test -p todori-server realtime --lib
+cargo test -p taskveil-server realtime --lib
 cd realtime-worker && npm test
 cd app && flutter test test/realtime_integration_test.dart
 ```
@@ -156,7 +156,7 @@ deployed Workerとの確認は、staging相当環境で両端末をforegroundに
 Postgresコンテナの状態:
 
 ```sh
-docker ps --filter name=todori-dev-postgres
+docker ps --filter name=taskveil-dev-postgres
 ```
 
 サーバーヘルスチェック:

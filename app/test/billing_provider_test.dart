@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/billing/billing_store.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/screens/account_screen.dart';
+import 'package:taskveil/src/billing/billing_store.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/screens/account_screen.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -35,7 +35,7 @@ void main() {
 
       await container
           .read(billingProvider.notifier)
-          .purchase('dev.todori.todori.pro.monthly');
+          .purchase('com.taskveil.app.pro.monthly');
 
       final active = container.read(billingProvider).value;
       expect(bridge.refreshCalls, 1);
@@ -68,7 +68,7 @@ void main() {
 
         await container
             .read(billingProvider.notifier)
-            .purchase('dev.todori.todori.pro.monthly');
+            .purchase('com.taskveil.app.pro.monthly');
 
         final state = container.read(billingProvider).value!;
         expect(state.lastOutcome, outcome);
@@ -96,7 +96,7 @@ void main() {
 
     await container
         .read(billingProvider.notifier)
-        .purchase('dev.todori.todori.pro.monthly');
+        .purchase('com.taskveil.app.pro.monthly');
 
     final state = container.read(billingProvider).value!;
     expect(state.lastOutcome, BillingPurchaseOutcome.failed);
@@ -235,7 +235,7 @@ BillingStateDto _billingState({
   lookupKey: 'pro',
   status: status,
   syncAllowed: syncAllowed,
-  storeProductIdentifier: syncAllowed ? 'dev.todori.todori.pro.monthly' : null,
+  storeProductIdentifier: syncAllowed ? 'com.taskveil.app.pro.monthly' : null,
   willRenew: syncAllowed,
   environment: 'sandbox',
 );
@@ -280,8 +280,8 @@ class _FakeBillingStore implements BillingStore {
   @override
   Future<List<BillingProduct>> products() async => const [
     BillingProduct(
-      identifier: 'dev.todori.todori.pro.monthly',
-      title: 'Todori Pro Monthly',
+      identifier: 'com.taskveil.app.pro.monthly',
+      title: 'Taskveil Pro Monthly',
       description: 'Monthly Pro',
       price: 'Localized monthly price',
       isAnnual: false,

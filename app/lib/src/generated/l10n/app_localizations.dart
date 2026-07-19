@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'Todori'**
+  /// **'Taskveil'**
   String get appTitle;
 
   /// No description provided for @defaultInboxName.
@@ -113,7 +113,7 @@ abstract class AppLocalizations {
   /// No description provided for @defaultListMissing.
   ///
   /// In en, this message translates to:
-  /// **'Default list is missing. Restart Todori or check local database provisioning.'**
+  /// **'Default list is missing. Restart Taskveil or check local database provisioning.'**
   String get defaultListMissing;
 
   /// No description provided for @listsTitle.
@@ -604,7 +604,7 @@ abstract class AppLocalizations {
   /// No description provided for @homeEmptyBody.
   ///
   /// In en, this message translates to:
-  /// **'Create a list, then Todori will open straight into your tasks.'**
+  /// **'Create a list, then Taskveil will open straight into your tasks.'**
   String get homeEmptyBody;
 
   /// No description provided for @homeNewListButton.
@@ -1084,13 +1084,13 @@ abstract class AppLocalizations {
   /// No description provided for @reminderSavedNotificationFailed.
   ///
   /// In en, this message translates to:
-  /// **'The reminder was saved, but Todori could not schedule the local notification.'**
+  /// **'The reminder was saved, but Taskveil could not schedule the local notification.'**
   String get reminderSavedNotificationFailed;
 
   /// No description provided for @reminderPermissionDenied.
   ///
   /// In en, this message translates to:
-  /// **'Notifications are off. The reminder was saved, but Todori could not schedule a local notification.'**
+  /// **'Notifications are off. The reminder was saved, but Taskveil could not schedule a local notification.'**
   String get reminderPermissionDenied;
 
   /// No description provided for @failedToSaveReminder.
@@ -1102,7 +1102,7 @@ abstract class AppLocalizations {
   /// No description provided for @reminderNotificationTitle.
   ///
   /// In en, this message translates to:
-  /// **'Todori reminder'**
+  /// **'Taskveil reminder'**
   String get reminderNotificationTitle;
 
   /// No description provided for @reminderNotificationBody.
@@ -1798,7 +1798,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingWelcomeArtworkSemantics.
   ///
   /// In en, this message translates to:
-  /// **'A quiet leaf representing Todori'**
+  /// **'A quiet leaf representing Taskveil'**
   String get onboardingWelcomeArtworkSemantics;
 
   /// No description provided for @onboardingPrivacyTitle.
@@ -1834,7 +1834,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingBeginBody.
   ///
   /// In en, this message translates to:
-  /// **'Add what needs your attention. Todori stays quiet until you need it.'**
+  /// **'Add what needs your attention. Taskveil stays quiet until you need it.'**
   String get onboardingBeginBody;
 
   /// No description provided for @onboardingBeginArtworkSemantics.
@@ -1852,13 +1852,13 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingSaveFailed.
   ///
   /// In en, this message translates to:
-  /// **'Todori couldn\'t save this choice. Try again to continue.'**
+  /// **'Taskveil couldn\'t save this choice. Try again to continue.'**
   String get onboardingSaveFailed;
 
   /// No description provided for @onboardingLoadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Todori couldn\'t read its local settings.'**
+  /// **'Taskveil couldn\'t read its local settings.'**
   String get onboardingLoadFailed;
 
   /// No description provided for @retryButton.
@@ -1966,7 +1966,7 @@ abstract class AppLocalizations {
   /// No description provided for @focusNotificationsBody.
   ///
   /// In en, this message translates to:
-  /// **'Best effort while Todori is in the background'**
+  /// **'Best effort while Taskveil is in the background'**
   String get focusNotificationsBody;
 
   /// No description provided for @focusWorkIntervals.
@@ -1984,7 +1984,7 @@ abstract class AppLocalizations {
   /// No description provided for @focusLoadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Todori couldn\'t restore this focus session.'**
+  /// **'Taskveil couldn\'t restore this focus session.'**
   String get focusLoadFailed;
 
   /// No description provided for @focusActiveConflictTitle.
@@ -2206,7 +2206,7 @@ abstract class AppLocalizations {
   /// No description provided for @timerNotificationBody.
   ///
   /// In en, this message translates to:
-  /// **'Open Todori to continue your focus rhythm.'**
+  /// **'Open Taskveil to continue your focus rhythm.'**
   String get timerNotificationBody;
 
   /// No description provided for @billingTitle.
@@ -2581,11 +2581,11 @@ abstract class AppLocalizations {
   /// **'Template saved.'**
   String get templateSavedMessage;
 
-  /// No description provided for @failedToStartTodori.
+  /// No description provided for @failedToStartTaskveil.
   ///
   /// In en, this message translates to:
-  /// **'Failed to start Todori: {error}'**
-  String failedToStartTodori(String error);
+  /// **'Failed to start Taskveil: {error}'**
+  String failedToStartTaskveil(String error);
 }
 
 class _AppLocalizationsDelegate

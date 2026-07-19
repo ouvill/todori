@@ -100,7 +100,7 @@ task-18/19後の既存UIを小さく整え、後続のゴミ箱画面・復元UI
 - タグ、検索UI、高機能UIモード、設定画面は実装しない。
 - widget/goldenの新規大規模整備や画像スナップショット基盤の導入は行わない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
+- `taskveil-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
 
 ## 5. 実装手順（例）
 
@@ -200,7 +200,7 @@ task-18/19後の既存UIを小さく整え、後続のゴミ箱画面・復元UI
 ### 実装結果
 
 - `app/lib/src/ui/theme.dart` を追加し、Material 3 / `ColorScheme.fromSeed` ベースのlight/dark `ThemeData` と8px単位の `AppSpacing` を定義した。
-- `app/lib/main.dart` の `TodoriApp.build` で通常起動時・初期化失敗時の両方に共通themeを適用した。`RustLib.init()` / `initCore()` / DB初期化処理は変更していない。
+- `app/lib/main.dart` の `TaskveilApp.build` で通常起動時・初期化失敗時の両方に共通themeを適用した。`RustLib.init()` / `initCore()` / DB初期化処理は変更していない。
 - `app/lib/src/ui/states.dart` を追加し、loading / error / empty state の表示文法を共通化した。
 - `app/lib/src/ui/dialogs.dart` を追加し、list/task/subtask作成の入力ダイアログと親完了確認ダイアログを共通化した。
 - `app/lib/src/ui/task_components.dart` を追加し、`AppTaskRow` / `TaskMetadata` / metadata label helperを実装した。`TaskRow` 相当部品は `ValueKey('task-row-${task.id}')`、`ValueKey('task-done-${task.id}')`、`ValueKey('subtask-row-${subtask.id}')` を維持している。
@@ -281,7 +281,7 @@ task-18/19後の既存UIを小さく整え、後続のゴミ箱画面・復元UI
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功。
 - `cd app && flutter test`: 成功（Flutter 20件）。
 - `sh app/tool/check_hardcoded_strings.sh`: 成功（`main.dart` / `src/screens` / `src/ui` 対象、検出0件）。
-- `git -C todori diff --check`: 成功。
+- `git -C taskveil diff --check`: 成功。
 
 ### やらなかったこと
 
@@ -289,7 +289,7 @@ task-18/19後の既存UIを小さく整え、後続のゴミ箱画面・復元UI
 - Rust API、FRB生成物、DB schema、domain usecaseは変更していない。
 - ゴミ箱画面・復元UI、Undo、fractional index、ドラッグ&ドロップ並び替え、通知、タグ、検索UI、設定画面は実装していない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
-- `todori-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
+- `taskveil-private/` は読んでおらず、private詳細をpublic repoへ転記していない。
 
 ### 未解決事項・要人間判断
 

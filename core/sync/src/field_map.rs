@@ -1,12 +1,12 @@
 //! Strict, collection-specific plaintext stored inside encrypted sync blobs.
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use todori_domain::{
+use taskveil_domain::{
     validate_completed_timer_session, CompletedTimerSession, List, RecurrenceProvenance,
     RecurrenceSchedule, RevisionBoundary, ScheduleCursor, Task, TaskDue, TaskStatus, TaskTemplate,
     TemplateSnapshot, Uuid,
 };
+use thiserror::Error;
 
 use crate::hlc::Hlc;
 
@@ -609,7 +609,7 @@ fn validate_task_completion(completion: &TaskCompletion) -> Result<(), FieldMapE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use todori_domain::{new_task, TimerFinishKind, TimerMode};
+    use taskveil_domain::{new_task, TimerFinishKind, TimerMode};
 
     fn hlc(counter: u32) -> Hlc {
         Hlc {

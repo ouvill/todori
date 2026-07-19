@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{KeyScope, RotationStatus};
 
 pub const SYNC_PROTOCOL_VERSION: u16 = 6;
-pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-todori-protocol-version";
+pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-taskveil-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -7,7 +7,7 @@
 
 `docs/02_機能仕様書.md` F-09は、初期状態で「インボックス」リストがデフォルトとして用意され、リスト未指定タスクの受け皿になることを要求している。
 
-現状のTodoriは、起動直後のHomeで `lists.first` を開き、既定リスト保護も `sort_order` の先頭リストを「default inbox」と見なしている。これはドッグフーディング2026-07-07#2 項目3で確認された設計負債であり、リスト並び順や将来のTodayスマートリスト化と衝突する。
+現状のTaskveilは、起動直後のHomeで `lists.first` を開き、既定リスト保護も `sort_order` の先頭リストを「default inbox」と見なしている。これはドッグフーディング2026-07-07#2 項目3で確認された設計負債であり、リスト並び順や将来のTodayスマートリスト化と衝突する。
 
 本タスクでは、既定リストの暫定識別（`sort_order` 先頭）を永続識別（`lists.is_default`）へ置き換える。あわせて、空DBまたは既定リスト欠損DBを開いたとき、UIロケールに応じた名前のInboxを自動作成する。
 
@@ -80,7 +80,7 @@
    - 同一トランザクション内で、既存DBの `sort_order` 最小の非アーカイブリスト1件を `is_default = 1` にする。順序のtie-breakerは `sort_order ASC, created_at ASC, id ASC` のように決定的にする。
    - `is_default = 1` が複数作れないよう、storage層で不変条件を持たせる。SQLiteのpartial unique indexを使う場合は、migrationとschema到達点の整合をテストする。
 2. **domain/storageへ `is_default` を通す**
-   - `todori_domain::List` に `is_default: bool` を追加する。
+   - `taskveil_domain::List` に `is_default: bool` を追加する。
    - 通常の `new_list` は `is_default = false` とし、既定リスト作成用は専用helperまたは明示引数で `true` を設定する。
    - `SqliteListRepository` のSELECT/INSERT/UPDATE/row mappingを更新する。
    - 必要に応じて `ListRepository` に `get_default` / `ensure_default_list` 相当の最小APIを追加する。
@@ -151,7 +151,7 @@
 ## 7. 制約・注意事項
 
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更禁止。`docs/03` の `lists` 定義に `is_default` がない点は完了報告の未解決事項へ記録する。
-- SQLCipher鍵はDevice Key由来のHKDF（`info=todori/local-db-key/v1`）であり、本タスクで変更しない。
+- SQLCipher鍵はDevice Key由来のHKDF（`info=taskveil/local-db-key/v1`）であり、本タスクで変更しない。
 - Rust側にローカライズ済みUI文字列を持たせない。Inbox名はDB内ユーザーデータなので、作成時のUIロケールでDartから渡された文字列を保存する。
 - 既に存在する既定リスト名を、次回起動時のロケールで上書きしない。改名済みユーザーデータを尊重する。
 - `sort_order` はリスト表示順としては引き続き使ってよい。禁止するのは「`sort_order` 先頭を既定リストとみなす」ルールである。
@@ -214,7 +214,7 @@
   - 非アーカイブリストが0件の場合、v3 migrationで `is_default = 1` へ昇格する行はない。
   - `CREATE UNIQUE INDEX idx_lists_single_default ON lists(is_default) WHERE is_default = 1;` を追加した。
 - domain/storage:
-  - `todori_domain::List` に `is_default: bool` を追加した。
+  - `taskveil_domain::List` に `is_default: bool` を追加した。
   - `new_list` は `is_default = false` を設定する。
   - `new_default_list` は `is_default = true` を設定する。
   - `SqliteListRepository` の `SELECT` / `INSERT` / `UPDATE` / row mapping に `is_default` を追加した。

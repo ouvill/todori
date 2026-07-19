@@ -1,10 +1,10 @@
 # Legal and Open Source Overview
 
-This document summarizes Todori's public legal and open source posture. Internal operating notes, pre-release review checklists, and rough legal drafts are maintained outside the public repository.
+This document summarizes Taskveil's public legal and open source posture. Internal operating notes, pre-release review checklists, and rough legal drafts are maintained outside the public repository.
 
 ## Open Source Posture
 
-Todori is intended to be developed in public so that its privacy and end-to-end encryption claims can be inspected by users, contributors, and security reviewers.
+Taskveil is intended to be developed in public so that its privacy and end-to-end encryption claims can be inspected by users, contributors, and security reviewers.
 
 The repository uses:
 
@@ -16,7 +16,7 @@ The AGPL license and CLA are meant to keep the project inspectable while preserv
 
 ## Privacy and Terms Direction
 
-Todori's user-facing privacy and terms documents should reflect the product's technical design:
+Taskveil's user-facing privacy and terms documents should reflect the product's technical design:
 
 - The server should receive only the minimum account and service metadata needed to operate the product.
 - End-to-end encrypted content must remain unreadable to the server.
@@ -28,11 +28,11 @@ Formal privacy policy and terms documents are separate release-preparation artif
 
 ## Distribution Readiness
 
-Before public launch or app distribution, Todori should complete the ordinary compliance and platform checks required for an app that includes cryptography, paid features, and user accounts. Public documents should describe user-facing behavior and technical guarantees, while private working notes may track provider forms, review steps, and unresolved operating details.
+Before public launch or app distribution, Taskveil should complete the ordinary compliance and platform checks required for an app that includes cryptography, paid features, and user accounts. Public documents should describe user-facing behavior and technical guarantees, while private working notes may track provider forms, review steps, and unresolved operating details.
 
 ## Brand and Project Identity
 
-The project name is Todori. Public material should use the name consistently and avoid implying that final app-store availability, support commitments, or commercial terms exist before they are actually ready.
+The project name is Taskveil. Public material should use the name consistently and avoid implying that final app-store availability, support commitments, or commercial terms exist before they are actually ready.
 
 ## Non-Public Detail
 

@@ -71,7 +71,7 @@ export async function verifyTicket(
   const slot = selectKey(keys, candidate.kid);
   if (!slot) return null;
   const signatureInput = encoder.encode(
-    `todori-realtime-ticket-v1\n${payloadSegment}`,
+    `taskveil-realtime-ticket-v1\n${payloadSegment}`,
   );
   if (!(await verifyHmac(slot.encodedKey, signatureInput, signature))) {
     return null;
@@ -99,9 +99,9 @@ export async function verifyPublish(
   const body = new Uint8Array(await request.arrayBuffer());
   if (body.byteLength > MAX_PUBLISH_BODY_BYTES) return null;
 
-  const kid = request.headers.get("X-Todori-Realtime-Key-Id");
-  const timestampText = request.headers.get("X-Todori-Realtime-Timestamp");
-  const signatureText = request.headers.get("X-Todori-Realtime-Signature");
+  const kid = request.headers.get("X-Taskveil-Realtime-Key-Id");
+  const timestampText = request.headers.get("X-Taskveil-Realtime-Timestamp");
+  const signatureText = request.headers.get("X-Taskveil-Realtime-Signature");
   if (!kid || !timestampText || !signatureText || !KEY_ID_PATTERN.test(kid)) {
     return null;
   }
@@ -116,7 +116,7 @@ export async function verifyPublish(
   const signature = decodeBase64Url(signatureText);
   if (!slot || !signature || signature.byteLength !== 32) return null;
 
-  const prefix = encoder.encode(`todori-realtime-publish-v1\n${timestampText}\n`);
+  const prefix = encoder.encode(`taskveil-realtime-publish-v1\n${timestampText}\n`);
   const signatureInput = new Uint8Array(prefix.byteLength + body.byteLength);
   signatureInput.set(prefix);
   signatureInput.set(body, prefix.byteLength);

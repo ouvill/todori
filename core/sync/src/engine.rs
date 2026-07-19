@@ -197,7 +197,7 @@ impl SyncEngine {
             || capabilities.continuity_generation < 0
             || capabilities.required_generation < capabilities.continuity_generation
             || capabilities.full_resync_required != full_resync_required
-            || capabilities.suite_id != todori_crypto::CRYPTO_SUITE_ID
+            || capabilities.suite_id != taskveil_crypto::CRYPTO_SUITE_ID
             || capabilities.active_key_generation == 0
             || capabilities.minimum_write_generation != capabilities.active_key_generation
             || capabilities.key_manifests.is_empty()

@@ -79,7 +79,7 @@ milestone: maintenance
 
 - 作業日: 2026-07-15
 - 結果: schema v19のdurable `list_aliases`、認証済みtyped plaintextからのUUID最小選挙、closure / quarantine guard、単一`BEGIN IMMEDIATE`内のcanonical materialization、alias配下taskのplacement更新とcanonical List DEK再暗号化、旧alias IDのlocal CRUD解決を実装した。通常sync、full resync、quarantine replay、後着alias task、再起動を同じ冪等な収束規則で扱う。
-- 証拠: `todori-storage` 89 passed / 1 ignored、`todori-sync` 68 passed、`todori-client` 43 unit + 4 doc passed。後着のより小さい候補、alias flatten、live list quarantine保留、鍵不足rollback、canonical DEK再暗号化、再起動後alias、削除済みlistの空結果契約を自動テストで確認した。
+- 証拠: `taskveil-storage` 89 passed / 1 ignored、`taskveil-sync` 68 passed、`taskveil-client` 43 unit + 4 doc passed。後着のより小さい候補、alias flatten、live list quarantine保留、鍵不足rollback、canonical DEK再暗号化、再起動後alias、削除済みlistの空結果契約を自動テストで確認した。
 - Commit: `b787b5e` (`feat(sync): converge canonical inbox`)
 - ADR-015との差分: なし。server-visibleなcanonical pointerやplaintext metadataは追加せず、alias list recordとList DEK bundleを保持する。
 - 未解決: なし。実機2台での再確認は追加の運用観測として未実施であり、自動テストと独立品質ゲートの合否には影響しない。

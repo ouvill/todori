@@ -5,7 +5,7 @@
 
 ## 1. 背景とコンテキスト
 
-TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice Key (DK) からHKDFで導出する。task-07で `DeviceKeyStore` trait、DK生成、`todori/local-db-key/v1` によるSQLCipher鍵導出は実装済みである。一方、現時点のアプリ統合では `app/rust/src/dev_key_store.rs` の `FileDeviceKeyStore` が `<db_dir>/device.key` に32byte DKを平文保存しており、本番利用禁止の暫定実装のままである。
+TaskveilのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice Key (DK) からHKDFで導出する。task-07で `DeviceKeyStore` trait、DK生成、`taskveil/local-db-key/v1` によるSQLCipher鍵導出は実装済みである。一方、現時点のアプリ統合では `app/rust/src/dev_key_store.rs` の `FileDeviceKeyStore` が `<db_dir>/device.key` に32byte DKを平文保存しており、本番利用禁止の暫定実装のままである。
 
 本タスクでは、M4-02のセキュリティ必須項目として、iOS/macOSの本番用 `DeviceKeyStore` をApple Keychain backed実装へ置き換える。既存アーキテクチャでは `app/lib/main.dart` がアプリサポートディレクトリを決め、`init_core(db_dir, default_inbox_name)` を呼び、Rust側 `init_core` がDK確保、HKDF導出、SQLCipher DB openまでを一貫して行っている。この境界を維持するため、方式は **Rust側からApple Security frameworkを呼ぶKeychain実装** に固定する。Flutter側でKeychainへ保存してDKを `init_core` へ渡す方式は採用しない。
 
@@ -25,8 +25,8 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - `app/lib/main.dart`
 - `app/ios/`
 - `app/macos/`
-- `app/rust_builder/ios/todori_app_bridge.podspec`
-- `app/rust_builder/macos/todori_app_bridge.podspec`
+- `app/rust_builder/ios/taskveil_app_bridge.podspec`
+- `app/rust_builder/macos/taskveil_app_bridge.podspec`
 - `.cargo/config.toml`
 
 ## 3. ゴール
@@ -46,8 +46,8 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - `app/rust/Cargo.toml`
 - `app/rust/src/dev_key_store.rs`
 - `app/rust/src/api.rs`
-- `app/rust_builder/ios/todori_app_bridge.podspec`
-- `app/rust_builder/macos/todori_app_bridge.podspec`
+- `app/rust_builder/ios/taskveil_app_bridge.podspec`
+- `app/rust_builder/macos/taskveil_app_bridge.podspec`
 - `app/ios/` 配下（必要な場合のみ、Keychain利用に必要な最小差分）
 - `app/macos/Runner/DebugProfile.entitlements`（必要な場合のみ）
 - `app/macos/Runner/Release.entitlements`（必要な場合のみ）
@@ -61,13 +61,13 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 2. KeychainアクセスはRust側でApple Security frameworkを呼ぶ。`SecItemCopyMatching` / `SecItemAdd` / `SecItemUpdate` / `SecItemDelete` 相当を使い、generic password itemとして32byte DKを保存する。実装にcrateを追加する場合は、workspace dependencyへ集約し、Apple platform限定依存にする。
 3. Keychain itemの属性は以下を固定する。
    - class: generic password
-   - service: `dev.todori.todori.device-key`
+   - service: `com.taskveil.app.device-key`
    - account: `default`
    - accessible: `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` 相当
    - data: DK 32byte
    - access group: 指定しない（単一アプリ内利用。Keychain sharingは使わない）
    - 2026-07-08追記: iOSではData Protection Keychainと`AfterFirstUnlockThisDeviceOnly`相当を厳守する。macOSではData Protection Keychainを最初に試み、`errSecMissingEntitlement (-34018)` の場合のみ、`kSecUseDataProtectionKeychain`なしのlegacy login keychainへフォールバックする。legacy fallbackでもservice/account/synchronizable `false`/access groupなしは維持し、秘密情報をログへ出さない。
-4. iOS/macOSのCocoaPods buildでSecurity frameworkがリンクされるよう、必要なら `app/rust_builder/ios/todori_app_bridge.podspec` と `app/rust_builder/macos/todori_app_bridge.podspec` に `Security` framework指定を追加する。
+4. iOS/macOSのCocoaPods buildでSecurity frameworkがリンクされるよう、必要なら `app/rust_builder/ios/taskveil_app_bridge.podspec` と `app/rust_builder/macos/taskveil_app_bridge.podspec` に `Security` framework指定を追加する。
 5. `init_core` の公開シグネチャは維持し、Apple platformではKeychain backed storeを使う。非Apple platformおよびテストで必要な場合は既存 `FileDeviceKeyStore` を開発用fallbackとして残す。
 6. 既存ファイルDKからの移行処理を実装する。KeychainにDKが無く、`<db_dir>/device.key` が存在する場合、ファイルDKをKeychainへ保存し、保存成功後にファイル削除を試みる。Keychain保存に失敗した場合はファイルを削除せず、同じファイルDKでDBを開く。
 7. KeychainにDKが既にある場合はKeychainのDKを正とし、ファイルDKが残っていてもDB openには使わない。ただし完了報告に残存ファイルの扱いを記録する。
@@ -106,7 +106,7 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 タスク固有の受け入れ基準:
 
 - [ ] iOS/macOS targetでは `init_core` がKeychain backed `DeviceKeyStore` を使い、`init_core` の公開シグネチャとDart呼び出しは変更されていない。
-- [ ] Keychain itemはgeneric password、service `dev.todori.todori.device-key`、account `default`、`AfterFirstUnlockThisDeviceOnly` 相当で保存され、access groupを指定していない。
+- [ ] Keychain itemはgeneric password、service `com.taskveil.app.device-key`、account `default`、`AfterFirstUnlockThisDeviceOnly` 相当で保存され、access groupを指定していない。
 - [ ] macOSではData Protection Keychainを先に使い、`errSecMissingEntitlement (-34018)` の場合のみlegacy login keychainへフォールバックする。legacy fallbackでもservice/account/synchronizable `false`/移行ロジックは共通であり、ログに秘密情報を含めない。
 - [ ] DKが未保存ならKeychainへ新規生成・保存され、再起動後に同じDKからSQLCipher DBを再オープンできる。
 - [ ] 既存 `<db_dir>/device.key` がある場合、Keychainへ移行後にファイル削除を試み、Keychain保存失敗時はファイルを残して旧経路でDB openできる。
@@ -119,14 +119,14 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 
 ## 7. 制約・注意事項
 
-- `todori/local-db-key/v1` は互換性に関わるため変更禁止である。SQLCipher鍵導出は引き続き `derive_local_db_key(&device_key)` のみを使う。
+- `taskveil/local-db-key/v1` は互換性に関わるため変更禁止である。SQLCipher鍵導出は引き続き `derive_local_db_key(&device_key)` のみを使う。
 - `FileDeviceKeyStore` は移行fallbackおよび非Apple開発用として残してよいが、iOS/macOS本番経路の正にしてはならない。
 - Keychain移行ではデータロス回避を最優先する。Keychain保存が確認できる前に `device.key` を削除してはならない。
 - Keychain itemのaccessibilityは `AfterFirstUnlockThisDeviceOnly` 相当に固定する。iCloud同期・バックアップ・別端末復元に乗る属性を選ばない。
 - Keychain access groupは使わない。必要になった場合は、実際のビルド/実行エラー、必要なentitlement差分、データ移行影響を完了報告の未解決事項に記録し、独断で共有group設計へ広げない。
 - macOSはsandbox entitlementsがiOSと異なる。`app/macos/Runner/DebugProfile.entitlements` / `Release.entitlements` は必要最小限の変更にし、Keychain sharingを有効化しない。
 - `.cargo/config.toml` の `IPHONEOS_DEPLOYMENT_TARGET=15.0` を変更しない。
-- cargoパッケージ名、pod名、FRB stemの `todori_app_bridge` 一致制約を崩さない。
+- cargoパッケージ名、pod名、FRB stemの `taskveil_app_bridge` 一致制約を崩さない。
 - Rust APIを公開変更した場合のみFRB再生成を行う。生成物は手編集しない。本タスクでは `init_core` のシグネチャ維持を前提とするため、原則FRB再生成は不要である。
 - 新規依存を追加する場合は、workspace dependencyへ集約し、不要なネットワーク取得や非Apple targetへの不要な依存波及を避ける。
 
@@ -165,8 +165,8 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - `app/lib/main.dart`
 - `app/ios/` 配下の構成ファイル一覧
 - `app/macos/` 配下の構成ファイル一覧
-- `app/rust_builder/ios/todori_app_bridge.podspec`
-- `app/rust_builder/macos/todori_app_bridge.podspec`
+- `app/rust_builder/ios/taskveil_app_bridge.podspec`
+- `app/rust_builder/macos/taskveil_app_bridge.podspec`
 - `.cargo/config.toml`
 
 ### 実装結果
@@ -175,7 +175,7 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - Dart側でKeychainへDKを保存する方式は採らず、既存の `DeviceKeyStore` trait、`ensure_device_key`、`derive_local_db_key`、`init_core(db_dir, default_inbox_name)` の境界を維持した。
 - `init_core` の公開シグネチャとDart呼び出しは変更していない。FRB再生成は実行していない。
 - Apple platformの通常経路では `load_or_create_device_key` が `AppleKeychainDeviceKeyStore` を使う。`flutter_tester` / `FLUTTER_TEST` / `DART_TEST` 検出時のみ、Flutter bridge test実行用に既存 `FileDeviceKeyStore` を使う。
-- `app/rust_builder/ios/todori_app_bridge.podspec` と `app/rust_builder/macos/todori_app_bridge.podspec` に `Security` framework指定を追加した。
+- `app/rust_builder/ios/taskveil_app_bridge.podspec` と `app/rust_builder/macos/taskveil_app_bridge.podspec` に `Security` framework指定を追加した。
 - `app/macos/Runner/DebugProfile.entitlements` / `Release.entitlements` は変更していない。Keychain sharing / access groupは追加していない。
 - 2026-07-08修正: macOSではData Protection Keychainを最初に試み、`errSecMissingEntitlement (-34018)` の場合のみlegacy login keychainへフォールバックするようにした。非署名テストバイナリやad-hoc署名ビルドではData Protection Keychainがentitlement付き署名を要求するためである。
 - legacy fallback使用時は `keychain: legacy fallback` の1行だけを標準エラーへ出力する。DK、導出鍵、Keychain data、service/account以外の秘密情報は出力しない。
@@ -186,7 +186,7 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - 追加した内部関数: `load_or_create_device_key` / `ensure_device_key_with_migration` / `with_macos_legacy_fallback` / `is_keychain_item_not_found` / `is_keychain_missing_entitlement` / `keychain_error` / `is_flutter_test_process`
 - iOSおよびmacOS Data Protection Keychain item属性:
   - class: generic password
-  - service: `dev.todori.todori.device-key`
+  - service: `com.taskveil.app.device-key`
   - account: `default`
   - accessibility: `SecAccessControl` の `AccessibleAfterFirstUnlockThisDeviceOnly`
   - synchronizable: `false`
@@ -219,7 +219,7 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
   - `apple_keychain_device_key_store_round_trips_real_keychain_item`
   - `#[cfg(target_os = "macos")]` かつ `#[ignore]`
 - 実Keychainテストの手動実行結果:
-  - `cargo test -p todori_app_bridge -- --ignored --nocapture`
+  - `cargo test -p taskveil_app_bridge -- --ignored --nocapture`
   - 失敗。`Apple Keychain error code -25291`
   - CodexサンドボックスではKeychain自体が利用不可の `errSecNotAvailable (-25291)` になり、今回のfallback条件である `errSecMissingEntitlement (-34018)` ではないためlegacy fallbackは発火しない。
   - 親ホスト相当の非署名テストバイナリで `-34018` が返る場合は、同一操作をlegacy login keychainへ再試行する設計にした。
@@ -232,21 +232,21 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
   - `xcrun simctl list runtimes`
   - `flutter devices`
   - `flutter build ios --simulator --debug`
-  - `cargo build -p todori_app_bridge --target aarch64-apple-ios-sim`
+  - `cargo build -p taskveil_app_bridge --target aarch64-apple-ios-sim`
 - 機種 / OS / device id:
   - CoreSimulatorServiceへ接続できず取得不可。
 - 結果:
   - `xcrun simctl` は `CoreSimulatorService connection became invalid` / `Connection refused` で失敗した。
   - `flutter devices` はmacOSとChromeのみを検出し、iOS Simulatorは検出しなかった。
   - `flutter build ios --simulator --debug` はXcodeのSwiftPM依存解決段階で停止した。原因はCoreSimulatorService接続失敗と `/Users/youhei/Library/Caches/org.swift.swiftpm/...` へのdiagnostics書き込み `Operation not permitted`。
-  - `cargo build -p todori_app_bridge --target aarch64-apple-ios-sim` は成功した。
+  - `cargo build -p taskveil_app_bridge --target aarch64-apple-ios-sim` は成功した。
   - iOS Simulatorでの `flutter run`、アプリ終了/再起動、DB保持確認はこの環境では未実施。
 
 ### macOS dogfooding確認
 
 - 実行手順:
   - `flutter build macos --debug`
-  - `HOME=/private/tmp/todori-flutter-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --debug`
+  - `HOME=/private/tmp/taskveil-flutter-home PUB_CACHE=/Users/youhei/.pub-cache flutter build macos --debug`
 - 結果:
   - どちらもXcodeのSwiftPM依存解決段階で停止した。
   - 主なエラーはCoreSimulatorService接続失敗と `/Users/youhei/Library/Caches/org.swift.swiftpm/...` へのdiagnostics書き込み `Operation not permitted`。
@@ -256,14 +256,14 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 
 ### 親ホスト検証
 
-- 親ホスト検証（2026-07-08）: 実Keychain roundtrip ignoredテスト合格。macOS debugアプリの起動→再起動で鍵保持とDBオープンを確認（login.keychainにdev.todori.todori.device-keyアイテム確認）。iOS Simulatorのflutter run通し確認は人間帰還後の確認事項として残す。
+- 親ホスト検証（2026-07-08）: 実Keychain roundtrip ignoredテスト合格。macOS debugアプリの起動→再起動で鍵保持とDBオープンを確認（login.keychainにcom.taskveil.app.device-keyアイテム確認）。iOS Simulatorのflutter run通し確認は人間帰還後の確認事項として残す。
 
 ### 品質ゲート
 
 - `cargo fmt --all -- --check`: 成功
 - `cargo clippy --workspace -- -D warnings`: 成功
-- `cargo test --workspace`: 成功（`todori_app_bridge` は4 passed / 1 ignored）
-- `cargo test -p todori_app_bridge -- --ignored --nocapture`: 失敗（Codexサンドボックス内のKeychain利用不可により `Apple Keychain error code -25291`。`-34018` fallbackの親ホスト再検証が必要）
+- `cargo test --workspace`: 成功（`taskveil_app_bridge` は4 passed / 1 ignored）
+- `cargo test -p taskveil_app_bridge -- --ignored --nocapture`: 失敗（Codexサンドボックス内のKeychain利用不可により `Apple Keychain error code -25291`。`-34018` fallbackの親ホスト再検証が必要）
 - `cd app && flutter analyze`: 成功
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
 - `cd app && flutter test`: 成功（105 passed / 1 skipped）
@@ -277,8 +277,8 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 - `app/rust/Cargo.toml`
 - `app/rust/src/api.rs`
 - `app/rust/src/dev_key_store.rs`
-- `app/rust_builder/ios/todori_app_bridge.podspec`
-- `app/rust_builder/macos/todori_app_bridge.podspec`
+- `app/rust_builder/ios/taskveil_app_bridge.podspec`
+- `app/rust_builder/macos/taskveil_app_bridge.podspec`
 - `docs/03_技術仕様書.md`
 - `docs/tasks/BACKLOG.md`
 - `docs/tasks/README.md`
@@ -316,11 +316,11 @@ TodoriのローカルDBはSQLCipherで暗号化され、その鍵は常にDevice
 #### 検証結果
 
 - `cargo fmt --all -- --check`: 成功
-- `cargo check -p todori-crypto`: 成功
-- `cargo check -p todori-crypto --target aarch64-apple-ios-sim`: 成功
-- `cargo clippy -p todori-crypto -- -D warnings`: 成功
-- `cargo test -p todori-crypto`: 成功（28 passed / 1 ignored）
-- `cargo test -p todori-crypto apple_keychain_device_key_store_round_trips_real_keychain_item -- --ignored --nocapture`: 失敗。Codexサンドボックス内ではKeychain利用不可の `Apple Keychain error code -25291` で停止した。今回の実機プロンプト修正対象である `-34018` fallbackおよびACL付きlegacy itemの実機無音確認は親ホストで行う。
+- `cargo check -p taskveil-crypto`: 成功
+- `cargo check -p taskveil-crypto --target aarch64-apple-ios-sim`: 成功
+- `cargo clippy -p taskveil-crypto -- -D warnings`: 成功
+- `cargo test -p taskveil-crypto`: 成功（28 passed / 1 ignored）
+- `cargo test -p taskveil-crypto apple_keychain_device_key_store_round_trips_real_keychain_item -- --ignored --nocapture`: 失敗。Codexサンドボックス内ではKeychain利用不可の `Apple Keychain error code -25291` で停止した。今回の実機プロンプト修正対象である `-34018` fallbackおよびACL付きlegacy itemの実機無音確認は親ホストで行う。
 
 #### 未解決事項
 

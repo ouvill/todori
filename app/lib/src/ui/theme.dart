@@ -39,11 +39,11 @@ const _cjkFontFamilyFallback = <String>[
   'Noto Sans JP',
 ];
 
-/// Builds Todori's normal, light-only product theme.
+/// Builds Taskveil's normal, light-only product theme.
 ///
-/// [brightness] remains in the signature for existing callers. Todori stays on
+/// [brightness] remains in the signature for existing callers. Taskveil stays on
 /// the warm light canvas regardless of the platform-wide brightness setting.
-ThemeData buildTodoriTheme(Brightness brightness) {
+ThemeData buildTaskveilTheme(Brightness brightness) {
   const colorScheme = ColorScheme.light(
     primary: AppColors.forest,
     onPrimary: Color(0xFFF8F5EC),

@@ -21,7 +21,7 @@ static ANDROID_JNI: OnceLock<AndroidJniBridge> = OnceLock::new();
 /// No secret crosses this boundary; capsule bytes move only during explicit
 /// Keystore seal/unseal calls below.
 #[no_mangle]
-pub extern "system" fn Java_dev_todori_todori_AndroidCapsuleStore_nativeInstallContext(
+pub extern "system" fn Java_com_taskveil_app_AndroidCapsuleStore_nativeInstallContext(
     env: JNIEnv<'_>,
     class: JClass<'_>,
 ) {

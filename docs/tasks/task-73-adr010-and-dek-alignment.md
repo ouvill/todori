@@ -194,9 +194,9 @@ List DEK整合:
 - `cargo clippy --workspace -- -D warnings`: 成功
 - `cargo test --workspace`: 成功
   - `server/tests/sync_server.rs`: 5 passed
-  - `todori_storage`: 48 passed, 1 ignored
-  - `todori_sync`: 29 passed
-  - `todori_app_bridge`: 4 passed, 1 ignored
+  - `taskveil_storage`: 48 passed, 1 ignored
+  - `taskveil_sync`: 29 passed
+  - `taskveil_app_bridge`: 4 passed, 1 ignored
 - `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`: 成功
 - `cd app && flutter analyze`: 成功
 - `cd app && flutter test`: 成功（123 passed、visual QA harness 1 skipped）

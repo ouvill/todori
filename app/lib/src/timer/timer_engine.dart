@@ -5,10 +5,10 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart'
     show ProviderListenable, ProviderOrFamily;
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/timer/timer_notifications.dart';
-import 'package:todori/src/timer/timer_settings.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/timer/timer_notifications.dart';
+import 'package:taskveil/src/timer/timer_settings.dart';
 
 const timerRuntimeKey = 'timer_runtime_v1';
 const _maximumActiveDuration = Duration(days: 7);

@@ -100,7 +100,7 @@ task-30〜31でタスク行の密度・Trash表現・visual QA基盤は整った
 - 完了済みタスク専用画面、検索、通知、Focus timer、設定画面、bottom navigationを追加しない。
 - 新規pub依存や新規画像アセットを追加しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` と `.github/` は変更しない。
+- `taskveil-private/` と `.github/` は変更しない。
 
 ## 5. 実装手順例
 
@@ -133,7 +133,7 @@ task-30〜31でタスク行の密度・Trash表現・visual QA基盤は整った
 - [x] `sh app/tool/check_hardcoded_strings.sh` が成功している。
 - [x] `git diff --check` が成功している。
 - [x] `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` が変更されていない。
-- [x] `todori-private/` と `.github/` が変更されていない。
+- [x] `taskveil-private/` と `.github/` が変更されていない。
 
 ## 7. 制約・注意事項
 
@@ -157,7 +157,7 @@ task-30〜31でタスク行の密度・Trash表現・visual QA基盤は整った
 - 品質ゲートの実行結果
 - やらなかったことが守られていること
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` を変更していないこと
-- `todori-private/` と `.github/` を変更していないこと
+- `taskveil-private/` と `.github/` を変更していないこと
 - 未解決事項（なければ「なし」）
 
 ## 9. 完了報告
@@ -233,7 +233,7 @@ task-30〜31でタスク行の密度・Trash表現・visual QA基盤は整った
 - 完了済みタスク専用画面、検索、通知、Focus timer、設定画面、bottom navigationは追加していない。
 - 新規pub依存や新規画像アセットは追加していない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更していない。
-- `todori-private/` と `.github/` は変更していない。
+- `taskveil-private/` と `.github/` は変更していない。
 
 ### 独立レビュー
 

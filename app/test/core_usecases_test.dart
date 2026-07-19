@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
-import 'package:todori/src/core/task_due.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/rust/frb_generated.dart';
+import 'package:taskveil/src/core/task_due.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/rust/frb_generated.dart';
 
 TaskDueDto testDateTimeDueFromMillis(int value, {String timeZone = 'UTC'}) =>
     dateTimeDueFromInstant(
@@ -18,10 +18,10 @@ void main() {
   setUpAll(() async {
     await RustLib.init(
       externalLibrary: ExternalLibrary.open(
-        'rust/target/release/libtodori_app_bridge.dylib',
+        'rust/target/release/libtaskveil_app_bridge.dylib',
       ),
     );
-    tempDir = await Directory.systemTemp.createTemp('todori_core_usecases_');
+    tempDir = await Directory.systemTemp.createTemp('taskveil_core_usecases_');
     await initCore(dbDir: tempDir.path, defaultInboxName: 'Inbox');
   });
 

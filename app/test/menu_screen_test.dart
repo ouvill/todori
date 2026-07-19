@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/screens/menu_screen.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/screens/menu_screen.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -177,7 +177,7 @@ void main() {
       ProviderScope(
         overrides: [bridgeServiceProvider.overrideWithValue(fake)],
         child: MaterialApp(
-          theme: buildTodoriTheme(Brightness.light),
+          theme: buildTaskveilTheme(Brightness.light),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const MenuScreen(),
@@ -192,7 +192,7 @@ void main() {
 
 Future<void> _pumpApp(WidgetTester tester, FakeBridgeService fake) async {
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
 }

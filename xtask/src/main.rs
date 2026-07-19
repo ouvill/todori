@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use uuid::Uuid;
 
-const USAGE: &str = "usage: cargo run -q -p todori-xtask -- work-id";
+const USAGE: &str = "usage: cargo run -q -p taskveil-xtask -- work-id";
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);

@@ -1,10 +1,10 @@
-import 'package:todori/src/rust/api.dart' as rust_api;
+import 'package:taskveil/src/rust/api.dart' as rust_api;
 
 /// Abstracts the FRB-generated Rust bridge functions behind a plain Dart
 /// interface.
 ///
 /// Riverpod providers depend on this interface rather than calling the
-/// generated `package:todori/src/rust/api.dart` functions directly. This
+/// generated `package:taskveil/src/rust/api.dart` functions directly. This
 /// lets widget tests override [bridgeServiceProvider] (see
 /// `src/core/providers.dart`) with an in-memory fake implementation, so the
 /// whole screen/provider/router stack can be exercised without loading the

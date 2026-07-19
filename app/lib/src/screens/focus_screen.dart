@@ -5,15 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/timer/timer_engine.dart';
-import 'package:todori/src/timer/timer_settings.dart';
-import 'package:todori/src/ui/dialogs.dart';
-import 'package:todori/src/ui/states.dart';
-import 'package:todori/src/ui/task_components.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/timer/timer_engine.dart';
+import 'package:taskveil/src/timer/timer_settings.dart';
+import 'package:taskveil/src/ui/dialogs.dart';
+import 'package:taskveil/src/ui/states.dart';
+import 'package:taskveil/src/ui/task_components.dart';
+import 'package:taskveil/src/ui/theme.dart';
 
 class FocusScreen extends ConsumerStatefulWidget {
   const FocusScreen({super.key, required this.listId, required this.taskId});

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/router.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/ui/task_completion_motion.dart';
-import 'package:todori/src/ui/task_components.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/router.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/ui/task_completion_motion.dart';
+import 'package:taskveil/src/ui/task_components.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -148,7 +148,7 @@ Future<({String listId, TaskDto task, TaskDto? child})> _pumpList(
       : null;
   final router = buildAppRouter();
   await tester.pumpWidget(
-    TodoriApp(
+    TaskveilApp(
       router: router,
       overrides: [bridgeServiceProvider.overrideWithValue(fake)],
     ),

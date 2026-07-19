@@ -7,7 +7,7 @@
 
 ADR-010はtombstoneを180日後にGCし、テナントごとの`gc_horizon_seq`より古い非zero cursorをfull resyncへ送る方針を定めた。ADR-012はfull resyncを厳密な過去snapshotではなく、更新で移動しないstable keyによるcurrent-state fuzzy scanと`base_seq`後のdelta catch-upとして定義した。
 
-task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`TodoriClient`へ集約され、Flutter bridgeからrepository・鍵・同期coordinatorが除去された。本taskではこの境界を維持したまま、GC後の端末と新規端末が、別端末の更新を止めず、欠落・未ACK local変更の消失・crash後の不整合なしにfull resyncできるproduction経路を実装する。
+task-92〜94により、Flutter / CLI / MCPの共通入口は`taskveil-client`の`TaskveilClient`へ集約され、Flutter bridgeからrepository・鍵・同期coordinatorが除去された。本taskではこの境界を維持したまま、GC後の端末と新規端末が、別端末の更新を止めず、欠落・未ACK local変更の消失・crash後の不整合なしにfull resyncできるproduction経路を実装する。
 
 ## 2. 事前に読むべきファイル
 
@@ -29,17 +29,17 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 - 未ACK outboxを持つlocal recordをsweepせず、serverに存在しない安全なlocal recordだけを除去する。
 - base、delta、mark、sweep、cursor確定の各crash windowから同じresyncを安全に再試行できる。
 - 既存local dataを新規tenantへ登録する経路でseed-before-sweepを守る。
-- `TodoriClient::sync_now`を唯一の高水準同期入口として維持し、Flutter / FRB公開call surfaceを変えない。
+- `TaskveilClient::sync_now`を唯一の高水準同期入口として維持し、Flutter / FRB公開call surfaceを変えない。
 - strict snapshotやbase scan全体を覆う長時間DB lockに依存しない。
 
 ## 4. スコープ
 
 ### やること
 
-- `todori-sync`: continuity / resync protocol型、stable-key cursor、base/delta page、high-water closure条件、state machineとstorage/server traitを実装する。
-- `todori-storage`: resync generation、record mark、進捗、cursor、outbox保護付きsweepを支えるbreaking local schemaと短いtransaction primitiveを実装する。
-- `todori-client`: SQLite adapter、preflight、seed、base scan、delta catch-up、mark/sweep、cursor確定、crash recoveryの実行順序を`TodoriClient::sync_now`配下へ統合する。
-- `todori-server`: server transaction内の`base_seq`取得、stable-key current-state page、GC horizon永続化とpreflight判定、delta rowsと同一transactionの`high_water`、closureに必要なAPIを実装する。
+- `taskveil-sync`: continuity / resync protocol型、stable-key cursor、base/delta page、high-water closure条件、state machineとstorage/server traitを実装する。
+- `taskveil-storage`: resync generation、record mark、進捗、cursor、outbox保護付きsweepを支えるbreaking local schemaと短いtransaction primitiveを実装する。
+- `taskveil-client`: SQLite adapter、preflight、seed、base scan、delta catch-up、mark/sweep、cursor確定、crash recoveryの実行順序を`TaskveilClient::sync_now`配下へ統合する。
+- `taskveil-server`: server transaction内の`base_seq`取得、stable-key current-state page、GC horizon永続化とpreflight判定、delta rowsと同一transactionの`high_water`、closureに必要なAPIを実装する。
 - protocol/server/local schemaは互換shimなしで正しい最終形へbreaking変更する。
 - production 2-client経路と各crash windowを含む自動testを追加する。
 
@@ -47,18 +47,18 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 
 - aggregate削除scope / epoch、Canonical Inbox、server RLS hardening。
 - Flutter/Dart公開API、FRB関数signature、画面、生成物の変更。
-- `todori_app_bridge`へのrepository、鍵、resync coordinator、下位crate直接依存の追加。
+- `taskveil_app_bridge`へのrepository、鍵、resync coordinator、下位crate直接依存の追加。
 - strict historical snapshot、scan全体を覆う長時間Postgres / SQLite transactionやDB lock。
 - 互換shim、dual read/write、旧形式fallback、bare `core` crate。
 - private repoの変更。
 
 ## 5. 実装手順
 
-1. 現行protocol、server schema/query、local schema、`TodoriClient::sync_now`の実行順序とテストfixtureを調査し、共有interfaceとmigrationの依存順を確定する。
-2. `todori-sync`へpreflight判定、base/delta page型、stable-key cursor、`has_more=false`かつcursorがpage `high_water`へ到達した場合だけ成立するclosure条件を追加する。
-3. `todori-server`へtenant sequence / GC horizon schema、server transaction内`base_seq`取得、`seq`で移動しないstable-key scan、`seq > base_seq` delta、同一transaction high-waterを実装する。base rowsは`seq <= base_seq`へ限定しない。
-4. `todori-storage`へresync generation・進捗・mark・outbox保護付きsweep・closure cursor確定を短いtransactionで再試行できるschema/APIとして実装する。
-5. `todori-client`でoutbox読取より先にpreflightし、`0 < since < gc_horizon_seq`と`since=0`を区別する。必要時はgenerationを再開/作成し、base、delta、closure、sweep、cursor確定、通常pushを順序づける。
+1. 現行protocol、server schema/query、local schema、`TaskveilClient::sync_now`の実行順序とテストfixtureを調査し、共有interfaceとmigrationの依存順を確定する。
+2. `taskveil-sync`へpreflight判定、base/delta page型、stable-key cursor、`has_more=false`かつcursorがpage `high_water`へ到達した場合だけ成立するclosure条件を追加する。
+3. `taskveil-server`へtenant sequence / GC horizon schema、server transaction内`base_seq`取得、`seq`で移動しないstable-key scan、`seq > base_seq` delta、同一transaction high-waterを実装する。base rowsは`seq <= base_seq`へ限定しない。
+4. `taskveil-storage`へresync generation・進捗・mark・outbox保護付きsweep・closure cursor確定を短いtransactionで再試行できるschema/APIとして実装する。
+5. `taskveil-client`でoutbox読取より先にpreflightし、`0 < since < gc_horizon_seq`と`since=0`を区別する。必要時はgenerationを再開/作成し、base、delta、closure、sweep、cursor確定、通常pushを順序づける。
 6. 新規tenant binding時は既存local recordをtransactional seed/outboxへ登録してからresync/sweepし、未ACK outboxで保護されたrecordをclosure後の通常pushへ渡す。
 7. 必須test、production 2-client収束test、FRB公開surface/boundary checkを実行し、全品質ゲートを統合HEADで通す。
 8. 実装を担当していないエージェントが独立検証し、P1 / P2 / P3があれば修正と再検証を繰り返す。
@@ -77,7 +77,7 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 - [x] base scan、delta、mark、sweep、cursor確定の各crash windowから再試行して同じ最終状態へ収束する。
 - [x] 既存local dataの新規tenant登録でseed-before-sweepを守り、未push dataを失わない。
 - [x] 2-client production経路がfull resync中の同時更新を含め最終的に収束する。
-- [x] `TodoriClient::sync_now`が高水準入口のままで、Flutter/FRB公開call surfaceとbridge boundaryが不変である。
+- [x] `TaskveilClient::sync_now`が高水準入口のままで、Flutter/FRB公開call surfaceとbridge boundaryが不変である。
 - [x] strict snapshot、長時間DB lock、互換shim、dual形式、旧fallbackを追加していない。
 - [x] `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`が成功する。
 - [x] `cd app/rust && env CARGO_TARGET_DIR=target cargo build --release`、`cd app && flutter analyze`、`cd app && flutter test`が成功する。
@@ -100,7 +100,7 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 
 - server/local schema versionと、追加・変更したtable / constraint / index / migration。
 - protocol型、endpoint / trait、stable-key cursor、base/delta/high-water closureの具体的な契約。
-- `TodoriClient::sync_now`のpreflight、seed、resync、sweep、push順序とcrash recovery境界。
+- `TaskveilClient::sync_now`のpreflight、seed、resync、sweep、push順序とcrash recovery境界。
 - 必須test名、2-client production test、全品質ゲートの実測結果。
 - Flutter/FRB公開call surface不変とclient boundary維持の根拠。
 - 独立検証の判定とP1 / P2 / P3、commit hash、未解決事項。
@@ -110,7 +110,7 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 ### 実装結果
 
 - 作業日: 2026-07-10
-- 結果: `TodoriClient::sync_now`配下へ、server強制continuity preflight、stable-key current-state base scan、`base_seq`後delta、高水位closure、durable generation/mark、outbox保護付きbounded sweep、crash recovery、seed-before-sweepを統合した。同期中の別端末pushはbase scan全体を覆うlockなしで継続できる。
+- 結果: `TaskveilClient::sync_now`配下へ、server強制continuity preflight、stable-key current-state base scan、`base_seq`後delta、高水位closure、durable generation/mark、outbox保護付きbounded sweep、crash recovery、seed-before-sweepを統合した。同期中の別端末pushはbase scan全体を覆うlockなしで継続できる。
 - Server schema: migration `202607100002_fuzzy_resync.sql`で`tenant_seq.gc_horizon_seq BIGINT NOT NULL DEFAULT 0`を追加した。tombstone GCは削除行のtenant別最大seqでhorizonを同一statement内に単調前進する。
 - Local schema: schema versionをv14からv15へ上げ、singletonの`sync_full_resync_state`とgeneration別`sync_full_resync_marks`、stable base/sweep cursor、`base_seq`、delta cursor、closure high-waterを追加した。
 - Protocol/API: preflightへ`since`を必須化し、`since=0`はcapabilitiesを返し、`0 < since < gc_horizon_seq`は410を返す。410後も`since=0`でprotocol/envelope versionを再検証する。`POST /resync/start`、`GET /resync/base`、`PullResponse.high_water`、`StableRecordCursor`、`BaseScanResponse`を追加し、delta closureを`has_more=false && next_since==high_water`へ固定した。
@@ -126,5 +126,5 @@ task-92〜94により、Flutter / CLI / MCPの共通入口は`todori-client`の`
 ### 独立検証
 
 - 判定: 合格（P1 / P2 / P3なし）
-- 根拠: 実装非担当エージェントがADR-010 / ADR-012と全diffを照合し、stable-key base、delta/high-water、410後version再検証、push前遷移、quarantine mark、outbox保護、exact sweep、全crash window、seed-before-sweep、`TodoriClient` / FRB境界を確認した。検証中のP2 2件（server側410判定不足、410時のversion検証迂回）は修正し、追加testと全品質ゲートを再実行後に最終合格した。
+- 根拠: 実装非担当エージェントがADR-010 / ADR-012と全diffを照合し、stable-key base、delta/high-water、410後version再検証、push前遷移、quarantine mark、outbox保護、exact sweep、全crash window、seed-before-sweep、`TaskveilClient` / FRB境界を確認した。検証中のP2 2件（server側410判定不足、410時のversion検証迂回）は修正し、追加testと全品質ゲートを再実行後に最終合格した。
 - 検証者: 実装を担当していないエージェント（independent_verifier）

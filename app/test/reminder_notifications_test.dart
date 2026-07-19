@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/notifications/reminder_notifications.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/notifications/reminder_notifications.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -484,7 +484,7 @@ void main() {
 }
 
 const _content = ReminderNotificationContent(
-  title: 'Todori reminder',
+  title: 'Taskveil reminder',
   body: 'A task reminder is due.',
   snoozeActionTitle: '+1 hour',
 );

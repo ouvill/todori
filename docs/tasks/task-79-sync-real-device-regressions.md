@@ -100,12 +100,12 @@ fn ensure_account_runtime_restored() -> Result<(), String> {
 
 ### テスト結果
 
-- `cargo test -p todori-sync`: 成功。36 passed。
-- `cargo test -p todori-crypto`: 成功。28 passed / 1 ignored。
-- `cargo test -p todori-storage`: 成功。48 passed / 1 ignored。
-- `cargo test -p todori-server`: 成功。server統合テスト5 passed。
-- `cargo build -p todori_app_bridge`: 成功。
-- `cargo clippy -p todori_app_bridge -p todori-sync -- -D warnings`: 成功。
+- `cargo test -p taskveil-sync`: 成功。36 passed。
+- `cargo test -p taskveil-crypto`: 成功。28 passed / 1 ignored。
+- `cargo test -p taskveil-storage`: 成功。48 passed / 1 ignored。
+- `cargo test -p taskveil-server`: 成功。server統合テスト5 passed。
+- `cargo build -p taskveil_app_bridge`: 成功。
+- `cargo clippy -p taskveil_app_bridge -p taskveil-sync -- -D warnings`: 成功。
 - `cargo fmt --all -- --check`: 成功。
 
 ### 手動確認手順

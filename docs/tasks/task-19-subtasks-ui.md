@@ -124,7 +124,7 @@
 - UIデザインの大幅な磨き込み、テーマ変更、高機能UIモードは行わない。
 - 新規pubパッケージやRust crateは追加しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` / `docs/03_技術仕様書.md` は変更しない。
-- `todori-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
+- `taskveil-private/` 配下を読んだり変更したりしない。private側の詳細をpublic repoへ転記しない。
 
 ## 5. 実装手順（例）
 
@@ -296,7 +296,7 @@
   - `cd app && flutter test`: 成功（Flutter 20件）
   - `cd app && flutter test test/core_usecases_test.dart`: 成功（7件、bridge統合テストの明示確認）
   - `sh app/tool/check_hardcoded_strings.sh`: 成功
-  - `git -C todori diff --check`: 成功
+  - `git -C taskveil diff --check`: 成功
 - 補足:
   - Flutter/Dartツールはサンドボックス内ではSDK cacheへの書き込み権限で失敗したため、承認付き実行で `flutter_rust_bridge_codegen generate` / `flutter gen-l10n` / `dart format` / `flutter analyze` / `flutter test` を実行した。
 - 未解決事項・要人間判断:

@@ -34,7 +34,7 @@
 - `SyncStatusNotifier.syncNow()` 後のinvalidate対象に `tasksProvider` / `latestTaskUndoProvider` / `taskRemindersProvider` を追加した。
 - `taskDetailProvider` は `tasksProvider` 派生のため、`tasksProvider` family全体のinvalidateで更新される。
 - `taskSortModeProvider` はUI状態のみのため対象外とした。
-- login/register成功時のカーソルリセットを `reset_login_sync_cursors()` に集約し、`INITIAL_BACKFILL_CURSOR_NAME` と `todori_sync::SYNC_CURSOR_NAME` の両方を削除するようにした。
+- login/register成功時のカーソルリセットを `reset_login_sync_cursors()` に集約し、`INITIAL_BACKFILL_CURSOR_NAME` と `taskveil_sync::SYNC_CURSOR_NAME` の両方を削除するようにした。
 - `FakeBridgeService.addRemoteTaskForNextSync()` と `sync_provider_test.dart` のテストで、`syncNow()` 後に `tasksProvider(listId)` が再構築されることを確認するケースを追加した。
 - BACKLOG #19へ、DEK未取得時の復号スキップ後にpullカーソルが前進して取りこぼす実機確認事象と、task-80での暫定回復策を追記した。
 
@@ -51,8 +51,8 @@
 
 - `cd app && flutter analyze`: 成功（No issues found）
 - `cd app && flutter test`: 成功（124件成功、1件skip）
-- `cargo build -p todori_app_bridge`: 成功
-- `cargo clippy -p todori_app_bridge -- -D warnings`: 成功
+- `cargo build -p taskveil_app_bridge`: 成功
+- `cargo clippy -p taskveil_app_bridge -- -D warnings`: 成功
 - `cargo fmt --all -- --check`: 成功
 - `sh app/tool/check_hardcoded_strings.sh`: 成功
 

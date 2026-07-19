@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:todori/main.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/rust/api.dart';
+import 'package:taskveil/main.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/rust/api.dart';
 
 import 'support/fake_bridge_service.dart';
 
@@ -188,7 +188,7 @@ void main() {
     await fake.createTask(listId: inbox.id, title: '朝の準備');
 
     await tester.pumpWidget(
-      TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('リスト').last);
@@ -243,7 +243,7 @@ Future<_TemplateSeed> _seedTemplate(FakeBridgeService fake) async {
 
 Future<void> _pumpTemplates(WidgetTester tester, FakeBridgeService fake) async {
   await tester.pumpWidget(
-    TodoriApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
   );
   await tester.pumpAndSettle();
   await tester.tap(find.text('Lists').last);

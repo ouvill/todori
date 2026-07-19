@@ -5,14 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:todori/src/billing/billing_store.dart';
-import 'package:todori/src/core/bridge_service.dart';
-import 'package:todori/src/core/providers.dart';
-import 'package:todori/src/generated/l10n/app_localizations.dart';
-import 'package:todori/src/rust/api.dart';
-import 'package:todori/src/ui/states.dart';
-import 'package:todori/src/ui/header_actions.dart';
-import 'package:todori/src/ui/theme.dart';
+import 'package:taskveil/src/billing/billing_store.dart';
+import 'package:taskveil/src/core/bridge_service.dart';
+import 'package:taskveil/src/core/providers.dart';
+import 'package:taskveil/src/generated/l10n/app_localizations.dart';
+import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/ui/states.dart';
+import 'package:taskveil/src/ui/header_actions.dart';
+import 'package:taskveil/src/ui/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {

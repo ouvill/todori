@@ -3,9 +3,9 @@ use std::{
     sync::OnceLock,
 };
 
-use todori_client::{LocalProfileConfig, TodoriClient};
+use taskveil_client::{LocalProfileConfig, TaskveilClient};
 
-static CLIENT: OnceLock<TodoriClient> = OnceLock::new();
+static CLIENT: OnceLock<TaskveilClient> = OnceLock::new();
 
 pub(crate) fn init_client(db_dir: String, default_inbox_name: String) -> Result<(), String> {
     let requested_path = local_profile_db_path(&db_dir);
@@ -13,7 +13,7 @@ pub(crate) fn init_client(db_dir: String, default_inbox_name: String) -> Result<
         return ensure_same_path(existing, &requested_path);
     }
 
-    let candidate = TodoriClient::open(LocalProfileConfig::new(db_dir, default_inbox_name))
+    let candidate = TaskveilClient::open(LocalProfileConfig::new(db_dir, default_inbox_name))
         .map_err(|error| error.to_string())?;
     match CLIENT.set(candidate) {
         Ok(()) => Ok(()),
@@ -26,17 +26,17 @@ pub(crate) fn init_client(db_dir: String, default_inbox_name: String) -> Result<
     }
 }
 
-pub(crate) fn client() -> Result<&'static TodoriClient, String> {
+pub(crate) fn client() -> Result<&'static TaskveilClient, String> {
     CLIENT
         .get()
         .ok_or_else(|| "core is not initialized".to_string())
 }
 
 fn local_profile_db_path(db_dir: impl AsRef<Path>) -> PathBuf {
-    db_dir.as_ref().join("todori.db")
+    db_dir.as_ref().join("taskveil.db")
 }
 
-fn ensure_same_path(client: &TodoriClient, requested_path: &Path) -> Result<(), String> {
+fn ensure_same_path(client: &TaskveilClient, requested_path: &Path) -> Result<(), String> {
     if client.db_path() == requested_path {
         Ok(())
     } else {

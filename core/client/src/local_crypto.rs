@@ -1,15 +1,15 @@
 use std::path::Path;
 
-use todori_crypto::key_hierarchy::{
+use taskveil_crypto::key_hierarchy::{
     unwrap_local_list_dek_with_master_key, unwrap_local_tenant_root_dek_with_master_key,
     wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key, KEY_LEN,
 };
-use todori_domain::Uuid;
-use todori_storage::{
+use taskveil_domain::Uuid;
+use taskveil_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
     LocalTenantRootKeyBundle, SqliteListRepository, SqliteLocalCryptoRepository, StorageError,
 };
-use todori_sync::{account::AccountKeyMaterial, LocalSyncKeys};
+use taskveil_sync::{account::AccountKeyMaterial, LocalSyncKeys};
 use zeroize::Zeroizing;
 
 use crate::LocalMutationContext;
@@ -324,13 +324,13 @@ fn missing_required_list_key(
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
-    use todori_domain::{new_list, new_task};
-    use todori_storage::{
+    use taskveil_domain::{new_list, new_task};
+    use taskveil_storage::{
         ListRepository, SqliteListRepository, SqliteSyncStateRepository, SqliteTaskRepository,
         SyncStateRepository, TaskRepository,
     };
-    use todori_sync::account::{AccountKeyMaterial, AccountListDekMaterial};
+    use taskveil_sync::account::{AccountKeyMaterial, AccountListDekMaterial};
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -339,7 +339,7 @@ mod tests {
     const NOW: i64 = 1_799_000_000_000;
 
     fn account_keys(list_id: Uuid) -> AccountKeyMaterial {
-        let root = todori_crypto::organization::generate_account_root(Uuid::now_v7()).unwrap();
+        let root = taskveil_crypto::organization::generate_account_root(Uuid::now_v7()).unwrap();
         AccountKeyMaterial {
             generation: 1,
             tenant_generation: 1,

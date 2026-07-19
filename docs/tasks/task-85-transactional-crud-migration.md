@@ -79,6 +79,6 @@ task-83はtask editだけを共通client transactionへ移し、task-84はsessio
 
 - 作業日: 2026-07-10
 - 結果: account-boundのtask create/status/undoとlist rename/archive/unarchiveを`core/client`へ移し、domain row、Complete undo、local HLC、outbox、sync record stateを同一`BEGIN IMMEDIATE` transactionで確定するようにした。Flutter bridgeはReadyならcommon clientへreturn、Unavailableなら書込前error、Anonymousならlocal-onlyとし、状態の再判定を伴うenqueueを除去した。task editのAnonymous経路も同じ規則へ揃えた。
-- 証拠: `todori-client` 17 test、`todori-storage` 59 test成功/1件ignored、bridge公開signature test 1件成功。create/status/undo/list updateのoutbox・record-state failure rollback、missing parent/domain error、missing DEK、default archive拒否を確認した。`cargo test --workspace`（Docker/Testcontainers 5件を含む）、`cargo clippy --workspace -- -D warnings`、Rust release build、`flutter analyze`、`flutter test` 124件、hardcoded strings check、FRB codegen、`git diff --check`成功。独立verifierでP1/P2なし。
+- 証拠: `taskveil-client` 17 test、`taskveil-storage` 59 test成功/1件ignored、bridge公開signature test 1件成功。create/status/undo/list updateのoutbox・record-state failure rollback、missing parent/domain error、missing DEK、default archive拒否を確認した。`cargo test --workspace`（Docker/Testcontainers 5件を含む）、`cargo clippy --workspace -- -D warnings`、Rust release build、`flutter analyze`、`flutter test` 124件、hardcoded strings check、FRB codegen、`git diff --check`成功。独立verifierでP1/P2なし。
 - Commit: `ac943d1`
 - 未解決: task reorderはprotocol v2 placement、task/list deleteはknown-record cascade tombstone、list createはoffline key-bundle upload queueと同時にtransaction移行する。production 2-client fixtureとfield clock v2も後続。

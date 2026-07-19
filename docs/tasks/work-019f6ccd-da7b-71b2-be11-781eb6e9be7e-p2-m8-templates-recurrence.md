@@ -10,7 +10,7 @@ milestone: P2-M8
 
 ## 1. 背景とコンテキスト
 
-Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、RRULEに従って端末内でタスクを生成する繰り返し予定を実装する。Todoriはlocal-firstかつE2EEを維持するため、serverは生成処理、平文のテンプレート内容、平文の予定を扱わない。
+Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、RRULEに従って端末内でタスクを生成する繰り返し予定を実装する。Taskveilはlocal-firstかつE2EEを維持するため、serverは生成処理、平文のテンプレート内容、平文の予定を扱わない。
 
 本作業はlocal schema、sync protocol、新規Rust依存、FRB、Flutter UIへまたがる重要変更である。プロダクトオーナーは2026-07-17に本work itemの契約、critical変更、`rrule = 0.14.0`追加を承認した。実装前の設計判断はADR-021を正本とする。
 
@@ -43,7 +43,7 @@ Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、
 - schedule ID、schedule revision、template revision、occurrence instant、snapshot node keyからUUIDv5でtask IDを決定する。手動起票はUUIDv7を維持する。
 - 同一schedule revisionのcursorを単調増加でmergeし、1 occurrenceのtree生成とcursor更新を1 transactionで確定する。
 - settlementを起動、foreground復帰、sync pull後に実行する。1回最大100 occurrenceでyieldしながら全件補完し、outbox増加時は既存single-flight syncへ再実行を要求する。
-- template / schedule CRUD、subtree snapshot保存・置換、手動起票、settlement、streak取得を`TodoriClient`へ追加し、FRBをtyped DTO変換と委譲に限定する。
+- template / schedule CRUD、subtree snapshot保存・置換、手動起票、settlement、streak取得を`TaskveilClient`へ追加し、FRBをtyped DTO変換と委譲に限定する。
 - Lists画面のTemplates導線、`/templates`画面、task詳細の保存操作、presetと詳細RRULE入力、停止・削除確認、英日ARB、semantics、390 px / text scale 2.0対応を実装する。
 - server collection制約、stable cursor、full-resync制約を拡張し、既存head、cursor、tombstone、quarantineを保持する。
 - template snapshotとschedule configをそれぞれatomicなclocked groupとしてmergeする。revisionはtotal-orderのHLC identity、parent revision、effective-from境界を持ち、参照中のancestor lineageを同期してfuture-only編集とconcurrent編集を収束させる。
@@ -68,7 +68,7 @@ Phase 2 M8では、タスクsubtreeを再利用できるテンプレートと、
 2. domain型、RRULE parser / normalizer / iterator、snapshot validation、deterministic ID、streak計算をtest-firstで追加する。
 3. local schema v20 migration、storage repository、atomic settlement、task provenanceを追加し、v19 migrationと長期offlineを検証する。
 4. sync protocol v6、field map / merge、Tenant Root DEK envelope、server migrationを追加し、2-client収束とfull resyncを検証する。
-5. `TodoriClient` API、FRB typed DTO、起動・resume・post-pull settlementとsingle-flight再同期を追加する。
+5. `TaskveilClient` API、FRB typed DTO、起動・resume・post-pull settlementとsingle-flight再同期を追加する。
 6. Flutterのroute、Templates画面、task詳細操作、英日ARB、validation、semanticsを追加する。
 7. 全品質ゲート、Postgres統合、iOS / Android Rust cross-build、Visual QAを統合HEADで実行する。
 8. 実装担当以外が統合HEADを独立検証し、指摘を修正・再検証してから完了記録とlocal commitを作る。
