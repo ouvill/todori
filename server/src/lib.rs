@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod billing;
+pub mod config;
 pub mod db;
 pub mod organization;
 pub mod realtime;

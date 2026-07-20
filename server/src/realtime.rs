@@ -181,6 +181,12 @@ impl RealtimeGateway {
         Self::from_values(env::var_os)
     }
 
+    pub fn from_string_values(
+        lookup: impl Fn(&'static str) -> Option<String>,
+    ) -> Result<Self, RealtimeConfigError> {
+        Self::from_values(|name| lookup(name).map(OsString::from))
+    }
+
     pub fn disabled() -> Self {
         Self::default()
     }

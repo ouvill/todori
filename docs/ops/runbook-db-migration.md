@@ -4,7 +4,7 @@ TaskveilサーバーDBのマイグレーション手順を定義する。2026-07
 
 ## 1. 対象
 
-対象は [`server/migrations/`](../../server/migrations/) 配下のPostgres SQLである。現在の実装では `server/src/db.rs` の `run_migrations` が `sqlx` のPostgres接続上でSQLを適用する。ローカル開発では [`tool/dev_server.sh`](../../tool/dev_server.sh) が同じSQLを `psql` で適用する。
+対象は [`server/migrations/`](../../server/migrations/) 配下のPostgres SQLである。`taskveil-migrate` binaryだけが`DATABASE_MIGRATION_URL`のowner接続で`server/src/db.rs`の`run_migrations`を実行する。通常の`taskveil-server`は起動時migrationを行わず、owner credentialを受け取らない。ローカル開発では [`tool/dev_server.sh`](../../tool/dev_server.sh) が同じSQLを `psql` で適用する。
 
 ## 2. 方針
 
@@ -68,10 +68,11 @@ curl -i http://localhost:8080/health
 事前にローカルリハーサルを通す。次に、Neonのbranch機能が利用できる場合は本番branchから検証branchを作成し、同じSQLを適用して確認する。
 
 ```sh
-psql "<NEON_MIGRATION_DATABASE_URL>" -v ON_ERROR_STOP=1 -f server/migrations/<MIGRATION_FILE>.sql
+DATABASE_MIGRATION_URL="<NEON_MIGRATION_DATABASE_URL>" \
+  cargo run -p taskveil-server --bin taskveil-migrate
 ```
 
-アプリ起動時にも `DATABASE_MIGRATION_URL` のowner接続で `run_migrations` が走るため、SQLは再実行で壊れない設計にする。通常query用の `DATABASE_URL` は別のruntime loginを使用し、migrationが作成するNOLOGIN group role `taskveil_app`のmemberにする。
+deployはLambda alias切替よりmigrationを先に行い、失敗時はaliasを動かさない。SQLは再実行で壊れない設計にする。通常query用の `DATABASE_URL` は別のruntime loginを使用し、migrationが作成するNOLOGIN group role `taskveil_app`のmemberにする。
 
 ```sql
 -- role名とpasswordは運用環境で管理する。実値をpublic repoへ記録しない。
@@ -100,6 +101,7 @@ git diff --check
 APIレベルの検証:
 
 - `/health` が成功する。
+- `/ready` がruntime DB正常時200、停止・資格情報不正時503となり、response / logに接続情報を含まない。
 - OPAQUE登録/ログインが成功する。
 - push/pullがtenant分離、batch上限、blob上限、未来HLC拒否を維持している。
 - 削除tombstoneの空blob方針が維持されている。

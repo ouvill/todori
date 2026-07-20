@@ -80,6 +80,13 @@ async fn account_register_login_logout_and_key_bundles_remain_available() {
         .await
         .unwrap();
     assert_eq!(health.status(), StatusCode::OK);
+    let ready = test
+        .app
+        .clone()
+        .oneshot(Request::get("/ready").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ready.status(), StatusCode::OK);
     assert_eq!(
         request_status(
             &test.app,

@@ -7,7 +7,7 @@ set -euo pipefail
 #   1. Reuses or creates Docker container "taskveil-dev-postgres".
 #   2. Publishes Postgres on the first free localhost port from 5432 upward.
 #   3. Applies server/migrations/*.sql before starting the Rust server.
-#   4. Runs `cargo run -p taskveil-server` with local migration/runtime URLs.
+#   4. Runs `cargo run -p taskveil-server --bin taskveil-server` with the runtime URL.
 #
 # Stop the Rust server with Ctrl-C.
 # Keep the database for the next run, or stop it explicitly with:
@@ -122,12 +122,10 @@ if port_in_use "$SERVER_PORT"; then
   exit 1
 fi
 
-export DATABASE_MIGRATION_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 export DATABASE_URL="postgres://${RUNTIME_USER}:${RUNTIME_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
 export PORT="$SERVER_PORT"
 export RUST_LOG="${RUST_LOG:-info,taskveil_server=debug}"
 
 echo "Starting taskveil-server on http://localhost:${PORT}"
 echo "DATABASE_URL=postgres://${RUNTIME_USER}:<redacted>@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
-echo "DATABASE_MIGRATION_URL=postgres://${POSTGRES_USER}:<redacted>@localhost:${POSTGRES_PORT}/${POSTGRES_DB}"
-exec cargo run -p taskveil-server
+exec cargo run -p taskveil-server --bin taskveil-server

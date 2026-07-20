@@ -1,0 +1,21 @@
+.git
+.github
+.terraform
+**/.terraform
+target
+**/target
+realtime-worker/node_modules
+realtime-worker/dist
+app/.dart_tool
+app/build
+operations
+*.tfstate
+*.tfstate.*
+.env
+.env.*
+
+# The pinned AWS Lambda extension is deliberately prepared immediately before
+# the Lambda image build and must remain in the build context.
+!.lambda
+!.lambda/extensions
+!.lambda/extensions/AWSParametersAndSecretsLambdaExtension

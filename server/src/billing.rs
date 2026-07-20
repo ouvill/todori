@@ -63,8 +63,6 @@ pub enum BillingConfigurationError {
     Missing(&'static str),
     #[error("invalid billing environment")]
     InvalidEnvironment,
-    #[error("sandbox and production RevenueCat projects and apps must be distinct")]
-    SharedEnvironmentIdentity,
 }
 
 #[derive(Debug, Clone)]
@@ -76,12 +74,50 @@ struct RevenueCatEnvironmentConfig {
     webhook_hmac_secret: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct BillingSettings {
+    pub environment: BillingEnvironment,
+    pub project_id: String,
+    pub app_id: String,
+    pub secret_key: String,
+    pub webhook_authorization: String,
+    pub webhook_hmac_secret: String,
+}
+
 impl RevenueCatEnvironmentConfig {
-    fn from_env(environment: BillingEnvironment) -> Result<Self, BillingConfigurationError> {
+    fn from_values(
+        environment: BillingEnvironment,
+        lookup: impl Fn(&'static str) -> Option<String>,
+    ) -> Result<Self, BillingConfigurationError> {
         let prefix = environment.env_prefix();
         let required = |suffix: &'static str| {
-            let name = format!("{prefix}_{suffix}");
-            env::var(&name).map_err(|_| match (environment, suffix) {
+            let name = match (environment, suffix) {
+                (BillingEnvironment::Sandbox, "PROJECT_ID") => "REVENUECAT_SANDBOX_PROJECT_ID",
+                (BillingEnvironment::Sandbox, "APP_ID") => "REVENUECAT_SANDBOX_APP_ID",
+                (BillingEnvironment::Sandbox, "SECRET_KEY") => "REVENUECAT_SANDBOX_SECRET_KEY",
+                (BillingEnvironment::Sandbox, "WEBHOOK_AUTHORIZATION") => {
+                    "REVENUECAT_SANDBOX_WEBHOOK_AUTHORIZATION"
+                }
+                (BillingEnvironment::Sandbox, "WEBHOOK_HMAC_SECRET") => {
+                    "REVENUECAT_SANDBOX_WEBHOOK_HMAC_SECRET"
+                }
+                (BillingEnvironment::Production, "PROJECT_ID") => {
+                    "REVENUECAT_PRODUCTION_PROJECT_ID"
+                }
+                (BillingEnvironment::Production, "APP_ID") => "REVENUECAT_PRODUCTION_APP_ID",
+                (BillingEnvironment::Production, "SECRET_KEY") => {
+                    "REVENUECAT_PRODUCTION_SECRET_KEY"
+                }
+                (BillingEnvironment::Production, "WEBHOOK_AUTHORIZATION") => {
+                    "REVENUECAT_PRODUCTION_WEBHOOK_AUTHORIZATION"
+                }
+                (BillingEnvironment::Production, "WEBHOOK_HMAC_SECRET") => {
+                    "REVENUECAT_PRODUCTION_WEBHOOK_HMAC_SECRET"
+                }
+                _ => "REVENUECAT_CONFIGURATION",
+            };
+            debug_assert_eq!(name, format!("{prefix}_{suffix}"));
+            lookup(name).ok_or(match (environment, suffix) {
                 (BillingEnvironment::Sandbox, "PROJECT_ID") => {
                     BillingConfigurationError::Missing("REVENUECAT_SANDBOX_PROJECT_ID")
                 }
@@ -208,7 +244,7 @@ pub trait BillingProvider: Send + Sync {
 #[derive(Clone)]
 pub struct BillingService {
     environment: BillingEnvironment,
-    configurations: Arc<HashMap<BillingEnvironment, RevenueCatEnvironmentConfig>>,
+    configuration: Arc<RevenueCatEnvironmentConfig>,
     provider: Arc<dyn BillingProvider>,
 }
 
@@ -217,50 +253,58 @@ impl BillingService {
         let environment = env::var("TASKVEIL_BILLING_ENVIRONMENT")
             .map_err(|_| BillingConfigurationError::Missing("TASKVEIL_BILLING_ENVIRONMENT"))?
             .parse()?;
-        let sandbox = RevenueCatEnvironmentConfig::from_env(BillingEnvironment::Sandbox)?;
-        let production = RevenueCatEnvironmentConfig::from_env(BillingEnvironment::Production)?;
-        if sandbox.project_id == production.project_id || sandbox.app_id == production.app_id {
-            return Err(BillingConfigurationError::SharedEnvironmentIdentity);
-        }
-        let configurations = Arc::new(HashMap::from([
-            (BillingEnvironment::Sandbox, sandbox),
-            (BillingEnvironment::Production, production),
-        ]));
-        let provider = Arc::new(RevenueCatProvider::new(configurations.clone()));
-        Ok(Self {
+        let configuration =
+            RevenueCatEnvironmentConfig::from_values(environment, |name| env::var(name).ok())?;
+        Ok(Self::from_configuration(environment, configuration))
+    }
+
+    pub fn from_values(
+        environment: BillingEnvironment,
+        lookup: impl Fn(&'static str) -> Option<String>,
+    ) -> Result<Self, BillingConfigurationError> {
+        let configuration = RevenueCatEnvironmentConfig::from_values(environment, lookup)?;
+        Ok(Self::from_configuration(environment, configuration))
+    }
+
+    pub fn from_settings(settings: BillingSettings) -> Self {
+        Self::from_configuration(
+            settings.environment,
+            RevenueCatEnvironmentConfig {
+                project_id: settings.project_id,
+                app_id: settings.app_id,
+                secret_key: settings.secret_key,
+                webhook_authorization: settings.webhook_authorization,
+                webhook_hmac_secret: settings.webhook_hmac_secret,
+            },
+        )
+    }
+
+    fn from_configuration(
+        environment: BillingEnvironment,
+        configuration: RevenueCatEnvironmentConfig,
+    ) -> Self {
+        let configuration = Arc::new(configuration);
+        let provider = Arc::new(RevenueCatProvider::new(environment, configuration.clone()));
+        Self {
             environment,
-            configurations,
+            configuration,
             provider,
-        })
+        }
     }
 
     #[doc(hidden)]
     pub fn for_tests(environment: BillingEnvironment, provider: Arc<dyn BillingProvider>) -> Self {
-        let configurations = Arc::new(HashMap::from([
-            (
-                BillingEnvironment::Sandbox,
-                RevenueCatEnvironmentConfig {
-                    project_id: "test-sandbox-project".into(),
-                    app_id: "test-sandbox-app".into(),
-                    secret_key: "test-sandbox-secret".into(),
-                    webhook_authorization: "test-sandbox-authorization".into(),
-                    webhook_hmac_secret: "test-sandbox-hmac".into(),
-                },
-            ),
-            (
-                BillingEnvironment::Production,
-                RevenueCatEnvironmentConfig {
-                    project_id: "test-production-project".into(),
-                    app_id: "test-production-app".into(),
-                    secret_key: "test-production-secret".into(),
-                    webhook_authorization: "test-production-authorization".into(),
-                    webhook_hmac_secret: "test-production-hmac".into(),
-                },
-            ),
-        ]));
+        let prefix = environment.as_str();
+        let configuration = Arc::new(RevenueCatEnvironmentConfig {
+            project_id: format!("test-{prefix}-project"),
+            app_id: format!("test-{prefix}-app"),
+            secret_key: format!("test-{prefix}-secret"),
+            webhook_authorization: format!("test-{prefix}-authorization"),
+            webhook_hmac_secret: format!("test-{prefix}-hmac"),
+        });
         Self {
             environment,
-            configurations,
+            configuration,
             provider,
         }
     }
@@ -274,10 +318,8 @@ impl BillingService {
         self.environment
     }
 
-    fn configuration(&self, environment: BillingEnvironment) -> &RevenueCatEnvironmentConfig {
-        self.configurations
-            .get(&environment)
-            .expect("billing environment configuration")
+    fn configuration(&self) -> &RevenueCatEnvironmentConfig {
+        &self.configuration
     }
 
     pub async fn snapshot(
@@ -338,14 +380,19 @@ impl BillingProvider for UnavailableProvider {
 
 struct RevenueCatProvider {
     http: reqwest::Client,
-    configurations: Arc<HashMap<BillingEnvironment, RevenueCatEnvironmentConfig>>,
+    environment: BillingEnvironment,
+    configuration: Arc<RevenueCatEnvironmentConfig>,
 }
 
 impl RevenueCatProvider {
-    fn new(configurations: Arc<HashMap<BillingEnvironment, RevenueCatEnvironmentConfig>>) -> Self {
+    fn new(
+        environment: BillingEnvironment,
+        configuration: Arc<RevenueCatEnvironmentConfig>,
+    ) -> Self {
         Self {
             http: reqwest::Client::new(),
-            configurations,
+            environment,
+            configuration,
         }
     }
 
@@ -419,10 +466,10 @@ impl BillingProvider for RevenueCatProvider {
         environment: BillingEnvironment,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
-            let config = self
-                .configurations
-                .get(&environment)
-                .ok_or(ProviderError::InvalidResponse)?;
+            if environment != self.environment {
+                return Err(ProviderError::InvalidResponse);
+            }
+            let config = &self.configuration;
             let customer = app_user_id.to_string();
             let subscriptions_url = format!(
                 "https://api.revenuecat.com/v2/projects/{}/customers/{customer}/subscriptions?environment={}&limit=100",
@@ -1073,17 +1120,14 @@ pub async fn process_revenuecat_webhook(
     body: &[u8],
 ) -> Result<WebhookOutcome, AppError> {
     let authorization = authorization.ok_or_else(AppError::unauthorized)?;
-    let (environment, config) = [BillingEnvironment::Sandbox, BillingEnvironment::Production]
-        .into_iter()
-        .find_map(|environment| {
-            let config = service.configuration(environment);
-            constant_time_equal(
-                authorization.as_bytes(),
-                config.webhook_authorization.as_bytes(),
-            )
-            .then_some((environment, config))
-        })
-        .ok_or_else(AppError::unauthorized)?;
+    let environment = service.environment();
+    let config = service.configuration();
+    if !constant_time_equal(
+        authorization.as_bytes(),
+        config.webhook_authorization.as_bytes(),
+    ) {
+        return Err(AppError::unauthorized());
+    }
     verify_webhook_signature(
         config.webhook_hmac_secret.as_bytes(),
         signature.ok_or_else(AppError::unauthorized)?,
@@ -1497,6 +1541,34 @@ mod tests {
             SubscriptionStatus::from_provider("future_state"),
             SubscriptionStatus::Expired
         );
+    }
+
+    #[test]
+    fn selected_environment_is_the_only_required_provider_configuration() {
+        let sandbox = HashMap::from([
+            ("REVENUECAT_SANDBOX_PROJECT_ID", "sandbox-project"),
+            ("REVENUECAT_SANDBOX_APP_ID", "sandbox-app"),
+            ("REVENUECAT_SANDBOX_SECRET_KEY", "sandbox-secret"),
+            (
+                "REVENUECAT_SANDBOX_WEBHOOK_AUTHORIZATION",
+                "sandbox-authorization",
+            ),
+            ("REVENUECAT_SANDBOX_WEBHOOK_HMAC_SECRET", "sandbox-hmac"),
+        ]);
+        let service = BillingService::from_values(BillingEnvironment::Sandbox, |name| {
+            sandbox.get(name).map(|value| (*value).to_string())
+        })
+        .expect("sandbox-only configuration");
+        assert_eq!(service.environment(), BillingEnvironment::Sandbox);
+
+        let error = BillingService::from_values(BillingEnvironment::Production, |name| {
+            sandbox.get(name).map(|value| (*value).to_string())
+        })
+        .err()
+        .expect("production cannot use sandbox configuration");
+        assert!(error
+            .to_string()
+            .contains("REVENUECAT_PRODUCTION_PROJECT_ID"));
     }
 
     #[test]

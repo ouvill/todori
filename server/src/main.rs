@@ -3,47 +3,46 @@
 //! Lambda-specific adapters stay outside this binary. The reusable router and
 //! services live in the library crate.
 
-use taskveil_server::{
-    billing::BillingService, build_router_with_realtime, db, realtime::RealtimeGateway, AppState,
-};
+use taskveil_server::{build_router_with_realtime, config::RuntimeConfig, db, AppState};
 use tokio::signal;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let realtime = RealtimeGateway::from_env().expect("invalid realtime configuration");
-    let billing = BillingService::from_env().expect("invalid billing configuration");
+    if run().await.is_err() {
+        tracing::error!(event = "server_startup_failed");
+        std::process::exit(1);
+    }
+}
 
-    let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for taskveil-server");
-    let migration_database_url = std::env::var("DATABASE_MIGRATION_URL")
-        .expect("DATABASE_MIGRATION_URL is required for taskveil-server");
-    let migration_pool = db::connect(&migration_database_url)
+async fn run() -> Result<(), ()> {
+    let config = RuntimeConfig::load().await.map_err(|_| ())?;
+    let pool = db::connect_application(&config.database_url)
         .await
-        .expect("failed to connect to migration database");
-    db::run_migrations(&migration_pool)
-        .await
-        .expect("failed to run migrations");
-    migration_pool.close().await;
-    let pool = db::connect_application(&database_url)
-        .await
-        .expect("failed to connect with taskveil_app role");
+        .map_err(|_| ())?;
 
-    let app = build_router_with_realtime(AppState { pool, billing }, realtime);
+    let app = build_router_with_realtime(
+        AppState {
+            pool,
+            billing: config.billing,
+        },
+        config.realtime,
+    );
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
-        .expect("failed to bind listener");
+        .map_err(|_| ())?;
 
     tracing::info!("taskveil-server listening on port {port}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .expect("server error");
+        .map_err(|_| ())?;
+    Ok(())
 }
 
 async fn shutdown_signal() {
