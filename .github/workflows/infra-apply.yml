@@ -1,0 +1,83 @@
+name: Apply staging infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Full commit SHA whose infrastructure definition will be applied"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_REGION: eu-central-1
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_base_domain: ${{ vars.BASE_DOMAIN }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_neon_project_id: ${{ vars.NEON_PROJECT_ID }}
+      TF_VAR_lambda_image_uri: ${{ vars.LAMBDA_BOOTSTRAP_IMAGE_URI }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_github_oidc_provider_arn: ${{ vars.OIDC_PROVIDER_ARN }}
+      TF_VAR_budget_notification_email: ${{ vars.BUDGET_NOTIFICATION_EMAIL }}
+    steps:
+      - name: Validate exact commit SHA
+        env:
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+        run: '[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]'
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Reject commits outside main history
+        env:
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+        run: git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
+
+      - name: Configure AWS OIDC credentials
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          aws-region: eu-central-1
+          role-to-assume: ${{ vars.INFRA_APPLY_ROLE_ARN }}
+          role-session-name: taskveil-infra-${{ github.run_id }}
+
+      - name: Load Cloudflare provider credential
+        env:
+          PROVIDER_SECRET_ARN: ${{ vars.DEPLOYMENT_PROVIDER_SECRET_ARN }}
+        run: |
+          provider_json=$(aws secretsmanager get-secret-value --secret-id "$PROVIDER_SECRET_ARN" --query SecretString --output text)
+          token=$(jq -er '.CLOUDFLARE_API_TOKEN' <<<"$provider_json")
+          account_id=$(jq -er '.CLOUDFLARE_ACCOUNT_ID' <<<"$provider_json")
+          echo "::add-mask::$token"
+          echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "TF_VAR_cloudflare_account_id=$account_id" >> "$GITHUB_ENV"
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.12.1
+          tofu_wrapper: false
+
+      - name: Plan staging infrastructure
+        env:
+          STATE_BUCKET: ${{ vars.STATE_BUCKET }}
+        run: |
+          tofu -chdir=infra/environments/staging init -backend-config="bucket=$STATE_BUCKET"
+          tofu -chdir=infra/environments/staging plan -out=staging.tfplan
+
+      - name: Apply reviewed plan
+        run: tofu -chdir=infra/environments/staging apply -auto-approve staging.tfplan

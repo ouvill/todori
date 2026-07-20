@@ -1,0 +1,187 @@
+name: Deploy staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Full commit SHA to deploy"
+        required: true
+        type: string
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       vars.STAGING_AUTO_DEPLOY_ENABLED == 'true')
+    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      AWS_REGION: eu-central-1
+      API_BASE_URL: https://api.staging.${{ vars.BASE_DOMAIN }}
+      REALTIME_BASE_URL: https://realtime.staging.${{ vars.BASE_DOMAIN }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      LAMBDA_FUNCTION: ${{ vars.LAMBDA_FUNCTION }}
+      LAMBDA_ALIAS: staging
+      MIGRATION_SECRET_ARN: ${{ vars.MIGRATION_SECRET_ARN }}
+      PROVIDER_SECRET_ARN: ${{ vars.DEPLOYMENT_PROVIDER_SECRET_ARN }}
+      PARAMETERS_EXTENSION_LAYER_ARN: ${{ vars.PARAMETERS_EXTENSION_LAYER_ARN }}
+    steps:
+      - name: Select exact commit SHA
+        id: sha
+        env:
+          MANUAL_SHA: ${{ inputs.commit_sha }}
+          AUTOMATIC_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          deploy_sha="${MANUAL_SHA:-$AUTOMATIC_SHA}"
+          [[ "$deploy_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "value=$deploy_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ steps.sha.outputs.value }}
+          fetch-depth: 0
+
+      - name: Reject commits outside main history
+        env:
+          DEPLOY_SHA: ${{ steps.sha.outputs.value }}
+        run: git merge-base --is-ancestor "$DEPLOY_SHA" origin/main
+
+      - name: Confirm successful CI for manual deployment
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.sha.outputs.value }}
+        run: |
+          successful=$(gh run list --workflow CI --commit "$DEPLOY_SHA" --status success --json databaseId --jq 'length')
+          test "$successful" -gt 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: realtime-worker/.node-version
+          cache: npm
+          cache-dependency-path: realtime-worker/package-lock.json
+
+      - name: Test and dry-run Worker
+        working-directory: realtime-worker
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Configure AWS OIDC credentials
+        uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+        with:
+          aws-region: eu-central-1
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          role-session-name: taskveil-deploy-${{ github.run_id }}
+
+      - name: Load deployment provider credential
+        run: |
+          provider_json=$(aws secretsmanager get-secret-value --secret-id "$PROVIDER_SECRET_ARN" --query SecretString --output text)
+          token=$(jq -er '.CLOUDFLARE_API_TOKEN' <<<"$provider_json")
+          account_id=$(jq -er '.CLOUDFLARE_ACCOUNT_ID' <<<"$provider_json")
+          echo "::add-mask::$token"
+          echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "CLOUDFLARE_ACCOUNT_ID=$account_id" >> "$GITHUB_ENV"
+
+      - name: Build and push digest-pinned server image
+        id: image
+        env:
+          DEPLOY_SHA: ${{ steps.sha.outputs.value }}
+        run: |
+          ./tool/prepare_lambda_extension.sh "$PARAMETERS_EXTENSION_LAYER_ARN" .lambda/extensions
+          registry="${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          docker buildx build --platform linux/amd64 -f server/Dockerfile.lambda -t "$registry/$ECR_REPOSITORY:$DEPLOY_SHA" --push .
+          digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$DEPLOY_SHA" --query 'imageDetails[0].imageDigest' --output text)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "uri=$registry/$ECR_REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Reject Critical or High image findings
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          aws ecr wait image-scan-complete --repository-name "$ECR_REPOSITORY" --image-id imageDigest="$IMAGE_DIGEST"
+          counts=$(aws ecr describe-image-scan-findings --repository-name "$ECR_REPOSITORY" --image-id imageDigest="$IMAGE_DIGEST" --query 'imageScanFindings.findingSeverityCounts' --output json)
+          critical=$(jq -r '.CRITICAL // 0' <<<"$counts")
+          high=$(jq -r '.HIGH // 0' <<<"$counts")
+          test "$critical" -eq 0
+          test "$high" -eq 0
+
+      - name: Upload Worker version without promotion
+        id: worker
+        working-directory: realtime-worker
+        env:
+          DEPLOY_SHA: ${{ steps.sha.outputs.value }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.jsonl
+        run: |
+          npx wrangler versions upload --env staging --tag "$DEPLOY_SHA" --message "commit $DEPLOY_SHA"
+          version_id=$(jq -rs '[.[] | select(.type == "version-upload")][-1].version_id' "$WRANGLER_OUTPUT_FILE_PATH")
+          test "$version_id" != "null"
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
+      - name: Run forward-only migration
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          migration_json=$(aws secretsmanager get-secret-value --secret-id "$MIGRATION_SECRET_ARN" --query SecretString --output text)
+          migration_url=$(jq -er '.DATABASE_MIGRATION_URL' <<<"$migration_json")
+          echo "::add-mask::$migration_url"
+          docker pull "$IMAGE_URI"
+          docker run --rm --entrypoint /usr/local/bin/taskveil-migrate -e DATABASE_MIGRATION_URL="$migration_url" "$IMAGE_URI"
+
+      - name: Publish Lambda version, promote code, and smoke test
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          WORKER_VERSION_ID: ${{ steps.worker.outputs.version_id }}
+          DEPLOY_SHA: ${{ steps.sha.outputs.value }}
+        run: |
+          previous_lambda=$(aws lambda get-alias --function-name "$LAMBDA_FUNCTION" --name "$LAMBDA_ALIAS" --query FunctionVersion --output text)
+          alias_moved=false
+          worker_moved=false
+          rollback() {
+            status=$?
+            LAMBDA_ALIAS_MOVED="$alias_moved" \
+              WORKER_DEPLOYMENT_MOVED="$worker_moved" \
+              PREVIOUS_LAMBDA_VERSION="$previous_lambda" \
+              WORKER_DIRECTORY="realtime-worker" \
+              ./tool/deploy/rollback_staging.sh || true
+            exit "$status"
+          }
+          trap rollback ERR
+          aws lambda update-function-code --function-name "$LAMBDA_FUNCTION" --image-uri "$IMAGE_URI" >/dev/null
+          aws lambda wait function-updated-v2 --function-name "$LAMBDA_FUNCTION"
+          new_lambda=$(aws lambda publish-version --function-name "$LAMBDA_FUNCTION" --description "commit $DEPLOY_SHA" --query Version --output text)
+          aws lambda update-alias --function-name "$LAMBDA_FUNCTION" --name "$LAMBDA_ALIAS" --function-version "$new_lambda" >/dev/null
+          alias_moved=true
+          (cd realtime-worker && npx wrangler versions deploy --env staging --version-id "$WORKER_VERSION_ID" --percentage 100 --yes --message "commit $DEPLOY_SHA")
+          worker_moved=true
+          ./tool/deploy/smoke_staging.sh
+          trap - ERR
+          echo "deployed commit=$DEPLOY_SHA image=${{ steps.image.outputs.digest }} lambda_version=$new_lambda worker_version=$WORKER_VERSION_ID"
+          {
+            echo "### Staging deployment provenance"
+            echo "- Commit: \`$DEPLOY_SHA\`"
+            echo "- Image digest: \`${{ steps.image.outputs.digest }}\`"
+            echo "- Lambda version: \`$new_lambda\`"
+            echo "- Worker version: \`$WORKER_VERSION_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"

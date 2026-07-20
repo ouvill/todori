@@ -26,7 +26,7 @@ rg -n '^status: (backlog|active|blocked)$' docs/tasks/work-*.md
 ## 人間作業・判断
 
 - iOS実機で通知、Keychainゼロプロンプト、同期を通し確認する。
-- AWS / Neon本番デプロイと前段構成を決定する。
+- stagingのAWS / Neon / Cloudflare bootstrap、secret投入、初回applyを人間承認付きで実行する。
 - RevenueCat / App Store商品を承認済み価格、初回trialなし、16日Billing Grace Periodの契約どおりに設定してsandbox E2Eを完了する。
 - Android実機でアカウント登録・ログインと別端末との同期動作を確認する。
 

@@ -1,145 +1,87 @@
-# サーバーデプロイrunbook
+# staging server deploy runbook
 
-この文書はTaskveilサーバーの初回/更新デプロイ手順ドラフトである。2026-07-08時点では実AWS/Neon環境へのデプロイは未実施であり、ローカル運用のみ確認済みである。実クレデンシャル、AWSアカウントID、ECRリポジトリ名、Lambda関数名、Neon connection string、実ドメインはpublic repoに書かず、private側または人間管理とする。
+Taskveil server / realtime Workerをstagingへ反映する順序と停止条件を定義する。実AWS / Cloudflare / Neonのaccount ID、domain、resource ID、credentialはpublic repoやCI logに記録しない。
 
-## 1. 前提
+## 1. 正本と前提
 
-- 構成の正は [`docs/03_技術仕様書.md`](../03_技術仕様書.md) §1.5、§6、[`docs/05_設計判断記録.md`](../05_設計判断記録.md) ADR-008である。
-- サーバーは `server/Dockerfile` でビルドするコンテナイメージとしてデプロイする。
-- イメージにはAWS Lambda Web Adapterが含まれ、アプリ本体は通常のHTTPサーバーとして動作する。
-- DBはNeon Postgresを使う。初期リージョンは `eu-central-1`、Lambdaも同一リージョンに配置する。
-- 実値はすべてプレースホルダで示す。
+- 構成の正本は[`docs/03_技術仕様書.md`](../03_技術仕様書.md) §1.5、[`docs/05_設計判断記録.md`](../05_設計判断記録.md) ADR-008 / ADR-022、`infra/`と`.github/workflows/deploy-staging.yml`である。
+- stagingは`eu-central-1`のx86_64 Lambda、API Gateway HTTP API、Neon、Cloudflare Worker / Durable Objectsを使う。
+- deployはGitHub staging Environmentの承認後だけOIDC roleを取得する。通常CIにcloud credentialは与えない。
+- `server/Dockerfile`はportable image、`server/Dockerfile.lambda`はLambda Web AdapterとAWS Parameters and Secrets extensionを含むLambda用imageである。
+- 初回OIDC / remote state / ECR bootstrap、secret投入、infra applyはcredentialを持つ人間の承認作業とする。bootstrap ECRへ初期imageをpushしてdigestを確定してから、Lambdaを含むstaging rootを初回applyする。
+- 初回infra applyより前に、trafficを持たない`taskveil-realtime-staging` Worker service / versionとsecret bindingsを用意する。OpenTofuはそのserviceへCustom Domainを接続する。
 
-## 2. 必要なクレデンシャルと実値
+## 2. secret境界
 
-次の値はprivate側または人間管理で保持する。
+Secrets Managerは値をOpenTofu stateに入れず、containerだけを作る。
 
-| 値 | 用途 |
-|---|---|
-| `<AWS_ACCOUNT_ID>` | ECR registry / IAM / Lambda操作 |
-| `<AWS_REGION>` | 初期想定は `eu-central-1` |
-| `<ECR_REPOSITORY>` | taskveil-serverイメージ保管先 |
-| `<LAMBDA_FUNCTION>` | 更新対象Lambda関数 |
-| `<NEON_RUNTIME_DATABASE_URL>` | Neon pooled connection string。non-owner runtime loginを使用 |
-| `<NEON_MIGRATION_DATABASE_URL>` | Neon direct connection string。schema owner / migration専用 |
-| `<PUBLIC_API_BASE_URL>` | クライアントに設定する公開API URL |
-| `<WAF_OR_API_GATEWAY_CONFIG>` | 前段の制限設定。private側/人間判断 |
+| secret | reader | JSONの用途 |
+|---|---|---|
+| runtime | Lambda、deploy role | pooled non-owner `DATABASE_URL`、RevenueCat sandbox、realtime server設定 |
+| migration | deploy roleのみ | owner `DATABASE_MIGRATION_URL` |
+| deployment-provider | deploy roleのみ | Cloudflare deploy credentialなどprovider実行値 |
+
+Lambda環境変数には`TASKVEIL_RUNTIME_SECRET_ID`、`TASKVEIL_BILLING_ENVIRONMENT=sandbox`、非秘密のlog / extension設定だけを置く。`DATABASE_URL`、`DATABASE_MIGRATION_URL`、RevenueCat / realtime keyを直接置かない。
+
+初回secret投入では、runtime JSONのrealtime current / previous ticket・publish keyと対応するkey IDをCloudflare staging Workerの8 secret bindingにもout-of-bandで投入する。値をprivate Git、GitHub variable、workflow outputへ置かず、server側とWorker側の組が一致することだけを確認する。
+
+GitHub `staging` Environmentには次の非秘密variableを設定する。値の正本はprivate deployment inventoryとし、GitHub secretへcloud長期credentialを置かない。
+
+- 共通: `AWS_ACCOUNT_ID`、`BASE_DOMAIN`、`CLOUDFLARE_ZONE_ID`、`NEON_PROJECT_ID`
+- bootstrap / infra: `STATE_BUCKET`、`INFRA_APPLY_ROLE_ARN`、`OIDC_PROVIDER_ARN`、`LAMBDA_BOOTSTRAP_IMAGE_URI`、`BUDGET_NOTIFICATION_EMAIL`
+- deploy: `DEPLOY_ROLE_ARN`、`ECR_REPOSITORY`、`LAMBDA_FUNCTION`、`MIGRATION_SECRET_ARN`、`DEPLOYMENT_PROVIDER_SECRET_ARN`、`PARAMETERS_EXTENSION_LAYER_ARN`
+- 自動化gate: `STAGING_AUTO_DEPLOY_ENABLED`（初期値は`false`）
+
+`PARAMETERS_EXTENSION_LAYER_ARN`は`eu-central-1`のAWS公式x86_64 layerをversionまで固定したARNとする。workflow inputのcommitはfull SHAかつrepositoryの`main`履歴に含まれるものだけを許可する。
 
 ## 3. 事前検証
 
-ローカルでRust品質ゲートとサーバーテストを通す。
+1. 対象をfull 40-character commit SHAで固定し、そのSHAのCIが成功していることを確認する。
+2. `infra-check`、Rust / Flutter / security / client-boundary gateを通す。
+3. Worker testと`wrangler deploy --dry-run`を行う。
+4. deploy concurrencyの先行runがないことを確認する。migration中のrunはcancelしない。
 
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace -- -D warnings
-cargo test --workspace
-git diff --check
-```
+## 4. deploy順序
 
-ローカル開発サーバーを起動してヘルスチェックする。
+workflowは次の順を変えない。
 
-```sh
-./tool/dev_server.sh
-curl -i http://localhost:8080/health
-```
+1. pinned AWS Parameters and Secrets extension layerを`tool/prepare_lambda_extension.sh`で`.lambda/extensions/`へ展開する。
+2. `server/Dockerfile.lambda`を`linux/amd64`でbuildし、commit SHA tagをECRへpushしてdigestを固定する。
+3. ECR enhanced/basic scanのCritical / Highが0であることを確認する。
+4. Worker versionをuploadし、新version IDを記録する。Custom DomainはOpenTofu管理とし、version uploadへroute optionを渡さない。
+5. migration secretを一時取得し、build済みimageの`taskveil-migrate`を実行する。値はmaskし、file、output、artifactに保存しない。
+6. migration成功後だけLambda functionのimage digestを更新し、versionを発行してstaging aliasを新versionへ切り替える。
+7. Workerを新versionへdeployする。
+8. smoke testを実行する。
 
-期待値は `HTTP/1.1 200 OK` と `{"status":"ok"}` である。
+migrationが失敗した場合はLambda aliasとWorker deploymentを動かさない。
 
-## 4. 初回デプロイ手順
+## 5. smoke test
 
-### 4.1 ECRリポジトリ作成
+- `GET /health` → 200 `{"status":"ok"}`
+- `GET /ready` → 200 `{"status":"ready"}`
+- 保護APIの未認証request → 401
+- Workerの不正ticket接続 → 拒否
+- Workerの不正publish signature → 拒否
 
-実行者はAWS credentialを設定済みであることを確認する。credential値はコマンド履歴、ログ、完了報告に貼らない。
+access logはrequest ID、route、status、latencyだけを確認する。body、Authorization、UUID、ticket、opaque identifier、暗号recordがCloudWatch / Cloudflare logにないことを確認する。
 
-```sh
-aws ecr create-repository \
-  --repository-name <ECR_REPOSITORY> \
-  --region <AWS_REGION>
-```
+## 6. 失敗時とrollback
 
-### 4.2 Docker build
+- migration失敗: deployを停止し、alias / Workerは現状維持する。
+- alias切替後のsmoke失敗: Lambda aliasを直前version、Workerを直前deploymentへ戻し、smokeを再実行する。
+- DB: rollbackしない。必要な場合は前方修正migrationを追加する。
 
-リポジトリルートで実行する。Lambdaの実行アーキテクチャに合わせ、`linux/arm64` または `linux/amd64` を選ぶ。
+rollbackが失敗したら、[`runbook-incident.md`](./runbook-incident.md)へ移行する。
 
-```sh
-docker buildx build \
-  --platform linux/arm64 \
-  -f server/Dockerfile \
-  -t <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>:<IMAGE_TAG> \
-  --load \
-  .
-```
+## 7. 自動deploy開放gate
 
-### 4.3 ECR login / push
+次をすべて記録した後だけGitHub staging Environment variableの`STAGING_AUTO_DEPLOY_ENABLED=true`を設定する。
 
-```sh
-aws ecr get-login-password --region <AWS_REGION> \
-  | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com
+- 手動deployが3回連続成功した。
+- 実端末2台の登録、ログイン、同期が成功した。
+- realtime通知が同期を起動した。
+- Cloudflare停止時もHTTPS fallbackで収束した。
+- runtime DB role、RLS、EU jurisdiction、log allowlistを人間が確認した。
 
-docker push <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>:<IMAGE_TAG>
-```
-
-### 4.4 Neon DB準備
-
-Neon project / database、runtime用pooled endpoint、migration用direct endpointを用意する。作成操作とconnection stringはprivate側または人間管理で扱う。
-
-初回migrationは [`docs/ops/runbook-db-migration.md`](./runbook-db-migration.md) に従い、ローカルでリハーサルしてから適用する。
-
-runtime loginはschema ownerと分離し、LOGIN / NOSUPERUSER / NOCREATEDB / NOCREATEROLE / INHERIT / NOBYPASSRLSとする。migration適用後に`taskveil_app` membershipを付与する。通常Lambda requestにはruntime用pooled URLだけを使い、transaction poolで保持されないsession-level `SET ROLE`へ依存しない。
-
-### 4.5 Lambda作成または更新
-
-初回はLambda関数、IAM role、環境変数、前段のCloudFront + WAFまたはAPI Gatewayを作成する。以下は更新時と同じイメージ設定の例であり、IAM roleや前段設定はprivate側/人間管理で決める。
-
-```sh
-aws lambda update-function-code \
-  --function-name <LAMBDA_FUNCTION> \
-  --image-uri <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>:<IMAGE_TAG> \
-  --region <AWS_REGION>
-
-aws lambda update-function-configuration \
-  --function-name <LAMBDA_FUNCTION> \
-  --environment "Variables={DATABASE_URL=<NEON_RUNTIME_DATABASE_URL>,DATABASE_MIGRATION_URL=<NEON_MIGRATION_DATABASE_URL>,RUST_LOG=info,taskveil_server=info}" \
-  --region <AWS_REGION>
-```
-
-`DATABASE_URL`と`DATABASE_MIGRATION_URL`は秘密情報である。実値をpublic repo、public CI logs、issue、PR、完了報告へ貼らない。migration URLを通常request handlerやクライアントへ渡さない。
-
-## 5. 更新デプロイ手順
-
-1. 事前検証を通す。
-2. `<IMAGE_TAG>` を決める。推奨はgit tagまたはcommit SHA由来の値。
-3. Docker build / ECR pushを行う。
-4. DB migrationが必要な場合は、Lambda更新前にexpand migrationを適用する。
-5. `aws lambda update-function-code` でLambdaを更新する。
-6. `/health` と最小の登録/ログイン/同期導線を確認する。
-
-## 6. 検証
-
-公開API URLでヘルスチェックする。
-
-```sh
-curl -i <PUBLIC_API_BASE_URL>/health
-```
-
-クライアント2台同期確認は [`docs/dev/two-device-sync-test.md`](../dev/two-device-sync-test.md) を、Server URLだけ `<PUBLIC_API_BASE_URL>` に置き換えて実施する。実ユーザー情報や実Recovery Keyをログに残さない。
-
-## 7. ロールバック
-
-コードのみの問題でDB schema互換が保たれている場合、直前のイメージタグへ戻す。
-
-```sh
-aws lambda update-function-code \
-  --function-name <LAMBDA_FUNCTION> \
-  --image-uri <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>:<PREVIOUS_IMAGE_TAG> \
-  --region <AWS_REGION>
-```
-
-DB migrationを含む変更は原則としてDBを戻さない。前方修正migrationまたは修正版イメージで復旧する。詳細は [`docs/ops/runbook-db-migration.md`](./runbook-db-migration.md) を参照する。
-
-## 8. 未実施事項
-
-- 実AWS/ECR/Lambda/Neonデプロイ。
-- CloudFront + WAFまたはAPI Gateway throttlingの最終選定。
-- 本番監視、アラート、ログ保持期間。
-- 公開不可の運用・事業判断。これらはprivate側/人間管理とする。
+production apply / deploy workflowは作成しない。
