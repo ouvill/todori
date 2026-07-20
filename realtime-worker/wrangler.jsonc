@@ -3,6 +3,8 @@
   "name": "taskveil-realtime",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-13",
+  "workers_dev": false,
+  "preview_urls": false,
   "durable_objects": {
     "bindings": [
       {
@@ -16,5 +18,29 @@
       "tag": "v1",
       "new_sqlite_classes": ["RealtimeChannel"]
     }
-  ]
+  ],
+  "env": {
+    "staging": {
+      "name": "taskveil-realtime-staging",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "REALTIME_CHANNELS",
+            "class_name": "RealtimeChannel"
+          }
+        ]
+      }
+    },
+    "production": {
+      "name": "taskveil-realtime-production",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "REALTIME_CHANNELS",
+            "class_name": "RealtimeChannel"
+          }
+        ]
+      }
+    }
+  }
 }

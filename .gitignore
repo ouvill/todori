@@ -7,6 +7,13 @@
 /fuzz/corpus
 **/*.rs.bk
 Cargo.lock.bak
+.lambda/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+backend.hcl
 
 # Flutter/Dart (root-level fallback; app/ manages its own .gitignore)
 **/.dart_tool/

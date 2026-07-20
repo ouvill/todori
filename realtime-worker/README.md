@@ -32,6 +32,8 @@ No production values belong in this repository. The values in
 `vitest.config.ts` and `test/fixtures/realtime-hmac-v1.json` are intentionally
 public deterministic test material.
 
+Wranglerは`staging` / `production`の別Worker環境とversion / deploymentを管理する。Custom DomainはOpenTofuが`realtime.<environment>.<base-domain>`を対応するWorker serviceへ接続し、version upload時のCLI optionにはしない。productionのapply / deploy workflowはない。どちらの環境もWorker code内の`REALTIME_CHANNELS.jurisdiction("eu")`を維持する。
+
 ## Observability
 
 Each connect or publish outcome emits one JSON object containing only an

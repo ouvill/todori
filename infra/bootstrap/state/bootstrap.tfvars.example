@@ -1,0 +1,4 @@
+aws_account_id    = "111111111111"
+environment       = "staging"
+state_bucket_name = "replace-with-globally-unique-state-bucket"
+github_repository = "owner/taskveil"
