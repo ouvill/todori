@@ -15,6 +15,9 @@ Cargo.lock.bak
 !*.tfvars.example
 backend.hcl
 
+# macOS
+.DS_Store
+
 # Flutter/Dart (root-level fallback; app/ manages its own .gitignore)
 **/.dart_tool/
 **/.flutter-plugins
