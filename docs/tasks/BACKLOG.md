@@ -1,6 +1,6 @@
 # Taskveil バックログ
 
-UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLater、Quick fixes、Icebox、人間作業はpilot後の移行判断まで保持するが、新規候補や新形式work itemの状態はこのファイルへ追加しない。新形式の状態は各 `work-*.md` のfront matter、2026-07-23以降の長期方向はADR-023と`docs/01`〜`docs/03`を正本とする。Phase 1/2計画書と本backlogの候補は旧baselineの履歴であり、new implementation candidateへ自動継承しない。
+UUIDv7 work item方式のpilot中に残すlegacy backlogである。既存のLater、Quick fixes、Icebox、人間作業はpilot後の移行判断まで保持するが、新規候補や新形式work itemの状態はこのファイルへ追加しない。新形式の状態は各 `work-*.md` のfront matter、長期方向は [`docs/07_Phase1計画書.md`](../07_Phase1計画書.md) / [`docs/08_Phase2計画書.md`](../08_Phase2計画書.md) を正本とする。
 
 ## 運用ルール
 

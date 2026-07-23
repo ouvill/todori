@@ -5,7 +5,7 @@ This document summarizes Taskveil's public billing principles. Detailed pricing 
 ## Principles
 
 - Local-first task management remains available without an account or subscription.
-- Paid plans are intended for server-dependent capabilities such as encrypted multi-device sync, encrypted cloud backup, and family/friend Shared Spaces.
+- Paid plans are intended for server-dependent capabilities such as encrypted multi-device sync, encrypted cloud backup, and organization sharing.
 - Losing paid status must not make local data unreadable or uneditable.
 - Billing state is separated from end-to-end encrypted content. The server may know whether an account has access to a paid capability, but it must not learn task contents.
 - Upsell prompts should appear only in relevant product contexts and must not rely on disruptive advertising or dark patterns.
@@ -18,11 +18,10 @@ Taskveil's planned plan structure is:
 | Plan | Intended audience | Public boundary |
 |---|---|---|
 | Free | Single-device local use | Local task management, local storage, local export/backup flows, and privacy-preserving core features |
-| Pro | Individuals who want server-backed convenience and small-group sharing | Encrypted sync, server-backed backup, and family/friend Shared Spaces |
+| Pro | Individuals who want server-backed convenience | Encrypted sync and server-backed backup for personal use |
+| Org | Teams and organizations | Shared encrypted workspaces, member management, and organization-oriented controls |
 
 Final pricing, trial details, eligibility rules, and launch timing are not committed in this public overview.
-
-The approved product baseline uses approximately 1 GiB of encrypted structured server data as the paid-account safety ceiling. This is not a promise about final plan pricing or free-tier capacity. Attachments are outside the initial product.
 
 ## Release Gate
 
@@ -38,7 +37,7 @@ The selected implementation provider, public product identifiers, entitlement lo
 
 ## E2EE and Entitlements
 
-Paid capabilities are represented as entitlements associated with an account. Shared Space storage is attributed once to its owner account. Entitlements control access to server-dependent features only. They do not grant the server access to plaintext task data, keys, notes, list names, or other encrypted content.
+Paid capabilities are represented as entitlements associated with an account or organization. Entitlements control access to server-dependent features only. They do not grant the server access to plaintext task data, keys, notes, list names, or other encrypted content.
 
 The technical design must preserve these boundaries:
 
@@ -49,7 +48,7 @@ The technical design must preserve these boundaries:
 
 ## User Experience
 
-Billing prompts should be quiet and contextual. Appropriate moments include setting up an additional device, enabling encrypted cloud backup, or creating a Shared Space. Taskveil should avoid aggressive paywalls, surprise restrictions on existing local functionality, and sales notifications.
+Billing prompts should be quiet and contextual. Appropriate moments include setting up an additional device, enabling encrypted cloud backup, or accepting an organization invitation. Taskveil should avoid aggressive paywalls, surprise restrictions on existing local functionality, and sales notifications.
 
 Cancellation and renewal flows should be clear. If a paid capability expires, Taskveil may stop server-backed sync or sharing, but local data remains available on the device.
 

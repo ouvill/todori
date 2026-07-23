@@ -1,7 +1,5 @@
 # Taskveil client / frontend adapter architecture
 
-> **Legacy実装資料**: この文書の `tenant`、fuzzy scan、現行realtime ticketに関する記述はADR-023以前の実装を説明するものであり、新baselineの設計根拠として再利用しない。UIからtransportとstorageを分離する原則だけを維持し、新しいaccount / Space / opaque Recordモデルは `../03_技術仕様書.md` と `../redesign/` を正本とする。
-
 この文書は、Flutter bridge、CLI、MCPからRust共通実装へ入る依存境界と命名規則を定める。local profile共有の設計判断はADR-011、同期protocolの正本は`docs/03_技術仕様書.md`とする。
 
 ## 用語

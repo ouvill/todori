@@ -1,8 +1,6 @@
 # 暗号release gate
 
-> **Legacy evidence / release blocked**: このrunbookはADR-020実装の過去の検証証拠を保存する。ADR-023（2026-07-23）でOrganization/PQC device-deliveryと旧envelopeをsupersedeしたため、本runbookの合格だけでnew baselineまたは外部配布を承認しない。
-
-New release gateはADR-023のAccount/Space/Record、OPAQUE/HPKE/signature、sync CAS/typed merge/permanent Tombstone、invitation/remove/owner-transfer、local storage/recoveryを実装したwork itemで再作成する。自動test、実装担当と独立した内部review、接続実機確認、外部暗号reviewを別の証拠として扱い、未実施項目を別の合格で代替しない。
+このrunbookはADR-020の暗号実装を外部配布候補として判定するための公開チェックリストである。自動test、実装担当と独立した内部review、接続実機確認、外部暗号reviewを別の証拠として扱い、未実施項目を別の合格で代替しない。
 
 ## 1. 自動gate
 

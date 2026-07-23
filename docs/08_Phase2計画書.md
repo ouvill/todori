@@ -1,7 +1,5 @@
 # Phase 2計画書
 
-> **Legacy implementation history**: 本書はADR-023（2026-07-23）以前のmilestoneと完了証拠を保存する。Field clock、bounded tombstone、tenant/Organization等の旧contractをnew baselineの実装計画として使わない。Current directionは`docs/01_企画書.md`、`docs/02_機能仕様書.md`、`docs/03_技術仕様書.md`を参照する。
-
 E2EE Todoアプリ「Taskveil」のPhase 2を、実装可能なマイルストーンと検証可能な完了条件に分解する。Phase 2はアカウント機能、OPAQUE認証、E2EE同期、マルチデバイス利用、カレンダー表示、タイマー/Pomodoro、テンプレート・繰り返しタスクを扱う。サーバーはE2EEデータの中身を解釈せず、暗号blobと最小限の同期メタデータのみを扱う（`docs/03_技術仕様書.md` §4、§6）。
 
 背景: 2026-07-08にプロダクトオーナーがPhase 2の自律実装を承認した。本計画はその実装範囲と完了条件を定義する。初版は同期系に絞っていたが、同日に `docs/01_企画書.md` §8と整合するようカレンダー表示、タイマー/Pomodoro、テンプレート・繰り返しタスクを追加した。2026-07-18現在、P2-M1〜M4・M6〜M8は完了した。P2-M5は削除同期、macOS / iOS Simulator確認、Android Rust FFI / Flutter release APK build、Android Keystore実装に加え、Pixel 7a / Android 16接続実機でのKeystore / Device Key rotation / DB reopenまで完了し、Android実機の同期確認が残る。一般リリースは別work itemの課金基盤を完成させるまで延期する。
