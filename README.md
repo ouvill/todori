@@ -15,7 +15,7 @@ Taskveilは、タスクの内容をサービス提供者からも見えないよ
 > [!WARNING]
 > Taskveilは**一般リリース前**です。配布済みの安定版はなく、実データでの常用や本番運用はまだ推奨しません。API、同期プロトコル、データベーススキーマは予告なく変更され、開発中のデータを引き継げない場合があります。
 
-現在、macOSとAndroidでは主要な暗号・端末鍵フローを実機確認済みです。一方、iOS実機検証、Android実機での同期、課金・認可のE2E検証、本番環境へのデプロイはリリースゲートとして残っています。また、暗号実装は内部レビュー済みですが、**外部の暗号専門家による監査は未実施**です。
+2026-07-23に個人・家族向けの新しいE2EE baseline（ADR-023）を採用しました。現在の実装は旧protocol/schemaを含むため新baselineへ未準拠であり、breaking再実装が必要です。暗号実装の過去の内部review/実機確認は新baselineの監査を意味せず、**外部の暗号専門家による監査は未実施**です。
 
 - 最新の進捗: [開発ステータス](./docs/tasks/STATUS.md)
 - 暗号機能の公開条件: [暗号release gate](./docs/ops/crypto-release-gate.md)
@@ -25,16 +25,17 @@ Taskveilは、タスクの内容をサービス提供者からも見えないよ
 
 - **ローカルファースト** — アカウント登録やサーバー接続なしで、リストとタスクを端末上で管理できます。
 - **暗号化されたローカルデータ** — SQLCipherデータベースを、OSのKeychain / Keystoreで保護したDevice Key由来の鍵で暗号化します。
-- **E2EE同期** — サーバーは暗号化されたレコードを中継・保存し、タスク本文を復号しません。認証にはOPAQUEを使用します。
+- **E2EE同期** — Target baselineでは、サーバーはopaque Record、RBAC、CAS、quotaを扱い、タスク本文を復号しません。認証はOPAQUEを第一候補とします。
 - **日常のタスク管理** — 階層化したリストとタスク、期限、リマインダー、検索、テンプレート、繰り返しタスク、Focusタイマーを実装しています。
+- **家族・友人との共有** — Target baselineでは、owner/editor/viewer、過去data access、owner transfer、member removal後のkey generation更新を提供します。
 - **クロスプラットフォームUI** — FlutterでiOS、Android、macOS、Windows、Linuxを対象とし、日本語・英語UIを提供します。プラットフォームごとのリリース検証状況は同一ではありません。
 - **共有Rustコア** — ドメインロジック、暗号、ストレージ、同期処理をRust crateとして分離し、フロントエンドから再利用できる構成です。
 
-CLIとMCPサーバーは将来の拡張用の雛形であり、現時点では実用的なタスク操作には対応していません。Organization共有もリリースゲートを満たすまで公開対象外です。
+CLIとMCPサーバーは将来の拡張用の雛形であり、現時点では実用的なタスク操作には対応していません。旧Organization共有設計はADR-023でsupersedeされ、家族・友人向けShared Spaceとして再設計中です。
 
 ## セキュリティモデル
 
-Taskveilは、ローカルDBと同期レコードの両方を暗号化します。同期サーバーは暗号化されたレコード本文を復号しませんが、認証、端末、テナント、同期順序など、サービス提供に必要なメタデータは扱います。保護対象、鍵階層、サーバーから見える情報の詳細は[技術仕様書 §4](./docs/03_技術仕様書.md#4-暗号設計)を参照してください。
+Taskveilは、ローカルDBと同期Recordの両方を暗号化します。同期serverはRecord本文を復号しませんが、Account、session、Space、membership、role、key generation、ciphertext size、同期順序など、service提供に必要なmetadataは扱います。保護対象、鍵階層、serverから見える情報の詳細は[技術仕様書](./docs/03_技術仕様書.md)と[脅威モデル](./docs/redesign/threat-model.md)を参照してください。
 
 脆弱性を発見した場合は、公開IssueやPull Requestへ詳細を書かず、[Security Policy](./SECURITY.md)の非公開報告手順を利用してください。
 

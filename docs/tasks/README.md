@@ -2,12 +2,12 @@
 
 このディレクトリは、標準・重要変更の指示書と完了証拠を置く。UUIDv7 pilot以降の新規work itemは1件1 MarkdownファイルとYAML front matterで管理する。
 
-既存の `task-01`〜`task-108` は履歴としてそのまま保持し、改名・再採番・新形式への一括変換をしない。長期の進行方向はPhase計画書、新形式work itemの状態はfront matter、実装契約と結果は本文、変更履歴はgitを正本とする。
+既存の `task-01`〜`task-108` は履歴としてそのまま保持し、改名・再採番・新形式への一括変換をしない。2026-07-23以降の長期方向はADR-023、`docs/01_企画書.md`、`docs/02_機能仕様書.md`、`docs/03_技術仕様書.md`、`docs/redesign/`を正本とする。Phase 1/2計画書は旧baselineの実装履歴である。新形式work itemの状態はfront matter、実装契約と結果は本文、変更履歴はgitを正本とする。
 
 ## 作業開始時の読む順
 
 1. リポジトリルートの [`AGENTS.md`](../../AGENTS.md)
-2. 対応するPhase計画書、技術仕様、ADR
+2. `docs/01`〜`docs/03`、ADR-023、対応するredesign supplement
 3. [`PLAYBOOK.md`](./PLAYBOOK.md)（標準・重要変更レーン、またはオーケストレーション時）
 4. 対象の `work-<UUIDv7>-<slug>.md`、または既存の `task-NN-*.md`
 5. [`STATUS.md`](./STATUS.md) / [`BACKLOG.md`](./BACKLOG.md)（pilot移行情報やlegacy候補が必要な場合だけ）
@@ -45,7 +45,7 @@ milestone: maintenance
 - `id`: filenameと一致するlowercase・hyphenated UUIDv7
 - `status`: `backlog` / `active` / `blocked` / `done` / `cancelled`
 - `lane`: `standard` / `critical`
-- `milestone`: Phase計画書のID。該当しない保守作業は `maintenance`
+- `milestone`: 承認済み実装計画のID。ADR-023のnew implementation planが未作成の間と該当しない保守作業は `maintenance`
 
 本文は原則として次の章を持つ。
 

@@ -10,6 +10,8 @@ Taskveilは E2EE（エンドツーエンド暗号化）Todoアプリである。
 
 Taskveilは現在、一般リリース前である。
 
+2026-07-23にADR-023の個人・家族向けSpace/Record E2EE baselineを採用した。現在のimplementation、wire protocol、local/server schemaは旧設計を含みnew baselineへ未準拠である。新規実装は旧Organization、field-clock、bounded tombstone、PQC device-delivery設計を延長せず、`docs/01`〜`docs/03`と`docs/redesign/`へ従う。
+
 プロダクトオーナーがこの状態を変更するまで、既存client、wire protocol、API、local DB schema、server schema、開発データとの後方互換性は要件としない。
 
 correctness・security・設計の一貫性を優先し、必要ならbreaking change、破壊的migration、開発データの再作成を行ってよい。互換レイヤ、dual read/write、旧形式fallbackは、taskで明示的に要求されない限り追加しない。
@@ -21,13 +23,13 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 ドキュメント地図（読む順の目安）:
 
 - `docs/01_企画書.md` ── プロダクト企画・ロードマップ
-- `docs/02_機能仕様書.md` ── 機能仕様（F-01〜F-53）
+- `docs/02_機能仕様書.md` ── 機能仕様（F-01〜F-56）
 - `docs/03_技術仕様書.md` ── **技術的な唯一の真実源**。実装と仕様書に矛盾があればこちらを優先する
+- `docs/redesign/` ── ADR-023のproduct、threat、crypto/key、sync、sharing詳細。`docs/03`のnormative supplement
 - `docs/billing_overview.md` ── 公開版の課金方針（詳細な課金設計はprivate repo側）
 - `docs/05_設計判断記録.md` ── ADR（設計判断記録）
 - `docs/legal_overview.md` ── 公開版の法務・OSS方針（詳細な事業・法務メモはprivate repo側）
-- `docs/07_Phase1計画書.md` ── Phase 1のマイルストーン（M1〜M5）と完了条件。M1〜M4は完了し、M5は課金基盤完成後のリリース工程へ延期している
-- `docs/08_Phase2計画書.md` ── Phase 2の実行計画と現在地。P2-M1〜M4・M6・M7は完了し、P2-M5のAndroid検証、P2-M8、課金release gateが残る
+- `docs/07_Phase1計画書.md` / `docs/08_Phase2計画書.md` ── ADR-023以前の実装履歴。new baselineの実装計画として使わない
 - `docs/tasks/` ── UUIDv7 work item、標準/重要変更の指示書と完了証拠。長期方向はPhase計画書、work itemの状態はfront matterを正本とする。軽量作業はtask文書を省略できる
 
 **`docs/01`・`docs/02` の変更には人間承認が必要**である。`docs/03_技術仕様書.md` は2026-07-08にプロダクトオーナーが全面編集を許可した（コミットをチェックポイントとして復元可能なため）。ただし変更時は外科的差分とし、日付・ADR参照注記を維持すること。実装中に仕様と矛盾する事実（ビルド不能、API仕様の相違等）を発見した場合は、該当タスクの完了報告の「未解決事項」に記録すること。
@@ -44,7 +46,7 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `app/rust_builder` ── cargokitによるFFIプラグイン（iOS/macOS向けpodspec同梱）
 - `cli` ── CLI雛形。共通client/profile層への実接続はバックログ
 - `mcp-server` ── MCPサーバー雛形。共通client/profile層への実接続はバックログ
-- `server` ── OPAQUE認証、E2EE同期、device continuity、RevenueCat課金集約とrequest-time entitlement認可を提供するRust APIサーバー
+- `server` ── 現行のOPAQUE認証、E2EE同期、課金/認可を提供するRust APIサーバー。ADR-023のopaque Record/RBAC/CAS/quota modelへbreaking更新予定
 
 ## 品質ゲート（コミット前に全て通すこと）
 
@@ -82,7 +84,7 @@ sh app/tool/test_client_boundaries.sh
 1. **命名の三位一体**: cargoパッケージ名 = pod名 = FRB stem = `taskveil_app_bridge`。cargokitはパッケージ名から `lib<名前>.a` を探し、FRBローダーは `<stem>.framework` を探すため、どれか一つでも変えると壊れる。
 2. **`.cargo/config.toml` のiOS 15 target別linker flagを消さない**。消すとiOS実機ターゲットで `___chkstk_darwin` 未定義のリンクエラーが発生する（vendoredのOpenSSL/SQLCipherがSDK最新でビルドされるため）。`IPHONEOS_DEPLOYMENT_TARGET`をglobalな`[env]`へ戻すとmacOS向けAWS-LCにも誤適用されるため禁止する。
 3. **FRB再生成**: Rust API（`app/rust/src/api.rs`）を変更したら、リポジトリルートで `flutter_rust_bridge_codegen generate --config-file flutter_rust_bridge.yaml` を実行する。生成物（`frb_generated.*`、`app/lib/src/rust/` 配下）はコミット対象であり、**手編集禁止**である。
-4. **暗号・端末保存のTaskveil namespaceはv1固定**。HKDFは`taskveil/local-db-key/v1`と`taskveil/recovery-key-wrap-key/v1`、key wrap AAD magicは`TWK1`を使う。Apple Keychain serviceは`com.taskveil.app.device-key.v1`、`com.taskveil.app.session-token.v1`、`com.taskveil.app.device-identity.v1`、`com.taskveil.app.account-root-wrapped.v1`、`com.taskveil.app.local-key-capsule.{active,pending}.v1`、Androidはalias `com.taskveil.app.local-capsule-seal.v1`、preferences `taskveil_local_capsules_v1`、AAD `taskveil/android-local-capsule/v1/...`を固定契約とする。これらは人間承認なしに変更しない。暗号suite、sync protocol、DB schema、capsule plaintext形式のversionは独立したversion空間であり、このnamespace v1へ合わせて巻き戻さない。
+4. **現行implementationの暗号・端末保存namespaceはlegacy v1固定**。HKDFは`taskveil/local-db-key/v1`と`taskveil/recovery-key-wrap-key/v1`、key wrap AAD magicは`TWK1`を使う。Apple Keychain serviceは`com.taskveil.app.device-key.v1`、`com.taskveil.app.session-token.v1`、`com.taskveil.app.device-identity.v1`、`com.taskveil.app.account-root-wrapped.v1`、`com.taskveil.app.local-key-capsule.{active,pending}.v1`、Androidはalias `com.taskveil.app.local-capsule-seal.v1`、preferences `taskveil_local_capsules_v1`、AAD `taskveil/android-local-capsule/v1/...`を固定契約とする。ADR-023実装task以外で変更・再利用しない。New baselineのnamespace、suite、protocol、DB schema、capsule形式はcrypto/encoding ADRで独立versionとして固定し、legacy v1へ合わせない。
 5. local key capsuleはproductionでApple Data Protection KeychainまたはAndroid Keystore AES-256-GCM sealerを使う。`FileDeviceKeyStore` / file capsule store / `InMemoryDeviceKeyStore` はdevelopment・test専用であり、release processでは平文storeを明示的に拒否する。
 6. `sort_order` は暫定連番（`'a0'`, `'a1'`, ...）である。fractional index本実装はM3のタスクである。
 7. macOS実行: `cd app && flutter build macos --debug` でビルドし、実行後のアプリの実データは `~/Library/Containers/com.taskveil.app/` に生成される。DBが暗号化されているかは `head -c 16 <db> | xxd` で乱数ヘッダを確認して検証する。
@@ -97,4 +99,4 @@ sh app/tool/test_client_boundaries.sh
 
 ## 現在地とバックログ
 
-長期の進行方向はPhase計画書、新形式work itemの状態は `docs/tasks/work-*.md` のfront matterを参照すること。`docs/tasks/STATUS.md` と `docs/tasks/BACKLOG.md` はUUIDv7 pilot中の移行案内とlegacy情報を保持する。
+長期の進行方向はADR-023、`docs/01`〜`docs/03`、`docs/redesign/`を参照すること。Phase 1/2計画書は旧baselineの実装履歴でありnew implementation planではない。新形式work itemの状態は `docs/tasks/work-*.md` のfront matterを参照する。`docs/tasks/STATUS.md` と `docs/tasks/BACKLOG.md` はUUIDv7 pilot中の移行案内とlegacy情報を保持する。

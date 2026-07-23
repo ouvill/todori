@@ -1,5 +1,7 @@
 # Phase 1計画書
 
+> **Legacy implementation history**: 本書はADR-023（2026-07-23）以前のmilestoneと完了証拠を保存する。F番号、scope、crypto/sync modelをnew baselineの実装計画として使わない。Current directionは`docs/01_企画書.md`、`docs/02_機能仕様書.md`、`docs/03_技術仕様書.md`を参照する。
+
 E2EE Todoアプリ「Taskveil」のPhase 1（MVP）を、実装可能なマイルストーンと検証可能な完了条件に分解する。Phase 1はローカル専用版であり、同期・アカウント・課金は扱わない。
 
 ## 1. Phase 1スコープ

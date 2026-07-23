@@ -1,12 +1,12 @@
 # Taskveil 開発ステータス
 
-> 更新日: 2026-07-18
+> 更新日: 2026-07-23
 
-UUIDv7 work item方式のpilot中である。長期計画はPhase計画書、設計判断はADR、新形式work itemの状態は各 `work-*.md` のfront matter、完了履歴はtask本文とgitを参照する。このファイルにはpilot前の進捗スナップショットと人間作業だけを残す。
+UUIDv7 work item方式のpilot中である。2026-07-23以降の長期方向はADR-023と`docs/01`〜`docs/03`、新形式work itemの状態は各 `work-*.md` のfront matter、完了履歴はtask本文とgitを参照する。Phase 1/2計画書と以下の「現在」はADR-023以前のimplementation snapshotである。このファイルにはpilot前の進捗スナップショットと人間作業だけを残す。
 
 ## 現在
 
-- 進行中: なし。
+- ADR-023以前のimplementation snapshot上の進行中: なし。
 - 保留: なし。
 - 最新の完了: **P2-M8 templates and recurring tasks** — content-only template、RRULE local settlement、UUIDv5重複防止、Tenant Root DEK同期、streak、英日Templates UIを実装し、全品質ゲートと独立検証を完了した。
 - Phase 1: M1〜M4完了。M5リリース準備は課金基盤完成後まで延期する。
@@ -33,7 +33,7 @@ rg -n '^status: (backlog|active|blocked)$' docs/tasks/work-*.md
 ## 作業開始時に読むもの
 
 1. `AGENTS.md`
-2. 対応するPhase計画書・技術仕様・ADR
+2. `docs/01`〜`docs/03`、ADR-023、対応するredesign supplement
 3. 対象の `work-*.md`、または既存の `task-*.md`
 4. `PLAYBOOK.md`（標準・重要変更レーンの場合）
 5. この `STATUS.md` / `BACKLOG.md`（pilot移行情報やlegacy候補が必要な場合だけ）
