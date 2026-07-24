@@ -16,9 +16,11 @@ void main() {
 
       await _pumpTemplates(tester, seed.fake);
 
-      expect(find.text('Templates'), findsOneWidget);
+      expect(find.text('Templates'), findsNWidgets(2));
       expect(find.text('Morning reset'), findsOneWidget);
       expect(find.text('1 task'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Recurring tasks'), 250);
+      await tester.pumpAndSettle();
       expect(find.textContaining('3 streak'), findsOneWidget);
       expect(
         find.byWidgetPredicate((widget) {
@@ -39,7 +41,7 @@ void main() {
       );
 
       final create = find.text('Create tasks');
-      await tester.ensureVisible(create);
+      await tester.scrollUntilVisible(create, -250);
       await tester.tap(create);
       await tester.pumpAndSettle();
       expect(find.text('Tasks created from template.'), findsOneWidget);
@@ -56,7 +58,9 @@ void main() {
       final seed = await _seedTemplate(FakeBridgeService());
       await _pumpTemplates(tester, seed.fake);
 
-      await tester.tap(find.byTooltip('Add schedule'));
+      await tester.tap(
+        find.byTooltip('Create recurring tasks from this template'),
+      );
       await tester.pumpAndSettle();
       expect(find.text('New schedule'), findsOneWidget);
       expect(find.text('Every day'), findsOneWidget);
@@ -75,27 +79,22 @@ void main() {
         find.text('Check the recurrence rule, start, and time zone.'),
         findsOneWidget,
       );
-      expect(
-        await seed.fake.getTemplateSchedules(templateId: seed.templateId),
-        isEmpty,
-      );
+      expect(await seed.fake.getTaskSeries(), isEmpty);
 
-      await tester.tap(find.byTooltip('Add schedule'));
+      await tester.tap(
+        find.byTooltip('Create recurring tasks from this template'),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      var schedules = await seed.fake.getTemplateSchedules(
-        templateId: seed.templateId,
-      );
+      var schedules = await seed.fake.getTaskSeries();
       expect(schedules, hasLength(1));
 
       await tester.tap(find.byTooltip('Schedule actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Pause'));
       await tester.pumpAndSettle();
-      schedules = await seed.fake.getTemplateSchedules(
-        templateId: seed.templateId,
-      );
+      schedules = await seed.fake.getTaskSeries();
       expect(schedules.single.enabled, isFalse);
 
       await tester.tap(find.byTooltip('Schedule actions'));
@@ -105,10 +104,7 @@ void main() {
       expect(find.text('Delete schedule?'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
-      expect(
-        await seed.fake.getTemplateSchedules(templateId: seed.templateId),
-        hasLength(1),
-      );
+      expect(await seed.fake.getTaskSeries(), hasLength(1));
 
       await tester.tap(find.byTooltip('Schedule actions'));
       await tester.pumpAndSettle();
@@ -116,10 +112,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
-      expect(
-        await seed.fake.getTemplateSchedules(templateId: seed.templateId),
-        isEmpty,
-      );
+      expect(await seed.fake.getTaskSeries(), isEmpty);
       expect(tester.takeException(), isNull);
     },
   );
@@ -131,7 +124,9 @@ void main() {
     final seed = await _seedTemplate(FakeBridgeService());
     await _pumpTemplates(tester, seed.fake);
 
-    await tester.tap(find.byTooltip('Add schedule'));
+    await tester.tap(
+      find.byTooltip('Create recurring tasks from this template'),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Every day'));
     await tester.pumpAndSettle();
@@ -148,13 +143,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    var schedules = await seed.fake.getTemplateSchedules(
-      templateId: seed.templateId,
-    );
+    var schedules = await seed.fake.getTaskSeries();
     expect(schedules.single.rrule, startsWith('FREQ=WEEKLY;BYDAY='));
     expect(schedules.single.rrule.split(',').length, 2);
 
-    await tester.tap(find.byTooltip('Add schedule'));
+    await tester.tap(
+      find.byTooltip('Create recurring tasks from this template'),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Every day'));
     await tester.pumpAndSettle();
@@ -169,9 +164,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    schedules = await seed.fake.getTemplateSchedules(
-      templateId: seed.templateId,
-    );
+    schedules = await seed.fake.getTaskSeries();
     expect(
       schedules.map((schedule) => schedule.rrule),
       contains('FREQ=MONTHLY;BYMONTHDAY=31'),
@@ -211,6 +204,86 @@ void main() {
     expect(templates.single.nodes.single.title, '朝の準備');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('creates and edits a template blueprint directly', (
+    tester,
+  ) async {
+    _useMobileView(tester);
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpTemplates(tester, fake);
+
+    await tester.tap(find.byKey(const Key('create-template')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('template-name')), 'Release');
+    await tester.enterText(
+      find.byKey(const ValueKey('blueprint-title-root')),
+      'Prepare release',
+    );
+    await tester.tap(find.byKey(const Key('add-blueprint-child')));
+    await tester.pumpAndSettle();
+    final childTitle = find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is TextFormField &&
+              widget.key is ValueKey<String> &&
+              (widget.key! as ValueKey<String>).value.startsWith(
+                'blueprint-title-node-',
+              ),
+        )
+        .last;
+    await tester.enterText(childTitle, 'Publish notes');
+    await tester.tap(find.byKey(const Key('add-blueprint-child')));
+    await tester.pumpAndSettle();
+    final secondChildTitle = find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is TextFormField &&
+              widget.key is ValueKey<String> &&
+              (widget.key! as ValueKey<String>).value.startsWith(
+                'blueprint-title-node-',
+              ),
+        )
+        .last;
+    await tester.enterText(secondChildTitle, 'Announce release');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Move up').last);
+    await tester.tap(find.byTooltip('Move up').last);
+    await tester.pumpAndSettle();
+    final saveButton = tester.widget<FilledButton>(
+      find.byKey(const Key('save-template')),
+    );
+    expect(saveButton.onPressed, isNotNull);
+    await tester.ensureVisible(find.byKey(const Key('save-template')));
+    await tester.tap(find.byKey(const Key('save-template')));
+    await tester.pumpAndSettle();
+
+    var templates = await fake.getTemplates();
+    expect(templates.single.name, 'Release');
+    expect(templates.single.nodes.map((node) => node.title), [
+      'Prepare release',
+      'Announce release',
+      'Publish notes',
+    ]);
+
+    await tester.tap(find.byTooltip('Template actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Delete').last);
+    await tester.tap(find.byTooltip('Delete').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('save-template')));
+    await tester.tap(find.byKey(const Key('save-template')));
+    await tester.pumpAndSettle();
+
+    templates = await fake.getTemplates();
+    expect(templates.single.nodes.map((node) => node.title), [
+      'Prepare release',
+      'Announce release',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 typedef _TemplateSeed = ({
@@ -231,7 +304,7 @@ Future<_TemplateSeed> _seedTemplate(FakeBridgeService fake) async {
     defaultListId: inbox.id,
   );
   if (fake is _StreakFakeBridgeService) {
-    await fake.createSchedule(
+    await fake.createTaskSeriesFromTemplate(
       templateId: template.id,
       rrule: 'FREQ=DAILY',
       startsAt: DateTime(2026, 7, 18, 7).millisecondsSinceEpoch,
@@ -273,8 +346,8 @@ void _useMobileView(
 
 class _StreakFakeBridgeService extends FakeBridgeService {
   @override
-  Future<StreakDto> getScheduleStreak({
-    required String scheduleId,
+  Future<StreakDto> getTaskSeriesStreak({
+    required String seriesId,
     required int atMs,
   }) async => const StreakDto(current: 3, finalized: false);
 }

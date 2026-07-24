@@ -15,8 +15,8 @@ use taskveil_crypto::{
 };
 use taskveil_domain::Uuid;
 use taskveil_storage::{
-    open_encrypted, ListRepository, LocalCryptoRepository, RecurrenceRepository,
-    SqliteLocalCryptoRepository, TaskRepository, TimerSessionRepository,
+    open_encrypted, ListRepository, LocalCryptoRepository, SqliteLocalCryptoRepository,
+    TaskRepository, TemplateSeriesRepository, TimerSessionRepository,
 };
 use taskveil_sync::{
     account::{
@@ -893,7 +893,7 @@ impl TaskveilClient {
             let templates =
                 self.with_recurrence_repository(|repository| Ok(repository.list_templates()?))?;
             let schedules =
-                self.with_recurrence_repository(|repository| Ok(repository.list_schedules()?))?;
+                self.with_recurrence_repository(|repository| Ok(repository.list_series()?))?;
             let tasks =
                 self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
             let timer_sessions =
@@ -910,7 +910,7 @@ impl TaskveilClient {
                 taskveil_sync::BackfillRecords {
                     lists: &lists,
                     templates: &templates,
-                    schedules: &schedules,
+                    task_series: &schedules,
                     tasks: &tasks,
                     timer_sessions: &timer_sessions,
                 },

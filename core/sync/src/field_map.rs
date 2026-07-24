@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 use taskveil_domain::{
-    validate_completed_timer_session, CompletedTimerSession, List, RecurrenceProvenance,
-    RecurrenceSchedule, RevisionBoundary, ScheduleCursor, Task, TaskDue, TaskStatus, TaskTemplate,
-    TemplateSnapshot, Uuid,
+    validate_completed_timer_session, CompletedTimerSession, List, RevisionBoundary, SeriesCursor,
+    SeriesOccurrenceRef, Task, TaskBlueprint, TaskDue, TaskSeries, TaskSeriesConfig, TaskStatus,
+    TaskTemplate, Uuid,
 };
 use thiserror::Error;
 
@@ -18,7 +18,7 @@ pub const TASK_FIELD_GROUPS: &[&str] = &[
     "scheduled_at",
     "estimated_minutes",
     "assignee",
-    "recurrence",
+    "series_occurrence",
     "created_at",
     "updated_at",
     "completion",
@@ -37,11 +37,11 @@ pub const LIST_FIELD_GROUPS: &[&str] = &[
 pub const TEMPLATE_FIELD_GROUPS: &[&str] = &[
     "name",
     "default_list_id",
-    "snapshot",
+    "blueprint",
     "created_at",
     "updated_at",
 ];
-pub const SCHEDULE_FIELD_GROUPS: &[&str] = &["config", "cursor"];
+pub const TASK_SERIES_FIELD_GROUPS: &[&str] = &["config", "cursor"];
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum FieldMapError {
@@ -63,9 +63,9 @@ pub enum FieldMapError {
     ImmutableConflict,
     #[error("template plaintext is invalid")]
     InvalidTemplate,
-    #[error("schedule plaintext is invalid")]
-    InvalidSchedule,
-    #[error("schedule cursor is bound to a different config revision")]
+    #[error("task series plaintext is invalid")]
+    InvalidTaskSeries,
+    #[error("task series cursor is bound to a different config revision")]
     CursorRevisionMismatch,
 }
 
@@ -114,7 +114,7 @@ pub struct TaskPlaintext {
     pub scheduled_at: Clocked<Option<i64>>,
     pub estimated_minutes: Clocked<Option<i32>>,
     pub assignee: Clocked<Option<Uuid>>,
-    pub recurrence: Clocked<Option<RecurrenceProvenance>>,
+    pub series_occurrence: Clocked<Option<SeriesOccurrenceRef>>,
     pub created_at: Clocked<i64>,
     pub updated_at: Clocked<i64>,
     pub completion: Clocked<TaskCompletion>,
@@ -123,12 +123,9 @@ pub struct TaskPlaintext {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TemplateSnapshotValue {
-    pub snapshot: TemplateSnapshot,
+pub struct TaskBlueprintValue {
+    pub blueprint: TaskBlueprint,
     pub revision: String,
-    pub parent_revision: Option<String>,
-    pub effective_from: i64,
-    pub lineage: Vec<RevisionBoundary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,15 +133,16 @@ pub struct TemplateSnapshotValue {
 pub struct TemplatePlaintext {
     pub name: Clocked<String>,
     pub default_list_id: Clocked<Option<Uuid>>,
-    pub snapshot: Clocked<TemplateSnapshotValue>,
+    pub blueprint: Clocked<TaskBlueprintValue>,
     pub created_at: Clocked<i64>,
     pub updated_at: Clocked<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScheduleConfigValue {
-    pub template_id: Uuid,
+pub struct TaskSeriesConfigValue {
+    pub blueprint: TaskBlueprint,
+    pub target_list_id: Option<Uuid>,
     pub rrule: String,
     pub starts_at: i64,
     pub time_zone: String,
@@ -159,16 +157,16 @@ pub struct ScheduleConfigValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScheduleCursorValue {
+pub struct SeriesCursorValue {
     pub config_revision: String,
-    pub cursor: ScheduleCursor,
+    pub cursor: SeriesCursor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SchedulePlaintext {
-    pub config: Clocked<ScheduleConfigValue>,
-    pub cursor: Clocked<ScheduleCursorValue>,
+pub struct TaskSeriesPlaintext {
+    pub config: Clocked<TaskSeriesConfigValue>,
+    pub cursor: Clocked<SeriesCursorValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,7 +206,7 @@ pub enum SyncPlaintext {
     Task(TaskPlaintext),
     List(ListPlaintext),
     Template(TemplatePlaintext),
-    Schedule(SchedulePlaintext),
+    TaskSeries(TaskSeriesPlaintext),
     TimerSession(TimerSessionPlaintext),
 }
 
@@ -234,7 +232,7 @@ impl SyncPlaintext {
                     &task.scheduled_at.hlc,
                     &task.estimated_minutes.hlc,
                     &task.assignee.hlc,
-                    &task.recurrence.hlc,
+                    &task.series_occurrence.hlc,
                     &task.created_at.hlc,
                     &task.updated_at.hlc,
                     &task.completion.hlc,
@@ -246,11 +244,8 @@ impl SyncPlaintext {
                     id: record_id,
                     name: template.name.value.clone(),
                     default_list_id: template.default_list_id.value,
-                    snapshot: template.snapshot.value.snapshot.clone(),
-                    snapshot_revision: template.snapshot.value.revision.clone(),
-                    snapshot_parent_revision: template.snapshot.value.parent_revision.clone(),
-                    snapshot_effective_from: template.snapshot.value.effective_from,
-                    lineage: template.snapshot.value.lineage.clone(),
+                    blueprint: template.blueprint.value.blueprint.clone(),
+                    blueprint_revision: template.blueprint.value.revision.clone(),
                     created_at: template.created_at.value,
                     updated_at: template.updated_at.value,
                 };
@@ -260,34 +255,37 @@ impl SyncPlaintext {
                 validate_hlcs([
                     &template.name.hlc,
                     &template.default_list_id.hlc,
-                    &template.snapshot.hlc,
+                    &template.blueprint.hlc,
                     &template.created_at.hlc,
                     &template.updated_at.hlc,
                 ])
             }
-            ("schedules", Self::Schedule(schedule)) => {
-                if schedule.cursor.value.config_revision != schedule.config.value.revision {
+            ("task_series", Self::TaskSeries(series)) => {
+                if series.cursor.value.config_revision != series.config.value.revision {
                     return Err(FieldMapError::CursorRevisionMismatch);
                 }
-                let value = RecurrenceSchedule {
+                let value = TaskSeries {
                     id: record_id,
-                    template_id: schedule.config.value.template_id,
-                    rrule: schedule.config.value.rrule.clone(),
-                    starts_at: schedule.config.value.starts_at,
-                    time_zone: schedule.config.value.time_zone.clone(),
-                    cursor: schedule.cursor.value.cursor,
-                    enabled: schedule.config.value.enabled,
-                    config_revision: schedule.config.value.revision.clone(),
-                    config_parent_revision: schedule.config.value.parent_revision.clone(),
-                    config_effective_from: schedule.config.value.effective_from,
-                    lineage: schedule.config.value.lineage.clone(),
-                    created_at: schedule.config.value.created_at,
-                    updated_at: schedule.config.value.updated_at,
+                    config: TaskSeriesConfig {
+                        blueprint: series.config.value.blueprint.clone(),
+                        target_list_id: series.config.value.target_list_id,
+                        rrule: series.config.value.rrule.clone(),
+                        starts_at: series.config.value.starts_at,
+                        time_zone: series.config.value.time_zone.clone(),
+                        enabled: series.config.value.enabled,
+                        config_revision: series.config.value.revision.clone(),
+                        config_parent_revision: series.config.value.parent_revision.clone(),
+                        config_effective_from: series.config.value.effective_from,
+                        lineage: series.config.value.lineage.clone(),
+                    },
+                    cursor: series.cursor.value.cursor,
+                    created_at: series.config.value.created_at,
+                    updated_at: series.config.value.updated_at,
                 };
                 value
                     .validate()
-                    .map_err(|_| FieldMapError::InvalidSchedule)?;
-                validate_hlcs([&schedule.config.hlc, &schedule.cursor.hlc])
+                    .map_err(|_| FieldMapError::InvalidTaskSeries)?;
+                validate_hlcs([&series.config.hlc, &series.cursor.hlc])
             }
             ("lists", Self::List(list)) => {
                 validate_rank(&list.placement.value.rank)?;
@@ -324,7 +322,7 @@ impl SyncPlaintext {
                 &value.scheduled_at.hlc,
                 &value.estimated_minutes.hlc,
                 &value.assignee.hlc,
-                &value.recurrence.hlc,
+                &value.series_occurrence.hlc,
                 &value.created_at.hlc,
                 &value.updated_at.hlc,
                 &value.completion.hlc,
@@ -349,17 +347,17 @@ impl SyncPlaintext {
             Self::Template(value) => [
                 &value.name.hlc,
                 &value.default_list_id.hlc,
-                &value.snapshot.hlc,
+                &value.blueprint.hlc,
                 &value.created_at.hlc,
                 &value.updated_at.hlc,
             ]
             .into_iter()
             .max()
             .expect("template plaintext has fields"),
-            Self::Schedule(value) => [&value.config.hlc, &value.cursor.hlc]
+            Self::TaskSeries(value) => [&value.config.hlc, &value.cursor.hlc]
                 .into_iter()
                 .max()
-                .expect("schedule plaintext has fields"),
+                .expect("task series plaintext has fields"),
             Self::TimerSession(value) => &value.hlc,
         }
     }
@@ -374,7 +372,7 @@ impl SyncPlaintext {
             scheduled_at: Clocked::new(task.scheduled_at, hlc.clone()),
             estimated_minutes: Clocked::new(task.estimated_minutes, hlc.clone()),
             assignee: Clocked::new(task.assignee, hlc.clone()),
-            recurrence: Clocked::new(task.recurrence.clone(), hlc.clone()),
+            series_occurrence: Clocked::new(task.series_occurrence.clone(), hlc.clone()),
             created_at: Clocked::new(task.created_at, hlc.clone()),
             updated_at: Clocked::new(task.updated_at, hlc.clone()),
             completion: Clocked::new(
@@ -403,13 +401,10 @@ impl SyncPlaintext {
         Ok(Self::Template(TemplatePlaintext {
             name: Clocked::new(template.name.clone(), hlc.clone()),
             default_list_id: Clocked::new(template.default_list_id, hlc.clone()),
-            snapshot: Clocked::new(
-                TemplateSnapshotValue {
-                    snapshot: template.snapshot.clone(),
-                    revision: template.snapshot_revision.clone(),
-                    parent_revision: template.snapshot_parent_revision.clone(),
-                    effective_from: template.snapshot_effective_from,
-                    lineage: template.lineage.clone(),
+            blueprint: Clocked::new(
+                TaskBlueprintValue {
+                    blueprint: template.blueprint.clone(),
+                    revision: template.blueprint_revision.clone(),
                 },
                 hlc.clone(),
             ),
@@ -418,31 +413,32 @@ impl SyncPlaintext {
         }))
     }
 
-    pub fn from_schedule(schedule: &RecurrenceSchedule, hlc: Hlc) -> Result<Self, FieldMapError> {
-        schedule
+    pub fn from_series(series: &TaskSeries, hlc: Hlc) -> Result<Self, FieldMapError> {
+        series
             .validate()
-            .map_err(|_| FieldMapError::InvalidSchedule)?;
-        Ok(Self::Schedule(SchedulePlaintext {
+            .map_err(|_| FieldMapError::InvalidTaskSeries)?;
+        Ok(Self::TaskSeries(TaskSeriesPlaintext {
             config: Clocked::new(
-                ScheduleConfigValue {
-                    template_id: schedule.template_id,
-                    rrule: schedule.rrule.clone(),
-                    starts_at: schedule.starts_at,
-                    time_zone: schedule.time_zone.clone(),
-                    enabled: schedule.enabled,
-                    revision: schedule.config_revision.clone(),
-                    parent_revision: schedule.config_parent_revision.clone(),
-                    effective_from: schedule.config_effective_from,
-                    lineage: schedule.lineage.clone(),
-                    created_at: schedule.created_at,
-                    updated_at: schedule.updated_at,
+                TaskSeriesConfigValue {
+                    blueprint: series.config.blueprint.clone(),
+                    target_list_id: series.config.target_list_id,
+                    rrule: series.config.rrule.clone(),
+                    starts_at: series.config.starts_at,
+                    time_zone: series.config.time_zone.clone(),
+                    enabled: series.config.enabled,
+                    revision: series.config.config_revision.clone(),
+                    parent_revision: series.config.config_parent_revision.clone(),
+                    effective_from: series.config.config_effective_from,
+                    lineage: series.config.lineage.clone(),
+                    created_at: series.created_at,
+                    updated_at: series.updated_at,
                 },
                 hlc.clone(),
             ),
             cursor: Clocked::new(
-                ScheduleCursorValue {
-                    config_revision: schedule.config_revision.clone(),
-                    cursor: schedule.cursor,
+                SeriesCursorValue {
+                    config_revision: series.config.config_revision.clone(),
+                    cursor: series.cursor,
                 },
                 hlc,
             ),
@@ -495,7 +491,7 @@ impl SyncPlaintext {
         retain_unchanged(&mut next.scheduled_at, &previous.scheduled_at);
         retain_unchanged(&mut next.estimated_minutes, &previous.estimated_minutes);
         retain_unchanged(&mut next.assignee, &previous.assignee);
-        retain_unchanged(&mut next.recurrence, &previous.recurrence);
+        retain_unchanged(&mut next.series_occurrence, &previous.series_occurrence);
         retain_unchanged(&mut next.created_at, &previous.created_at);
         retain_unchanged(&mut next.updated_at, &previous.updated_at);
         retain_unchanged(&mut next.completion, &previous.completion);
@@ -536,27 +532,27 @@ impl SyncPlaintext {
         };
         retain_unchanged(&mut next.name, &previous.name);
         retain_unchanged(&mut next.default_list_id, &previous.default_list_id);
-        retain_unchanged(&mut next.snapshot, &previous.snapshot);
+        retain_unchanged(&mut next.blueprint, &previous.blueprint);
         retain_unchanged(&mut next.created_at, &previous.created_at);
         retain_unchanged(&mut next.updated_at, &previous.updated_at);
         Ok(Self::Template(next))
     }
 
-    pub fn stamp_schedule_changes(
+    pub fn stamp_series_changes(
         &self,
-        schedule: &RecurrenceSchedule,
+        series: &TaskSeries,
         hlc: Hlc,
     ) -> Result<Self, FieldMapError> {
-        let Self::Schedule(previous) = self else {
+        let Self::TaskSeries(previous) = self else {
             return Err(FieldMapError::KindMismatch);
         };
-        let mut next = match Self::from_schedule(schedule, hlc)? {
-            Self::Schedule(value) => value,
+        let mut next = match Self::from_series(series, hlc)? {
+            Self::TaskSeries(value) => value,
             _ => unreachable!(),
         };
         retain_unchanged(&mut next.config, &previous.config);
         retain_unchanged(&mut next.cursor, &previous.cursor);
-        Ok(Self::Schedule(next))
+        Ok(Self::TaskSeries(next))
     }
 }
 

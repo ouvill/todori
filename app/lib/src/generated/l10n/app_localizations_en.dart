@@ -1274,7 +1274,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get templatesEmptyTitle => 'No templates yet';
 
   @override
-  String get templatesEmptyBody => 'Open a task and choose Save as template.';
+  String get templatesEmptyBody =>
+      'Create a reusable task blueprint here, or save an existing task as a template.';
+
+  @override
+  String get newTemplateButton => 'New template';
+
+  @override
+  String get newTemplateTitle => 'New template';
 
   @override
   String get templateActionsTooltip => 'Template actions';
@@ -1303,6 +1310,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addScheduleTooltip => 'Add schedule';
 
   @override
+  String get createTaskSeriesTooltip =>
+      'Create recurring tasks from this template';
+
+  @override
+  String get taskSeriesTitle => 'Recurring tasks';
+
+  @override
+  String get taskSeriesEmptyTitle => 'No recurring tasks';
+
+  @override
+  String get taskSeriesEmptyBody =>
+      'Create one from a template. It becomes independent after creation.';
+
+  @override
   String get templateCreatedMessage => 'Tasks created from template.';
 
   @override
@@ -1321,7 +1342,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteTemplateDialogBody =>
-      'Its schedules will also be deleted. Tasks already created will stay unchanged.';
+      'Recurring tasks and tasks created from this template will stay unchanged.';
 
   @override
   String get deleteScheduleDialogTitle => 'Delete schedule?';
@@ -1354,6 +1375,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editTemplateTitle => 'Edit template';
+
+  @override
+  String get blueprintRootLabel => 'Root task';
+
+  @override
+  String get blueprintChildLabel => 'Child task';
+
+  @override
+  String get addBlueprintChildButton => 'Add child task';
+
+  @override
+  String get moveUpButton => 'Move up';
+
+  @override
+  String get moveDownButton => 'Move down';
 
   @override
   String get defaultListLabel => 'Default list';

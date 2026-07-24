@@ -1,14 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use taskveil_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_domain::{CompletedTimerSession, List, Task, TaskSeries, TaskTemplate, Uuid};
 use taskveil_storage::{
     open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
     FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
-    RecurrenceRepository, SettingsRepository, SqliteListRepository, SqliteRecurrenceRepository,
-    SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository,
-    SqliteTimerSessionRepository, StorageError, SyncOutboxState, SyncQuarantineEntry,
-    SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
-    TimerSessionRepository,
+    SettingsRepository, SqliteListRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
+    SqliteTaskRepository, SqliteTemplateSeriesRepository, SqliteTimerSessionRepository,
+    StorageError, SyncOutboxState, SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState,
+    SyncStateRepository, TaskRepository, TemplateSeriesRepository, TimerSessionRepository,
 };
 use taskveil_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
@@ -452,9 +451,9 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
-    fn get_schedule(&mut self, id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
+    fn get_series(&mut self, id: Uuid) -> Result<Option<TaskSeries>, String> {
         with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
-            match repository.get_schedule(id) {
+            match repository.get_series(id) {
                 Ok(schedule) => Ok(Some(schedule)),
                 Err(StorageError::NotFound(_)) => Ok(None),
                 Err(error) => Err(error.to_string()),
@@ -462,29 +461,18 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
-    fn upsert_schedule_for_sync(&mut self, schedule: RecurrenceSchedule) -> Result<(), String> {
+    fn upsert_series_for_sync(&mut self, schedule: TaskSeries) -> Result<(), String> {
         with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .upsert_schedule_for_sync(schedule)
+                .upsert_series_for_sync(schedule)
                 .map_err(|error| error.to_string())
         })
     }
 
-    fn delete_schedule_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+    fn delete_series_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
         with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .delete_schedule(id)
-                .map_err(|error| error.to_string())
-        })
-    }
-
-    fn list_schedules_for_template(
-        &mut self,
-        template_id: Uuid,
-    ) -> Result<Vec<RecurrenceSchedule>, String> {
-        with_recurrence_repository(&self.db_path, &self.db_key, |repository| {
-            repository
-                .list_schedules_for_template(template_id)
+                .delete_series(id)
                 .map_err(|error| error.to_string())
         })
     }
@@ -809,32 +797,23 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
-    fn get_schedule(&mut self, id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
-        match self.transaction.get_schedule(id) {
+    fn get_series(&mut self, id: Uuid) -> Result<Option<TaskSeries>, String> {
+        match self.transaction.get_series(id) {
             Ok(schedule) => Ok(Some(schedule)),
             Err(StorageError::NotFound(_)) => Ok(None),
             Err(error) => Err(error.to_string()),
         }
     }
 
-    fn upsert_schedule_for_sync(&mut self, schedule: RecurrenceSchedule) -> Result<(), String> {
+    fn upsert_series_for_sync(&mut self, schedule: TaskSeries) -> Result<(), String> {
         self.transaction
-            .upsert_schedule(schedule)
+            .upsert_series(schedule)
             .map_err(|error| error.to_string())
     }
 
-    fn delete_schedule_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+    fn delete_series_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
         self.transaction
-            .delete_schedule(id)
-            .map_err(|error| error.to_string())
-    }
-
-    fn list_schedules_for_template(
-        &mut self,
-        template_id: Uuid,
-    ) -> Result<Vec<RecurrenceSchedule>, String> {
-        self.transaction
-            .list_schedules_for_template(template_id)
+            .delete_series(id)
             .map_err(|error| error.to_string())
     }
 
@@ -1009,7 +988,7 @@ fn storage_sweep_to_local(summary: FullResyncSweepSummary) -> LocalFullResyncSwe
         swept_lists: summary.swept_lists,
         swept_tasks: summary.swept_tasks,
         swept_templates: summary.swept_templates,
-        swept_schedules: summary.swept_schedules,
+        swept_task_series: summary.swept_task_series,
         swept_timer_sessions: summary.swept_timer_sessions,
         swept_record_states: summary.swept_record_states,
     }
@@ -1222,10 +1201,10 @@ fn with_task_repository<T>(
 fn with_recurrence_repository<T>(
     db_path: &Path,
     db_key: &[u8; 32],
-    f: impl FnOnce(&mut SqliteRecurrenceRepository) -> Result<T, String>,
+    f: impl FnOnce(&mut SqliteTemplateSeriesRepository) -> Result<T, String>,
 ) -> Result<T, String> {
     let connection = open_encrypted(db_path, db_key).map_err(|error| error.to_string())?;
-    let mut repository = SqliteRecurrenceRepository::new(connection);
+    let mut repository = SqliteTemplateSeriesRepository::new(connection);
     f(&mut repository)
 }
 
@@ -1403,7 +1382,7 @@ mod tests {
                 taskveil_sync::BackfillRecords {
                     lists: std::slice::from_ref(&list),
                     templates: &[],
-                    schedules: &[],
+                    task_series: &[],
                     tasks: &[],
                     timer_sessions: &[],
                 },
@@ -1422,7 +1401,7 @@ mod tests {
             taskveil_sync::BackfillRecords {
                 lists: std::slice::from_ref(&list),
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: &[],
                 timer_sessions: &[],
             },

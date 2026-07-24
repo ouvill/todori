@@ -13,11 +13,12 @@ pub use entities::{
     TaskDue, TaskStatus, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UtcInstant,
 };
 pub use recurrence::{
-    calculate_streak, next_occurrence_after, occurrences_after, scheduled_task_id,
+    calculate_streak, next_occurrence_after, occurrences_after, series_task_id,
     validate_and_normalize_rrule, virtual_next_occurrence_after_end, RecurrenceError,
-    RecurrenceProvenance, RecurrenceSchedule, RevisionBoundary, ScheduleCursor, Streak,
-    StreakOccurrence, TaskTemplate, TemplateNode, TemplateSnapshot, MAX_TEMPLATE_NODES,
-    MAX_TEMPLATE_SNAPSHOT_BYTES, SETTLEMENT_BATCH_SIZE, TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+    RevisionBoundary, SeriesCursor, SeriesOccurrenceRef, Streak, StreakOccurrence, TaskBlueprint,
+    TaskBlueprintNode, TaskContent, TaskSeries, TaskSeriesConfig, TaskTemplate,
+    MAX_TASK_BLUEPRINT_BYTES, MAX_TASK_BLUEPRINT_NODES, SETTLEMENT_BATCH_SIZE,
+    TASK_BLUEPRINT_SCHEMA_REVISION,
 };
 pub use sort_order::{
     fractional_index_after, fractional_index_between, rebalance_ranks, validate_sort_order,

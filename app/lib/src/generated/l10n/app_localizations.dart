@@ -2350,8 +2350,20 @@ abstract class AppLocalizations {
   /// No description provided for @templatesEmptyBody.
   ///
   /// In en, this message translates to:
-  /// **'Open a task and choose Save as template.'**
+  /// **'Create a reusable task blueprint here, or save an existing task as a template.'**
   String get templatesEmptyBody;
+
+  /// No description provided for @newTemplateButton.
+  ///
+  /// In en, this message translates to:
+  /// **'New template'**
+  String get newTemplateButton;
+
+  /// No description provided for @newTemplateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New template'**
+  String get newTemplateTitle;
 
   /// No description provided for @templateActionsTooltip.
   ///
@@ -2389,6 +2401,30 @@ abstract class AppLocalizations {
   /// **'Add schedule'**
   String get addScheduleTooltip;
 
+  /// No description provided for @createTaskSeriesTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Create recurring tasks from this template'**
+  String get createTaskSeriesTooltip;
+
+  /// No description provided for @taskSeriesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring tasks'**
+  String get taskSeriesTitle;
+
+  /// No description provided for @taskSeriesEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No recurring tasks'**
+  String get taskSeriesEmptyTitle;
+
+  /// No description provided for @taskSeriesEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Create one from a template. It becomes independent after creation.'**
+  String get taskSeriesEmptyBody;
+
   /// No description provided for @templateCreatedMessage.
   ///
   /// In en, this message translates to:
@@ -2422,7 +2458,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteTemplateDialogBody.
   ///
   /// In en, this message translates to:
-  /// **'Its schedules will also be deleted. Tasks already created will stay unchanged.'**
+  /// **'Recurring tasks and tasks created from this template will stay unchanged.'**
   String get deleteTemplateDialogBody;
 
   /// No description provided for @deleteScheduleDialogTitle.
@@ -2478,6 +2514,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Edit template'**
   String get editTemplateTitle;
+
+  /// No description provided for @blueprintRootLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Root task'**
+  String get blueprintRootLabel;
+
+  /// No description provided for @blueprintChildLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Child task'**
+  String get blueprintChildLabel;
+
+  /// No description provided for @addBlueprintChildButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add child task'**
+  String get addBlueprintChildButton;
+
+  /// No description provided for @moveUpButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get moveUpButton;
+
+  /// No description provided for @moveDownButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get moveDownButton;
 
   /// No description provided for @defaultListLabel.
   ///

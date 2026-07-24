@@ -133,16 +133,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ReminderDto> dco_decode_list_reminder_dto(dynamic raw);
 
   @protected
-  List<ScheduleDto> dco_decode_list_schedule_dto(dynamic raw);
+  List<TaskBlueprintNodeDto> dco_decode_list_task_blueprint_node_dto(
+    dynamic raw,
+  );
 
   @protected
   List<TaskDto> dco_decode_list_task_dto(dynamic raw);
 
   @protected
-  List<TemplateDto> dco_decode_list_template_dto(dynamic raw);
+  List<TaskSeriesDto> dco_decode_list_task_series_dto(dynamic raw);
 
   @protected
-  List<TemplateNodeDto> dco_decode_list_template_node_dto(dynamic raw);
+  List<TemplateDto> dco_decode_list_template_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -188,9 +190,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ReminderDto dco_decode_reminder_dto(dynamic raw);
 
   @protected
-  ScheduleDto dco_decode_schedule_dto(dynamic raw);
-
-  @protected
   SettlementSummaryDto dco_decode_settlement_summary_dto(dynamic raw);
 
   @protected
@@ -203,6 +202,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SyncStatusDto dco_decode_sync_status_dto(dynamic raw);
 
   @protected
+  TaskBlueprintNodeDto dco_decode_task_blueprint_node_dto(dynamic raw);
+
+  @protected
   TaskDto dco_decode_task_dto(dynamic raw);
 
   @protected
@@ -212,13 +214,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskDueInput dco_decode_task_due_input(dynamic raw);
 
   @protected
+  TaskSeriesDto dco_decode_task_series_dto(dynamic raw);
+
+  @protected
   TaskUndoDto dco_decode_task_undo_dto(dynamic raw);
 
   @protected
   TemplateDto dco_decode_template_dto(dynamic raw);
-
-  @protected
-  TemplateNodeDto dco_decode_template_node_dto(dynamic raw);
 
   @protected
   TimerFinishKindDto dco_decode_timer_finish_kind_dto(dynamic raw);
@@ -378,18 +380,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ReminderDto> sse_decode_list_reminder_dto(SseDeserializer deserializer);
 
   @protected
-  List<ScheduleDto> sse_decode_list_schedule_dto(SseDeserializer deserializer);
+  List<TaskBlueprintNodeDto> sse_decode_list_task_blueprint_node_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<TaskDto> sse_decode_list_task_dto(SseDeserializer deserializer);
 
   @protected
-  List<TemplateDto> sse_decode_list_template_dto(SseDeserializer deserializer);
-
-  @protected
-  List<TemplateNodeDto> sse_decode_list_template_node_dto(
+  List<TaskSeriesDto> sse_decode_list_task_series_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<TemplateDto> sse_decode_list_template_dto(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -445,9 +449,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ReminderDto sse_decode_reminder_dto(SseDeserializer deserializer);
 
   @protected
-  ScheduleDto sse_decode_schedule_dto(SseDeserializer deserializer);
-
-  @protected
   SettlementSummaryDto sse_decode_settlement_summary_dto(
     SseDeserializer deserializer,
   );
@@ -464,6 +465,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SyncStatusDto sse_decode_sync_status_dto(SseDeserializer deserializer);
 
   @protected
+  TaskBlueprintNodeDto sse_decode_task_blueprint_node_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   TaskDto sse_decode_task_dto(SseDeserializer deserializer);
 
   @protected
@@ -473,13 +479,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   TaskDueInput sse_decode_task_due_input(SseDeserializer deserializer);
 
   @protected
+  TaskSeriesDto sse_decode_task_series_dto(SseDeserializer deserializer);
+
+  @protected
   TaskUndoDto sse_decode_task_undo_dto(SseDeserializer deserializer);
 
   @protected
   TemplateDto sse_decode_template_dto(SseDeserializer deserializer);
-
-  @protected
-  TemplateNodeDto sse_decode_template_node_dto(SseDeserializer deserializer);
 
   @protected
   TimerFinishKindDto sse_decode_timer_finish_kind_dto(
@@ -679,8 +685,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_list_schedule_dto(
-    List<ScheduleDto> self,
+  void sse_encode_list_task_blueprint_node_dto(
+    List<TaskBlueprintNodeDto> self,
     SseSerializer serializer,
   );
 
@@ -688,14 +694,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_task_dto(List<TaskDto> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_template_dto(
-    List<TemplateDto> self,
+  void sse_encode_list_task_series_dto(
+    List<TaskSeriesDto> self,
     SseSerializer serializer,
   );
 
   @protected
-  void sse_encode_list_template_node_dto(
-    List<TemplateNodeDto> self,
+  void sse_encode_list_template_dto(
+    List<TemplateDto> self,
     SseSerializer serializer,
   );
 
@@ -766,9 +772,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_reminder_dto(ReminderDto self, SseSerializer serializer);
 
   @protected
-  void sse_encode_schedule_dto(ScheduleDto self, SseSerializer serializer);
-
-  @protected
   void sse_encode_settlement_summary_dto(
     SettlementSummaryDto self,
     SseSerializer serializer,
@@ -787,6 +790,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_sync_status_dto(SyncStatusDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_task_blueprint_node_dto(
+    TaskBlueprintNodeDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_task_dto(TaskDto self, SseSerializer serializer);
 
   @protected
@@ -796,16 +805,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_task_due_input(TaskDueInput self, SseSerializer serializer);
 
   @protected
+  void sse_encode_task_series_dto(TaskSeriesDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_task_undo_dto(TaskUndoDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_template_dto(TemplateDto self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_template_node_dto(
-    TemplateNodeDto self,
-    SseSerializer serializer,
-  );
 
   @protected
   void sse_encode_timer_finish_kind_dto(

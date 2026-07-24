@@ -54,7 +54,9 @@ Future<void> main() async {
       reminderNotificationService = notificationService;
       await notificationService.reconcilePending(notificationContent);
     } catch (error) {
-      debugPrint('Taskveil reminder notification initialization failed: $error');
+      debugPrint(
+        'Taskveil reminder notification initialization failed: $error',
+      );
     }
     timerNotificationService = TimerNotificationService(
       FlutterLocalTimerNotificationGateway(plugin: localNotificationsPlugin),
@@ -71,7 +73,9 @@ Future<void> main() async {
     }
   } catch (error, stackTrace) {
     initializationError = error;
-    debugPrint('Taskveil native core initialization failed: $error\n$stackTrace');
+    debugPrint(
+      'Taskveil native core initialization failed: $error\n$stackTrace',
+    );
   }
 
   runApp(
@@ -220,7 +224,7 @@ class _TaskveilAppShellState extends ConsumerState<_TaskveilAppShell>
       do {
         final summary = await ref
             .read(bridgeServiceProvider)
-            .settleDueSchedules(atMs: DateTime.now().millisecondsSinceEpoch);
+            .settleDueSeries(atMs: DateTime.now().millisecondsSinceEpoch);
         hasMore = summary.hasMore;
         if (hasMore) {
           await Future<void>.delayed(Duration.zero);

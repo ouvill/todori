@@ -292,8 +292,8 @@ pub struct Task {
     /// tombstoneを兼ねる論理削除日時。
     pub deleted_at: Option<i64>,
     pub assignee: Option<Uuid>,
-    /// Schedule-generated task tree provenance. Manual tasks keep this `None`.
-    pub recurrence: Option<crate::recurrence::RecurrenceProvenance>,
+    /// Task Series-generated occurrence provenance. Manual tasks keep this `None`.
+    pub series_occurrence: Option<crate::recurrence::SeriesOccurrenceRef>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -353,7 +353,7 @@ mod tests {
             closed_reason: None,
             deleted_at: None,
             assignee: None,
-            recurrence: None,
+            series_occurrence: None,
             created_at: 0,
             updated_at: 0,
         };

@@ -1297,7 +1297,7 @@ void main() {
     await _screenshot(tester, 'lists_archived');
   });
 
-  testWidgets('p2_m8_templates_en: recurring template management', (
+  testWidgets('task_series_domain_templates_en: independent management', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -1306,10 +1306,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Templates').last);
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'p2_m8_templates_en');
+    await _screenshot(tester, 'task_series_domain_templates_en');
   });
 
-  testWidgets('p2_m8_templates_ja: recurring template management', (
+  testWidgets('task_series_domain_templates_ja: independent management', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -1319,10 +1319,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('テンプレート').last);
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'p2_m8_templates_ja');
+    await _screenshot(tester, 'task_series_domain_templates_ja');
   });
 
-  testWidgets('p2_m8_templates_text_scale_2: 390px Dynamic Type 2.0', (
+  testWidgets('task_series_domain_templates_text_scale_2: 390px scale 2.0', (
     tester,
   ) async {
     _setMobileViewport(tester);
@@ -1332,8 +1332,42 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Templates').last);
     await tester.pumpAndSettle();
-    await _screenshot(tester, 'p2_m8_templates_text_scale_2');
+    await _screenshot(tester, 'task_series_domain_templates_text_scale_2');
   });
+
+  testWidgets(
+    'task_series_domain_template_editor_en: direct blueprint editor',
+    (tester) async {
+      _setMobileViewport(tester);
+      await _seedTemplateVisualData(tester);
+      await tester.tap(find.text('Lists').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Templates').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('create-template')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('template-name')), 'Release');
+      await tester.enterText(
+        find.byKey(const ValueKey('blueprint-title-root')),
+        'Prepare release',
+      );
+      await tester.tap(find.byKey(const Key('add-blueprint-child')));
+      await tester.pumpAndSettle();
+      final childTitle = find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is TextFormField &&
+                widget.key is ValueKey<String> &&
+                (widget.key! as ValueKey<String>).value.startsWith(
+                  'blueprint-title-node-',
+                ),
+          )
+          .last;
+      await tester.enterText(childTitle, 'Publish notes');
+      await tester.pumpAndSettle();
+      await _screenshot(tester, 'task_series_domain_template_editor_en');
+    },
+  );
 
   testWidgets('account_signed_out: account screen with server URL form', (
     tester,
@@ -2165,7 +2199,7 @@ Future<void> _seedTemplateVisualData(WidgetTester tester) async {
     name: 'Morning reset',
     defaultListId: inbox.id,
   );
-  await fake.createSchedule(
+  await fake.createTaskSeriesFromTemplate(
     templateId: template.id,
     rrule: 'FREQ=DAILY',
     startsAt: DateTime(2026, 7, 18, 7).millisecondsSinceEpoch,
@@ -2179,8 +2213,8 @@ Future<void> _seedTemplateVisualData(WidgetTester tester) async {
 
 class _TemplateVisualBridge extends FakeBridgeService {
   @override
-  Future<StreakDto> getScheduleStreak({
-    required String scheduleId,
+  Future<StreakDto> getTaskSeriesStreak({
+    required String seriesId,
     required int atMs,
   }) async => const StreakDto(current: 4, finalized: false);
 }
@@ -2259,9 +2293,7 @@ class _BillingVisualBridge extends FakeBridgeService {
     lookupKey: 'pro',
     status: status,
     syncAllowed: syncAllowed,
-    storeProductIdentifier: syncAllowed
-        ? 'com.taskveil.app.pro.monthly'
-        : null,
+    storeProductIdentifier: syncAllowed ? 'com.taskveil.app.pro.monthly' : null,
     willRenew: syncAllowed,
     environment: 'sandbox',
   );

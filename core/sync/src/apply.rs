@@ -5,21 +5,22 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use taskveil_domain::{List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_domain::{List, Task, TaskSeries, TaskSeriesConfig, TaskTemplate, Uuid};
 
 use crate::{
     account::AccountClient, decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc,
     PullRecord, PushOp, PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext,
-    SyncRunSummary, LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME,
-    SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION, TEMPLATES_COLLECTION,
+    SyncRunSummary, LISTS_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
+    TASKS_COLLECTION, TASK_SERIES_COLLECTION, TEMPLATES_COLLECTION,
 };
 
 use crate::enqueue::{
     enqueue_merged_plaintext, enqueue_rebased_tombstone, enqueue_task_sync,
-    enqueue_timer_session_sync, list_plaintext, observe_remote_hlc, schedule_plaintext,
-    task_plaintext, template_plaintext, LocalFullResyncPhase, LocalListAlias, LocalSyncAtomicStore,
-    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
+    enqueue_timer_session_sync, list_plaintext, observe_remote_hlc, task_plaintext,
+    task_series_plaintext, template_plaintext, LocalFullResyncPhase, LocalListAlias,
+    LocalSyncAtomicStore, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest,
+    RebaseTombstoneRequest,
 };
 use crate::keys::{tenant_root_dek, LocalSyncKeys};
 
@@ -820,7 +821,7 @@ where
                 summary.deleted_count += swept.swept_lists
                     + swept.swept_tasks
                     + swept.swept_templates
-                    + swept.swept_schedules
+                    + swept.swept_task_series
                     + swept.swept_timer_sessions;
                 if swept.scanned_records == 0 {
                     let mut transaction = store
@@ -1186,7 +1187,9 @@ where
         SyncCollection::Lists => apply_pull_list(record, context, store, now_ms, summary),
         SyncCollection::Tasks => apply_pull_task(record, context, store, now_ms, summary),
         SyncCollection::Templates => apply_pull_template(record, context, store, now_ms, summary),
-        SyncCollection::Schedules => apply_pull_schedule(record, context, store, now_ms, summary),
+        SyncCollection::TaskSeries => {
+            apply_pull_task_series(record, context, store, now_ms, summary)
+        }
         SyncCollection::TimerSessions => {
             apply_pull_timer_session(record, context, store, now_ms, summary)
         }
@@ -1368,26 +1371,6 @@ where
     let (incoming_mutation_hlc, blob) = match &record.state {
         EncryptedSyncState::Tombstone { delete_hlc } => {
             store.delete_outbox_head(SyncCollection::Templates, record.record_id)?;
-            for schedule in store.list_schedules_for_template(record.record_id)? {
-                store.delete_outbox_head(SyncCollection::Schedules, schedule.id)?;
-                let base_revision = store
-                    .get_record_state(SyncCollection::Schedules, schedule.id)?
-                    .and_then(|state| state.current_revision_hlc);
-                enqueue_rebased_tombstone(
-                    store,
-                    RebaseTombstoneRequest {
-                        record_id: schedule.id,
-                        collection: SyncCollection::Schedules,
-                        delete_hlc,
-                        device_id: &context.device_id,
-                        base_revision_hlc: base_revision.as_deref(),
-                    },
-                    now_ms,
-                )?;
-                if store.delete_schedule_for_sync(schedule.id)? {
-                    summary.deleted_count += 1;
-                }
-            }
             if store.delete_template_for_sync(record.record_id)? {
                 summary.deleted_count += 1;
             }
@@ -1517,7 +1500,7 @@ where
     })
 }
 
-fn apply_pull_schedule<S, N>(
+fn apply_pull_task_series<S, N>(
     record: &PullRecord,
     context: &ActiveSyncContext,
     store: &mut S,
@@ -1529,15 +1512,15 @@ where
     N: FnMut() -> Result<i64, String>,
 {
     observe_remote_hlc(store, &context.device_id, &record.revision_hlc, now_ms)?;
-    let local_state = store.get_record_state(SyncCollection::Schedules, record.record_id)?;
+    let local_state = store.get_record_state(SyncCollection::TaskSeries, record.record_id)?;
     let (incoming_mutation_hlc, blob) = match &record.state {
         EncryptedSyncState::Tombstone { delete_hlc } => {
-            store.delete_outbox_head(SyncCollection::Schedules, record.record_id)?;
-            if store.delete_schedule_for_sync(record.record_id)? {
+            store.delete_outbox_head(SyncCollection::TaskSeries, record.record_id)?;
+            if store.delete_series_for_sync(record.record_id)? {
                 summary.deleted_count += 1;
             }
             store.put_record_state(
-                SyncCollection::Schedules,
+                SyncCollection::TaskSeries,
                 record.record_id,
                 LocalSyncRecordState {
                     current_revision_hlc: Some(record.revision_hlc.clone()),
@@ -1560,7 +1543,7 @@ where
                         store,
                         RebaseTombstoneRequest {
                             record_id: record.record_id,
-                            collection: SyncCollection::Schedules,
+                            collection: SyncCollection::TaskSeries,
                             delete_hlc,
                             device_id: &context.device_id,
                             base_revision_hlc: Some(&record.revision_hlc),
@@ -1595,7 +1578,7 @@ where
         dek,
         context.tenant_id,
         header.key_generation,
-        SCHEDULES_COLLECTION,
+        TASK_SERIES_COLLECTION,
         record.record_id,
         blob,
     ) {
@@ -1608,9 +1591,9 @@ where
             ))
         }
     };
-    let existing = store.get_schedule(record.record_id)?;
+    let existing = store.get_series(record.record_id)?;
     let stored_plaintext =
-        stored_sync_plaintext(store, SyncCollection::Schedules, record.record_id)?;
+        stored_sync_plaintext(store, SyncCollection::TaskSeries, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
         (Some(local), _) => {
             let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
@@ -1618,7 +1601,7 @@ where
             (merge.plaintext, needs_repush)
         }
         (None, Some(local)) => {
-            let local = schedule_plaintext(local, record_hlc_or_initial(&incoming));
+            let local = task_series_plaintext(local, record_hlc_or_initial(&incoming));
             let merge = merge_lww(&local, &incoming).map_err(|_| "sync failed")?;
             let needs_repush = merge.needs_repush();
             (merge.plaintext, needs_repush)
@@ -1626,36 +1609,11 @@ where
         (None, None) => (incoming, false),
     };
     let needs_repush = needs_repush || header.key_generation < context.keys.tenant_generation;
-    let schedule = schedule_from_plaintext(record.record_id, &merged)?;
-    if let Some(LocalSyncRecordState {
-        state: LocalSyncSemanticState::Tombstone { delete_hlc },
-        ..
-    }) = store.get_record_state(SyncCollection::Templates, schedule.template_id)?
-    {
-        enqueue_rebased_tombstone(
-            store,
-            RebaseTombstoneRequest {
-                record_id: record.record_id,
-                collection: SyncCollection::Schedules,
-                delete_hlc: &delete_hlc,
-                device_id: &context.device_id,
-                base_revision_hlc: Some(&record.revision_hlc),
-            },
-            now_ms,
-        )?;
-        summary.repush_count += 1;
-        return Ok(ApplyDisposition::Rebased);
-    }
-    if store.get_template(schedule.template_id)?.is_none() {
-        return Ok(ApplyDisposition::Deferred(
-            PullFailureReason::MissingDependency,
-            Some(schedule.template_id),
-        ));
-    }
-    store.upsert_schedule_for_sync(schedule)?;
+    let series = task_series_from_plaintext(record.record_id, &merged)?;
+    store.upsert_series_for_sync(series)?;
     store_sync_plaintext(
         store,
-        SyncCollection::Schedules,
+        SyncCollection::TaskSeries,
         record.record_id,
         &record.revision_hlc,
         incoming_mutation_hlc,
@@ -1668,7 +1626,7 @@ where
             store,
             RebasePlaintextRequest {
                 record_id: record.record_id,
-                collection: SyncCollection::Schedules,
+                collection: SyncCollection::TaskSeries,
                 plaintext: &merged,
                 dek: tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?,
                 tenant_id: context.tenant_id,
@@ -1952,7 +1910,7 @@ where
         SyncPlaintext::Task(_) => {}
         SyncPlaintext::List(_)
         | SyncPlaintext::Template(_)
-        | SyncPlaintext::Schedule(_)
+        | SyncPlaintext::TaskSeries(_)
         | SyncPlaintext::TimerSession(_) => return Err("sync failed".to_string()),
     }
     let dek = tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?;
@@ -2354,7 +2312,7 @@ where
         closed_reason: fields.completion.value.closed_reason.clone(),
         deleted_at: None,
         assignee: fields.assignee.value,
-        recurrence: fields.recurrence.value.clone(),
+        series_occurrence: fields.series_occurrence.value.clone(),
         created_at: fields.created_at.value,
         updated_at: fields.updated_at.value,
     })
@@ -2371,38 +2329,35 @@ fn template_from_plaintext(id: Uuid, plaintext: &SyncPlaintext) -> Result<TaskTe
         id,
         name: fields.name.value.clone(),
         default_list_id: fields.default_list_id.value,
-        snapshot: fields.snapshot.value.snapshot.clone(),
-        snapshot_revision: fields.snapshot.value.revision.clone(),
-        snapshot_parent_revision: fields.snapshot.value.parent_revision.clone(),
-        snapshot_effective_from: fields.snapshot.value.effective_from,
-        lineage: fields.snapshot.value.lineage.clone(),
+        blueprint: fields.blueprint.value.blueprint.clone(),
+        blueprint_revision: fields.blueprint.value.revision.clone(),
         created_at: fields.created_at.value,
         updated_at: fields.updated_at.value,
     })
 }
 
-fn schedule_from_plaintext(
-    id: Uuid,
-    plaintext: &SyncPlaintext,
-) -> Result<RecurrenceSchedule, String> {
+fn task_series_from_plaintext(id: Uuid, plaintext: &SyncPlaintext) -> Result<TaskSeries, String> {
     plaintext
-        .validate_for_collection(SCHEDULES_COLLECTION, &id.to_string())
+        .validate_for_collection(TASK_SERIES_COLLECTION, &id.to_string())
         .map_err(|_| "sync failed".to_string())?;
-    let SyncPlaintext::Schedule(fields) = plaintext else {
+    let SyncPlaintext::TaskSeries(fields) = plaintext else {
         return Err("sync failed".to_string());
     };
-    Ok(RecurrenceSchedule {
+    Ok(TaskSeries {
         id,
-        template_id: fields.config.value.template_id,
-        rrule: fields.config.value.rrule.clone(),
-        starts_at: fields.config.value.starts_at,
-        time_zone: fields.config.value.time_zone.clone(),
+        config: TaskSeriesConfig {
+            blueprint: fields.config.value.blueprint.clone(),
+            target_list_id: fields.config.value.target_list_id,
+            rrule: fields.config.value.rrule.clone(),
+            starts_at: fields.config.value.starts_at,
+            time_zone: fields.config.value.time_zone.clone(),
+            enabled: fields.config.value.enabled,
+            config_revision: fields.config.value.revision.clone(),
+            config_parent_revision: fields.config.value.parent_revision.clone(),
+            config_effective_from: fields.config.value.effective_from,
+            lineage: fields.config.value.lineage.clone(),
+        },
         cursor: fields.cursor.value.cursor,
-        enabled: fields.config.value.enabled,
-        config_revision: fields.config.value.revision.clone(),
-        config_parent_revision: fields.config.value.parent_revision.clone(),
-        config_effective_from: fields.config.value.effective_from,
-        lineage: fields.config.value.lineage.clone(),
         created_at: fields.config.value.created_at,
         updated_at: fields.config.value.updated_at,
     })
@@ -3931,9 +3886,9 @@ mod tests {
 }
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
-    assert!(upgrade_block_is_active("8:5"));
-    assert!(upgrade_block_is_active("7:6"));
-    assert!(!upgrade_block_is_active("7:5"));
+    assert!(upgrade_block_is_active("9:5"));
+    assert!(upgrade_block_is_active("8:6"));
+    assert!(!upgrade_block_is_active("8:5"));
     assert!(!upgrade_block_is_active("6:5"));
     assert!(!upgrade_block_is_active("7:3"));
     assert!(!upgrade_block_is_active("0:0"));

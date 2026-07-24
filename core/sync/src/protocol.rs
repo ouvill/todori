@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::RotationStatus;
 
-pub const SYNC_PROTOCOL_VERSION: u16 = 7;
+pub const SYNC_PROTOCOL_VERSION: u16 = 8;
 pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-taskveil-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +74,7 @@ pub enum SyncCollection {
     Lists,
     Tasks,
     Templates,
-    Schedules,
+    TaskSeries,
     TimerSessions,
 }
 
@@ -84,7 +84,7 @@ impl SyncCollection {
             Self::Lists => "lists",
             Self::Tasks => "tasks",
             Self::Templates => "templates",
-            Self::Schedules => "schedules",
+            Self::TaskSeries => "task_series",
             Self::TimerSessions => "timer_sessions",
         }
     }
@@ -104,7 +104,7 @@ impl FromStr for SyncCollection {
             "lists" => Ok(Self::Lists),
             "tasks" => Ok(Self::Tasks),
             "templates" => Ok(Self::Templates),
-            "schedules" => Ok(Self::Schedules),
+            "task_series" => Ok(Self::TaskSeries),
             "timer_sessions" => Ok(Self::TimerSessions),
             _ => Err(ProtocolTypeError::UnknownCollection(value.to_string())),
         }
@@ -253,7 +253,7 @@ mod tests {
     fn collection_rejects_unknown_values() {
         assert_eq!("tasks".parse(), Ok(SyncCollection::Tasks));
         assert_eq!("templates".parse(), Ok(SyncCollection::Templates));
-        assert_eq!("schedules".parse(), Ok(SyncCollection::Schedules));
+        assert_eq!("task_series".parse(), Ok(SyncCollection::TaskSeries));
         assert_eq!("timer_sessions".parse(), Ok(SyncCollection::TimerSessions));
         assert!("reminders".parse::<SyncCollection>().is_err());
         assert!(serde_json::from_value::<SyncCollection>(json!("Tasks")).is_err());

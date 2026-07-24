@@ -103,6 +103,11 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     ))
     .execute(pool)
     .await?;
+    raw_sql(include_str!(
+        "../migrations/202607240002_task_series_domain.sql"
+    ))
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

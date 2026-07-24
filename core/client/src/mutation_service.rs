@@ -5,15 +5,14 @@ use std::path::Path;
 
 use taskveil_domain::{
     update_due, update_estimated_minutes, update_note, update_priority, update_scheduled_at,
-    update_title, CompletedTimerSession, List, RecurrenceSchedule, Task, TaskDue, TaskTemplate,
-    Uuid,
+    update_title, CompletedTimerSession, List, Task, TaskDue, TaskSeries, TaskTemplate, Uuid,
 };
 use taskveil_storage::{
     open_encrypted, NewSyncOutboxEntry, SqliteWriteTx, StorageError, SyncOutboxState,
     SyncRecordSemanticState, SyncRecordState, TaskUndoOperation,
 };
 use taskveil_sync::{
-    enqueue_list_sync, enqueue_schedule_sync, enqueue_task_sync, enqueue_template_sync,
+    enqueue_list_sync, enqueue_task_series_sync, enqueue_task_sync, enqueue_template_sync,
     enqueue_timer_session_sync, next_local_revision, EncryptedSyncState, LocalMutationSyncStore,
     LocalSyncKeys, LocalSyncRecordState, LocalSyncSemanticState, NewLocalSyncOutboxEntry,
     SyncCollection,
@@ -242,16 +241,16 @@ pub(crate) fn enqueue_template_in_transaction(
     .map_err(|_| ClientError::Sync)
 }
 
-pub(crate) fn enqueue_schedule_in_transaction(
+pub(crate) fn enqueue_task_series_in_transaction(
     transaction: &mut SqliteWriteTx<'_>,
     sync: &LocalMutationContext,
-    schedule: &RecurrenceSchedule,
+    schedule: &TaskSeries,
     deleted: bool,
     now_ms: i64,
 ) -> Result<(), ClientError> {
     let mut store = TransactionalMutationStore { transaction };
     let mut now = || Ok(now_ms);
-    enqueue_schedule_sync(
+    enqueue_task_series_sync(
         &mut store,
         &sync.keys,
         &sync.device_id,

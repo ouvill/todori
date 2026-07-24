@@ -1241,7 +1241,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get templatesEmptyTitle => 'テンプレートはまだありません';
 
   @override
-  String get templatesEmptyBody => 'タスクを開き、「テンプレートとして保存」を選んでください。';
+  String get templatesEmptyBody => 'ここで定型タスクを作るか、既存タスクをテンプレートとして保存できます。';
+
+  @override
+  String get newTemplateButton => '新規テンプレート';
+
+  @override
+  String get newTemplateTitle => '新しいテンプレート';
 
   @override
   String get templateActionsTooltip => 'テンプレートの操作';
@@ -1264,6 +1270,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get addScheduleTooltip => 'スケジュールを追加';
 
   @override
+  String get createTaskSeriesTooltip => 'このテンプレートから繰り返しタスクを作成';
+
+  @override
+  String get taskSeriesTitle => '繰り返しタスク';
+
+  @override
+  String get taskSeriesEmptyTitle => '繰り返しタスクはありません';
+
+  @override
+  String get taskSeriesEmptyBody => 'テンプレートから作成できます。作成後はテンプレートから独立します。';
+
+  @override
   String get templateCreatedMessage => 'テンプレートからタスクを作成しました。';
 
   @override
@@ -1281,7 +1299,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get deleteTemplateDialogBody => '参照するスケジュールも削除されます。作成済みタスクは変更されません。';
+  String get deleteTemplateDialogBody => 'このテンプレートから作成した繰り返しタスクとタスクは変更されません。';
 
   @override
   String get deleteScheduleDialogTitle => 'スケジュールを削除しますか？';
@@ -1313,6 +1331,21 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get editTemplateTitle => 'テンプレートを編集';
+
+  @override
+  String get blueprintRootLabel => 'ルートタスク';
+
+  @override
+  String get blueprintChildLabel => '子タスク';
+
+  @override
+  String get addBlueprintChildButton => '子タスクを追加';
+
+  @override
+  String get moveUpButton => '上へ移動';
+
+  @override
+  String get moveDownButton => '下へ移動';
 
   @override
   String get defaultListLabel => '既定のリスト';

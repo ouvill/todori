@@ -258,7 +258,7 @@ pub fn new_task(
         closed_reason: None,
         deleted_at: None,
         assignee: None,
-        recurrence: None,
+        series_occurrence: None,
         created_at: now_ms,
         updated_at: now_ms,
     })

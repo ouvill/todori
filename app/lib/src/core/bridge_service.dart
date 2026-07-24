@@ -77,9 +77,8 @@ abstract class BridgeService {
   Future<List<rust_api.TemplateDto>> getTemplates() =>
       Future.error(UnimplementedError('getTemplates'));
 
-  Future<List<rust_api.ScheduleDto>> getTemplateSchedules({
-    required String templateId,
-  }) => Future.error(UnimplementedError('getTemplateSchedules'));
+  Future<List<rust_api.TaskSeriesDto>> getTaskSeries() =>
+      Future.error(UnimplementedError('getTaskSeries'));
 
   Future<String> validateRecurrenceRule({
     required String rrule,
@@ -93,50 +92,64 @@ abstract class BridgeService {
     String? defaultListId,
   }) => Future.error(UnimplementedError('saveTaskAsTemplate'));
 
+  Future<rust_api.TemplateDto> createTemplate({
+    required String name,
+    String? defaultListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
+  }) => Future.error(UnimplementedError('createTemplate'));
+
   Future<rust_api.TemplateDto> updateTemplate({
     required String templateId,
     required String name,
     String? defaultListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
   }) => Future.error(UnimplementedError('updateTemplate'));
 
-  Future<rust_api.TemplateDto> replaceTemplateSnapshot({
+  Future<rust_api.TemplateDto> replaceTemplateBlueprint({
     required String templateId,
     required String taskId,
-  }) => Future.error(UnimplementedError('replaceTemplateSnapshot'));
+  }) => Future.error(UnimplementedError('replaceTemplateBlueprint'));
 
   Future<List<rust_api.TaskDto>> instantiateTemplate({
     required String templateId,
   }) => Future.error(UnimplementedError('instantiateTemplate'));
 
-  Future<rust_api.ScheduleDto> createSchedule({
+  Future<rust_api.TaskSeriesDto> createTaskSeriesFromTemplate({
     required String templateId,
     required String rrule,
     required int startsAt,
     required String timeZone,
-  }) => Future.error(UnimplementedError('createSchedule'));
+  }) => Future.error(UnimplementedError('createTaskSeriesFromTemplate'));
 
-  Future<rust_api.ScheduleDto> updateSchedule({
-    required String scheduleId,
+  Future<rust_api.TaskSeriesDto> createTaskSeriesFromTask({
+    required String taskId,
+    String? targetListId,
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+  }) => Future.error(UnimplementedError('createTaskSeriesFromTask'));
+
+  Future<rust_api.TaskSeriesDto> updateTaskSeries({
+    required String seriesId,
     required String rrule,
     required int startsAt,
     required String timeZone,
     required bool enabled,
-  }) => Future.error(UnimplementedError('updateSchedule'));
+  }) => Future.error(UnimplementedError('updateTaskSeries'));
 
-  Future<void> deleteSchedule({required String scheduleId}) =>
-      Future.error(UnimplementedError('deleteSchedule'));
+  Future<void> deleteTaskSeries({required String seriesId}) =>
+      Future.error(UnimplementedError('deleteTaskSeries'));
 
   Future<void> deleteTemplate({required String templateId}) =>
       Future.error(UnimplementedError('deleteTemplate'));
 
-  Future<rust_api.SettlementSummaryDto> settleDueSchedules({
-    required int atMs,
-  }) => Future.error(UnimplementedError('settleDueSchedules'));
+  Future<rust_api.SettlementSummaryDto> settleDueSeries({required int atMs}) =>
+      Future.error(UnimplementedError('settleDueSeries'));
 
-  Future<rust_api.StreakDto> getScheduleStreak({
-    required String scheduleId,
+  Future<rust_api.StreakDto> getTaskSeriesStreak({
+    required String seriesId,
     required int atMs,
-  }) => Future.error(UnimplementedError('getScheduleStreak'));
+  }) => Future.error(UnimplementedError('getTaskSeriesStreak'));
 
   /// Renames a list.
   Future<rust_api.ListDto> renameList({
@@ -411,9 +424,8 @@ class FrbBridgeService implements BridgeService {
   Future<List<rust_api.TemplateDto>> getTemplates() => rust_api.getTemplates();
 
   @override
-  Future<List<rust_api.ScheduleDto>> getTemplateSchedules({
-    required String templateId,
-  }) => rust_api.getTemplateSchedules(templateId: templateId);
+  Future<List<rust_api.TaskSeriesDto>> getTaskSeries() =>
+      rust_api.getTaskSeries();
 
   @override
   Future<String> validateRecurrenceRule({
@@ -438,22 +450,35 @@ class FrbBridgeService implements BridgeService {
   );
 
   @override
+  Future<rust_api.TemplateDto> createTemplate({
+    required String name,
+    String? defaultListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
+  }) => rust_api.createTemplate(
+    name: name,
+    defaultListId: defaultListId,
+    nodes: nodes,
+  );
+
+  @override
   Future<rust_api.TemplateDto> updateTemplate({
     required String templateId,
     required String name,
     String? defaultListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
   }) => rust_api.updateTemplate(
     templateId: templateId,
     name: name,
     defaultListId: defaultListId,
+    nodes: nodes,
   );
 
   @override
-  Future<rust_api.TemplateDto> replaceTemplateSnapshot({
+  Future<rust_api.TemplateDto> replaceTemplateBlueprint({
     required String templateId,
     required String taskId,
   }) =>
-      rust_api.replaceTemplateSnapshot(templateId: templateId, taskId: taskId);
+      rust_api.replaceTemplateBlueprint(templateId: templateId, taskId: taskId);
 
   @override
   Future<List<rust_api.TaskDto>> instantiateTemplate({
@@ -461,12 +486,12 @@ class FrbBridgeService implements BridgeService {
   }) => rust_api.instantiateTemplate(templateId: templateId);
 
   @override
-  Future<rust_api.ScheduleDto> createSchedule({
+  Future<rust_api.TaskSeriesDto> createTaskSeriesFromTemplate({
     required String templateId,
     required String rrule,
     required int startsAt,
     required String timeZone,
-  }) => rust_api.createSchedule(
+  }) => rust_api.createTaskSeriesFromTemplate(
     templateId: templateId,
     rrule: rrule,
     startsAt: startsAt,
@@ -474,14 +499,29 @@ class FrbBridgeService implements BridgeService {
   );
 
   @override
-  Future<rust_api.ScheduleDto> updateSchedule({
-    required String scheduleId,
+  Future<rust_api.TaskSeriesDto> createTaskSeriesFromTask({
+    required String taskId,
+    String? targetListId,
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+  }) => rust_api.createTaskSeriesFromTask(
+    taskId: taskId,
+    targetListId: targetListId,
+    rrule: rrule,
+    startsAt: startsAt,
+    timeZone: timeZone,
+  );
+
+  @override
+  Future<rust_api.TaskSeriesDto> updateTaskSeries({
+    required String seriesId,
     required String rrule,
     required int startsAt,
     required String timeZone,
     required bool enabled,
-  }) => rust_api.updateSchedule(
-    scheduleId: scheduleId,
+  }) => rust_api.updateTaskSeries(
+    seriesId: seriesId,
     rrule: rrule,
     startsAt: startsAt,
     timeZone: timeZone,
@@ -489,23 +529,22 @@ class FrbBridgeService implements BridgeService {
   );
 
   @override
-  Future<void> deleteSchedule({required String scheduleId}) =>
-      rust_api.deleteSchedule(scheduleId: scheduleId);
+  Future<void> deleteTaskSeries({required String seriesId}) =>
+      rust_api.deleteTaskSeries(seriesId: seriesId);
 
   @override
   Future<void> deleteTemplate({required String templateId}) =>
       rust_api.deleteTemplate(templateId: templateId);
 
   @override
-  Future<rust_api.SettlementSummaryDto> settleDueSchedules({
-    required int atMs,
-  }) => rust_api.settleDueSchedules(atMs: atMs);
+  Future<rust_api.SettlementSummaryDto> settleDueSeries({required int atMs}) =>
+      rust_api.settleDueSeries(atMs: atMs);
 
   @override
-  Future<rust_api.StreakDto> getScheduleStreak({
-    required String scheduleId,
+  Future<rust_api.StreakDto> getTaskSeriesStreak({
+    required String seriesId,
     required int atMs,
-  }) => rust_api.getScheduleStreak(scheduleId: scheduleId, atMs: atMs);
+  }) => rust_api.getTaskSeriesStreak(seriesId: seriesId, atMs: atMs);
 
   @override
   Future<rust_api.ListDto> renameList({

@@ -28,7 +28,7 @@ pub use engine::{
     PushOpOutcome, PushStatus, StableCursor, SyncEngine, SyncEngineError, SyncRunSummary,
 };
 pub use enqueue::{
-    enqueue_backfill, enqueue_list_sync, enqueue_rotation_backfill, enqueue_schedule_sync,
+    enqueue_backfill, enqueue_list_sync, enqueue_rotation_backfill, enqueue_task_series_sync,
     enqueue_task_sync, enqueue_template_sync, enqueue_timer_session_sync, next_local_revision,
     BackfillRecords, BackfillSummary, LocalListAlias, LocalMutationSyncStore, LocalSyncAtomicStore,
     LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
@@ -39,10 +39,10 @@ pub use envelope::{
     ENVELOPE_VERSION, MAX_ENCRYPTED_BLOB_LEN,
 };
 pub use field_map::{
-    validate_rank, Clocked, FieldMapError, ListPlacement, ListPlaintext, ScheduleConfigValue,
-    ScheduleCursorValue, SchedulePlaintext, SyncPlaintext, TaskCompletion, TaskPlacement,
-    TaskPlaintext, TemplatePlaintext, TemplateSnapshotValue, TimerSessionPlaintext,
-    LIST_FIELD_GROUPS, SCHEDULE_FIELD_GROUPS, TASK_FIELD_GROUPS, TEMPLATE_FIELD_GROUPS,
+    validate_rank, Clocked, FieldMapError, ListPlacement, ListPlaintext, SeriesCursorValue,
+    SyncPlaintext, TaskBlueprintValue, TaskCompletion, TaskPlacement, TaskPlaintext,
+    TaskSeriesConfigValue, TaskSeriesPlaintext, TemplatePlaintext, TimerSessionPlaintext,
+    LIST_FIELD_GROUPS, TASK_FIELD_GROUPS, TASK_SERIES_FIELD_GROUPS, TEMPLATE_FIELD_GROUPS,
 };
 pub use hlc::{Hlc, HlcError};
 pub use key_manifest::{
@@ -51,9 +51,9 @@ pub use key_manifest::{
 };
 pub use keys::{
     tenant_root_dek, tenant_root_dek_for_generation, LocalSyncKeys,
-    KEY_ROTATION_PENDING_SETTING_KEY, LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME,
+    KEY_ROTATION_PENDING_SETTING_KEY, LISTS_COLLECTION, SYNC_CURSOR_NAME,
     SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
-    TEMPLATES_COLLECTION, TIMER_SESSIONS_COLLECTION,
+    TASK_SERIES_COLLECTION, TEMPLATES_COLLECTION, TIMER_SESSIONS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;

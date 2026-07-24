@@ -9,8 +9,9 @@ pub use application::{
     UpdateTaskCommand,
 };
 pub use recurrence::{
-    CreateScheduleCommand, ReplaceTemplateSnapshotCommand, SaveTemplateCommand, SettlementSummary,
-    UpdateScheduleCommand, UpdateTemplateCommand,
+    CreateTaskSeriesFromTaskCommand, CreateTaskSeriesFromTemplateCommand, CreateTemplateCommand,
+    ReplaceTaskBlueprintCommand, SaveTemplateCommand, SettlementSummary, UpdateTaskSeriesCommand,
+    UpdateTemplateCommand,
 };
 
 use std::{
@@ -25,8 +26,8 @@ use std::{
 use taskveil_crypto::{derive_local_db_key, PlatformLocalKeyCapsuleStore};
 use taskveil_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, SettingsRepository,
-    SqliteListRepository, SqliteLocalCryptoRepository, SqliteRecurrenceRepository,
-    SqliteReminderRepository, SqliteSettingsRepository, SqliteTaskRepository,
+    SqliteListRepository, SqliteLocalCryptoRepository, SqliteReminderRepository,
+    SqliteSettingsRepository, SqliteTaskRepository, SqliteTemplateSeriesRepository,
     SqliteTimerSessionRepository,
 };
 use taskveil_sync::SyncRunSummary;
@@ -258,10 +259,10 @@ impl TaskveilClient {
 
     pub(super) fn with_recurrence_repository<T>(
         &self,
-        f: impl FnOnce(&mut SqliteRecurrenceRepository) -> Result<T, ClientError>,
+        f: impl FnOnce(&mut SqliteTemplateSeriesRepository) -> Result<T, ClientError>,
     ) -> Result<T, ClientError> {
         let connection = open_encrypted(&self.db_path, &self.db_key())?;
-        f(&mut SqliteRecurrenceRepository::new(connection))
+        f(&mut SqliteTemplateSeriesRepository::new(connection))
     }
 
     pub(super) fn setting(&self, key: &str) -> Result<Option<String>, ClientError> {

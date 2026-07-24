@@ -5,12 +5,13 @@ use taskveil_client::{
     pomodoro_target_reached_at as domain_pomodoro_target_reached_at, AccountAuthResult,
     AccountSessionState, ActiveTimerSession, BillingState, CalendarOccurrenceKind,
     CalendarOccurrenceView, CalendarRange, CivilDate, ClientError, CompletedTimerSession,
-    CreateScheduleCommand, CreateTaskCommand, HomeTaskView, List, OrganizationSafetyState,
-    RealtimeTicket, RecurrenceSchedule, ReminderView, ReorderTaskCommand,
-    ReplaceTemplateSnapshotCommand, SaveTemplateCommand, SetTaskStatusCommand, SettlementSummary,
-    Streak, SyncStatus, Task, TaskDue, TaskStatus, TaskTemplate, TaskUndoKind, TaskUndoView,
-    TemplateNode, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateScheduleCommand,
-    UpdateTaskCommand, UpdateTemplateCommand, UtcInstant, Uuid,
+    CreateTaskCommand, CreateTaskSeriesFromTaskCommand, CreateTaskSeriesFromTemplateCommand,
+    CreateTemplateCommand, HomeTaskView, List, OrganizationSafetyState, RealtimeTicket,
+    ReminderView, ReorderTaskCommand, ReplaceTaskBlueprintCommand, SaveTemplateCommand,
+    SetTaskStatusCommand, SettlementSummary, Streak, SyncStatus, Task, TaskBlueprint,
+    TaskBlueprintNode, TaskContent, TaskDue, TaskSeries, TaskStatus, TaskTemplate, TaskUndoKind,
+    TaskUndoView, TimerFinishKind, TimerMode, TimerPhase, TimerRunState, UpdateTaskCommand,
+    UpdateTaskSeriesCommand, UpdateTemplateCommand, UtcInstant, Uuid,
 };
 
 use crate::client_handle::{client, init_client};
@@ -47,7 +48,7 @@ pub struct TaskDto {
     pub updated_at: i64,
 }
 
-pub struct TemplateNodeDto {
+pub struct TaskBlueprintNodeDto {
     pub node_key: String,
     pub parent_node_key: Option<String>,
     pub sibling_order: u32,
@@ -61,15 +62,16 @@ pub struct TemplateDto {
     pub id: String,
     pub name: String,
     pub default_list_id: Option<String>,
-    pub snapshot_revision: String,
-    pub nodes: Vec<TemplateNodeDto>,
+    pub blueprint_revision: String,
+    pub nodes: Vec<TaskBlueprintNodeDto>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-pub struct ScheduleDto {
+pub struct TaskSeriesDto {
     pub id: String,
-    pub template_id: String,
+    pub target_list_id: Option<String>,
+    pub nodes: Vec<TaskBlueprintNodeDto>,
     pub rrule: String,
     pub starts_at: i64,
     pub time_zone: String,
@@ -471,9 +473,9 @@ pub fn get_templates() -> Result<Vec<TemplateDto>, String> {
         .map(|templates| templates.into_iter().map(template_to_dto).collect())
 }
 
-pub fn get_template_schedules(template_id: String) -> Result<Vec<ScheduleDto>, String> {
-    client_result(client()?.get_template_schedules(parse_uuid(&template_id)?))
-        .map(|schedules| schedules.into_iter().map(schedule_to_dto).collect())
+pub fn get_task_series() -> Result<Vec<TaskSeriesDto>, String> {
+    client_result(client()?.get_task_series())
+        .map(|series| series.into_iter().map(task_series_to_dto).collect())
 }
 
 pub fn validate_recurrence_rule(
@@ -497,28 +499,43 @@ pub fn save_task_as_template(
     client_result(client()?.save_task_as_template(command)).map(template_to_dto)
 }
 
+pub fn create_template(
+    name: String,
+    default_list_id: Option<String>,
+    nodes: Vec<TaskBlueprintNodeDto>,
+) -> Result<TemplateDto, String> {
+    let command = CreateTemplateCommand {
+        name,
+        default_list_id: default_list_id.as_deref().map(parse_uuid).transpose()?,
+        blueprint: blueprint_from_dtos(nodes)?,
+    };
+    client_result(client()?.create_template(command)).map(template_to_dto)
+}
+
 pub fn update_template(
     template_id: String,
     name: String,
     default_list_id: Option<String>,
+    nodes: Vec<TaskBlueprintNodeDto>,
 ) -> Result<TemplateDto, String> {
     let command = UpdateTemplateCommand {
         template_id: parse_uuid(&template_id)?,
         name,
         default_list_id: default_list_id.as_deref().map(parse_uuid).transpose()?,
+        blueprint: Some(blueprint_from_dtos(nodes)?),
     };
     client_result(client()?.update_template(command)).map(template_to_dto)
 }
 
-pub fn replace_template_snapshot(
+pub fn replace_template_blueprint(
     template_id: String,
     task_id: String,
 ) -> Result<TemplateDto, String> {
-    let command = ReplaceTemplateSnapshotCommand {
+    let command = ReplaceTaskBlueprintCommand {
         template_id: parse_uuid(&template_id)?,
         task_id: parse_uuid(&task_id)?,
     };
-    client_result(client()?.replace_template_snapshot(command)).map(template_to_dto)
+    client_result(client()?.replace_template_blueprint(command)).map(template_to_dto)
 }
 
 pub fn instantiate_template(template_id: String) -> Result<Vec<TaskDto>, String> {
@@ -526,54 +543,70 @@ pub fn instantiate_template(template_id: String) -> Result<Vec<TaskDto>, String>
         .map(|tasks| tasks.into_iter().map(task_to_dto).collect())
 }
 
-pub fn create_schedule(
+pub fn create_task_series_from_template(
     template_id: String,
     rrule: String,
     starts_at: i64,
     time_zone: String,
-) -> Result<ScheduleDto, String> {
-    let command = CreateScheduleCommand {
+) -> Result<TaskSeriesDto, String> {
+    let command = CreateTaskSeriesFromTemplateCommand {
         template_id: parse_uuid(&template_id)?,
         rrule,
         starts_at,
         time_zone,
     };
-    client_result(client()?.create_schedule(command)).map(schedule_to_dto)
+    client_result(client()?.create_task_series_from_template(command)).map(task_series_to_dto)
+}
+
+pub fn create_task_series_from_task(
+    task_id: String,
+    target_list_id: Option<String>,
+    rrule: String,
+    starts_at: i64,
+    time_zone: String,
+) -> Result<TaskSeriesDto, String> {
+    let command = CreateTaskSeriesFromTaskCommand {
+        task_id: parse_uuid(&task_id)?,
+        target_list_id: target_list_id.as_deref().map(parse_uuid).transpose()?,
+        rrule,
+        starts_at,
+        time_zone,
+    };
+    client_result(client()?.create_task_series_from_task(command)).map(task_series_to_dto)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn update_schedule(
-    schedule_id: String,
+pub fn update_task_series(
+    series_id: String,
     rrule: String,
     starts_at: i64,
     time_zone: String,
     enabled: bool,
-) -> Result<ScheduleDto, String> {
-    let command = UpdateScheduleCommand {
-        schedule_id: parse_uuid(&schedule_id)?,
+) -> Result<TaskSeriesDto, String> {
+    let command = UpdateTaskSeriesCommand {
+        series_id: parse_uuid(&series_id)?,
         rrule,
         starts_at,
         time_zone,
         enabled,
     };
-    client_result(client()?.update_schedule(command)).map(schedule_to_dto)
+    client_result(client()?.update_task_series(command)).map(task_series_to_dto)
 }
 
-pub fn delete_schedule(schedule_id: String) -> Result<(), String> {
-    client_result(client()?.delete_schedule(parse_uuid(&schedule_id)?))
+pub fn delete_task_series(series_id: String) -> Result<(), String> {
+    client_result(client()?.delete_series(parse_uuid(&series_id)?))
 }
 
 pub fn delete_template(template_id: String) -> Result<(), String> {
     client_result(client()?.delete_template(parse_uuid(&template_id)?))
 }
 
-pub fn settle_due_schedules(at_ms: i64) -> Result<SettlementSummaryDto, String> {
-    client_result(client()?.settle_due_schedules(at_ms)).map(settlement_to_dto)
+pub fn settle_due_series(at_ms: i64) -> Result<SettlementSummaryDto, String> {
+    client_result(client()?.settle_due_series(at_ms)).map(settlement_to_dto)
 }
 
-pub fn get_schedule_streak(schedule_id: String, at_ms: i64) -> Result<StreakDto, String> {
-    client_result(client()?.get_schedule_streak(parse_uuid(&schedule_id)?, at_ms))
-        .map(streak_to_dto)
+pub fn get_task_series_streak(series_id: String, at_ms: i64) -> Result<StreakDto, String> {
+    client_result(client()?.get_series_streak(parse_uuid(&series_id)?, at_ms)).map(streak_to_dto)
 }
 
 pub fn rename_list(list_id: String, name: String) -> Result<ListDto, String> {
@@ -915,9 +948,9 @@ fn template_to_dto(template: TaskTemplate) -> TemplateDto {
         id: template.id.to_string(),
         name: template.name,
         default_list_id: template.default_list_id.map(|id| id.to_string()),
-        snapshot_revision: template.snapshot_revision,
+        blueprint_revision: template.blueprint_revision,
         nodes: template
-            .snapshot
+            .blueprint
             .nodes
             .into_iter()
             .map(template_node_to_dto)
@@ -927,31 +960,60 @@ fn template_to_dto(template: TaskTemplate) -> TemplateDto {
     }
 }
 
-fn template_node_to_dto(node: TemplateNode) -> TemplateNodeDto {
-    TemplateNodeDto {
+fn template_node_to_dto(node: TaskBlueprintNode) -> TaskBlueprintNodeDto {
+    TaskBlueprintNodeDto {
         node_key: node.node_key,
         parent_node_key: node.parent_node_key,
         sibling_order: node.sibling_order,
-        title: node.title,
-        note: node.note,
-        priority: node.priority,
-        estimated_minutes: node.estimated_minutes,
+        title: node.content.title,
+        note: node.content.note,
+        priority: node.content.priority,
+        estimated_minutes: node.content.estimated_minutes,
     }
 }
 
-fn schedule_to_dto(schedule: RecurrenceSchedule) -> ScheduleDto {
-    ScheduleDto {
-        id: schedule.id.to_string(),
-        template_id: schedule.template_id.to_string(),
-        rrule: schedule.rrule,
-        starts_at: schedule.starts_at,
-        time_zone: schedule.time_zone,
-        next_run_at: schedule.cursor.next_run_at(),
-        enabled: schedule.enabled,
-        config_revision: schedule.config_revision,
-        created_at: schedule.created_at,
-        updated_at: schedule.updated_at,
+fn task_series_to_dto(series: TaskSeries) -> TaskSeriesDto {
+    TaskSeriesDto {
+        id: series.id.to_string(),
+        target_list_id: series.config.target_list_id.map(|id| id.to_string()),
+        nodes: series
+            .config
+            .blueprint
+            .nodes
+            .into_iter()
+            .map(template_node_to_dto)
+            .collect(),
+        rrule: series.config.rrule,
+        starts_at: series.config.starts_at,
+        time_zone: series.config.time_zone,
+        next_run_at: series.cursor.next_run_at(),
+        enabled: series.config.enabled,
+        config_revision: series.config.config_revision,
+        created_at: series.created_at,
+        updated_at: series.updated_at,
     }
+}
+
+fn blueprint_from_dtos(nodes: Vec<TaskBlueprintNodeDto>) -> Result<TaskBlueprint, String> {
+    let blueprint = TaskBlueprint {
+        schema_revision: taskveil_client::TASK_BLUEPRINT_SCHEMA_REVISION,
+        nodes: nodes
+            .into_iter()
+            .map(|node| TaskBlueprintNode {
+                node_key: node.node_key,
+                parent_node_key: node.parent_node_key,
+                sibling_order: node.sibling_order,
+                content: TaskContent {
+                    title: node.title,
+                    note: node.note,
+                    priority: node.priority,
+                    estimated_minutes: node.estimated_minutes,
+                },
+            })
+            .collect(),
+    };
+    blueprint.validate().map_err(|error| error.to_string())?;
+    Ok(blueprint)
 }
 
 fn streak_to_dto(streak: Streak) -> StreakDto {
