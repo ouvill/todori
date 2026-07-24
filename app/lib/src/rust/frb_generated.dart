@@ -2920,19 +2920,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ListDto dco_decode_list_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return ListDto(
       id: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
       color: dco_decode_String(arr[2]),
       icon: dco_decode_String(arr[3]),
-      orgId: dco_decode_opt_String(arr[4]),
-      sortOrder: dco_decode_String(arr[5]),
-      isDefault: dco_decode_bool(arr[6]),
-      archivedAt: dco_decode_opt_box_autoadd_i_64(arr[7]),
-      createdAt: dco_decode_i_64(arr[8]),
-      updatedAt: dco_decode_i_64(arr[9]),
+      sortOrder: dco_decode_String(arr[4]),
+      isDefault: dco_decode_bool(arr[5]),
+      archivedAt: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      createdAt: dco_decode_i_64(arr[7]),
+      updatedAt: dco_decode_i_64(arr[8]),
     );
   }
 
@@ -3690,7 +3689,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_name = sse_decode_String(deserializer);
     var var_color = sse_decode_String(deserializer);
     var var_icon = sse_decode_String(deserializer);
-    var var_orgId = sse_decode_opt_String(deserializer);
     var var_sortOrder = sse_decode_String(deserializer);
     var var_isDefault = sse_decode_bool(deserializer);
     var var_archivedAt = sse_decode_opt_box_autoadd_i_64(deserializer);
@@ -3701,7 +3699,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       name: var_name,
       color: var_color,
       icon: var_icon,
-      orgId: var_orgId,
       sortOrder: var_sortOrder,
       isDefault: var_isDefault,
       archivedAt: var_archivedAt,
@@ -4590,7 +4587,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.name, serializer);
     sse_encode_String(self.color, serializer);
     sse_encode_String(self.icon, serializer);
-    sse_encode_opt_String(self.orgId, serializer);
     sse_encode_String(self.sortOrder, serializer);
     sse_encode_bool(self.isDefault, serializer);
     sse_encode_opt_box_autoadd_i_64(self.archivedAt, serializer);

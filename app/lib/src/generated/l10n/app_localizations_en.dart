@@ -72,7 +72,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String deleteListDialogMessage(int taskCount) {
-    return 'This will permanently delete this list and $taskCount tasks, including completed tasks. This cannot be undone. Archive the list instead if you want to keep history.';
+    return 'This will permanently delete this list. Its $taskCount tasks, including completed tasks, will move to Inbox and keep their reminders and history. Deleting the list cannot be undone.';
   }
 
   @override

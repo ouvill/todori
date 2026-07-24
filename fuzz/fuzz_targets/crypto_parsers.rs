@@ -9,7 +9,7 @@ use taskveil_crypto::organization::{
     SignedDeviceRevocation, ML_KEM_768_CIPHERTEXT_LEN,
 };
 use taskveil_sync::{
-    envelope::parse_envelope_header, organization::OrganizationKeyManifest, KeyManifest, KeyScope,
+    envelope::parse_envelope_header, organization::OrganizationKeyManifest, KeyManifest,
     RotationStatus,
 };
 use uuid::Uuid;
@@ -52,9 +52,7 @@ fn canonical_templates() -> Vec<Vec<u8>> {
     .expect("canonical fuzz revocation");
     let organization_manifest = OrganizationKeyManifest::sign(
         KeyManifest::organization_unsigned(
-            KeyScope::Tenant,
             tenant_id,
-            None,
             1,
             RotationStatus::Active,
             1,
@@ -67,9 +65,7 @@ fn canonical_templates() -> Vec<Vec<u8>> {
     )
     .expect("signed canonical organization manifest");
     let personal_manifest = KeyManifest::authenticate_personal(
-        KeyScope::Tenant,
         tenant_id,
-        None,
         1,
         RotationStatus::Active,
         1,
@@ -92,7 +88,7 @@ fn canonical_templates() -> Vec<Vec<u8>> {
     let identity =
         DeviceIdentity::new(device.private, certificate.clone()).expect("canonical fuzz identity");
     let mut envelope = vec![0; 54];
-    envelope[..4].copy_from_slice(b"TDE4");
+    envelope[..4].copy_from_slice(b"TDE5");
     envelope[4..6].copy_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
     envelope[6..14].copy_from_slice(&1u64.to_be_bytes());
 

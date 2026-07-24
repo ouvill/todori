@@ -23,10 +23,7 @@ use taskveil_client::test_support::{
     persist_local_crypto_context, LocalCryptoIdentity, LocalMutationContext, SqliteMutationService,
     SqliteSyncStore, UpdateTaskInput,
 };
-use taskveil_crypto::{
-    key_hierarchy::{wrap_list_dek_with_master_key, wrap_tenant_root_dek_with_master_key},
-    CRYPTO_SUITE_ID,
-};
+use taskveil_crypto::{key_hierarchy::wrap_tenant_root_dek_with_master_key, CRYPTO_SUITE_ID};
 use taskveil_server::{
     auth::AuthContext,
     billing::{BillingEnvironment, BillingService},
@@ -40,15 +37,15 @@ use taskveil_storage::{
     SyncStateRepository, TaskRepository,
 };
 use taskveil_sync::{
-    account::{unwrap_list_dek_bundles, AccountClient},
+    account::AccountClient,
     decrypt_plaintext, encrypt_plaintext,
     protocol::{
         KeyManifestDescriptor, PushOp, PushRequest, PushStatus, SyncCapabilities, SyncCollection,
         SyncRecordState,
     },
-    run_sync_now, run_sync_now_with_key_refresh, run_sync_now_with_key_refresh_and_pre_push,
-    ActiveSyncContext, Hlc, KeyManifest, KeyScope, LocalMutationSyncStore, LocalSyncKeys,
-    LocalSyncStore, RotationStatus, SyncKeyRefresher, SyncPlaintext, SYNC_CURSOR_NAME,
+    run_sync_now, run_sync_now_with_key_refresh, ActiveSyncContext, Hlc, KeyManifest,
+    LocalMutationSyncStore, LocalSyncKeys, LocalSyncStore, RotationStatus, SyncKeyRefresher,
+    SyncPlaintext, SYNC_CURSOR_NAME,
 };
 use tempfile::TempDir;
 use testcontainers_modules::{
@@ -58,8 +55,8 @@ use testcontainers_modules::{
 use tower::ServiceExt;
 use uuid::Uuid;
 
-fn active_manifest(scope: KeyScope, tenant_id: Uuid, list_id: Option<Uuid>) -> Vec<u8> {
-    signed_manifest(scope, tenant_id, list_id, 1, RotationStatus::Active, 1)
+fn active_manifest(tenant_id: Uuid) -> Vec<u8> {
+    signed_manifest(tenant_id, 1, RotationStatus::Active, 1)
 }
 
 fn test_manifest_auth_key() -> zeroize::Zeroizing<[u8; 32]> {
@@ -67,17 +64,13 @@ fn test_manifest_auth_key() -> zeroize::Zeroizing<[u8; 32]> {
 }
 
 fn signed_manifest(
-    scope: KeyScope,
     tenant_id: Uuid,
-    list_id: Option<Uuid>,
     generation: u64,
     status: RotationStatus,
     minimum_write_generation: u64,
 ) -> Vec<u8> {
     KeyManifest::authenticate_personal(
-        scope,
         tenant_id,
-        list_id,
         generation,
         status,
         minimum_write_generation,
@@ -91,9 +84,7 @@ fn signed_manifest(
 }
 
 fn signed_manifest_after(
-    scope: KeyScope,
     tenant_id: Uuid,
-    list_id: Option<Uuid>,
     generation: u64,
     status: RotationStatus,
     minimum_write_generation: u64,
@@ -104,9 +95,7 @@ fn signed_manifest_after(
         .authenticated_hash()
         .unwrap();
     KeyManifest::authenticate_personal(
-        scope,
         tenant_id,
-        list_id,
         generation,
         status,
         minimum_write_generation,
@@ -133,13 +122,11 @@ fn test_capabilities(tenant_id: Uuid, protocol_version: u16) -> SyncCapabilities
         minimum_write_generation: 1,
         migrating_key_generation: None,
         key_manifests: vec![KeyManifestDescriptor {
-            scope: KeyScope::Tenant,
-            list_id: None,
             suite_id: CRYPTO_SUITE_ID,
             generation: 1,
             status: RotationStatus::Active,
             minimum_write_generation: 1,
-            signed_manifest: STANDARD.encode(active_manifest(KeyScope::Tenant, tenant_id, None)),
+            signed_manifest: STANDARD.encode(active_manifest(tenant_id)),
             predecessor_manifests: Vec::new(),
         }],
     }
@@ -249,7 +236,7 @@ impl Fixture {
         )
         .bind(tenant_id)
         .bind(i16::try_from(CRYPTO_SUITE_ID).unwrap())
-        .bind(active_manifest(KeyScope::Tenant, tenant_id, None))
+        .bind(active_manifest(tenant_id))
         .bind(vec![0x42_u8; 64])
         .execute(&pool)
         .await
@@ -411,13 +398,11 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         now + 2,
     )
     .unwrap();
-    let good_dek = [0x31; 32];
-    let missing_dek = [0x32; 32];
-    let corrupt_dek = [0x33; 32];
+    let tenant_dek = [0x31; 32];
     for (index, (list, dek)) in [
-        (&good, good_dek),
-        (&missing, missing_dek),
-        (&corrupt, corrupt_dek),
+        (&good, tenant_dek),
+        (&missing, tenant_dek),
+        (&corrupt, tenant_dek),
     ]
     .into_iter()
     .enumerate()
@@ -463,11 +448,8 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         calls: 0,
         keys: LocalSyncKeys {
             tenant_id: fixture.tenant_id,
-            list_deks: vec![(good.id, good_dek.into()), (corrupt.id, corrupt_dek.into())],
-            list_generations: vec![(good.id, 1), (corrupt.id, 1)],
-            tenant_root_dek: Some([0xe7; 32].into()),
+            tenant_root_dek: Some(tenant_dek.into()),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         },
         fail: false,
@@ -480,7 +462,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         manifest_auth_key: test_manifest_auth_key(),
         keys: LocalSyncKeys {
             tenant_id: fixture.tenant_id,
-            tenant_root_dek: Some([0xe7; 32].into()),
+            tenant_root_dek: None,
             ..LocalSyncKeys::default()
         },
     };
@@ -498,8 +480,8 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
     .await
     .unwrap();
     assert_eq!(key_refresher.calls, 1);
-    assert_eq!(summary.applied_count, 1);
-    assert_eq!(summary.missing_key_quarantined_count, 1);
+    assert_eq!(summary.applied_count, 2);
+    assert_eq!(summary.missing_key_quarantined_count, 0);
     assert_eq!(summary.corruption_quarantined_count, 1);
     let repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
     assert_eq!(
@@ -511,10 +493,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         3
     );
     let quarantined = repository.list_quarantine(10).unwrap();
-    assert_eq!(quarantined.len(), 2);
-    assert!(quarantined
-        .iter()
-        .any(|row| row.record_id == missing.id && row.reason == "missing_dek"));
+    assert_eq!(quarantined.len(), 1);
     assert!(quarantined
         .iter()
         .any(|row| row.record_id == corrupt.id && row.reason == "authentication_failed"));
@@ -528,39 +507,10 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
 
     let all_keys = LocalSyncKeys {
         tenant_id: fixture.tenant_id,
-        list_deks: vec![
-            (good.id, good_dek.into()),
-            (missing.id, missing_dek.into()),
-            (corrupt.id, corrupt_dek.into()),
-        ],
-        list_generations: vec![(good.id, 1), (missing.id, 1), (corrupt.id, 1)],
-        tenant_root_dek: Some([0xe7; 32].into()),
+        tenant_root_dek: Some(tenant_dek.into()),
         tenant_generation: 1,
-        historical_list_deks: Vec::new(),
         historical_tenant_root_deks: Vec::new(),
     };
-    let mut replay_refresher = TestKeyRefresher {
-        calls: 0,
-        keys: all_keys.clone(),
-        fail: false,
-    };
-    let replay_summary = run_sync_now_with_key_refresh(
-        ActiveSyncContext {
-            keys: all_keys.clone(),
-            ..context.clone()
-        },
-        &mut store,
-        &mut ticking_now,
-        &mut replay_refresher,
-    )
-    .await
-    .unwrap();
-    assert_eq!(replay_refresher.calls, 1);
-    assert_eq!(replay_summary.resolved_quarantine_count, 1);
-    let repository = SqliteSyncStateRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
-    let rows = repository.list_quarantine(10).unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].record_id, corrupt.id);
 
     let current_revision: String =
         query("SELECT revision_hlc FROM sync_records WHERE tenant_id = $1 AND record_id = $2")
@@ -581,7 +531,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         device_id: "remote".to_string(),
     };
     let corrected = encrypt_plaintext(
-        &corrupt_dek,
+        &tenant_dek,
         fixture.tenant_id,
         1,
         "lists",
@@ -645,6 +595,51 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
         .is_none());
     assert!(failed_store.list_quarantine(10).unwrap().is_empty());
 
+    let matrix_corrupt = taskveil_domain::new_list(
+        "Matrix corrupt".to_string(),
+        "efffffffffffffffffffffffffffffff".to_string(),
+        now + 4,
+    )
+    .unwrap();
+    let matrix_mutation = Hlc {
+        wall_ms: now + 2_500,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let matrix_revision = Hlc {
+        wall_ms: now + 2_501,
+        counter: 0,
+        device_id: "remote".to_string(),
+    };
+    let mut matrix_corrupt_blob = encrypt_plaintext(
+        &tenant_dek,
+        fixture.tenant_id,
+        1,
+        "lists",
+        matrix_corrupt.id,
+        &SyncPlaintext::from_list(&matrix_corrupt, matrix_mutation.clone()).unwrap(),
+    )
+    .unwrap();
+    let last = matrix_corrupt_blob.len() - 1;
+    matrix_corrupt_blob[last] ^= 0x40;
+    assert_eq!(
+        fixture
+            .push(PushOp {
+                op_id: Uuid::now_v7(),
+                record_id: matrix_corrupt.id,
+                collection: SyncCollection::Lists,
+                base_revision_hlc: None,
+                revision_hlc: matrix_revision.encode().unwrap(),
+                state: SyncRecordState::Live {
+                    mutation_hlc: matrix_mutation.encode().unwrap(),
+                    blob: STANDARD.encode(matrix_corrupt_blob),
+                },
+            })
+            .await
+            .status,
+        PushStatus::Accepted
+    );
+
     for (name, trigger) in [
         (
             "state",
@@ -658,7 +653,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
                 "CREATE TRIGGER fail_page_quarantine BEFORE INSERT ON sync_quarantine
                  WHEN NEW.record_id = '{}'
                  BEGIN SELECT RAISE(ABORT, 'injected quarantine failure'); END;",
-                missing.id
+                matrix_corrupt.id
             ),
         ),
         (
@@ -678,11 +673,8 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
             calls: 0,
             keys: LocalSyncKeys {
                 tenant_id: fixture.tenant_id,
-                list_deks: vec![(good.id, good_dek.into()), (corrupt.id, corrupt_dek.into())],
-                list_generations: vec![(good.id, 1), (corrupt.id, 1)],
-                tenant_root_dek: Some([0xe7; 32].into()),
+                tenant_root_dek: Some(tenant_dek.into()),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             fail: false,
@@ -721,7 +713,7 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
                 ActiveSyncContext {
                     keys: LocalSyncKeys {
                         tenant_id: fixture.tenant_id,
-                        tenant_root_dek: Some([0xe7; 32].into()),
+                        tenant_root_dek: None,
                         ..LocalSyncKeys::default()
                     },
                     ..context.clone()
@@ -758,14 +750,8 @@ async fn production_pull_refreshes_once_then_atomically_applies_and_quarantines(
                 ActiveSyncContext {
                     keys: LocalSyncKeys {
                         tenant_id: fixture.tenant_id,
-                        list_deks: vec![
-                            (good.id, good_dek.into()),
-                            (corrupt.id, corrupt_dek.into()),
-                        ],
-                        list_generations: vec![(good.id, 1), (corrupt.id, 1)],
-                        tenant_root_dek: Some([0xe7; 32].into()),
+                        tenant_root_dek: Some(tenant_dek.into()),
                         tenant_generation: 1,
-                        historical_list_deks: Vec::new(),
                         historical_tenant_root_deks: Vec::new(),
                     },
                     ..context.clone()
@@ -947,11 +933,8 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
         calls: 0,
         keys: LocalSyncKeys {
             tenant_id: fixture.tenant_id,
-            list_deks: vec![(waiting.id, waiting_dek.into())],
-            list_generations: vec![(waiting.id, 1)],
-            tenant_root_dek: Some([0xe7; 32].into()),
+            tenant_root_dek: Some(waiting_dek.into()),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         },
         fail: false,
@@ -970,7 +953,7 @@ async fn replay_reaches_missing_key_after_one_hundred_corrupt_quarantine_rows() 
             manifest_auth_key: test_manifest_auth_key(),
             keys: LocalSyncKeys {
                 tenant_id: fixture.tenant_id,
-                tenant_root_dek: Some([0xe7; 32].into()),
+                tenant_root_dek: None,
                 ..LocalSyncKeys::default()
             },
         },
@@ -1509,240 +1492,6 @@ async fn closure_ack_failure_keeps_local_commit_and_retries_before_push() {
 }
 
 #[tokio::test]
-async fn offline_list_bundle_upload_precedes_entity_push_and_second_client_decrypts() {
-    const DB_KEY_A: [u8; 32] = [0xe1; 32];
-    const DB_KEY_B: [u8; 32] = [0xe2; 32];
-    const MASTER_KEY: [u8; 32] = [0x41; 32];
-    let fixture = Fixture::setup().await;
-    let server_url = fixture.serve().await;
-    let temp = TempDir::new().unwrap();
-    let path_a = temp.path().join("offline-list-a.sqlite3");
-    let path_b = temp.path().join("offline-list-b.sqlite3");
-    let now = Utc::now().timestamp_millis() - 10_000;
-    let initial = taskveil_domain::new_list(
-        "Initial".to_string(),
-        "3fffffffffffffffffffffffffffffff".to_string(),
-        now,
-    )
-    .unwrap();
-    SqliteListRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap())
-        .insert(initial.clone())
-        .unwrap();
-    let initial_keys = LocalSyncKeys {
-        tenant_id: fixture.tenant_id,
-        list_deks: vec![(initial.id, [0xe4; 32].into())],
-        list_generations: vec![(initial.id, 1)],
-        tenant_root_dek: Some([0xe7; 32].into()),
-        tenant_generation: 1,
-        historical_list_deks: Vec::new(),
-        historical_tenant_root_deks: Vec::new(),
-    };
-    persist_local_crypto_context(
-        &path_a,
-        &DB_KEY_A,
-        LocalCryptoIdentity {
-            tenant_id: fixture.tenant_id,
-            user_id: fixture.auth.user_id,
-            device_id: fixture.auth.device_id,
-        },
-        &MASTER_KEY,
-        initial_keys.clone(),
-        now,
-    )
-    .unwrap();
-    let client = SqliteMutationService::new(path_a.clone(), DB_KEY_A);
-    let created = client
-        .create_list(
-            "Created offline".to_string(),
-            now + 1,
-            fixture.tenant_id,
-            &MASTER_KEY,
-            &LocalMutationContext {
-                device_id: "offline-client-a".to_string(),
-                keys: initial_keys,
-            },
-        )
-        .unwrap();
-    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
-    assert_eq!(
-        repository
-            .list_pending_list_key_bundles(fixture.tenant_id, 10)
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
-
-    let local_context = taskveil_client::test_support::load_local_crypto_context(
-        &path_a,
-        &DB_KEY_A,
-        Some(MASTER_KEY),
-    )
-    .unwrap();
-    let taskveil_client::test_support::LocalCryptoAvailability::Ready(local_context) =
-        local_context
-    else {
-        panic!("local crypto context");
-    };
-    let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
-    let mut clock = now + 100;
-    let mut ticking_now = || {
-        clock += 1;
-        Ok(clock)
-    };
-    let context_a = ActiveSyncContext {
-        server_url: server_url.clone(),
-        tenant_id: fixture.tenant_id,
-        device_id: "offline-client-a".to_string(),
-        session_token: fixture.token.clone(),
-        manifest_auth_key: test_manifest_auth_key(),
-        keys: local_context.sync_keys().clone(),
-    };
-    let pre_push_calls = Arc::new(AtomicUsize::new(0));
-    let pre_push_counter = pre_push_calls.clone();
-    let mut pre_push = |store: &mut SqliteSyncStore| {
-        assert_eq!(
-            store
-                .list_pending_list_key_bundles(fixture.tenant_id, 10)?
-                .len(),
-            1
-        );
-        assert_eq!(store.list_outbox_heads(10)?.len(), 1);
-        pre_push_counter.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    };
-    let mut no_refresh = TestKeyRefresher {
-        calls: 0,
-        keys: local_context.sync_keys().clone(),
-        fail: false,
-    };
-    open_encrypted(&path_a, &DB_KEY_A)
-        .unwrap()
-        .execute_batch(
-            "CREATE TRIGGER fail_key_bundle_ack BEFORE DELETE ON pending_list_key_bundles
-             BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-        )
-        .unwrap();
-    assert!(run_sync_now_with_key_refresh_and_pre_push(
-        context_a.clone(),
-        &mut store_a,
-        &mut ticking_now,
-        &mut no_refresh,
-        &mut pre_push,
-    )
-    .await
-    .is_err());
-    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 1);
-    let failed_counts = query(
-        "SELECT
-             (SELECT count(*) FROM list_key_generations WHERE tenant_id = $1 AND list_id = $2) AS keys,
-             (SELECT count(*) FROM sync_records WHERE tenant_id = $1 AND record_id = $2) AS records",
-    )
-    .bind(fixture.tenant_id)
-    .bind(created.id)
-    .fetch_one(&fixture.admin_pool)
-    .await
-    .unwrap();
-    assert_eq!(failed_counts.try_get::<i64, _>("keys").unwrap(), 1);
-    assert_eq!(failed_counts.try_get::<i64, _>("records").unwrap(), 0);
-    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
-    assert_eq!(
-        repository
-            .list_pending_list_key_bundles(fixture.tenant_id, 10)
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(repository.list_outbox_heads(10).unwrap().len(), 1);
-    open_encrypted(&path_a, &DB_KEY_A)
-        .unwrap()
-        .execute_batch("DROP TRIGGER fail_key_bundle_ack;")
-        .unwrap();
-    run_sync_now_with_key_refresh_and_pre_push(
-        context_a,
-        &mut store_a,
-        &mut ticking_now,
-        &mut no_refresh,
-        &mut pre_push,
-    )
-    .await
-    .unwrap();
-    assert_eq!(pre_push_calls.load(Ordering::SeqCst), 2);
-    let repository = SqliteSyncStateRepository::new(open_encrypted(&path_a, &DB_KEY_A).unwrap());
-    assert!(repository
-        .list_pending_list_key_bundles(fixture.tenant_id, 10)
-        .unwrap()
-        .is_empty());
-    assert!(repository.list_outbox_heads(10).unwrap().is_empty());
-    let server_counts = query(
-        "SELECT
-             (SELECT count(*) FROM list_key_generations WHERE tenant_id = $1 AND list_id = $2) AS keys,
-             (SELECT count(*) FROM sync_records WHERE tenant_id = $1 AND record_id = $2) AS records",
-    )
-    .bind(fixture.tenant_id)
-    .bind(created.id)
-    .fetch_one(&fixture.admin_pool)
-    .await
-    .unwrap();
-    assert_eq!(server_counts.try_get::<i64, _>("keys").unwrap(), 1);
-    assert_eq!(server_counts.try_get::<i64, _>("records").unwrap(), 1);
-
-    let account = AccountClient::new(&server_url).unwrap();
-    let bundles = account
-        .list_key_bundles(fixture.tenant_id, &fixture.token)
-        .await
-        .unwrap();
-    let materials = unwrap_list_dek_bundles(fixture.tenant_id, &bundles, &MASTER_KEY).unwrap();
-    let keys_b = LocalSyncKeys {
-        tenant_id: fixture.tenant_id,
-        list_deks: materials
-            .iter()
-            .map(|material| {
-                (
-                    Uuid::parse_str(&material.list_id).unwrap(),
-                    material.dek.clone(),
-                )
-            })
-            .collect(),
-        list_generations: materials
-            .iter()
-            .map(|material| {
-                (
-                    Uuid::parse_str(&material.list_id).unwrap(),
-                    material.generation,
-                )
-            })
-            .collect(),
-        tenant_root_dek: Some([0xe7; 32].into()),
-        tenant_generation: 1,
-        historical_list_deks: Vec::new(),
-        historical_tenant_root_deks: Vec::new(),
-    };
-    let mut store_b = SqliteSyncStore::new(path_b.clone(), DB_KEY_B);
-    run_sync_now(
-        ActiveSyncContext {
-            server_url,
-            tenant_id: fixture.tenant_id,
-            device_id: "offline-client-b".to_string(),
-            session_token: fixture.token.clone(),
-            manifest_auth_key: test_manifest_auth_key(),
-            keys: keys_b,
-        },
-        &mut store_b,
-        &mut ticking_now,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        SqliteListRepository::new(open_encrypted(&path_b, &DB_KEY_B).unwrap())
-            .get(created.id)
-            .unwrap()
-            .name,
-        "Created offline"
-    );
-}
-
-#[tokio::test]
 async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() {
     const DB_KEY_A: [u8; 32] = [0xa1; 32];
     const DB_KEY_B: [u8; 32] = [0xb2; 32];
@@ -1764,16 +1513,13 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
             .insert(list.clone())
             .unwrap();
     }
-    let list_dek = [0x5a; 32];
+    let tenant_key = [0xe7; 32];
     let sync_a = LocalMutationContext {
         device_id: "production-client-a".to_string(),
         keys: LocalSyncKeys {
             tenant_id: fixture.tenant_id,
-            list_deks: vec![(list.id, list_dek.into())],
-            list_generations: vec![(list.id, 1)],
-            tenant_root_dek: Some([0xe7; 32].into()),
+            tenant_root_dek: Some(tenant_key.into()),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         },
     };
@@ -1794,21 +1540,6 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
         now,
     )
     .unwrap();
-    open_encrypted(&path_a, &DB_KEY_A)
-        .unwrap()
-        .execute(
-            "INSERT INTO pending_list_key_bundles
-             (tenant_id, list_id, generation, wrapped_list_dek, signed_manifest, created_at)
-             VALUES (?1, ?2, 1, ?3, ?4, ?5)",
-            rusqlite::params![
-                fixture.tenant_id.to_string(),
-                list.id.to_string(),
-                vec![1_u8],
-                active_manifest(KeyScope::List, fixture.tenant_id, Some(list.id)),
-                now,
-            ],
-        )
-        .unwrap();
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut seed_now = || Ok(now + 1);
     taskveil_sync::enqueue_list_sync(
@@ -1938,7 +1669,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
     .unwrap();
     let blob: Vec<u8> = row.get("encrypted_blob");
     let plaintext =
-        decrypt_plaintext(&list_dek, fixture.tenant_id, 1, "tasks", task.id, &blob).unwrap();
+        decrypt_plaintext(&tenant_key, fixture.tenant_id, 1, "tasks", task.id, &blob).unwrap();
     let SyncPlaintext::Task(plaintext) = plaintext else {
         panic!("task plaintext");
     };
@@ -1989,16 +1720,13 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
             .insert(list.clone())
             .unwrap();
     }
-    let list_dek = [0x6b; 32];
+    let tenant_key = [0xe7; 32];
     let sync_a = LocalMutationContext {
         device_id: "rank-client-a".to_string(),
         keys: LocalSyncKeys {
             tenant_id: fixture.tenant_id,
-            list_deks: vec![(list.id, list_dek.into())],
-            list_generations: vec![(list.id, 1)],
-            tenant_root_dek: Some([0xe7; 32].into()),
+            tenant_root_dek: Some(tenant_key.into()),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         },
     };
@@ -2019,21 +1747,6 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
         now,
     )
     .unwrap();
-    open_encrypted(&path_a, &DB_KEY_A)
-        .unwrap()
-        .execute(
-            "INSERT INTO pending_list_key_bundles
-             (tenant_id, list_id, generation, wrapped_list_dek, signed_manifest, created_at)
-             VALUES (?1, ?2, 1, ?3, ?4, ?5)",
-            rusqlite::params![
-                fixture.tenant_id.to_string(),
-                list.id.to_string(),
-                vec![1_u8],
-                active_manifest(KeyScope::List, fixture.tenant_id, Some(list.id)),
-                now,
-            ],
-        )
-        .unwrap();
     let mut store_a = SqliteSyncStore::new(path_a.clone(), DB_KEY_A);
     let mut seed_now = || Ok(now + 1);
     taskveil_sync::enqueue_list_sync(
@@ -2229,7 +1942,7 @@ async fn equal_rank_clients_converge_then_common_reorder_rebalances_and_reconver
 }
 
 #[tokio::test]
-async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombstone() {
+async fn remote_list_deletion_rehomes_offline_descendant_and_republishes_it() {
     const DB_KEY: [u8; 32] = [0xe1; 32];
     let fixture = Fixture::setup().await;
     let server_url = fixture.serve().await;
@@ -2242,16 +1955,20 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
         now,
     )
     .unwrap();
-    SqliteListRepository::new(open_encrypted(&path, &DB_KEY).unwrap())
-        .insert(list.clone())
-        .unwrap();
+    let mut default_list = taskveil_domain::new_list(
+        "Inbox".to_string(),
+        "bfffffffffffffffffffffffffffffff".to_string(),
+        now,
+    )
+    .unwrap();
+    default_list.is_default = true;
+    let mut lists = SqliteListRepository::new(open_encrypted(&path, &DB_KEY).unwrap());
+    lists.insert(list.clone()).unwrap();
+    lists.insert(default_list.clone()).unwrap();
     let keys = LocalSyncKeys {
         tenant_id: fixture.tenant_id,
-        list_deks: vec![(list.id, [0xe2; 32].into())],
-        list_generations: vec![(list.id, 1)],
         tenant_root_dek: Some([0xe7; 32].into()),
         tenant_generation: 1,
-        historical_list_deks: Vec::new(),
         historical_tenant_root_deks: Vec::new(),
     };
     let mutation = hlc(-4_000, 0, "list-live");
@@ -2331,10 +2048,13 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
     .await
     .unwrap();
 
-    assert!(matches!(
-        SqliteTaskRepository::new(open_encrypted(&path, &DB_KEY).unwrap()).get(late_task.id),
-        Err(taskveil_storage::StorageError::NotFound(_))
-    ));
+    assert_eq!(
+        SqliteTaskRepository::new(open_encrypted(&path, &DB_KEY).unwrap())
+            .get(late_task.id)
+            .unwrap()
+            .list_id,
+        default_list.id
+    );
     let row = query(
         "SELECT delete_hlc, encrypted_blob FROM sync_records
          WHERE tenant_id = $1 AND record_id = $2",
@@ -2344,11 +2064,14 @@ async fn remote_list_deletion_cascades_offline_descendant_and_converges_to_tombs
     .fetch_one(&fixture.admin_pool)
     .await
     .unwrap();
-    assert!(row.try_get::<String, _>("delete_hlc").is_ok());
     assert_eq!(
-        row.try_get::<Option<Vec<u8>>, _>("encrypted_blob").unwrap(),
+        row.try_get::<Option<String>, _>("delete_hlc").unwrap(),
         None
     );
+    assert!(row
+        .try_get::<Option<Vec<u8>>, _>("encrypted_blob")
+        .unwrap()
+        .is_some());
 }
 
 #[tokio::test]
@@ -2377,33 +2100,6 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         expired_device_id,
         sync::DeviceKeyExpiryRequest {
             expires_at: Some(Utc::now() - Duration::seconds(1)),
-        },
-    )
-    .await
-    .unwrap();
-    let list_id = Uuid::now_v7();
-    sync::upsert_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        taskveil_sync::account::ListDekBundleDto {
-            list_id,
-            generation: 1,
-            wrapped_list_dek: STANDARD.encode(
-                wrap_list_dek_with_master_key(
-                    fixture.tenant_id,
-                    list_id,
-                    1,
-                    &[0x11; 32],
-                    &MASTER_KEY,
-                )
-                .unwrap(),
-            ),
-            signed_manifest: STANDARD.encode(active_manifest(
-                KeyScope::List,
-                fixture.tenant_id,
-                Some(list_id),
-            )),
         },
     )
     .await
@@ -2437,43 +2133,20 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         PushStatus::Accepted
     );
 
-    let tenant_generation_one = active_manifest(KeyScope::Tenant, fixture.tenant_id, None);
-    let list_generation_one = active_manifest(KeyScope::List, fixture.tenant_id, Some(list_id));
+    let tenant_generation_one = active_manifest(fixture.tenant_id);
     let tenant_prepared_manifest = signed_manifest_after(
-        KeyScope::Tenant,
         fixture.tenant_id,
-        None,
         2,
         RotationStatus::Prepared,
         1,
         &tenant_generation_one,
     );
-    let list_prepared_manifest = signed_manifest_after(
-        KeyScope::List,
-        fixture.tenant_id,
-        Some(list_id),
-        2,
-        RotationStatus::Prepared,
-        1,
-        &list_generation_one,
-    );
     let tenant_active_manifest = signed_manifest_after(
-        KeyScope::Tenant,
         fixture.tenant_id,
-        None,
         2,
         RotationStatus::Active,
         2,
         &tenant_prepared_manifest,
-    );
-    let list_active_manifest = signed_manifest_after(
-        KeyScope::List,
-        fixture.tenant_id,
-        Some(list_id),
-        2,
-        RotationStatus::Active,
-        2,
-        &list_prepared_manifest,
     );
 
     let prepared = sync::prepare_rotation(
@@ -2493,21 +2166,6 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
                 )
                 .unwrap(),
             ),
-            list_keys: vec![sync::PrepareRotationListKey {
-                list_id,
-                generation: 2,
-                signed_manifest: STANDARD.encode(&list_prepared_manifest),
-                wrapped_list_dek: STANDARD.encode(
-                    wrap_list_dek_with_master_key(
-                        fixture.tenant_id,
-                        list_id,
-                        2,
-                        &[0x23; 32],
-                        &MASTER_KEY,
-                    )
-                    .unwrap(),
-                ),
-            }],
         },
     )
     .await
@@ -2532,10 +2190,6 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         sync::ActivateRotationRequest {
             generation: 2,
             signed_manifest: STANDARD.encode(&tenant_active_manifest),
-            list_manifests: vec![sync::ActivateRotationListManifest {
-                list_id,
-                signed_manifest: STANDARD.encode(&list_active_manifest),
-            }],
         },
     )
     .await
@@ -2551,9 +2205,7 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
             suite_id: CRYPTO_SUITE_ID,
             generation: 3,
             signed_manifest: STANDARD.encode(signed_manifest_after(
-                KeyScope::Tenant,
                 fixture.tenant_id,
-                None,
                 3,
                 RotationStatus::Prepared,
                 2,
@@ -2568,29 +2220,6 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
                 )
                 .unwrap(),
             ),
-            list_keys: vec![sync::PrepareRotationListKey {
-                list_id,
-                generation: 3,
-                signed_manifest: STANDARD.encode(signed_manifest_after(
-                    KeyScope::List,
-                    fixture.tenant_id,
-                    Some(list_id),
-                    3,
-                    RotationStatus::Prepared,
-                    2,
-                    &list_active_manifest,
-                )),
-                wrapped_list_dek: STANDARD.encode(
-                    wrap_list_dek_with_master_key(
-                        fixture.tenant_id,
-                        list_id,
-                        3,
-                        &[0x33; 32],
-                        &MASTER_KEY,
-                    )
-                    .unwrap(),
-                ),
-            }],
         },
     )
     .await;
@@ -2654,15 +2283,13 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
         .active_key_bundle(fixture.tenant_id, &fixture.token)
         .await
         .unwrap();
-    let (tenant_dek, list_materials) = taskveil_sync::account::unwrap_active_key_bundle(
+    let tenant_dek = taskveil_sync::account::unwrap_active_key_bundle(
         fixture.tenant_id,
         &active_bundle,
         &MASTER_KEY,
     )
     .unwrap();
     assert_eq!(*tenant_dek, [0x22; 32]);
-    assert_eq!(list_materials[0].generation, 2);
-    assert_eq!(*list_materials[0].dek, [0x23; 32]);
     let historical = taskveil_sync::account::unwrap_historical_key_bundles(
         fixture.tenant_id,
         &active_bundle.migrating_generations,
@@ -2672,7 +2299,6 @@ async fn rotation_activation_is_atomic_stale_writes_fail_and_retirement_waits() 
     assert_eq!(historical.len(), 1);
     assert_eq!(historical[0].generation, 1);
     assert_eq!(*historical[0].tenant_root_dek, [0x21; 32]);
-    assert_eq!(*historical[0].list_deks[0].dek, [0x11; 32]);
 
     sync::acknowledge_key_generation(
         &fixture.pool,
@@ -2774,7 +2400,7 @@ fn structural_envelope(payload: &[u8]) -> Vec<u8> {
 
 fn structural_envelope_for_generation(generation: u64, payload: &[u8]) -> Vec<u8> {
     let mut envelope = Vec::with_capacity(14 + 24 + payload.len() + 16);
-    envelope.extend_from_slice(b"TDE4");
+    envelope.extend_from_slice(b"TDE5");
     envelope.extend_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
     envelope.extend_from_slice(&generation.to_be_bytes());
     envelope.extend_from_slice(&[0_u8; 24]);
@@ -3135,25 +2761,6 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
     )
     .await
     .is_err());
-    let blocked_list_id = Uuid::now_v7();
-    assert!(sync::upsert_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        taskveil_sync::account::ListDekBundleDto {
-            list_id: blocked_list_id,
-            generation: 1,
-            wrapped_list_dek: STANDARD.encode([7_u8; 32]),
-            signed_manifest: STANDARD.encode(active_manifest(
-                KeyScope::List,
-                fixture.tenant_id,
-                Some(blocked_list_id),
-            )),
-        },
-    )
-    .await
-    .is_err());
-
     let initial = sync::pull(
         &fixture.pool,
         fixture.tenant_id,
@@ -3237,25 +2844,6 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
             .status,
         PushStatus::Accepted
     );
-    let resync_blocked_list_id = Uuid::now_v7();
-    assert!(sync::upsert_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        taskveil_sync::account::ListDekBundleDto {
-            list_id: resync_blocked_list_id,
-            generation: 1,
-            wrapped_list_dek: STANDARD.encode([8_u8; 32]),
-            signed_manifest: STANDARD.encode(active_manifest(
-                KeyScope::List,
-                fixture.tenant_id,
-                Some(resync_blocked_list_id),
-            )),
-        },
-    )
-    .await
-    .is_err());
-
     fixture.close_continuity().await;
     let start = sync::begin_full_resync(&fixture.pool, fixture.tenant_id, fixture.auth.clone())
         .await
@@ -3334,110 +2922,6 @@ async fn server_trusted_continuity_binds_proofs_and_guards_all_writes() {
 }
 
 #[tokio::test]
-async fn list_key_retirement_waits_for_tombstone_gc_and_device_closure() {
-    let fixture = Fixture::setup().await;
-    fixture.close_continuity().await;
-    let list_id = Uuid::now_v7();
-    sync::upsert_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        taskveil_sync::account::ListDekBundleDto {
-            list_id,
-            generation: 1,
-            wrapped_list_dek: STANDARD.encode([9_u8; 32]),
-            signed_manifest: STANDARD.encode(active_manifest(
-                KeyScope::List,
-                fixture.tenant_id,
-                Some(list_id),
-            )),
-        },
-    )
-    .await
-    .unwrap();
-    let live_revision = hlc(-4_000, 0, "retire-live-revision");
-    let mut live = live_op(
-        list_id,
-        None,
-        live_revision.clone(),
-        hlc(-4_100, 0, "retire-live-mutation"),
-        b"list-cipher",
-    );
-    live.collection = SyncCollection::Lists;
-    assert_eq!(fixture.push(live).await.status, PushStatus::Accepted);
-    assert!(sync::retire_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        list_id,
-    )
-    .await
-    .is_err());
-    let mut tombstone = tombstone_op(
-        list_id,
-        Some(live_revision),
-        hlc(-3_000, 0, "retire-delete-revision"),
-        hlc(-3_100, 0, "retire-delete"),
-    );
-    tombstone.collection = SyncCollection::Lists;
-    let deleted = fixture.push(tombstone).await;
-    assert_eq!(deleted.status, PushStatus::Accepted);
-    fixture.close_continuity().await;
-    assert!(sync::retire_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        list_id,
-    )
-    .await
-    .is_err());
-    query(
-        "UPDATE sync_records SET updated_at = $1
-         WHERE tenant_id = $2 AND record_id = $3",
-    )
-    .bind(Utc::now() - Duration::days(181))
-    .bind(fixture.tenant_id)
-    .bind(list_id)
-    .execute(&fixture.admin_pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        gc_tombstones(&fixture.admin_pool, Utc::now())
-            .await
-            .unwrap(),
-        1
-    );
-    sync::retire_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        list_id,
-    )
-    .await
-    .unwrap();
-    sync::retire_list_key_bundle(
-        &fixture.pool,
-        fixture.tenant_id,
-        fixture.auth.clone(),
-        list_id,
-    )
-    .await
-    .unwrap();
-    let count: i64 = query(
-        "SELECT count(*) AS count FROM list_key_generations
-         WHERE tenant_id = $1 AND list_id = $2",
-    )
-    .bind(fixture.tenant_id)
-    .bind(list_id)
-    .fetch_one(&fixture.admin_pool)
-    .await
-    .unwrap()
-    .try_get("count")
-    .unwrap();
-    assert_eq!(count, 0);
-}
-
-#[tokio::test]
 async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_changes() {
     let fixture = Fixture::setup().await;
     fixture.close_continuity().await;
@@ -3495,7 +2979,7 @@ async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_chan
         .await
         .unwrap();
     assert_eq!(old_protocol_response.status(), StatusCode::CONFLICT);
-    let old_list_key_response = fixture
+    let removed_list_key_response = fixture
         .app
         .clone()
         .oneshot(
@@ -3504,21 +2988,12 @@ async fn v2_route_rejects_v1_unknown_collection_invalid_blob_and_collection_chan
                 .uri(format!("/v2/tenants/{}/list-keys", fixture.tenant_id))
                 .header("authorization", format!("Bearer {}", fixture.token))
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_vec(&json!({
-                        "list_id": Uuid::now_v7(),
-                        "wrapped_list_dek": STANDARD.encode([1_u8; 32]),
-                    }))
-                    .unwrap(),
-                ))
+                .body(Body::from("{}"))
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(
-        old_list_key_response.status(),
-        StatusCode::UNPROCESSABLE_ENTITY
-    );
+    assert_eq!(removed_list_key_response.status(), StatusCode::NOT_FOUND);
     assert_eq!(
         request_status(
             &fixture.app,

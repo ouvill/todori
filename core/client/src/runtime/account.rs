@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use taskveil_crypto::{
     delete_account_secret,
@@ -18,13 +16,12 @@ use taskveil_crypto::{
 use taskveil_domain::Uuid;
 use taskveil_storage::{
     open_encrypted, ListRepository, LocalCryptoRepository, RecurrenceRepository,
-    SqliteLocalCryptoRepository, SqliteSyncStateRepository, StorageError, TaskRepository,
-    TimerSessionRepository,
+    SqliteLocalCryptoRepository, TaskRepository, TimerSessionRepository,
 };
 use taskveil_sync::{
     account::{
         unwrap_active_key_bundle, unwrap_historical_key_bundles, AccountClient, AccountClientError,
-        AccountKeyMaterial, AccountListDekMaterial, BillingResponseDto, OrganizationRosterTrust,
+        AccountKeyMaterial, BillingResponseDto, OrganizationRosterTrust,
     },
     organization::verify_organization_active_bundle,
     LocalMutationSyncStore, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncWriteTransaction,
@@ -609,8 +606,8 @@ impl TaskveilClient {
         delete_account_secret(&self.db_dir, AccountSecretKind::SessionToken)
             .map_err(ClientError::KeyStore)?;
         // Logout revokes only the remote session. The account binding, wrapped
-        // master key and verified local List DEK cache deliberately survive so
-        // offline mutation remains available.
+        // master key, and verified local Tenant Root DEK cache deliberately
+        // survive so offline mutation remains available.
         let mut account = self.account_state()?;
         account.session = None;
         account.session_restored = true;
@@ -688,15 +685,8 @@ impl TaskveilClient {
         match mode {
             AccountAuthMode::Register => {
                 self.ensure_profile_is_unbound_for_registration()?;
-                let initial_list_ids = self.local_list_ids_for_registration()?;
                 let outcome = client
-                    .register(
-                        &email,
-                        &password,
-                        device_name.as_deref(),
-                        &device_key,
-                        initial_list_ids,
-                    )
+                    .register(&email, &password, device_name.as_deref(), &device_key)
                     .await
                     .map_err(|_| ClientError::AccountRequest)?;
                 let session = account_session_state(
@@ -848,7 +838,7 @@ impl TaskveilClient {
         Ok(())
     }
 
-    pub(super) async fn refresh_list_deks_for_sync(&self) -> Result<LocalSyncKeys, ClientError> {
+    pub(super) async fn refresh_tenant_keys_for_sync(&self) -> Result<LocalSyncKeys, ClientError> {
         self.ensure_account_runtime_restored()?;
         let server_url = self.sync_server_url()?;
         let session_token = load_secret_string(&self.db_dir, AccountSecretKind::SessionToken)?
@@ -875,37 +865,15 @@ impl TaskveilClient {
             .active_key_bundle(tenant_id, &session_token)
             .await
             .map_err(|_| ClientError::AccountRequest)?;
-        let (tenant_root_dek, materials) =
-            unwrap_active_key_bundle(tenant_id, &bundle, &master_key)
-                .map_err(|_| ClientError::AccountBoundUnavailable)?;
+        let tenant_root_dek = unwrap_active_key_bundle(tenant_id, &bundle, &master_key)
+            .map_err(|_| ClientError::AccountBoundUnavailable)?;
         let historical =
             unwrap_historical_key_bundles(tenant_id, &bundle.migrating_generations, &master_key)
                 .map_err(|_| ClientError::AccountBoundUnavailable)?;
-        let list_generations = materials
-            .iter()
-            .map(|material| Ok((parse_uuid(&material.list_id)?, material.generation)))
-            .collect::<Result<Vec<_>, ClientError>>()?;
         let remote_keys = LocalSyncKeys {
             tenant_id,
-            list_deks: materials
-                .into_iter()
-                .map(|material| Ok((parse_uuid(&material.list_id)?, material.dek)))
-                .collect::<Result<Vec<_>, ClientError>>()?,
-            list_generations,
             tenant_root_dek: Some(tenant_root_dek),
             tenant_generation: bundle.generation,
-            historical_list_deks: historical
-                .iter()
-                .flat_map(|historical| {
-                    historical.list_deks.iter().map(|material| {
-                        Ok((
-                            parse_uuid(&material.list_id)?,
-                            material.generation,
-                            material.dek.clone(),
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, ClientError>>()?,
             historical_tenant_root_deks: historical
                 .into_iter()
                 .map(|historical| (historical.generation, historical.tenant_root_dek))
@@ -919,14 +887,8 @@ impl TaskveilClient {
             crypto.sync_keys().clone()
         };
         let previous_generation = local_keys.tenant_generation;
-        let pending = self.pending_list_key_ids(tenant_id)?;
-        let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
-        let sync_keys =
-            merge_remote_and_pending_local_keys(remote_keys, local_keys, &pending, &retained)?;
+        let sync_keys = remote_keys;
         if sync_keys.tenant_generation > previous_generation {
-            if !pending.is_empty() {
-                return Err(ClientError::AccountBoundUnavailable);
-            }
             let lists = self.local_lists_including_archived()?;
             let templates =
                 self.with_recurrence_repository(|repository| Ok(repository.list_templates()?))?;
@@ -936,9 +898,6 @@ impl TaskveilClient {
                 self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
             let timer_sessions =
                 self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
-            if lists.iter().any(|list| !sync_keys.contains_list(list.id)) {
-                return Err(ClientError::AccountBoundUnavailable);
-            }
             let mut store = crate::SqliteSyncStore::new_secret(self.db_path.clone(), self.db_key());
             let mut transaction = store
                 .begin_write_transaction()
@@ -995,46 +954,21 @@ impl TaskveilClient {
         })
     }
 
-    fn local_list_ids_for_registration(&self) -> Result<Vec<Uuid>, ClientError> {
-        Ok(self
-            .local_lists_including_archived()?
-            .into_iter()
-            .map(|list| list.id)
-            .collect())
-    }
-
     async fn ensure_key_material_covers_local_lists(
         &self,
-        server_url: &str,
-        tenant_id: Uuid,
-        session_token: &str,
+        _server_url: &str,
+        _tenant_id: Uuid,
+        _session_token: &str,
         keys: &mut AccountKeyMaterial,
     ) -> Result<(), ClientError> {
         match load_local_crypto_context(&self.db_path, &self.db_key(), Some(*keys.master_key))? {
             LocalCryptoAvailability::Ready(local) => {
-                let pending = self.pending_list_key_ids(tenant_id)?;
-                let retained = retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
-                let merged = merge_remote_and_pending_local_keys(
-                    LocalSyncKeys::from_account_keys(tenant_id, keys),
-                    local.sync_keys().clone(),
-                    &pending,
-                    &retained,
-                )?;
-                keys.generation = merged.tenant_generation;
-                let list_generations = merged.list_generations;
-                keys.list_deks = merged
-                    .list_deks
-                    .into_iter()
-                    .map(|(list_id, dek)| AccountListDekMaterial {
-                        list_id: list_id.to_string(),
-                        generation: list_generations
-                            .iter()
-                            .find(|(id, _)| *id == list_id)
-                            .map(|(_, generation)| *generation)
-                            .unwrap_or(INITIAL_KEY_GENERATION),
-                        dek,
-                    })
-                    .collect();
+                keys.tenant_generation = local.sync_keys().tenant_generation;
+                keys.tenant_root_dek = local
+                    .sync_keys()
+                    .tenant_root_dek
+                    .clone()
+                    .ok_or(ClientError::AccountBoundUnavailable)?;
                 return Ok(());
             }
             LocalCryptoAvailability::AccountBoundUnavailable(_) => {
@@ -1042,31 +976,7 @@ impl TaskveilClient {
             }
             LocalCryptoAvailability::Anonymous => {}
         }
-        for list_id in self.local_list_ids_for_registration()? {
-            let existing = keys
-                .list_deks
-                .iter()
-                .map(|entry| entry.list_id.clone())
-                .collect::<Vec<_>>();
-            if let Some(material) = taskveil_sync::ensure_list_dek_for_list(
-                server_url,
-                tenant_id,
-                session_token,
-                &keys.master_key,
-                &existing,
-                list_id,
-            )
-            .await
-            .map_err(|_| ClientError::SyncRun)?
-            {
-                keys.list_deks.push(material);
-            }
-        }
         Ok(())
-    }
-
-    fn pending_list_key_ids(&self, tenant_id: Uuid) -> Result<HashSet<Uuid>, ClientError> {
-        pending_list_key_ids_on(&self.db_path, &self.db_key(), tenant_id)
     }
 
     fn ensure_profile_is_unbound_for_registration(&self) -> Result<(), ClientError> {
@@ -1397,102 +1307,15 @@ fn parse_uuid(value: &str) -> Result<Uuid, ClientError> {
         .map_err(|_| ClientError::IncompleteAccountState)
 }
 
-fn pending_list_key_ids_on(
-    db_path: &std::path::Path,
-    db_key: &[u8; 32],
-    tenant_id: Uuid,
-) -> Result<HashSet<Uuid>, ClientError> {
-    let connection = open_encrypted(db_path, db_key)?;
-    Ok(SqliteSyncStateRepository::new(connection)
-        .list_pending_list_key_bundles(tenant_id, usize::MAX)?
-        .into_iter()
-        .map(|row| row.list_id)
-        .collect())
-}
-
-pub(super) fn retained_deleted_list_key_ids_on(
-    db_path: &std::path::Path,
-    db_key: &[u8; 32],
-) -> Result<HashSet<Uuid>, ClientError> {
-    let connection = open_encrypted(db_path, db_key)?;
-    let mut statement = connection
-        .prepare(
-            "SELECT record_id FROM sync_record_states
-         WHERE collection = 'lists' AND state_kind = 'tombstone'",
-        )
-        .map_err(StorageError::from)?;
-    let result = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(StorageError::from)?
-        .map(|row| {
-            let value = row.map_err(StorageError::from)?;
-            parse_uuid(&value)
-        })
-        .collect();
-    result
-}
-
-fn merge_remote_and_pending_local_keys(
-    mut remote: LocalSyncKeys,
-    local: LocalSyncKeys,
-    pending: &HashSet<Uuid>,
-    retained_deleted: &HashSet<Uuid>,
-) -> Result<LocalSyncKeys, ClientError> {
-    if remote.tenant_id != local.tenant_id || remote.tenant_generation < local.tenant_generation {
-        return Err(ClientError::AccountBoundUnavailable);
-    }
-    let local_generations = local.list_generations;
-    for (list_id, local_dek) in local.list_deks {
-        if let Some((_, remote_dek)) = remote
-            .list_deks
-            .iter()
-            .find(|(remote_id, _)| *remote_id == list_id)
-        {
-            let remote_generation = remote
-                .generation_for_list(list_id)
-                .ok_or(ClientError::AccountBoundUnavailable)?;
-            let local_generation = local_generations
-                .iter()
-                .find(|(id, _)| *id == list_id)
-                .map(|(_, generation)| *generation)
-                .ok_or(ClientError::AccountBoundUnavailable)?;
-            if remote_generation < local_generation
-                || (remote_generation == local_generation && remote_dek != &local_dek)
-            {
-                return Err(ClientError::AccountBoundUnavailable);
-            }
-        } else if pending.contains(&list_id) || retained_deleted.contains(&list_id) {
-            let local_generation = local_generations
-                .iter()
-                .find(|(id, _)| *id == list_id)
-                .map(|(_, generation)| *generation)
-                .ok_or(ClientError::AccountBoundUnavailable)?;
-            remote.list_deks.push((list_id, local_dek));
-            remote.list_generations.push((list_id, local_generation));
-        } else {
-            return Err(ClientError::AccountBoundUnavailable);
-        }
-    }
-    remote.list_deks.sort_by_key(|(list_id, _)| *list_id);
-    remote.list_deks.dedup_by_key(|(list_id, _)| *list_id);
-    remote.list_generations.sort_by_key(|(list_id, _)| *list_id);
-    remote
-        .list_generations
-        .dedup_by_key(|(list_id, _)| *list_id);
-    Ok(remote)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
-    use taskveil_domain::new_list;
-    use taskveil_storage::{ListRepository, SqliteListRepository};
     use taskveil_sync::LocalSyncStore;
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{LocalMutationContext, SqliteMutationService, SqliteSyncStore};
+    use crate::SqliteSyncStore;
 
     fn open_test_client(db_dir: &std::path::Path, db_key: [u8; 32]) -> TaskveilClient {
         let db_path = db_dir.join("taskveil.db");
@@ -1591,183 +1414,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_key_refresh_preserves_only_verified_pending_local_keys() {
-        let remote_id = Uuid::now_v7();
-        let pending_id = Uuid::now_v7();
-        let tenant_id = Uuid::now_v7();
-        let remote = LocalSyncKeys {
-            tenant_id,
-            list_deks: vec![(remote_id, [0x11; 32].into())],
-            list_generations: vec![(remote_id, 1)],
-            tenant_root_dek: None,
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        let local = LocalSyncKeys {
-            tenant_id,
-            list_deks: vec![
-                (remote_id, [0x11; 32].into()),
-                (pending_id, [0x22; 32].into()),
-            ],
-            list_generations: vec![(remote_id, 1), (pending_id, 1)],
-            tenant_root_dek: None,
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        let merged = merge_remote_and_pending_local_keys(
-            remote,
-            local,
-            &HashSet::from([pending_id]),
-            &HashSet::new(),
-        )
-        .unwrap();
-        assert!(merged.contains_list(remote_id));
-        assert!(merged.contains_list(pending_id));
-    }
-
-    #[test]
-    fn remote_key_refresh_rejects_mismatch_and_unqueued_local_only_keys() {
-        let list_id = Uuid::now_v7();
-        let tenant_id = Uuid::now_v7();
-        assert!(merge_remote_and_pending_local_keys(
-            LocalSyncKeys {
-                tenant_id,
-                list_deks: vec![(list_id, [0x11; 32].into())],
-                list_generations: vec![(list_id, 1)],
-                tenant_root_dek: None,
-                tenant_generation: 1,
-                historical_list_deks: Vec::new(),
-                historical_tenant_root_deks: Vec::new(),
-            },
-            LocalSyncKeys {
-                tenant_id,
-                list_deks: vec![(list_id, [0x22; 32].into())],
-                list_generations: vec![(list_id, 1)],
-                tenant_root_dek: None,
-                tenant_generation: 1,
-                historical_list_deks: Vec::new(),
-                historical_tenant_root_deks: Vec::new(),
-            },
-            &HashSet::new(),
-            &HashSet::new(),
-        )
-        .is_err());
-        assert!(merge_remote_and_pending_local_keys(
-            LocalSyncKeys {
-                tenant_id,
-                ..LocalSyncKeys::default()
-            },
-            LocalSyncKeys {
-                tenant_id,
-                list_deks: vec![(list_id, [0x22; 32].into())],
-                list_generations: vec![(list_id, 1)],
-                tenant_root_dek: None,
-                tenant_generation: 1,
-                historical_list_deks: Vec::new(),
-                historical_tenant_root_deks: Vec::new(),
-            },
-            &HashSet::new(),
-            &HashSet::new(),
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn remote_key_refresh_retains_tombstoned_list_key_for_late_descendants() {
-        let list_id = Uuid::now_v7();
-        let tenant_id = Uuid::now_v7();
-        let merged = merge_remote_and_pending_local_keys(
-            LocalSyncKeys {
-                tenant_id,
-                ..LocalSyncKeys::default()
-            },
-            LocalSyncKeys {
-                tenant_id,
-                list_deks: vec![(list_id, [0x33; 32].into())],
-                list_generations: vec![(list_id, 1)],
-                tenant_root_dek: None,
-                tenant_generation: 1,
-                historical_list_deks: Vec::new(),
-                historical_tenant_root_deks: Vec::new(),
-            },
-            &HashSet::new(),
-            &HashSet::from([list_id]),
-        )
-        .unwrap();
-        assert!(merged.contains_list(list_id));
-    }
-
-    #[test]
-    fn logout_restart_relogin_reconciliation_keeps_durable_pending_list_key() {
-        const DB_KEY: [u8; 32] = [0x91; 32];
-        const MASTER_KEY: [u8; 32] = [0x92; 32];
-        let temp = TempDir::new().unwrap();
-        let db_path = temp.path().join("relogin.sqlite3");
-        let tenant_id = Uuid::now_v7();
-        let initial = new_list(
-            "Initial".to_string(),
-            "3fffffffffffffffffffffffffffffff".to_string(),
-            10,
-        )
-        .unwrap();
-        SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap())
-            .insert(initial.clone())
-            .unwrap();
-        let initial_keys = LocalSyncKeys {
-            tenant_id,
-            list_deks: vec![(initial.id, [0x93; 32].into())],
-            list_generations: vec![(initial.id, 1)],
-            tenant_root_dek: Some(Zeroizing::new([0x94; 32])),
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        persist_local_crypto_context(
-            &db_path,
-            &DB_KEY,
-            LocalCryptoIdentity {
-                tenant_id,
-                user_id: Uuid::now_v7(),
-                device_id: Uuid::now_v7(),
-            },
-            &MASTER_KEY,
-            initial_keys.clone(),
-            10,
-        )
-        .unwrap();
-        let created = SqliteMutationService::new(db_path.clone(), DB_KEY)
-            .create_list(
-                "Offline after logout".to_string(),
-                11,
-                tenant_id,
-                &MASTER_KEY,
-                &LocalMutationContext {
-                    device_id: "device".to_string(),
-                    keys: initial_keys.clone(),
-                },
-            )
-            .unwrap();
-
-        let LocalCryptoAvailability::Ready(restarted) =
-            load_local_crypto_context(&db_path, &DB_KEY, Some(MASTER_KEY)).unwrap()
-        else {
-            panic!("restarted local crypto context");
-        };
-        let pending = pending_list_key_ids_on(&db_path, &DB_KEY, tenant_id).unwrap();
-        let merged = merge_remote_and_pending_local_keys(
-            initial_keys,
-            restarted.sync_keys().clone(),
-            &pending,
-            &HashSet::new(),
-        )
-        .unwrap();
-        assert!(pending.contains(&created.id));
-        assert!(merged.contains_list(created.id));
-    }
-
-    #[test]
     fn authentication_completion_never_deletes_initial_backfill_cursor() {
         const DB_KEY: [u8; 32] = [0x71; 32];
         const MASTER_KEY: [u8; 32] = [0x72; 32];
@@ -1785,11 +1431,8 @@ mod tests {
             &MASTER_KEY,
             LocalSyncKeys {
                 tenant_id: identity.tenant_id,
-                list_deks: Vec::new(),
-                list_generations: Vec::new(),
                 tenant_root_dek: Some(Zeroizing::new([0x73; 32])),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             1,

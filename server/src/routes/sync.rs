@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{get, post},
     Extension, Json, Router,
 };
 use serde::Deserialize;
@@ -12,18 +12,14 @@ use crate::{
     billing,
     sync::{
         self, ActivateRotationRequest, DeviceKeyExpiryRequest, DeviceKeyExpiryResponse,
-        PrepareRotationRequest, RetireListKeyResponse, RotationGenerationRequest,
-        RotationStateResponse, UpsertListKeyResponse,
+        PrepareRotationRequest, RotationGenerationRequest, RotationStateResponse,
     },
     AppError, SharedState,
 };
-use taskveil_sync::{
-    account::ListDekBundleDto,
-    protocol::{
-        BaseScanResponse, ContinuityAckRequest, ContinuityAckResponse, PullResponse, PushRequest,
-        PushResponse, PushStatus, ResyncStartResponse, StableRecordCursor, SyncCollection,
-        SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER,
-    },
+use taskveil_sync::protocol::{
+    BaseScanResponse, ContinuityAckRequest, ContinuityAckResponse, PullResponse, PushRequest,
+    PushResponse, PushStatus, ResyncStartResponse, StableRecordCursor, SyncCollection,
+    SYNC_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION_HEADER,
 };
 
 pub fn router() -> Router<SharedState> {
@@ -46,14 +42,6 @@ pub fn router() -> Router<SharedState> {
         .route(
             "/{tenant_id}/devices/{device_id}/key-expiry",
             post(set_device_key_expiry),
-        )
-        .route(
-            "/{tenant_id}/list-keys",
-            get(list_key_bundles).post(upsert_list_key_bundle),
-        )
-        .route(
-            "/{tenant_id}/list-keys/{list_id}",
-            delete(retire_list_key_bundle),
         )
 }
 
@@ -291,21 +279,6 @@ async fn pull(
     .map(Json)
 }
 
-async fn upsert_list_key_bundle(
-    State(state): State<SharedState>,
-    Path(tenant_id): Path<Uuid>,
-    headers: HeaderMap,
-    Json(request): Json<ListDekBundleDto>,
-) -> Result<Json<UpsertListKeyResponse>, AppError> {
-    let token = bearer_token(&headers)?;
-    let auth_context =
-        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
-    require_current_protocol(&headers)?;
-    sync::upsert_list_key_bundle(&state.pool, tenant_id, auth_context, request)
-        .await
-        .map(Json)
-}
-
 async fn ack_continuity(
     State(state): State<SharedState>,
     Path(tenant_id): Path<Uuid>,
@@ -317,33 +290,6 @@ async fn ack_continuity(
         billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
     require_current_protocol(&headers)?;
     sync::ack_continuity(&state.pool, tenant_id, auth_context, request)
-        .await
-        .map(Json)
-}
-
-async fn retire_list_key_bundle(
-    State(state): State<SharedState>,
-    Path((tenant_id, list_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
-) -> Result<Json<RetireListKeyResponse>, AppError> {
-    let token = bearer_token(&headers)?;
-    let auth_context =
-        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
-    require_current_protocol(&headers)?;
-    sync::retire_list_key_bundle(&state.pool, tenant_id, auth_context, list_id)
-        .await
-        .map(Json)
-}
-
-async fn list_key_bundles(
-    State(state): State<SharedState>,
-    Path(tenant_id): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<Json<Vec<ListDekBundleDto>>, AppError> {
-    let token = bearer_token(&headers)?;
-    let auth_context =
-        billing::authenticate_sync_request(&state.pool, &state.billing, token, tenant_id).await?;
-    sync::list_key_bundles(&state.pool, tenant_id, auth_context)
         .await
         .map(Json)
 }

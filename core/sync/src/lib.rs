@@ -30,10 +30,9 @@ pub use engine::{
 pub use enqueue::{
     enqueue_backfill, enqueue_list_sync, enqueue_rotation_backfill, enqueue_schedule_sync,
     enqueue_task_sync, enqueue_template_sync, enqueue_timer_session_sync, next_local_revision,
-    BackfillRecords, BackfillSummary, LocalListAlias, LocalMutationSyncStore,
-    LocalPendingListKeyBundle, LocalSyncAtomicStore, LocalSyncOutboxEntry,
-    LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
-    LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
+    BackfillRecords, BackfillSummary, LocalListAlias, LocalMutationSyncStore, LocalSyncAtomicStore,
+    LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
 };
 pub use envelope::{
     decrypt_plaintext, encrypt_plaintext, parse_envelope_header, EnvelopeError, EnvelopeHeader,
@@ -47,15 +46,14 @@ pub use field_map::{
 };
 pub use hlc::{Hlc, HlcError};
 pub use key_manifest::{
-    derive_personal_manifest_auth_key, KeyManifest, KeyManifestError, KeyScope, RotationStatus,
-    PERSONAL_MANIFEST_AUTH_INFO,
+    derive_personal_manifest_auth_key, KeyManifest, KeyManifestError, RotationStatus,
+    MIN_AUTHENTICATED_MANIFEST_LEN, PERSONAL_MANIFEST_AUTH_INFO,
 };
 pub use keys::{
-    dek_for_list, dek_for_list_generation, ensure_list_dek_for_list, tenant_root_dek,
-    tenant_root_dek_for_generation, LocalSyncKeys, KEY_ROTATION_PENDING_SETTING_KEY,
-    LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME, SYNC_LOCAL_HLC_SETTING_KEY,
-    SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION, TEMPLATES_COLLECTION,
-    TIMER_SESSIONS_COLLECTION,
+    tenant_root_dek, tenant_root_dek_for_generation, LocalSyncKeys,
+    KEY_ROTATION_PENDING_SETTING_KEY, LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME,
+    SYNC_LOCAL_HLC_SETTING_KEY, SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION,
+    TEMPLATES_COLLECTION, TIMER_SESSIONS_COLLECTION,
 };
 pub use merge::{merge_lww, MergeResult};
 pub use protocol::SyncCollection;

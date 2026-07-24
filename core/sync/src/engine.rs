@@ -220,9 +220,7 @@ impl SyncEngine {
                 .map_err(|_| SyncEngineError::InvalidPreflightResponse)?;
             let manifest = crate::KeyManifest::from_authenticated_bytes(&bytes)
                 .map_err(|_| SyncEngineError::InvalidPreflightResponse)?;
-            if manifest.scope != descriptor.scope
-                || manifest.list_id != descriptor.list_id
-                || manifest.tenant_id != self.tenant_id
+            if manifest.tenant_id != self.tenant_id
                 || manifest.suite_id != descriptor.suite_id
                 || manifest.generation != descriptor.generation
                 || manifest.status != descriptor.status

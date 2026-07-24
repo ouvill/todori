@@ -5,6 +5,7 @@
 pub mod entities;
 pub mod recurrence;
 pub mod sort_order;
+pub mod tenant;
 pub mod usecases;
 
 pub use entities::{
@@ -21,6 +22,9 @@ pub use recurrence::{
 pub use sort_order::{
     fractional_index_after, fractional_index_between, rebalance_ranks, validate_sort_order,
     MAX_RANK, MIN_RANK,
+};
+pub use tenant::{
+    Tenant, TenantBoundaryError, TenantKind, TenantMembership, TenantMembershipState, TenantRole,
 };
 pub use usecases::{
     archive_list, new_default_list, new_list, new_task, pomodoro_target_reached_at, rename_list,

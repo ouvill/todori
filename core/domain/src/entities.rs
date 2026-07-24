@@ -263,7 +263,6 @@ pub struct List {
     pub name: String,
     pub color: String,
     pub icon: String,
-    pub org_id: Option<Uuid>,
     /// fractional index。
     pub sort_order: String,
     pub is_default: bool,

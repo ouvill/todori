@@ -6,7 +6,7 @@ use crate::{
     SYNC_LOCAL_HLC_SETTING_KEY,
 };
 
-use crate::keys::{dek_for_list, tenant_root_dek, LocalSyncKeys};
+use crate::keys::{tenant_root_dek, LocalSyncKeys};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSyncOutboxEntry {
@@ -106,16 +106,6 @@ pub struct LocalSyncQuarantineEntry {
     pub attempt_count: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPendingListKeyBundle {
-    pub tenant_id: Uuid,
-    pub list_id: Uuid,
-    pub generation: u64,
-    pub wrapped_list_dek: Vec<u8>,
-    pub signed_manifest: Vec<u8>,
-    pub created_at: i64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalFullResyncPhase {
     Base,
@@ -182,21 +172,6 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn load_full_resync(&mut self) -> Result<Option<LocalFullResyncProgress>, String> {
         Ok(None)
     }
-    fn list_pending_list_key_bundles(
-        &mut self,
-        _tenant_id: Uuid,
-        _limit: usize,
-    ) -> Result<Vec<LocalPendingListKeyBundle>, String> {
-        Ok(Vec::new())
-    }
-    fn ack_pending_list_key_bundle(
-        &mut self,
-        _tenant_id: Uuid,
-        _list_id: Uuid,
-        _wrapped_list_dek: &[u8],
-    ) -> Result<bool, String> {
-        Ok(false)
-    }
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String>;
     fn ack_outbox_op(&mut self, op_id: Uuid) -> Result<bool, String>;
     fn delete_outbox_head(
@@ -239,7 +214,7 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn default_list_id(&mut self) -> Result<Option<Uuid>, String>;
     fn get_list(&mut self, id: Uuid) -> Result<Option<List>, String>;
     fn upsert_list_for_sync(&mut self, list: List) -> Result<(), String>;
-    fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
+    fn delete_list_and_rehome_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String>;
     fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String>;
     fn list_tasks_by_list_for_sync(&mut self, list_id: Uuid) -> Result<Vec<Task>, String>;
     fn list_all_tasks_for_sync(&mut self) -> Result<Vec<Task>, String>;
@@ -401,7 +376,7 @@ where
             summary.skipped_existing_outbox += 1;
             continue;
         }
-        if dek_for_list(keys, list.id).is_none() {
+        if tenant_root_dek(keys).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
         }
@@ -442,7 +417,7 @@ where
             summary.skipped_existing_outbox += 1;
             continue;
         }
-        if dek_for_list(keys, task.list_id).is_none() {
+        if tenant_root_dek(keys).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
         }
@@ -493,7 +468,7 @@ where
     store.set_setting(crate::KEY_ROTATION_PENDING_SETTING_KEY, "0", now_ms()?)?;
     let mut summary = BackfillSummary::default();
     for list in records.lists {
-        if dek_for_list(keys, list.id).is_none() {
+        if tenant_root_dek(keys).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
         }
@@ -519,7 +494,7 @@ where
     let mut sorted_tasks = records.tasks.iter().collect::<Vec<_>>();
     sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
     for task in sorted_tasks {
-        if dek_for_list(keys, task.list_id).is_none() {
+        if tenant_root_dek(keys).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
         }
@@ -563,11 +538,9 @@ where
     let base_revision_hlc = previous_state
         .as_ref()
         .and_then(|state| state.current_revision_hlc.clone());
-    let dek = dek_for_list(keys, task.list_id)
-        .ok_or_else(|| "missing list key for task sync".to_string())?;
-    let generation = keys
-        .generation_for_list(task.list_id)
-        .ok_or_else(|| "missing active list key generation".to_string())?;
+    let dek =
+        tenant_root_dek(keys).ok_or_else(|| "missing Tenant Key for task sync".to_string())?;
+    let generation = keys.tenant_generation;
     let plaintext = changed_task_plaintext(previous_state.as_ref(), task, hlc.clone())?;
     enqueue_plaintext(
         store,
@@ -751,10 +724,8 @@ where
         .as_ref()
         .and_then(|state| state.current_revision_hlc.clone());
     let dek =
-        dek_for_list(keys, list.id).ok_or_else(|| "missing list key for list sync".to_string())?;
-    let generation = keys
-        .generation_for_list(list.id)
-        .ok_or_else(|| "missing active list key generation".to_string())?;
+        tenant_root_dek(keys).ok_or_else(|| "missing Tenant Key for list sync".to_string())?;
+    let generation = keys.tenant_generation;
     let plaintext = changed_list_plaintext(previous_state.as_ref(), list, hlc.clone())?;
     enqueue_plaintext(
         store,
@@ -1415,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn backfill_skips_records_for_lists_missing_deks_and_keeps_processing() {
+    fn backfill_uses_one_tenant_key_for_records_from_multiple_lists() {
         let missing_list = sample_list(uuid(8), 10);
         let synced_list = sample_list(uuid(9), 11);
         let missing_task = sample_task(uuid(10), missing_list.id, 20);
@@ -1439,13 +1410,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(summary.enqueued_lists, 1);
-        assert_eq!(summary.enqueued_tasks, 1);
-        assert_eq!(summary.skipped_missing_dek, 2);
+        assert_eq!(summary.enqueued_lists, 2);
+        assert_eq!(summary.enqueued_tasks, 2);
+        assert_eq!(summary.skipped_missing_dek, 0);
         assert!(store
             .outbox
             .iter()
-            .all(|entry| entry.record_id != missing_list.id && entry.record_id != missing_task.id));
+            .any(|entry| entry.record_id == missing_list.id));
+        assert!(store
+            .outbox
+            .iter()
+            .any(|entry| entry.record_id == missing_task.id));
         assert!(store
             .outbox
             .iter()
@@ -1476,11 +1451,8 @@ mod tests {
         );
         let keys = LocalSyncKeys {
             tenant_id: Uuid::from_u128(100),
-            list_deks: vec![(list.id, Zeroizing::new([9; KEY_LEN]))],
-            list_generations: vec![(list.id, 2)],
             tenant_root_dek: Some(Zeroizing::new([8; KEY_LEN])),
             tenant_generation: 2,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         };
         let mut now = ticking_now();
@@ -1522,17 +1494,11 @@ mod tests {
         ));
     }
 
-    fn sync_keys(list_ids: &[Uuid]) -> LocalSyncKeys {
+    fn sync_keys(_list_ids: &[Uuid]) -> LocalSyncKeys {
         LocalSyncKeys {
             tenant_id: Uuid::from_u128(100),
-            list_deks: list_ids
-                .iter()
-                .map(|id| (*id, Zeroizing::new([7; KEY_LEN])))
-                .collect(),
-            list_generations: list_ids.iter().map(|id| (*id, 1)).collect(),
-            tenant_root_dek: None,
+            tenant_root_dek: Some(Zeroizing::new([7; KEY_LEN])),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         }
     }
@@ -1540,11 +1506,8 @@ mod tests {
     fn tenant_sync_keys() -> LocalSyncKeys {
         LocalSyncKeys {
             tenant_id: Uuid::from_u128(100),
-            list_deks: Vec::new(),
-            list_generations: Vec::new(),
             tenant_root_dek: Some(Zeroizing::new([8; KEY_LEN])),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         }
     }
@@ -1563,7 +1526,6 @@ mod tests {
             name: format!("List {id}"),
             color: "#ffffff".to_string(),
             icon: "list".to_string(),
-            org_id: None,
             sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             is_default: false,
             archived_at: None,

@@ -18,6 +18,7 @@ pub const INITIAL_KEY_GENERATION: u64 = 1;
 
 pub const KEK_PW_INFO: &[u8] = b"taskveil/kek-pw/v1";
 pub const RECOVERY_KEY_INFO: &[u8] = b"taskveil/recovery-key-wrap-key/v1";
+pub const RECORD_KEY_INFO: &[u8] = b"taskveil/record-key/v1";
 
 const WRAP_AAD_MAGIC: &[u8; 4] = b"TWK1";
 const WRAP_AAD_LEN: usize = 63;
@@ -30,9 +31,7 @@ enum WrapPurpose {
     MasterKeyByDevice = 3,
     AccountSecretByMasterKey = 4,
     TenantDekByMasterKey = 5,
-    ListDekByMasterKey = 6,
     LocalTenantDekByMasterKey = 7,
-    LocalListDekByMasterKey = 8,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -52,10 +51,6 @@ pub fn generate_master_key() -> [u8; KEY_LEN] {
 }
 
 pub fn generate_tenant_root_dek() -> [u8; KEY_LEN] {
-    random_key()
-}
-
-pub fn generate_list_dek() -> [u8; KEY_LEN] {
     random_key()
 }
 
@@ -82,6 +77,37 @@ pub fn derive_recovery_wrap_key(recovery_key: &str) -> Result<[u8; KEY_LEN], Key
         return Err(KeyHierarchyError::InvalidRecoveryKey);
     }
     Ok(derive_key(&entropy, RECOVERY_KEY_INFO))
+}
+
+/// Derives one record-specific encryption key from the active Tenant Key.
+///
+/// Tenant membership and key generation define the cryptographic boundary.
+/// Collection and record identities prevent a valid ciphertext from being
+/// transplanted to another domain record while keeping List as ordinary
+/// encrypted placement data.
+pub fn derive_record_key(
+    tenant_key: &[u8; KEY_LEN],
+    tenant_id: Uuid,
+    generation: u64,
+    collection: &str,
+    record_id: Uuid,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, KeyHierarchyError> {
+    if tenant_id.is_nil()
+        || record_id.is_nil()
+        || generation == 0
+        || collection.is_empty()
+        || collection.len() > u16::MAX as usize
+    {
+        return Err(KeyHierarchyError::InvalidWrapContext);
+    }
+    let mut info = Vec::with_capacity(RECORD_KEY_INFO.len() + 16 + 8 + 2 + collection.len() + 16);
+    info.extend_from_slice(RECORD_KEY_INFO);
+    info.extend_from_slice(tenant_id.as_bytes());
+    info.extend_from_slice(&generation.to_be_bytes());
+    info.extend_from_slice(&(collection.len() as u16).to_be_bytes());
+    info.extend_from_slice(collection.as_bytes());
+    info.extend_from_slice(record_id.as_bytes());
+    Ok(Zeroizing::new(derive_key(tenant_key, &info)))
 }
 
 pub fn wrap_master_key_with_kek_pw(
@@ -281,86 +307,6 @@ pub fn unwrap_tenant_root_dek_with_master_key(
     )
 }
 
-pub fn wrap_list_dek_with_master_key(
-    tenant_id: Uuid,
-    list_id: Uuid,
-    generation: u64,
-    list_dek: &[u8; KEY_LEN],
-    master_key: &[u8; KEY_LEN],
-) -> Result<Vec<u8>, KeyHierarchyError> {
-    wrap_key(
-        list_dek,
-        master_key,
-        wrap_aad(
-            WrapPurpose::ListDekByMasterKey,
-            generation,
-            None,
-            Some(tenant_id),
-            Some(list_id),
-        ),
-    )
-}
-
-pub fn unwrap_list_dek_with_master_key(
-    tenant_id: Uuid,
-    list_id: Uuid,
-    generation: u64,
-    wrapped: &[u8],
-    master_key: &[u8; KEY_LEN],
-) -> Result<[u8; KEY_LEN], KeyHierarchyError> {
-    unwrap_key(
-        wrapped,
-        master_key,
-        wrap_aad(
-            WrapPurpose::ListDekByMasterKey,
-            generation,
-            None,
-            Some(tenant_id),
-            Some(list_id),
-        ),
-    )
-}
-
-pub fn wrap_local_list_dek_with_master_key(
-    tenant_id: Uuid,
-    list_id: Uuid,
-    generation: u64,
-    list_dek: &[u8; KEY_LEN],
-    master_key: &[u8; KEY_LEN],
-) -> Result<Vec<u8>, KeyHierarchyError> {
-    wrap_key(
-        list_dek,
-        master_key,
-        wrap_aad(
-            WrapPurpose::LocalListDekByMasterKey,
-            generation,
-            None,
-            Some(tenant_id),
-            Some(list_id),
-        ),
-    )
-}
-
-pub fn unwrap_local_list_dek_with_master_key(
-    tenant_id: Uuid,
-    list_id: Uuid,
-    generation: u64,
-    wrapped: &[u8],
-    master_key: &[u8; KEY_LEN],
-) -> Result<[u8; KEY_LEN], KeyHierarchyError> {
-    unwrap_key(
-        wrapped,
-        master_key,
-        wrap_aad(
-            WrapPurpose::LocalListDekByMasterKey,
-            generation,
-            None,
-            Some(tenant_id),
-            Some(list_id),
-        ),
-    )
-}
-
 pub fn wrap_local_tenant_root_dek_with_master_key(
     tenant_id: Uuid,
     generation: u64,
@@ -415,11 +361,6 @@ fn wrap_aad(
         }
         WrapPurpose::TenantDekByMasterKey | WrapPurpose::LocalTenantDekByMasterKey => {
             user_id.is_none() && tenant_id.is_some_and(|id| !id.is_nil()) && list_id.is_none()
-        }
-        WrapPurpose::ListDekByMasterKey | WrapPurpose::LocalListDekByMasterKey => {
-            user_id.is_none()
-                && tenant_id.is_some_and(|id| !id.is_nil())
-                && list_id.is_some_and(|id| !id.is_nil())
         }
     };
     if generation == 0 || !valid_context {
@@ -486,7 +427,6 @@ mod tests {
     fn generated_keys_have_expected_lengths() {
         assert_eq!(generate_master_key().len(), KEY_LEN);
         assert_eq!(generate_tenant_root_dek().len(), KEY_LEN);
-        assert_eq!(generate_list_dek().len(), KEY_LEN);
     }
 
     #[test]
@@ -650,7 +590,7 @@ mod tests {
             Err(KeyHierarchyError::InvalidWrapContext)
         );
         assert_eq!(
-            wrap_list_dek_with_master_key(id(1), Uuid::nil(), 1, &key(0x42), &key(0x11)),
+            derive_record_key(&key(0x42), id(1), 1, "tasks", Uuid::nil()),
             Err(KeyHierarchyError::InvalidWrapContext)
         );
     }
@@ -679,14 +619,12 @@ mod tests {
     }
 
     #[test]
-    fn account_root_tenant_dek_and_list_dek_roundtrip_with_distinct_contexts() {
+    fn account_root_and_tenant_dek_roundtrip_with_distinct_contexts() {
         let master_key = key(0x42);
         let account_root_private = [0x10; ACCOUNT_ROOT_PRIVATE_KEY_LEN];
         let tenant_dek = key(0x20);
-        let list_dek = key(0x30);
         let user_id = id(1);
         let tenant_id = id(2);
-        let list_id = id(3);
 
         let wrapped_account_root = wrap_account_root_private_key_with_master_key(
             user_id,
@@ -697,8 +635,6 @@ mod tests {
         .unwrap();
         let wrapped_tenant =
             wrap_tenant_root_dek_with_master_key(tenant_id, 1, &tenant_dek, &master_key).unwrap();
-        let wrapped_list =
-            wrap_list_dek_with_master_key(tenant_id, list_id, 1, &list_dek, &master_key).unwrap();
 
         assert_eq!(
             *unwrap_account_root_private_key_with_master_key(
@@ -716,34 +652,36 @@ mod tests {
             tenant_dek
         );
         assert_eq!(
-            unwrap_list_dek_with_master_key(tenant_id, list_id, 1, &wrapped_list, &master_key)
-                .unwrap(),
-            list_dek
-        );
-        assert_eq!(
-            unwrap_tenant_root_dek_with_master_key(tenant_id, 1, &wrapped_list, &master_key),
+            unwrap_tenant_root_dek_with_master_key(user_id, 1, &wrapped_tenant, &master_key),
             Err(KeyHierarchyError::Crypto(CryptoError::DecryptionFailed))
         );
     }
 
     #[test]
-    fn local_list_dek_wrap_is_bound_to_list_id() {
-        let master_key = key(0x10);
-        let list_dek = key(0x20);
+    fn record_key_is_deterministic_and_bound_to_tenant_generation_collection_and_record() {
+        let tenant_key = key(0x20);
         let tenant_id = id(1);
-        let list_id = id(2);
-        let wrapped =
-            wrap_local_list_dek_with_master_key(tenant_id, list_id, 1, &list_dek, &master_key)
-                .unwrap();
-
+        let record_id = id(2);
+        let derived = derive_record_key(&tenant_key, tenant_id, 1, "tasks", record_id).unwrap();
         assert_eq!(
-            unwrap_local_list_dek_with_master_key(tenant_id, list_id, 1, &wrapped, &master_key)
-                .unwrap(),
-            list_dek
+            derived,
+            derive_record_key(&tenant_key, tenant_id, 1, "tasks", record_id).unwrap()
         );
-        assert!(
-            unwrap_local_list_dek_with_master_key(tenant_id, id(3), 1, &wrapped, &master_key)
-                .is_err()
+        assert_ne!(
+            derived,
+            derive_record_key(&tenant_key, id(3), 1, "tasks", record_id).unwrap()
+        );
+        assert_ne!(
+            derived,
+            derive_record_key(&tenant_key, tenant_id, 2, "tasks", record_id).unwrap()
+        );
+        assert_ne!(
+            derived,
+            derive_record_key(&tenant_key, tenant_id, 1, "lists", record_id).unwrap()
+        );
+        assert_ne!(
+            derived,
+            derive_record_key(&tenant_key, tenant_id, 1, "tasks", id(4)).unwrap()
         );
     }
 

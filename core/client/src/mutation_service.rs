@@ -31,8 +31,6 @@ pub enum ClientError {
     Recurrence(#[from] taskveil_domain::RecurrenceError),
     #[error("local sync preparation failed")]
     Sync,
-    #[error("local sync key is unavailable for list {0}")]
-    MissingListKey(Uuid),
     #[error("profile I/O failed")]
     Io(#[source] std::io::Error),
     #[error("profile secret store failed")]
@@ -129,8 +127,11 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_task(input.task_id)?;
-        if !sync.keys.contains_list(before.list_id) {
-            return Err(ClientError::MissingListKey(before.list_id));
+        if sync.keys.tenant_root_dek.is_none()
+            || sync.keys.tenant_id.is_nil()
+            || sync.keys.tenant_generation == 0
+        {
+            return Err(ClientError::Sync);
         }
         let task = update_title(before.clone(), input.title, input.now_ms)?;
         let task = update_note(task, input.note, input.now_ms)?;
@@ -468,11 +469,8 @@ mod tests {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
                     tenant_id: Uuid::from_u128(100),
-                    list_deks: vec![(list.id, [0x44; 32].into())],
-                    list_generations: vec![(list.id, 1)],
-                    tenant_root_dek: None,
+                    tenant_root_dek: Some(Zeroizing::new([0x44; 32])),
                     tenant_generation: 1,
-                    historical_list_deks: Vec::new(),
                     historical_tenant_root_deks: Vec::new(),
                 },
             },
@@ -548,25 +546,6 @@ mod tests {
         assert_atomic_rollback(
             "CREATE TRIGGER fail_state BEFORE UPDATE ON sync_record_states BEGIN SELECT RAISE(ABORT, 'fail state'); END;",
         );
-    }
-
-    #[test]
-    fn missing_list_key_rolls_back_without_domain_change() {
-        let fixture = fixture();
-        let missing = LocalMutationContext {
-            device_id: "device-a".to_string(),
-            keys: LocalSyncKeys::default(),
-        };
-        let error = fixture
-            .mutation_service
-            .update_task(update_input(fixture.task.id), &missing)
-            .unwrap_err();
-        assert!(matches!(error, ClientError::MissingListKey(_)));
-
-        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-        let tasks = SqliteTaskRepository::new(connection);
-        assert_eq!(tasks.get(fixture.task.id).unwrap().title, "before");
-        assert!(tasks.latest_unconsumed_undo().unwrap().is_none());
     }
 
     fn assert_atomic_rollback(trigger_sql: &str) {

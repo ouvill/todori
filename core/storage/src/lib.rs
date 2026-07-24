@@ -18,7 +18,7 @@ use thiserror::Error;
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BASELINE_SCHEMA_VERSION: i32 = 1;
-pub const LATEST_SCHEMA_VERSION: i32 = 20;
+pub const LATEST_SCHEMA_VERSION: i32 = 21;
 const LOCAL_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MIGRATIONS: &[Migration] = &[
@@ -84,8 +84,8 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         target_version: 14,
-        name: "add_pending_list_key_bundles",
-        apply: add_pending_list_key_bundles,
+        name: "reserved_schema_v14",
+        apply: reserved_schema_v14,
     },
     Migration {
         target_version: 15,
@@ -116,6 +116,11 @@ const MIGRATIONS: &[Migration] = &[
         target_version: 20,
         name: "add_template_recurrence_foundation",
         apply: add_template_recurrence_foundation,
+    },
+    Migration {
+        target_version: 21,
+        name: "finalize_tenant_record_boundary",
+        apply: finalize_tenant_record_boundary,
     },
 ];
 
@@ -474,18 +479,6 @@ pub struct LocalProfileBinding {
     pub updated_at: i64,
 }
 
-/// Master Keyでwrap済みのList DEK bundle。
-///
-/// `wrapped_list_dek`はopaque bytesとして保存し、このstorage層では復号しない。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalListKeyBundle {
-    pub tenant_id: Uuid,
-    pub list_id: Uuid,
-    pub generation: u64,
-    pub wrapped_list_dek: Vec<u8>,
-    pub updated_at: i64,
-}
-
 /// Master Keyでlocal-wrap済みのTenant Root DEK cache。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalTenantRootKeyBundle {
@@ -495,32 +488,18 @@ pub struct LocalTenantRootKeyBundle {
     pub updated_at: i64,
 }
 
-/// Server upload待ちのopaqueなMK-wrapped List DEK bundle。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingListKeyBundle {
-    pub tenant_id: Uuid,
-    pub list_id: Uuid,
-    pub generation: u64,
-    pub wrapped_list_dek: Vec<u8>,
-    pub signed_manifest: Vec<u8>,
-    pub created_at: i64,
-}
-
-/// account bindingとMK-wrapped List DEK cacheの永続化を担うリポジトリ。
+/// account bindingとMK-wrapped Tenant Root Key cacheの永続化を担うリポジトリ。
 pub trait LocalCryptoRepository {
     fn load_binding(&self) -> Result<Option<LocalProfileBinding>, StorageError>;
-    fn bind_and_replace_bundles(
+    fn bind_tenant_root(
         &mut self,
         binding: LocalProfileBinding,
         tenant_root: &LocalTenantRootKeyBundle,
-        bundles: &[LocalListKeyBundle],
     ) -> Result<(), StorageError>;
     fn load_tenant_root(
         &self,
         tenant_id: Uuid,
     ) -> Result<Option<LocalTenantRootKeyBundle>, StorageError>;
-    fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError>;
-    fn delete_bundle(&mut self, tenant_id: Uuid, list_id: Uuid) -> Result<bool, StorageError>;
 }
 
 /// タスクの永続化を担うリポジトリ。
@@ -605,7 +584,7 @@ pub trait ListRepository {
     fn get_default(&self) -> Result<Option<List>, StorageError>;
     fn ensure_default_list(&mut self, name: String, now_ms: i64) -> Result<List, StorageError>;
     fn count_tasks(&self, list_id: Uuid) -> Result<usize, StorageError>;
-    fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError>;
+    fn delete_and_rehome_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError>;
 }
 
 /// 設定値の永続化を担うリポジトリ。
@@ -830,7 +809,7 @@ impl<'connection> SqliteWriteTx<'connection> {
 
     pub fn list_lists_including_archived(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.transaction.prepare(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
              WHERE NOT EXISTS (
@@ -896,20 +875,6 @@ impl<'connection> SqliteWriteTx<'connection> {
         delete_schedule_on(&self.transaction, id)
     }
 
-    pub fn put_local_list_key_bundle(
-        &mut self,
-        bundle: LocalListKeyBundle,
-    ) -> Result<(), StorageError> {
-        put_local_list_key_bundle_on(&self.transaction, &bundle)
-    }
-
-    pub fn put_pending_list_key_bundle(
-        &mut self,
-        bundle: PendingListKeyBundle,
-    ) -> Result<(), StorageError> {
-        put_pending_list_key_bundle_on(&self.transaction, &bundle)
-    }
-
     pub fn update_task(&mut self, mut task: Task) -> Result<(), StorageError> {
         task.list_id = self.resolve_list_alias(task.list_id)?;
         update_task_on(&self.transaction, &task)
@@ -928,12 +893,12 @@ impl<'connection> SqliteWriteTx<'connection> {
         delete_task_subtree_on(&self.transaction, task_id)
     }
 
-    /// Physically deletes a non-default list and all of its tasks in this write
-    /// transaction.
+    /// Physically deletes a non-default List and moves its Tasks to the
+    /// Tenant's default Inbox in this write transaction.
     ///
-    /// Related reminders and undo entries are removed by the same operation.
-    /// Dropping the transaction without committing rolls every deletion back.
-    pub fn delete_list_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+    /// Task history, reminders, and timer relations remain intact. Dropping the
+    /// transaction without committing rolls every placement change back.
+    pub fn delete_list_and_rehome_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
         let list_id = self.resolve_list_alias(list_id)?;
         let list = get_list_on(&self.transaction, list_id)?;
         if list.is_default {
@@ -942,7 +907,7 @@ impl<'connection> SqliteWriteTx<'connection> {
                 list_id,
             });
         }
-        delete_list_with_tasks_for_sync_on(&self.transaction, list_id)
+        delete_list_and_rehome_tasks_for_sync_on(&self.transaction, list_id)
     }
 
     pub fn update_task_with_undo(
@@ -1093,15 +1058,6 @@ impl OwnedSqliteWriteTx {
         record_id: Uuid,
     ) -> Result<bool, StorageError> {
         delete_outbox_head_on(self.connection(), collection, record_id)
-    }
-
-    pub fn ack_pending_list_key_bundle(
-        &mut self,
-        tenant_id: Uuid,
-        list_id: Uuid,
-        wrapped_list_dek: &[u8],
-    ) -> Result<bool, StorageError> {
-        ack_pending_list_key_bundle_on(self.connection(), tenant_id, list_id, wrapped_list_dek)
     }
 
     pub fn get_record_state(
@@ -1290,11 +1246,11 @@ impl OwnedSqliteWriteTx {
         upsert_list_for_sync_on(self.connection(), list)
     }
 
-    pub fn delete_list_with_tasks_for_sync(
+    pub fn delete_list_and_rehome_tasks_for_sync(
         &mut self,
         list_id: Uuid,
     ) -> Result<usize, StorageError> {
-        delete_list_with_tasks_for_sync_on(self.connection(), list_id)
+        delete_list_and_rehome_tasks_for_sync_on(self.connection(), list_id)
     }
 
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>, StorageError> {
@@ -1949,6 +1905,20 @@ fn add_list_aliases(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     )
 }
 
+fn finalize_tenant_record_boundary(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "DROP TABLE IF EXISTS pending_list_key_bundles;
+         DROP TABLE IF EXISTS local_list_key_bundles;",
+    )?;
+    if table_columns_raw(transaction, "lists")?
+        .iter()
+        .any(|column| column == "org_id")
+    {
+        transaction.execute_batch("ALTER TABLE lists DROP COLUMN org_id;")?;
+    }
+    Ok(())
+}
+
 /// Protocol v6 adds tenant-scoped template and schedule records while keeping
 /// every v5 transport head, tombstone, cursor, quarantine row, and resync mark.
 fn add_template_recurrence_foundation(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -2223,16 +2193,6 @@ fn add_local_crypto_cache(transaction: &Transaction<'_>) -> rusqlite::Result<()>
              bound_at INTEGER NOT NULL,
              updated_at INTEGER NOT NULL
          );
-         CREATE TABLE local_list_key_bundles (
-             tenant_id TEXT NOT NULL,
-             list_id TEXT NOT NULL,
-             generation INTEGER NOT NULL CHECK (generation > 0),
-             wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
-             updated_at INTEGER NOT NULL,
-             PRIMARY KEY (tenant_id, list_id)
-         );
-         CREATE INDEX idx_local_list_key_bundles_tenant
-             ON local_list_key_bundles(tenant_id);
          INSERT INTO local_profile_binding (
              singleton, tenant_id, user_id, device_id, bound_at, updated_at
          )
@@ -2360,20 +2320,8 @@ fn add_sync_quarantine(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     )
 }
 
-fn add_pending_list_key_bundles(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
-    transaction.execute_batch(
-        "CREATE TABLE pending_list_key_bundles (
-             tenant_id TEXT NOT NULL,
-             list_id TEXT NOT NULL,
-             generation INTEGER NOT NULL CHECK (generation > 0),
-             wrapped_list_dek BLOB NOT NULL CHECK (length(wrapped_list_dek) > 0),
-             signed_manifest BLOB NOT NULL CHECK (length(signed_manifest) >= 124),
-             created_at INTEGER NOT NULL,
-             PRIMARY KEY (tenant_id, list_id)
-         );
-         CREATE INDEX idx_pending_list_key_bundles_created
-             ON pending_list_key_bundles(created_at, list_id);",
-    )
+fn reserved_schema_v14(_transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    Ok(())
 }
 
 fn add_full_resync_state(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -3573,7 +3521,7 @@ fn insert_task_undo_on(connection: &Connection, entry: &TaskUndoEntry) -> Result
 fn get_list_on(connection: &Connection, id: Uuid) -> Result<List, StorageError> {
     let list = connection
         .query_row(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
              WHERE id = ?1",
@@ -3587,7 +3535,7 @@ fn get_list_on(connection: &Connection, id: Uuid) -> Result<List, StorageError> 
 fn get_default_list_on(connection: &Connection) -> Result<Option<List>, StorageError> {
     connection
         .query_row(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
              WHERE is_default = 1
@@ -3602,17 +3550,16 @@ fn get_default_list_on(connection: &Connection) -> Result<Option<List>, StorageE
 fn insert_list_on(connection: &Connection, list: &List) -> Result<(), StorageError> {
     connection.execute(
         "INSERT INTO lists (
-            id, name, color, icon, org_id, sort_order, is_default, archived_at,
+            id, name, color, icon, sort_order, is_default, archived_at,
             created_at, updated_at
         ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
         )",
         params![
             list.id.to_string(),
             list.name,
             list.color,
             list.icon,
-            list.org_id.map(|id| id.to_string()),
             list.sort_order,
             list.is_default,
             list.archived_at,
@@ -3639,10 +3586,22 @@ fn upsert_list_for_sync_on(connection: &Connection, list: List) -> Result<(), St
     }
 }
 
-fn delete_list_with_tasks_for_sync_on(
+fn delete_list_and_rehome_tasks_for_sync_on(
     connection: &Connection,
     list_id: Uuid,
 ) -> Result<usize, StorageError> {
+    let list = get_list_on(connection, list_id)?;
+    if list.is_default {
+        return Err(StorageError::DefaultListProtected {
+            operation: "deleted",
+            list_id,
+        });
+    }
+    let default_list = get_default_list_on(connection)?.ok_or_else(|| {
+        StorageError::IncompatibleSchema(
+            "Tenant must have a default Inbox before deleting a List".to_string(),
+        )
+    })?;
     let task_count: i64 = connection
         .query_row(
             "SELECT count(*) FROM tasks WHERE list_id = ?1",
@@ -3652,18 +3611,8 @@ fn delete_list_with_tasks_for_sync_on(
         .optional()?
         .unwrap_or(0);
     connection.execute(
-        "DELETE FROM task_undo_entries
-         WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-        [list_id.to_string()],
-    )?;
-    connection.execute(
-        "DELETE FROM reminders
-         WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-        [list_id.to_string()],
-    )?;
-    connection.execute(
-        "DELETE FROM tasks WHERE list_id = ?1",
-        [list_id.to_string()],
+        "UPDATE tasks SET list_id = ?2 WHERE list_id = ?1",
+        params![list_id.to_string(), default_list.id.to_string()],
     )?;
     connection.execute(
         "DELETE FROM list_aliases
@@ -3687,19 +3636,17 @@ fn update_list_on(connection: &Connection, list: &List) -> Result<(), StorageErr
          SET name = ?2,
              color = ?3,
              icon = ?4,
-             org_id = ?5,
-             sort_order = ?6,
-             is_default = ?7,
-             archived_at = ?8,
-             created_at = ?9,
-             updated_at = ?10
+             sort_order = ?5,
+             is_default = ?6,
+             archived_at = ?7,
+             created_at = ?8,
+             updated_at = ?9
          WHERE id = ?1",
         params![
             list.id.to_string(),
             list.name,
             list.color,
             list.icon,
-            list.org_id.map(|id| id.to_string()),
             list.sort_order,
             list.is_default,
             list.archived_at,
@@ -3736,7 +3683,7 @@ impl SqliteListRepository {
     /// Raw sync-facing enumeration including archived and aliased list rows.
     pub fn list_all_for_sync(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists ORDER BY sort_order ASC, id ASC",
         )?;
@@ -3751,9 +3698,12 @@ impl SqliteListRepository {
         upsert_list_for_sync_on(&self.connection, list)
     }
 
-    pub fn delete_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+    pub fn delete_and_rehome_tasks_for_sync(
+        &mut self,
+        list_id: Uuid,
+    ) -> Result<usize, StorageError> {
         let transaction = self.connection.transaction()?;
-        let task_count = delete_list_with_tasks_for_sync_on(&transaction, list_id)?;
+        let task_count = delete_list_and_rehome_tasks_for_sync_on(&transaction, list_id)?;
         transaction.commit()?;
         Ok(task_count)
     }
@@ -4168,7 +4118,7 @@ impl ListRepository for SqliteListRepository {
 
     fn list_all(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NULL
@@ -4186,7 +4136,7 @@ impl ListRepository for SqliteListRepository {
 
     fn list_archived(&self) -> Result<Vec<List>, StorageError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, color, icon, org_id, sort_order, archived_at,
+            "SELECT id, name, color, icon, sort_order, archived_at,
                     is_default, created_at, updated_at
              FROM lists
              WHERE archived_at IS NOT NULL
@@ -4234,7 +4184,7 @@ impl ListRepository for SqliteListRepository {
         })
     }
 
-    fn delete_with_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
+    fn delete_and_rehome_tasks(&mut self, list_id: Uuid) -> Result<usize, StorageError> {
         let list_id = resolve_list_alias_on(&self.connection, list_id)?;
         let list = get_list_on(&self.connection, list_id)?;
         if list.is_default {
@@ -4244,34 +4194,9 @@ impl ListRepository for SqliteListRepository {
             });
         }
         let transaction = self.connection.transaction()?;
-        let task_count: i64 = transaction.query_row(
-            "SELECT count(*) FROM tasks WHERE list_id = ?1",
-            [list_id.to_string()],
-            |row| row.get(0),
-        )?;
-        transaction.execute(
-            "DELETE FROM task_undo_entries
-             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-            [list_id.to_string()],
-        )?;
-        transaction.execute(
-            "DELETE FROM reminders
-             WHERE task_id IN (SELECT id FROM tasks WHERE list_id = ?1)",
-            [list_id.to_string()],
-        )?;
-        transaction.execute(
-            "DELETE FROM tasks WHERE list_id = ?1",
-            [list_id.to_string()],
-        )?;
-        let changed =
-            transaction.execute("DELETE FROM lists WHERE id = ?1", [list_id.to_string()])?;
-        if changed == 0 {
-            return Err(StorageError::NotFound(list_id));
-        }
+        let task_count = delete_list_and_rehome_tasks_for_sync_on(&transaction, list_id)?;
         transaction.commit()?;
-        usize::try_from(task_count).map_err(|_| {
-            StorageError::IncompatibleSchema("list task count exceeded usize".to_string())
-        })
+        Ok(task_count)
     }
 }
 
@@ -4300,7 +4225,7 @@ impl SettingsRepository for SqliteSettingsRepository {
     }
 }
 
-/// SQLCipher-backed local profile binding and wrapped List DEK cache.
+/// SQLCipher-backed local profile binding and wrapped Tenant Root Key cache.
 pub struct SqliteLocalCryptoRepository {
     connection: Connection,
 }
@@ -4320,11 +4245,10 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
         load_local_profile_binding_on(&self.connection)
     }
 
-    fn bind_and_replace_bundles(
+    fn bind_tenant_root(
         &mut self,
         binding: LocalProfileBinding,
         tenant_root: &LocalTenantRootKeyBundle,
-        bundles: &[LocalListKeyBundle],
     ) -> Result<(), StorageError> {
         if tenant_root.tenant_id != binding.tenant_id {
             return Err(StorageError::LocalProfileTenantMismatch {
@@ -4337,15 +4261,6 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
                 "invalid local Tenant Root DEK cache entry".to_string(),
             ));
         }
-        for bundle in bundles {
-            if bundle.tenant_id != binding.tenant_id {
-                return Err(StorageError::LocalProfileTenantMismatch {
-                    bound_tenant_id: binding.tenant_id,
-                    requested_tenant_id: bundle.tenant_id,
-                });
-            }
-        }
-
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -4379,7 +4294,6 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
                 binding.updated_at,
             ],
         )?;
-        transaction.execute("DELETE FROM local_list_key_bundles", [])?;
         transaction.execute("DELETE FROM local_tenant_root_key_cache", [])?;
         transaction.execute(
             "INSERT INTO local_tenant_root_key_cache (
@@ -4394,24 +4308,6 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
                 tenant_root.updated_at,
             ],
         )?;
-        for bundle in bundles {
-            transaction.execute(
-                "INSERT INTO local_list_key_bundles (
-                     tenant_id, list_id, generation, wrapped_list_dek, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    bundle.tenant_id.to_string(),
-                    bundle.list_id.to_string(),
-                    i64::try_from(bundle.generation).map_err(|_| {
-                        StorageError::IncompatibleSchema(
-                            "invalid local list key generation".to_string(),
-                        )
-                    })?,
-                    bundle.wrapped_list_dek,
-                    bundle.updated_at,
-                ],
-            )?;
-        }
         transaction.commit()?;
         Ok(())
     }
@@ -4458,44 +4354,6 @@ impl LocalCryptoRepository for SqliteLocalCryptoRepository {
             .optional()
             .map_err(StorageError::from)
     }
-
-    fn load_bundles(&self, tenant_id: Uuid) -> Result<Vec<LocalListKeyBundle>, StorageError> {
-        if let Some(binding) = load_local_profile_binding_on(&self.connection)? {
-            if binding.tenant_id != tenant_id {
-                return Err(StorageError::LocalProfileTenantMismatch {
-                    bound_tenant_id: binding.tenant_id,
-                    requested_tenant_id: tenant_id,
-                });
-            }
-        }
-        let foreign_count: i64 = self.connection.query_row(
-            "SELECT count(*) FROM local_list_key_bundles WHERE tenant_id <> ?1",
-            [tenant_id.to_string()],
-            |row| row.get(0),
-        )?;
-        if foreign_count != 0 {
-            return Err(StorageError::LocalCryptoCacheTenantMismatch);
-        }
-        load_local_list_key_bundles_on(&self.connection, tenant_id)
-    }
-
-    fn delete_bundle(&mut self, tenant_id: Uuid, list_id: Uuid) -> Result<bool, StorageError> {
-        let binding = load_local_profile_binding_on(&self.connection)?.ok_or_else(|| {
-            StorageError::IncompatibleSchema("local profile binding is missing".to_string())
-        })?;
-        if binding.tenant_id != tenant_id {
-            return Err(StorageError::LocalProfileTenantMismatch {
-                bound_tenant_id: binding.tenant_id,
-                requested_tenant_id: tenant_id,
-            });
-        }
-        let changed = self.connection.execute(
-            "DELETE FROM local_list_key_bundles
-             WHERE tenant_id = ?1 AND list_id = ?2",
-            params![tenant_id.to_string(), list_id.to_string()],
-        )?;
-        Ok(changed == 1)
-    }
 }
 
 fn load_local_profile_binding_on(
@@ -4528,43 +4386,6 @@ fn load_local_profile_binding_on(
         })
     })
     .transpose()
-}
-
-fn load_local_list_key_bundles_on(
-    connection: &Connection,
-    tenant_id: Uuid,
-) -> Result<Vec<LocalListKeyBundle>, StorageError> {
-    let mut statement = connection.prepare(
-        "SELECT list_id, generation, wrapped_list_dek, updated_at
-         FROM local_list_key_bundles
-         WHERE tenant_id = ?1
-         ORDER BY list_id ASC",
-    )?;
-    let rows = statement
-        .query_map([tenant_id.to_string()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    rows.into_iter()
-        .map(|(list_id, generation, wrapped_list_dek, updated_at)| {
-            Ok(LocalListKeyBundle {
-                tenant_id,
-                list_id: Uuid::parse_str(&list_id)?,
-                generation: u64::try_from(generation).map_err(|_| {
-                    StorageError::IncompatibleSchema(
-                        "invalid local list key generation".to_string(),
-                    )
-                })?,
-                wrapped_list_dek,
-                updated_at,
-            })
-        })
-        .collect()
 }
 
 fn get_setting_on(connection: &Connection, key: &str) -> Result<Option<String>, StorageError> {
@@ -4843,23 +4664,6 @@ impl SqliteSyncStateRepository {
         resolve_list_alias_on(&self.connection, list_id)
     }
 
-    pub fn list_pending_list_key_bundles(
-        &self,
-        tenant_id: Uuid,
-        limit: usize,
-    ) -> Result<Vec<PendingListKeyBundle>, StorageError> {
-        list_pending_list_key_bundles_on(&self.connection, tenant_id, limit)
-    }
-
-    pub fn ack_pending_list_key_bundle(
-        &mut self,
-        tenant_id: Uuid,
-        list_id: Uuid,
-        wrapped_list_dek: &[u8],
-    ) -> Result<bool, StorageError> {
-        ack_pending_list_key_bundle_on(&self.connection, tenant_id, list_id, wrapped_list_dek)
-    }
-
     pub fn load_full_resync(&self) -> Result<Option<FullResyncProgress>, StorageError> {
         load_full_resync_on(&self.connection)
     }
@@ -4879,169 +4683,6 @@ impl SqliteSyncStateRepository {
             now_ms,
         )
     }
-}
-
-fn put_local_list_key_bundle_on(
-    connection: &Connection,
-    bundle: &LocalListKeyBundle,
-) -> Result<(), StorageError> {
-    let binding = load_local_profile_binding_on(connection)?.ok_or_else(|| {
-        StorageError::IncompatibleSchema("local profile binding is missing".to_string())
-    })?;
-    if binding.tenant_id != bundle.tenant_id {
-        return Err(StorageError::LocalProfileTenantMismatch {
-            bound_tenant_id: binding.tenant_id,
-            requested_tenant_id: bundle.tenant_id,
-        });
-    }
-    let existing = connection
-        .query_row(
-            "SELECT generation, wrapped_list_dek FROM local_list_key_bundles
-             WHERE tenant_id = ?1 AND list_id = ?2",
-            params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
-        )
-        .optional()?;
-    if let Some(existing) = existing {
-        return if existing.0 == i64::try_from(bundle.generation).unwrap_or(0)
-            && existing.1 == bundle.wrapped_list_dek
-        {
-            Ok(())
-        } else {
-            Err(StorageError::IncompatibleSchema(
-                "local list key bundle is immutable".to_string(),
-            ))
-        };
-    }
-    connection.execute(
-        "INSERT INTO local_list_key_bundles (
-             tenant_id, list_id, generation, wrapped_list_dek, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            bundle.tenant_id.to_string(),
-            bundle.list_id.to_string(),
-            i64::try_from(bundle.generation).map_err(|_| StorageError::IncompatibleSchema(
-                "invalid local list key generation".to_string()
-            ))?,
-            bundle.wrapped_list_dek,
-            bundle.updated_at,
-        ],
-    )?;
-    Ok(())
-}
-
-fn put_pending_list_key_bundle_on(
-    connection: &Connection,
-    bundle: &PendingListKeyBundle,
-) -> Result<(), StorageError> {
-    let binding = load_local_profile_binding_on(connection)?.ok_or_else(|| {
-        StorageError::IncompatibleSchema("local profile binding is missing".to_string())
-    })?;
-    if binding.tenant_id != bundle.tenant_id {
-        return Err(StorageError::LocalProfileTenantMismatch {
-            bound_tenant_id: binding.tenant_id,
-            requested_tenant_id: bundle.tenant_id,
-        });
-    }
-    let existing = connection
-        .query_row(
-            "SELECT generation, wrapped_list_dek, signed_manifest FROM pending_list_key_bundles
-             WHERE tenant_id = ?1 AND list_id = ?2",
-            params![bundle.tenant_id.to_string(), bundle.list_id.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, Vec<u8>>(2)?,
-                ))
-            },
-        )
-        .optional()?;
-    if let Some(existing) = existing {
-        return if existing.0 == i64::try_from(bundle.generation).unwrap_or(0)
-            && existing.1 == bundle.wrapped_list_dek
-            && existing.2 == bundle.signed_manifest
-        {
-            Ok(())
-        } else {
-            Err(StorageError::IncompatibleSchema(
-                "pending list key bundle is immutable".to_string(),
-            ))
-        };
-    }
-    connection.execute(
-        "INSERT INTO pending_list_key_bundles (
-             tenant_id, list_id, generation, wrapped_list_dek, signed_manifest, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            bundle.tenant_id.to_string(),
-            bundle.list_id.to_string(),
-            i64::try_from(bundle.generation).map_err(|_| StorageError::IncompatibleSchema(
-                "invalid pending list key generation".to_string()
-            ))?,
-            bundle.wrapped_list_dek,
-            bundle.signed_manifest,
-            bundle.created_at,
-        ],
-    )?;
-    Ok(())
-}
-
-fn list_pending_list_key_bundles_on(
-    connection: &Connection,
-    tenant_id: Uuid,
-    limit: usize,
-) -> Result<Vec<PendingListKeyBundle>, StorageError> {
-    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-    let mut statement = connection.prepare(
-        "SELECT list_id, generation, wrapped_list_dek, signed_manifest, created_at
-         FROM pending_list_key_bundles
-         WHERE tenant_id = ?1
-         ORDER BY created_at ASC, list_id ASC
-         LIMIT ?2",
-    )?;
-    let rows = statement
-        .query_map(params![tenant_id.to_string(), limit], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-                row.get::<_, i64>(4)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    rows.into_iter()
-        .map(
-            |(list_id, generation, wrapped_list_dek, signed_manifest, created_at)| {
-                Ok(PendingListKeyBundle {
-                    tenant_id,
-                    list_id: Uuid::parse_str(&list_id)?,
-                    generation: u64::try_from(generation).map_err(|_| {
-                        StorageError::IncompatibleSchema(
-                            "invalid pending list key generation".to_string(),
-                        )
-                    })?,
-                    wrapped_list_dek,
-                    signed_manifest,
-                    created_at,
-                })
-            },
-        )
-        .collect()
-}
-
-fn ack_pending_list_key_bundle_on(
-    connection: &Connection,
-    tenant_id: Uuid,
-    list_id: Uuid,
-    wrapped_list_dek: &[u8],
-) -> Result<bool, StorageError> {
-    Ok(connection.execute(
-        "DELETE FROM pending_list_key_bundles
-         WHERE tenant_id = ?1 AND list_id = ?2 AND wrapped_list_dek = ?3",
-        params![tenant_id.to_string(), list_id.to_string(), wrapped_list_dek],
-    )? != 0)
 }
 
 impl SyncStateRepository for SqliteSyncStateRepository {
@@ -5483,7 +5124,8 @@ fn sweep_full_resync_batch_on(
                     [record_id],
                     |row| row.get(0),
                 )?;
-                summary.swept_tasks += delete_list_with_tasks_for_sync_on(connection, record_uuid)?;
+                summary.swept_tasks +=
+                    delete_list_and_rehome_tasks_for_sync_on(connection, record_uuid)?;
                 summary.swept_lists += usize::from(list_existed);
             }
             "templates" => {
@@ -5540,8 +5182,6 @@ fn never_synced_record_is_valid(
                 "SELECT EXISTS (
                      SELECT 1 FROM sync_record_origins origin
                      JOIN sync_outbox outbox ON outbox.record_id = origin.record_id
-                     JOIN local_list_key_bundles local_key ON local_key.list_id = origin.record_id
-                     JOIN pending_list_key_bundles pending ON pending.list_id = origin.record_id
                      WHERE origin.record_id = ?1 AND origin.collection = 'lists'
                        AND origin.origin_kind = 'never_synced'
                  )",
@@ -5584,17 +5224,11 @@ fn never_synced_record_is_valid(
                            SELECT 1 FROM sync_record_origins list_origin
                            JOIN sync_outbox list_outbox
                              ON list_outbox.record_id = list_origin.record_id
-                           JOIN local_list_key_bundles local_key
-                             ON local_key.list_id = list_origin.record_id
-                           JOIN pending_list_key_bundles pending
-                             ON pending.list_id = list_origin.record_id
                            WHERE list_origin.record_id = task.list_id
                              AND list_origin.collection = 'lists'
                              AND list_origin.origin_kind = 'never_synced'
                            UNION ALL
                            SELECT 1 FROM sync_full_resync_marks list_mark
-                           JOIN local_list_key_bundles local_key
-                             ON local_key.list_id = list_mark.record_id
                            WHERE list_mark.generation_id = ?2
                              AND list_mark.collection = 'lists'
                              AND list_mark.record_id = task.list_id
@@ -6544,19 +6178,17 @@ fn delete_task_reminders_on(connection: &Connection, task_id: Uuid) -> Result<()
 
 fn row_to_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<List> {
     let id: String = row.get(0)?;
-    let org_id: Option<String> = row.get(4)?;
 
     Ok(List {
         id: parse_uuid(id, 0)?,
         name: row.get(1)?,
         color: row.get(2)?,
         icon: row.get(3)?,
-        org_id: parse_optional_uuid(org_id, 4)?,
-        sort_order: row.get(5)?,
-        archived_at: row.get(6)?,
-        is_default: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        sort_order: row.get(4)?,
+        archived_at: row.get(5)?,
+        is_default: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -6957,7 +6589,6 @@ mod tests {
             name: format!("List {sort_order}"),
             color: "#4F8EF7".to_string(),
             icon: "list".to_string(),
-            org_id: None,
             sort_order: sort_order.to_string(),
             is_default: false,
             archived_at: None,
@@ -7082,7 +6713,7 @@ mod tests {
                     list.name,
                     list.color,
                     list.icon,
-                    list.org_id.map(|id| id.to_string()),
+                    Option::<String>::None,
                     list.sort_order,
                     list.created_at,
                     list.updated_at,
@@ -7179,7 +6810,7 @@ mod tests {
                     list.name,
                     list.color,
                     list.icon,
-                    list.org_id.map(|id| id.to_string()),
+                    Option::<String>::None,
                     list.sort_order,
                     list.archived_at,
                     list.created_at,
@@ -7381,10 +7012,10 @@ mod tests {
             let mut insert_list = transaction
                 .prepare(
                     "INSERT INTO lists (
-                        id, name, color, icon, org_id, sort_order, is_default,
+                        id, name, color, icon, sort_order, is_default,
                         archived_at, created_at, updated_at
                     ) VALUES (
-                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
                     )",
                 )
                 .unwrap();
@@ -7397,7 +7028,6 @@ mod tests {
                         format!("Performance List {}", list_index + 1),
                         "#4F8EF7",
                         "list",
-                        Option::<String>::None,
                         format!("a{list_index:02}"),
                         list_index == 0,
                         Option::<i64>::None,
@@ -7698,9 +7328,11 @@ mod tests {
     }
 
     #[test]
-    fn fts5_search_tracks_physical_task_and_list_deletes() {
+    fn fts5_search_tracks_task_delete_and_list_rehoming() {
         let file = NamedTempFile::new().unwrap();
         let list = sample_list("a0");
+        let mut default_list = sample_list("a1");
+        default_list.is_default = true;
         let mut kept = sample_task();
         kept.list_id = list.id;
         kept.title = "Keep searchable".to_string();
@@ -7721,6 +7353,7 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut list_repository = SqliteListRepository::new(connection);
             list_repository.insert(list.clone()).unwrap();
+            list_repository.insert(default_list.clone()).unwrap();
         }
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -7750,14 +7383,24 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut list_repository = SqliteListRepository::new(connection);
-        list_repository.delete_with_tasks(list.id).unwrap();
+        list_repository.delete_and_rehome_tasks(list.id).unwrap();
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let task_repository = SqliteTaskRepository::new(connection);
-        assert!(task_repository
+        let mut remaining = task_repository
             .search_tasks("searchable")
             .unwrap()
-            .is_empty());
+            .into_iter()
+            .map(|task| (task.title, task.list_id))
+            .collect::<Vec<_>>();
+        remaining.sort();
+        assert_eq!(
+            remaining,
+            vec![
+                ("Delete searchable list".to_string(), default_list.id),
+                ("Keep searchable".to_string(), default_list.id),
+            ]
+        );
     }
 
     #[test]
@@ -7908,17 +7551,14 @@ mod tests {
                 "updated_at",
             ]
         );
-        assert_eq!(
-            table_columns(&connection, "local_list_key_bundles").unwrap(),
-            vec![
-                "tenant_id",
-                "list_id",
-                "generation",
-                "wrapped_list_dek",
-                "updated_at",
-            ]
-        );
-        assert!(index_exists(
+        assert!(table_columns(&connection, "local_list_key_bundles")
+            .unwrap()
+            .is_empty());
+        assert!(!table_columns(&connection, "lists")
+            .unwrap()
+            .iter()
+            .any(|column| column == "org_id"));
+        assert!(!index_exists(
             &connection,
             "idx_local_list_key_bundles_tenant"
         ));
@@ -7998,300 +7638,32 @@ mod tests {
     }
 
     #[test]
-    fn local_crypto_cache_roundtrips_and_same_account_replaces_bundles() {
+    fn local_crypto_cache_roundtrips_tenant_root_and_rejects_rebinding() {
         let file = NamedTempFile::new().unwrap();
-        let tenant_id = Uuid::now_v7();
-        let user_id = Uuid::now_v7();
-        let first_device_id = Uuid::now_v7();
-        let second_device_id = Uuid::now_v7();
-        let first_list_id = Uuid::now_v7();
-        let second_list_id = Uuid::now_v7();
         let connection = open_encrypted(file.path(), &KEY).unwrap();
-        let mut repository = SqliteLocalCryptoRepository::new(connection);
-        let initial_binding = LocalProfileBinding {
-            tenant_id,
-            user_id,
-            device_id: first_device_id,
-            bound_at: 100,
-            updated_at: 100,
-        };
-        repository
-            .bind_and_replace_bundles(
-                initial_binding.clone(),
-                &local_tenant_root_bundle(tenant_id, 100),
-                &[LocalListKeyBundle {
-                    tenant_id,
-                    list_id: first_list_id,
-                    generation: 1,
-                    wrapped_list_dek: vec![1, 2, 3],
-                    updated_at: 100,
-                }],
-            )
-            .unwrap();
-
-        assert_eq!(repository.load_binding().unwrap(), Some(initial_binding));
-        assert_eq!(
-            repository.load_bundles(tenant_id).unwrap(),
-            vec![LocalListKeyBundle {
-                tenant_id,
-                list_id: first_list_id,
-                generation: 1,
-                wrapped_list_dek: vec![1, 2, 3],
-                updated_at: 100,
-            }]
-        );
-
-        repository
-            .bind_and_replace_bundles(
-                LocalProfileBinding {
-                    tenant_id,
-                    user_id,
-                    device_id: second_device_id,
-                    bound_at: 999,
-                    updated_at: 200,
-                },
-                &local_tenant_root_bundle(tenant_id, 200),
-                &[LocalListKeyBundle {
-                    tenant_id,
-                    list_id: second_list_id,
-                    generation: 1,
-                    wrapped_list_dek: vec![4, 5, 6],
-                    updated_at: 200,
-                }],
-            )
-            .unwrap();
-
-        assert_eq!(
-            repository.load_binding().unwrap(),
-            Some(LocalProfileBinding {
-                tenant_id,
-                user_id,
-                device_id: second_device_id,
-                bound_at: 100,
-                updated_at: 200,
-            })
-        );
-        assert_eq!(
-            repository.load_bundles(tenant_id).unwrap(),
-            vec![LocalListKeyBundle {
-                tenant_id,
-                list_id: second_list_id,
-                generation: 1,
-                wrapped_list_dek: vec![4, 5, 6],
-                updated_at: 200,
-            }]
-        );
-        assert!(repository.delete_bundle(tenant_id, second_list_id).unwrap());
-        assert!(!repository.delete_bundle(tenant_id, second_list_id).unwrap());
-        assert!(repository.load_bundles(tenant_id).unwrap().is_empty());
-    }
-
-    #[test]
-    fn failed_local_crypto_cache_replace_rolls_back_binding_and_bundles() {
-        let file = NamedTempFile::new().unwrap();
         let tenant_id = Uuid::now_v7();
-        let user_id = Uuid::now_v7();
-        let first_device_id = Uuid::now_v7();
-        let second_device_id = Uuid::now_v7();
-        let list_id = Uuid::now_v7();
-        let connection = open_encrypted(file.path(), &KEY).unwrap();
-        let mut repository = SqliteLocalCryptoRepository::new(connection);
-        let original_binding = LocalProfileBinding {
-            tenant_id,
-            user_id,
-            device_id: first_device_id,
-            bound_at: 100,
-            updated_at: 100,
-        };
-        let original_bundle = LocalListKeyBundle {
-            tenant_id,
-            list_id,
-            generation: 1,
-            wrapped_list_dek: vec![1, 2, 3],
-            updated_at: 100,
-        };
-        repository
-            .bind_and_replace_bundles(
-                original_binding.clone(),
-                &local_tenant_root_bundle(tenant_id, 100),
-                std::slice::from_ref(&original_bundle),
-            )
-            .unwrap();
-
-        let result = repository.bind_and_replace_bundles(
-            LocalProfileBinding {
-                tenant_id,
-                user_id,
-                device_id: second_device_id,
-                bound_at: 100,
-                updated_at: 200,
-            },
-            &local_tenant_root_bundle(tenant_id, 200),
-            &[LocalListKeyBundle {
-                tenant_id,
-                list_id: Uuid::now_v7(),
-                generation: 1,
-                wrapped_list_dek: Vec::new(),
-                updated_at: 200,
-            }],
-        );
-
-        assert!(matches!(result, Err(StorageError::Sqlite(_))));
-        assert_eq!(repository.load_binding().unwrap(), Some(original_binding));
-        assert_eq!(
-            repository.load_bundles(tenant_id).unwrap(),
-            vec![original_bundle]
-        );
-    }
-
-    #[test]
-    fn local_crypto_cache_rejects_tenant_and_user_rebinding() {
-        let file = NamedTempFile::new().unwrap();
-        let tenant_id = Uuid::now_v7();
-        let user_id = Uuid::now_v7();
-        let binding = LocalProfileBinding {
-            tenant_id,
-            user_id,
-            device_id: Uuid::now_v7(),
-            bound_at: 100,
-            updated_at: 100,
-        };
-        let connection = open_encrypted(file.path(), &KEY).unwrap();
-        let mut repository = SqliteLocalCryptoRepository::new(connection);
-        repository
-            .bind_and_replace_bundles(
-                binding.clone(),
-                &local_tenant_root_bundle(tenant_id, 100),
-                &[],
-            )
-            .unwrap();
-
         let other_tenant_id = Uuid::now_v7();
-        assert!(matches!(
-            repository.bind_and_replace_bundles(
-                LocalProfileBinding {
-                    tenant_id: other_tenant_id,
-                    ..binding.clone()
-                },
-                &local_tenant_root_bundle(other_tenant_id, 100),
-                &[]
-            ),
-            Err(StorageError::LocalProfileTenantMismatch {
-                bound_tenant_id,
-                requested_tenant_id,
-            }) if bound_tenant_id == tenant_id && requested_tenant_id == other_tenant_id
-        ));
-
-        let other_user_id = Uuid::now_v7();
-        assert!(matches!(
-            repository.bind_and_replace_bundles(
-                LocalProfileBinding {
-                    user_id: other_user_id,
-                    ..binding.clone()
-                },
-                &local_tenant_root_bundle(tenant_id, 100),
-                &[]
-            ),
-            Err(StorageError::LocalProfileUserMismatch {
-                bound_user_id,
-                requested_user_id,
-            }) if bound_user_id == user_id && requested_user_id == other_user_id
-        ));
-        assert!(matches!(
-            repository.load_bundles(other_tenant_id),
-            Err(StorageError::LocalProfileTenantMismatch {
-                bound_tenant_id,
-                requested_tenant_id,
-            }) if bound_tenant_id == tenant_id && requested_tenant_id == other_tenant_id
-        ));
-        assert_eq!(repository.load_binding().unwrap(), Some(binding));
-    }
-
-    #[test]
-    fn local_crypto_cache_rejects_foreign_tenant_rows() {
-        let file = NamedTempFile::new().unwrap();
-        let tenant_id = Uuid::now_v7();
         let binding = LocalProfileBinding {
             tenant_id,
             user_id: Uuid::now_v7(),
             device_id: Uuid::now_v7(),
-            bound_at: 100,
-            updated_at: 100,
+            bound_at: 10,
+            updated_at: 10,
         };
-        let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteLocalCryptoRepository::new(connection);
         repository
-            .bind_and_replace_bundles(
-                binding.clone(),
-                &local_tenant_root_bundle(tenant_id, 100),
-                &[],
-            )
+            .bind_tenant_root(binding.clone(), &local_tenant_root_bundle(tenant_id, 10))
             .unwrap();
-        repository
-            .connection()
-            .execute(
-                "INSERT INTO local_list_key_bundles (
-                     tenant_id, list_id, generation, wrapped_list_dek, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    Uuid::now_v7().to_string(),
-                    Uuid::now_v7().to_string(),
-                    1,
-                    vec![1_u8, 2, 3],
-                    100,
-                ],
-            )
-            .unwrap();
-
-        assert!(matches!(
-            repository.load_bundles(tenant_id),
-            Err(StorageError::LocalCryptoCacheTenantMismatch)
-        ));
-        repository
-            .bind_and_replace_bundles(binding, &local_tenant_root_bundle(tenant_id, 100), &[])
-            .unwrap();
-        assert!(repository.load_bundles(tenant_id).unwrap().is_empty());
-    }
-
-    #[test]
-    fn local_crypto_cache_survives_encrypted_database_reopen() {
-        let file = NamedTempFile::new().unwrap();
-        let tenant_id = Uuid::now_v7();
-        let binding = LocalProfileBinding {
-            tenant_id,
-            user_id: Uuid::now_v7(),
-            device_id: Uuid::now_v7(),
-            bound_at: 100,
-            updated_at: 100,
-        };
-        let bundle = LocalListKeyBundle {
-            tenant_id,
-            list_id: Uuid::now_v7(),
-            generation: 1,
-            wrapped_list_dek: vec![9, 8, 7],
-            updated_at: 100,
-        };
-        {
-            let connection = open_encrypted(file.path(), &KEY).unwrap();
-            let mut repository = SqliteLocalCryptoRepository::new(connection);
-            repository
-                .bind_and_replace_bundles(
-                    binding.clone(),
-                    &local_tenant_root_bundle(tenant_id, 100),
-                    std::slice::from_ref(&bundle),
-                )
-                .unwrap();
-        }
-
-        let connection = open_encrypted(file.path(), &KEY).unwrap();
-        let repository = SqliteLocalCryptoRepository::new(connection);
 
         assert_eq!(repository.load_binding().unwrap(), Some(binding));
-        assert_eq!(repository.load_bundles(tenant_id).unwrap(), vec![bundle]);
         assert_eq!(
             repository.load_tenant_root(tenant_id).unwrap(),
-            Some(local_tenant_root_bundle(tenant_id, 100))
+            Some(local_tenant_root_bundle(tenant_id, 10))
         );
+        assert!(matches!(
+            repository.load_tenant_root(other_tenant_id),
+            Err(StorageError::LocalProfileTenantMismatch { .. })
+        ));
     }
 
     #[test]
@@ -9582,9 +8954,11 @@ mod tests {
     }
 
     #[test]
-    fn task_and_list_physical_deletes_remove_reminders() {
+    fn task_delete_removes_reminders_but_list_delete_rehomes_them() {
         let file = NamedTempFile::new().unwrap();
         let list = sample_list("a0");
+        let mut default_list = sample_list("a1");
+        default_list.is_default = true;
         let mut subtree_task = sample_task();
         subtree_task.list_id = list.id;
         subtree_task.parent_task_id = None;
@@ -9597,6 +8971,7 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut list_repository = SqliteListRepository::new(connection);
             list_repository.insert(list.clone()).unwrap();
+            list_repository.insert(default_list.clone()).unwrap();
         }
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -9638,7 +9013,7 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut list_repository = SqliteListRepository::new(connection);
-        list_repository.delete_with_tasks(list.id).unwrap();
+        list_repository.delete_and_rehome_tasks(list.id).unwrap();
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let reminder_repository = SqliteReminderRepository::new(connection);
@@ -9646,6 +9021,13 @@ mod tests {
             .list_list_reminders(list.id)
             .unwrap()
             .is_empty());
+        assert_eq!(
+            reminder_repository
+                .list_list_reminders(default_list.id)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -9831,7 +9213,7 @@ mod tests {
             }) if list_id == list.id
         ));
         assert!(matches!(
-            repository.delete_with_tasks(list.id),
+            repository.delete_and_rehome_tasks(list.id),
             Err(StorageError::DefaultListProtected {
                 operation: "deleted",
                 list_id,
@@ -9961,7 +9343,6 @@ mod tests {
         first.name = "Renamed".to_string();
         first.color = "#FFAA00".to_string();
         first.icon = "star".to_string();
-        first.org_id = Some(Uuid::now_v7());
         first.sort_order = "c0".to_string();
         first.archived_at = Some(1_799_000_001_000);
         first.updated_at += 1_000;
@@ -10018,9 +9399,12 @@ mod tests {
     }
 
     #[test]
-    fn delete_list_removes_tasks_and_task_undo_entries() {
+    fn delete_list_rehomes_tasks_and_preserves_task_undo_entries() {
         let file = NamedTempFile::new().unwrap();
-        let list = new_list("Inbox".to_string(), "a0".to_string(), 1_700_000_000_000).unwrap();
+        let list = new_list("Project".to_string(), "a0".to_string(), 1_700_000_000_000).unwrap();
+        let mut default_list =
+            new_list("Inbox".to_string(), "a1".to_string(), 1_700_000_000_000).unwrap();
+        default_list.is_default = true;
         let task = new_task(
             list.id,
             None,
@@ -10034,6 +9418,7 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut list_repository = SqliteListRepository::new(connection);
             list_repository.insert(list.clone()).unwrap();
+            list_repository.insert(default_list.clone()).unwrap();
         }
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -10054,7 +9439,7 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut list_repository = SqliteListRepository::new(connection);
         assert_eq!(list_repository.count_tasks(list.id).unwrap(), 1);
-        assert_eq!(list_repository.delete_with_tasks(list.id).unwrap(), 1);
+        assert_eq!(list_repository.delete_and_rehome_tasks(list.id).unwrap(), 1);
         assert!(matches!(
             list_repository.get(list.id),
             Err(StorageError::NotFound(id)) if id == list.id
@@ -10062,11 +9447,11 @@ mod tests {
 
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let task_repository = SqliteTaskRepository::new(connection);
-        assert!(matches!(
-            task_repository.get(task.id),
-            Err(StorageError::NotFound(id)) if id == task.id
-        ));
-        assert!(task_repository.latest_unconsumed_undo().unwrap().is_none());
+        assert_eq!(
+            task_repository.get(task.id).unwrap().list_id,
+            default_list.id
+        );
+        assert!(task_repository.latest_unconsumed_undo().unwrap().is_some());
     }
 
     #[test]
@@ -11166,6 +10551,8 @@ mod tests {
     fn sqlite_write_tx_drop_rolls_back_list_and_task_physical_delete() {
         let file = NamedTempFile::new().unwrap();
         let list = sample_list("a0");
+        let mut default_list = sample_list("a1");
+        default_list.is_default = true;
         let mut active = sample_task();
         active.list_id = list.id;
         active.parent_task_id = None;
@@ -11180,6 +10567,7 @@ mod tests {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut lists = SqliteListRepository::new(connection);
             lists.insert(list.clone()).unwrap();
+            lists.insert(default_list).unwrap();
         }
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
@@ -11195,7 +10583,7 @@ mod tests {
                 write_tx.list_tasks_by_list(list.id).unwrap(),
                 vec![active.clone(), logically_deleted.clone()]
             );
-            assert_eq!(write_tx.delete_list_with_tasks(list.id).unwrap(), 2);
+            assert_eq!(write_tx.delete_list_and_rehome_tasks(list.id).unwrap(), 2);
             assert!(matches!(
                 write_tx.get_list(list.id),
                 Err(StorageError::NotFound(id)) if id == list.id
@@ -11238,10 +10626,10 @@ mod tests {
         let mut connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut write_tx = SqliteWriteTx::begin(&mut connection).unwrap();
         assert!(matches!(
-            write_tx.delete_list_with_tasks(default_list.id),
+            write_tx.delete_list_and_rehome_tasks(default_list.id),
             Err(StorageError::DefaultListProtected { list_id, .. }) if list_id == default_list.id
         ));
-        assert_eq!(write_tx.delete_list_with_tasks(list.id).unwrap(), 1);
+        assert_eq!(write_tx.delete_list_and_rehome_tasks(list.id).unwrap(), 1);
         write_tx.commit().unwrap();
         drop(connection);
 
@@ -11255,10 +10643,7 @@ mod tests {
         drop(lists);
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
-        assert!(matches!(
-            tasks.get(task.id),
-            Err(StorageError::NotFound(id)) if id == task.id
-        ));
+        assert_eq!(tasks.get(task.id).unwrap().list_id, default_list.id);
     }
 
     #[test]
@@ -11347,69 +10732,6 @@ mod tests {
             Err(rusqlite::Error::SqliteFailure(error, _))
                 if error.code == rusqlite::ErrorCode::DatabaseBusy
         ));
-    }
-
-    #[test]
-    fn pending_list_key_bundle_is_immutable_and_compare_acknowledged() {
-        let file = NamedTempFile::new().unwrap();
-        let tenant_id = Uuid::now_v7();
-        let list_id = Uuid::now_v7();
-        let bundle = PendingListKeyBundle {
-            tenant_id,
-            list_id,
-            generation: 1,
-            wrapped_list_dek: vec![1, 2, 3],
-            signed_manifest: vec![0; 124],
-            created_at: 10,
-        };
-        let mut local_crypto =
-            SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
-        local_crypto
-            .bind_and_replace_bundles(
-                LocalProfileBinding {
-                    tenant_id,
-                    user_id: Uuid::now_v7(),
-                    device_id: Uuid::now_v7(),
-                    bound_at: 1,
-                    updated_at: 1,
-                },
-                &local_tenant_root_bundle(tenant_id, 1),
-                &[],
-            )
-            .unwrap();
-        let mut connection = open_encrypted(file.path(), &KEY).unwrap();
-        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
-        transaction
-            .put_pending_list_key_bundle(bundle.clone())
-            .unwrap();
-        transaction
-            .put_pending_list_key_bundle(bundle.clone())
-            .unwrap();
-        let mut conflicting = bundle.clone();
-        conflicting.wrapped_list_dek = vec![4, 5, 6];
-        assert!(transaction
-            .put_pending_list_key_bundle(conflicting)
-            .is_err());
-        transaction.commit().unwrap();
-
-        let mut repository =
-            SqliteSyncStateRepository::new(open_encrypted(file.path(), &KEY).unwrap());
-        assert_eq!(
-            repository
-                .list_pending_list_key_bundles(tenant_id, 10)
-                .unwrap(),
-            vec![bundle.clone()]
-        );
-        assert!(!repository
-            .ack_pending_list_key_bundle(tenant_id, list_id, &[9])
-            .unwrap());
-        assert!(repository
-            .ack_pending_list_key_bundle(tenant_id, list_id, &bundle.wrapped_list_dek,)
-            .unwrap());
-        assert!(repository
-            .list_pending_list_key_bundles(tenant_id, 10)
-            .unwrap()
-            .is_empty());
     }
 
     #[test]
@@ -11785,7 +11107,7 @@ mod tests {
         let mut local_crypto =
             SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
         local_crypto
-            .bind_and_replace_bundles(
+            .bind_tenant_root(
                 LocalProfileBinding {
                     tenant_id,
                     user_id: Uuid::now_v7(),
@@ -11794,32 +11116,12 @@ mod tests {
                     updated_at: 1,
                 },
                 &local_tenant_root_bundle(tenant_id, 1),
-                &[],
             )
             .unwrap();
         let mut connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
         transaction.insert_list(list.clone()).unwrap();
         transaction.insert_task(task.clone()).unwrap();
-        transaction
-            .put_local_list_key_bundle(LocalListKeyBundle {
-                tenant_id,
-                list_id: list.id,
-                generation: 1,
-                wrapped_list_dek: vec![1, 2, 3],
-                updated_at: 1,
-            })
-            .unwrap();
-        transaction
-            .put_pending_list_key_bundle(PendingListKeyBundle {
-                tenant_id,
-                list_id: list.id,
-                generation: 1,
-                wrapped_list_dek: vec![1, 2, 3],
-                signed_manifest: vec![0; 124],
-                created_at: 1,
-            })
-            .unwrap();
         for (id, collection) in [(list.id, "lists"), (task.id, "tasks")] {
             transaction
                 .put_record_state(live_record_state(id, collection, None, "m1", "{}", 1))
@@ -11884,7 +11186,7 @@ mod tests {
         let mut crypto =
             SqliteLocalCryptoRepository::new(open_encrypted(file.path(), &KEY).unwrap());
         crypto
-            .bind_and_replace_bundles(
+            .bind_tenant_root(
                 LocalProfileBinding {
                     tenant_id,
                     user_id: Uuid::now_v7(),
@@ -11893,13 +11195,6 @@ mod tests {
                     updated_at: 1,
                 },
                 &local_tenant_root_bundle(tenant_id, 1),
-                &[LocalListKeyBundle {
-                    tenant_id,
-                    list_id: list.id,
-                    generation: 1,
-                    wrapped_list_dek: vec![1],
-                    updated_at: 1,
-                }],
             )
             .unwrap();
         let mut connection = open_encrypted(file.path(), &KEY).unwrap();

@@ -106,7 +106,7 @@ APIレベルの検証:
 - push/pullがtenant分離、batch上限、blob上限、未来HLC拒否を維持している。
 - 削除tombstoneの空blob方針が維持されている。
 - application poolの `current_user` がnon-owner runtime loginで、`rolsuper = false`、`rolbypassrls = false`、`rolinherit = true`、`pg_has_role(current_user, 'taskveil_app', 'USAGE') = true`である。
-- `tenants`、`tenant_members`、`tenant_seq`、tenant/list key bundle、sync record/historyでRLSと`FORCE ROW LEVEL SECURITY`が有効である。
+- `tenants`、`tenant_members`、`tenant_seq`、tenant key generation / recipient、sync record/historyでRLSと`FORCE ROW LEVEL SECURITY`が有効である。List key tableは存在しない。
 - tenant contextなしでは0行、tenant contextありでは当該tenantだけが見え、別tenantへのinsert/update/deleteが拒否または0件になる。
 
 ## 8. ロールバック方針

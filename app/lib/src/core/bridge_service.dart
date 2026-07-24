@@ -237,7 +237,7 @@ abstract class BridgeService {
   /// Permanently deletes `taskId` and its descendants.
   Future<void> deleteTask({required String taskId});
 
-  /// Permanently deletes `listId` and all of its tasks.
+  /// Deletes `listId` and moves its tasks to the default Inbox.
   Future<void> deleteList({required String listId});
 
   /// Reorders a task within its current sibling group.

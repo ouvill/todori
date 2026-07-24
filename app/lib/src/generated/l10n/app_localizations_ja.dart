@@ -72,7 +72,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String deleteListDialogMessage(int taskCount) {
-    return 'このリストと配下のタスク $taskCount件（完了済みを含む）は完全に削除され、元に戻せません。履歴を残す場合は削除ではなくアーカイブしてください。';
+    return 'このリストは完全に削除され、元に戻せません。配下のタスク $taskCount件（完了済みを含む）はリマインダーや履歴を保持したままインボックスへ移動します。';
   }
 
   @override

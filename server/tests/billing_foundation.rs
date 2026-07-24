@@ -290,7 +290,6 @@ async fn free_account_is_rejected_by_every_sync_and_realtime_route() {
     let fixture = Fixture::setup().await;
     let tenant = fixture.tenant_id;
     let device = Uuid::now_v7();
-    let list = Uuid::now_v7();
     let proof = Uuid::now_v7();
     let cases = [
         (
@@ -348,14 +347,13 @@ async fn free_account_is_rejected_by_every_sync_and_realtime_route() {
                 "suite_id": 2,
                 "generation": 2,
                 "signed_manifest": "AA==",
-                "wrapped_tenant_root_dek": "AA==",
-                "list_keys": []
+                "wrapped_tenant_root_dek": "AA=="
             }),
         ),
         (
             Method::POST,
             format!("/v2/tenants/{tenant}/key-rotation/activate"),
-            json!({"generation": 2, "signed_manifest": "AA==", "list_manifests": []}),
+            json!({"generation": 2, "signed_manifest": "AA=="}),
         ),
         (
             Method::POST,
@@ -371,26 +369,6 @@ async fn free_account_is_rejected_by_every_sync_and_realtime_route() {
             Method::POST,
             format!("/v2/tenants/{tenant}/devices/{device}/key-expiry"),
             json!({"expires_at": null}),
-        ),
-        (
-            Method::GET,
-            format!("/v2/tenants/{tenant}/list-keys"),
-            json!(null),
-        ),
-        (
-            Method::POST,
-            format!("/v2/tenants/{tenant}/list-keys"),
-            json!({
-                "list_id": list,
-                "generation": 1,
-                "wrapped_list_dek": "AA==",
-                "signed_manifest": "AA=="
-            }),
-        ),
-        (
-            Method::DELETE,
-            format!("/v2/tenants/{tenant}/list-keys/{list}"),
-            json!(null),
         ),
         (
             Method::POST,

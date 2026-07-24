@@ -398,7 +398,6 @@ impl<'a> VerifiedDeviceCertificate<'a> {
 #[repr(u8)]
 pub enum HybridScopeKind {
     Tenant = 1,
-    List = 2,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -458,7 +457,6 @@ impl HybridDekPackage {
         }
         let scope_kind = match bytes[6] {
             1 => HybridScopeKind::Tenant,
-            2 => HybridScopeKind::List,
             _ => return Err(OrganizationCryptoError::InvalidEncoding),
         };
         let wrapped_len_offset = FIXED - 4;
@@ -1340,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_kem_wrap_binds_both_keys_scope_generation_and_recipient() {
+    fn hybrid_kem_wrap_binds_both_keys_tenant_generation_and_recipient() {
         let (root, first, first_cert, second, second_cert) = certificate_fixture();
         let scope_id = Uuid::now_v7();
         let dek = [0x6d; DEK_LEN];
@@ -1352,7 +1350,7 @@ mod tests {
             &first.private,
             verified_first,
             verified_second,
-            HybridScopeKind::List,
+            HybridScopeKind::Tenant,
             scope_id,
             7,
             &dek,

@@ -1,13 +1,13 @@
 use std::path::Path;
 
 use taskveil_crypto::key_hierarchy::{
-    unwrap_local_list_dek_with_master_key, unwrap_local_tenant_root_dek_with_master_key,
-    wrap_local_list_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key, KEY_LEN,
+    unwrap_local_tenant_root_dek_with_master_key, wrap_local_tenant_root_dek_with_master_key,
+    KEY_LEN,
 };
 use taskveil_domain::Uuid;
 use taskveil_storage::{
-    open_encrypted, ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
-    LocalTenantRootKeyBundle, SqliteListRepository, SqliteLocalCryptoRepository, StorageError,
+    open_encrypted, LocalCryptoRepository, LocalProfileBinding, LocalTenantRootKeyBundle,
+    SqliteLocalCryptoRepository, StorageError,
 };
 use taskveil_sync::{account::AccountKeyMaterial, LocalSyncKeys};
 use zeroize::Zeroizing;
@@ -31,7 +31,6 @@ pub struct LocalCryptoIdentity {
 pub enum LocalCryptoUnavailable {
     MissingMasterKey,
     CorruptKeyCache,
-    MissingListKey(Uuid),
     MissingTenantRootKey,
 }
 
@@ -87,11 +86,6 @@ pub fn load_local_crypto_context(
             LocalCryptoUnavailable::MissingMasterKey,
         ));
     };
-    let bundles = repository.load_bundles(binding.tenant_id)?;
-    let entries = bundles
-        .into_iter()
-        .map(|bundle| (bundle.list_id, bundle.generation, bundle.wrapped_list_dek))
-        .collect::<Vec<_>>();
     let Some(tenant_root) = repository.load_tenant_root(binding.tenant_id)? else {
         return Ok(LocalCryptoAvailability::AccountBoundUnavailable(
             LocalCryptoUnavailable::MissingTenantRootKey,
@@ -101,7 +95,6 @@ pub fn load_local_crypto_context(
         binding.tenant_id,
         tenant_root.generation,
         &tenant_root.wrapped_tenant_root_dek,
-        &entries,
         &master_key,
     ) {
         Ok(keys) => keys,
@@ -111,12 +104,6 @@ pub fn load_local_crypto_context(
             ));
         }
     };
-
-    if let Some(list_id) = missing_required_list_key(db_path, db_key, &sync_keys)? {
-        return Ok(LocalCryptoAvailability::AccountBoundUnavailable(
-            LocalCryptoUnavailable::MissingListKey(list_id),
-        ));
-    }
 
     Ok(LocalCryptoAvailability::Ready(Box::new(
         LocalCryptoContext {
@@ -154,26 +141,6 @@ pub fn persist_local_crypto_context(
     sync_keys: LocalSyncKeys,
     now_ms: i64,
 ) -> Result<LocalCryptoContext, StorageError> {
-    let entries = sync_keys
-        .list_deks
-        .iter()
-        .map(|(list_id, list_dek)| {
-            let generation = sync_keys.generation_for_list(*list_id).ok_or_else(|| {
-                StorageError::IncompatibleSchema("missing list key generation".to_string())
-            })?;
-            wrap_local_list_dek_with_master_key(
-                identity.tenant_id,
-                *list_id,
-                generation,
-                list_dek,
-                master_key,
-            )
-            .map(|wrapped| (*list_id, generation, wrapped))
-            .map_err(|_| {
-                StorageError::IncompatibleSchema("invalid local sync key material".to_string())
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let tenant_root_dek = sync_keys.tenant_root_dek.as_deref().ok_or_else(|| {
         StorageError::IncompatibleSchema("local Tenant Root DEK is missing".to_string())
     })?;
@@ -197,10 +164,7 @@ pub fn persist_local_crypto_context(
         db_key,
         identity,
         *master_key,
-        WrappedLocalKeyCache {
-            list_entries: entries,
-            tenant_root,
-        },
+        WrappedLocalKeyCache { tenant_root },
         sync_keys,
         now_ms,
     )
@@ -210,23 +174,8 @@ fn unwrap_local_cache_entries(
     tenant_id: Uuid,
     tenant_generation: u64,
     wrapped_tenant_root_dek: &[u8],
-    entries: &[(Uuid, u64, Vec<u8>)],
     master_key: &[u8; KEY_LEN],
 ) -> Result<LocalSyncKeys, ()> {
-    let list_deks = entries
-        .iter()
-        .map(|(list_id, generation, wrapped)| {
-            unwrap_local_list_dek_with_master_key(
-                tenant_id,
-                *list_id,
-                *generation,
-                wrapped,
-                master_key,
-            )
-            .map(|list_dek| (*list_id, Zeroizing::new(list_dek)))
-            .map_err(|_| ())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let tenant_root_dek = unwrap_local_tenant_root_dek_with_master_key(
         tenant_id,
         tenant_generation,
@@ -236,20 +185,13 @@ fn unwrap_local_cache_entries(
     .map_err(|_| ())?;
     Ok(LocalSyncKeys {
         tenant_id,
-        list_deks,
-        list_generations: entries
-            .iter()
-            .map(|(list_id, generation, _)| (*list_id, *generation))
-            .collect(),
         tenant_root_dek: Some(Zeroizing::new(tenant_root_dek)),
         tenant_generation,
-        historical_list_deks: Vec::new(),
         historical_tenant_root_deks: Vec::new(),
     })
 }
 
 struct WrappedLocalKeyCache {
-    list_entries: Vec<(Uuid, u64, Vec<u8>)>,
     tenant_root: LocalTenantRootKeyBundle,
 }
 
@@ -267,11 +209,6 @@ fn persist_wrapped_context(
         user_id,
         device_id,
     } = identity;
-    if missing_required_list_key(db_path, db_key, &sync_keys)?.is_some() {
-        return Err(StorageError::IncompatibleSchema(
-            "local crypto context does not cover every local list".to_string(),
-        ));
-    }
     let connection = open_encrypted(db_path, db_key)?;
     let mut repository = SqliteLocalCryptoRepository::new(connection);
     let existing = repository.load_binding()?;
@@ -283,20 +220,7 @@ fn persist_wrapped_context(
         bound_at,
         updated_at: now_ms,
     };
-    let bundles = wrapped_cache
-        .list_entries
-        .into_iter()
-        .map(
-            |(list_id, generation, wrapped_list_dek)| LocalListKeyBundle {
-                tenant_id,
-                list_id,
-                generation,
-                wrapped_list_dek,
-                updated_at: now_ms,
-            },
-        )
-        .collect::<Vec<_>>();
-    repository.bind_and_replace_bundles(binding, &wrapped_cache.tenant_root, &bundles)?;
+    repository.bind_tenant_root(binding, &wrapped_cache.tenant_root)?;
 
     Ok(LocalCryptoContext {
         tenant_id,
@@ -307,21 +231,6 @@ fn persist_wrapped_context(
     })
 }
 
-fn missing_required_list_key(
-    db_path: &Path,
-    db_key: &[u8; 32],
-    sync_keys: &LocalSyncKeys,
-) -> Result<Option<Uuid>, StorageError> {
-    let connection = open_encrypted(db_path, db_key)?;
-    let lists = SqliteListRepository::new(connection);
-    let mut local_lists = lists.list_all()?;
-    local_lists.extend(lists.list_archived()?);
-    Ok(local_lists
-        .into_iter()
-        .find(|list| !sync_keys.contains_list(list.id))
-        .map(|list| list.id))
-}
-
 #[cfg(test)]
 mod tests {
     use taskveil_domain::{new_list, new_task};
@@ -329,7 +238,7 @@ mod tests {
         ListRepository, SqliteListRepository, SqliteSyncStateRepository, SqliteTaskRepository,
         SyncStateRepository, TaskRepository,
     };
-    use taskveil_sync::account::{AccountKeyMaterial, AccountListDekMaterial};
+    use taskveil_sync::account::AccountKeyMaterial;
     use tempfile::TempDir;
 
     use super::*;
@@ -338,7 +247,7 @@ mod tests {
     const MASTER_KEY: [u8; KEY_LEN] = [0x52; KEY_LEN];
     const NOW: i64 = 1_799_000_000_000;
 
-    fn account_keys(list_id: Uuid) -> AccountKeyMaterial {
+    fn account_keys() -> AccountKeyMaterial {
         let root = taskveil_crypto::organization::generate_account_root(Uuid::now_v7()).unwrap();
         AccountKeyMaterial {
             generation: 1,
@@ -347,11 +256,6 @@ mod tests {
             account_root_private: root.private,
             account_root_public: root.public,
             tenant_root_dek: Zeroizing::new([0x22; KEY_LEN]),
-            list_deks: vec![AccountListDekMaterial {
-                list_id: list_id.to_string(),
-                generation: 1,
-                dek: Zeroizing::new([0x33; KEY_LEN]),
-            }],
         }
     }
 
@@ -392,7 +296,7 @@ mod tests {
                 user_id,
                 device_id,
             },
-            &account_keys(list.id),
+            &account_keys(),
             NOW,
         )
         .unwrap();
@@ -404,7 +308,7 @@ mod tests {
         assert_eq!(context.tenant_id(), tenant_id);
         assert_eq!(context.user_id(), user_id);
         assert_eq!(context.device_id(), device_id);
-        assert!(context.sync_keys().contains_list(list.id));
+        assert!(context.sync_keys().tenant_root_dek.is_some());
 
         crate::SqliteMutationService::new(&db_path, DB_KEY)
             .update_task(
@@ -461,7 +365,7 @@ mod tests {
                 user_id: Uuid::now_v7(),
                 device_id: Uuid::now_v7(),
             },
-            &account_keys(list.id),
+            &account_keys(),
             NOW,
         )
         .unwrap();
@@ -471,87 +375,6 @@ mod tests {
             LocalCryptoAvailability::AccountBoundUnavailable(
                 LocalCryptoUnavailable::MissingMasterKey
             )
-        ));
-    }
-
-    #[test]
-    fn missing_required_list_key_is_not_ready() {
-        let temp = TempDir::new().unwrap();
-        let db_path = temp.path().join("client.sqlite3");
-        let cached_list = new_list(
-            "Cached".to_string(),
-            "7fffffffffffffffffffffffffffffff".to_string(),
-            NOW,
-        )
-        .unwrap();
-        let missing_list = new_list(
-            "Missing".to_string(),
-            "bfffffffffffffffffffffffffffffff".to_string(),
-            NOW,
-        )
-        .unwrap();
-        let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
-        let mut lists = SqliteListRepository::new(connection);
-        lists.insert(cached_list.clone()).unwrap();
-        lists.insert(missing_list.clone()).unwrap();
-        let tenant_id = Uuid::now_v7();
-        let account_keys = account_keys(cached_list.id);
-        let entries = account_keys
-            .list_deks
-            .iter()
-            .map(|entry| {
-                let list_id = Uuid::parse_str(&entry.list_id).unwrap();
-                (
-                    list_id,
-                    wrap_local_list_dek_with_master_key(
-                        tenant_id,
-                        list_id,
-                        1,
-                        &entry.dek,
-                        &account_keys.master_key,
-                    )
-                    .unwrap(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
-        let tenant_root = LocalTenantRootKeyBundle {
-            tenant_id,
-            generation: 1,
-            wrapped_tenant_root_dek: wrap_local_tenant_root_dek_with_master_key(
-                tenant_id,
-                1,
-                &account_keys.tenant_root_dek,
-                &account_keys.master_key,
-            )
-            .unwrap(),
-            updated_at: NOW,
-        };
-        SqliteLocalCryptoRepository::new(connection)
-            .bind_and_replace_bundles(
-                LocalProfileBinding {
-                    tenant_id,
-                    user_id: Uuid::now_v7(),
-                    device_id: Uuid::now_v7(),
-                    bound_at: NOW,
-                    updated_at: NOW,
-                },
-                &tenant_root,
-                &[LocalListKeyBundle {
-                    tenant_id,
-                    list_id: entries[0].0,
-                    generation: 1,
-                    wrapped_list_dek: entries[0].1.clone(),
-                    updated_at: NOW,
-                }],
-            )
-            .unwrap();
-
-        assert!(matches!(
-            load_local_crypto_context(&db_path, &DB_KEY, Some(MASTER_KEY)).unwrap(),
-            LocalCryptoAvailability::AccountBoundUnavailable(
-                LocalCryptoUnavailable::MissingListKey(id)
-            ) if id == missing_list.id
         ));
     }
 
@@ -577,14 +400,14 @@ mod tests {
                 user_id: Uuid::now_v7(),
                 device_id: Uuid::now_v7(),
             },
-            &account_keys(list.id),
+            &account_keys(),
             NOW,
         )
         .unwrap();
         let connection = open_encrypted(&db_path, &DB_KEY).unwrap();
         connection
             .execute(
-                "UPDATE local_list_key_bundles SET wrapped_list_dek = x'00'",
+                "UPDATE local_tenant_root_key_cache SET wrapped_tenant_root_dek = x'00'",
                 [],
             )
             .unwrap();

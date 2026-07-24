@@ -322,17 +322,13 @@ pub async fn store_recipient_package(
         &recipient_key_fingerprint,
     )
     .await?;
-    let list_id = (scope_kind == HybridScopeKind::List as i16).then_some(scope_id);
     let inserted = query::<Postgres>(
         "INSERT INTO key_recipients
-            (scope_kind, tenant_id, list_id, generation, device_id,
-             recipient_key_fingerprint, wrapped_dek)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (tenant_id, generation, device_id, recipient_key_fingerprint, wrapped_dek)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT DO NOTHING",
     )
-    .bind(scope_kind)
     .bind(tenant_id)
-    .bind(list_id)
     .bind(i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?)
     .bind(request.device_id)
     .bind(recipient_key_fingerprint.as_slice())
@@ -342,12 +338,9 @@ pub async fn store_recipient_package(
     if inserted.rows_affected() == 0 {
         let existing: Vec<u8> = query::<Postgres>(
             "SELECT wrapped_dek FROM key_recipients
-             WHERE scope_kind = $1 AND tenant_id = $2
-               AND list_id IS NOT DISTINCT FROM $3 AND generation = $4 AND device_id = $5",
+             WHERE tenant_id = $1 AND generation = $2 AND device_id = $3",
         )
-        .bind(scope_kind)
         .bind(tenant_id)
-        .bind(list_id)
         .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
         .bind(request.device_id)
         .fetch_one(&mut *tx)
@@ -373,15 +366,11 @@ pub async fn load_recipient_package(
 ) -> Result<RecipientPackageResponse, AppError> {
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_verified_recipient(&mut tx, tenant_id, auth.user_id).await?;
-    let list_id = (scope_kind == HybridScopeKind::List as i16).then_some(scope_id);
     let package_bytes: Vec<u8> = query::<Postgres>(
         "SELECT wrapped_dek FROM key_recipients
-         WHERE scope_kind = $1 AND tenant_id = $2
-           AND list_id IS NOT DISTINCT FROM $3 AND generation = $4 AND device_id = $5",
+         WHERE tenant_id = $1 AND generation = $2 AND device_id = $3",
     )
-    .bind(scope_kind)
     .bind(tenant_id)
-    .bind(list_id)
     .bind(i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?)
     .bind(auth.device_id)
     .fetch_optional(&mut *tx)
@@ -560,31 +549,19 @@ async fn require_manifest_recipient(
     generation: u64,
     recipient_key_fingerprint: &[u8; 32],
 ) -> Result<(), AppError> {
-    let list_id = (scope_kind == HybridScopeKind::List as i16).then_some(scope_id);
-    let row = if let Some(list_id) = list_id {
-        query::<Postgres>(
-            "SELECT g.signed_manifest, u.account_root_public
-             FROM list_key_generations g JOIN tenants t ON t.id = g.tenant_id
-             JOIN users u ON u.id = t.owner_user_id
-             WHERE g.tenant_id = $1 AND g.list_id = $2 AND g.generation = $3",
-        )
-        .bind(tenant_id)
-        .bind(list_id)
-        .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
-        .fetch_one(&mut **tx)
-        .await?
-    } else {
-        query::<Postgres>(
-            "SELECT g.signed_manifest, u.account_root_public
-             FROM tenant_key_generations g JOIN tenants t ON t.id = g.tenant_id
-             JOIN users u ON u.id = t.owner_user_id
-             WHERE g.tenant_id = $1 AND g.generation = $2",
-        )
-        .bind(tenant_id)
-        .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
-        .fetch_one(&mut **tx)
-        .await?
-    };
+    if scope_kind != HybridScopeKind::Tenant as i16 || scope_id != tenant_id {
+        return Err(AppError::bad_request("invalid recipient scope"));
+    }
+    let row = query::<Postgres>(
+        "SELECT g.signed_manifest, u.account_root_public
+         FROM tenant_key_generations g JOIN tenants t ON t.id = g.tenant_id
+         JOIN users u ON u.id = t.owner_user_id
+         WHERE g.tenant_id = $1 AND g.generation = $2",
+    )
+    .bind(tenant_id)
+    .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
+    .fetch_one(&mut **tx)
+    .await?;
     let root = AccountRootPublicKeys::decode(&row.try_get::<Vec<u8>, _>("account_root_public")?)
         .map_err(|_| AppError::internal())?;
     let signed = OrganizationKeyManifest::decode(&row.try_get::<Vec<u8>, _>("signed_manifest")?)
@@ -593,7 +570,6 @@ async fn require_manifest_recipient(
         .verify(&root)
         .map_err(|_| AppError::bad_request("invalid key manifest"))?;
     if signed.manifest.tenant_id != tenant_id
-        || signed.manifest.list_id != list_id
         || signed.manifest.generation != generation
         || signed
             .manifest
@@ -803,17 +779,6 @@ async fn require_generation(
         .fetch_one(&mut **tx)
         .await?
         .try_get::<bool, _>("e")?,
-        2 => query::<Postgres>(
-            "SELECT EXISTS (SELECT 1 FROM list_key_generations
-             WHERE tenant_id = $1 AND list_id = $2 AND generation = $3
-               AND status IN ('prepared', 'active')) AS e",
-        )
-        .bind(tenant_id)
-        .bind(scope_id)
-        .bind(generation)
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get::<bool, _>("e")?,
         _ => false,
     };
     if !exists {
@@ -831,7 +796,6 @@ fn validate_package_scope(
 ) -> Result<(), AppError> {
     let expected_kind = match scope_kind {
         1 => HybridScopeKind::Tenant,
-        2 => HybridScopeKind::List,
         _ => return Err(AppError::bad_request("invalid recipient scope")),
     };
     if package.scope_kind != expected_kind

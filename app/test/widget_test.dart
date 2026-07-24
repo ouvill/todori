@@ -2262,53 +2262,57 @@ void main() {
     expect(find.text('Delete'), findsNothing);
   });
 
-  testWidgets(
-    'list delete confirms impact count and removes non-default list',
-    (tester) async {
-      final fake = FakeBridgeService();
-      await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
-      final work = await fake.createList(name: 'Work', sortOrder: 'a1');
-      await fake.createTask(listId: work.id, title: 'Open work');
-      final completed = await fake.createTask(
-        listId: work.id,
-        title: 'Done work',
-      );
-      await fake.setTaskStatus(taskId: completed.id, status: 'done');
+  testWidgets('list delete confirms Inbox move and removes non-default list', (
+    tester,
+  ) async {
+    final fake = FakeBridgeService();
+    final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    final work = await fake.createList(name: 'Work', sortOrder: 'a1');
+    await fake.createTask(listId: work.id, title: 'Open work');
+    final completed = await fake.createTask(
+      listId: work.id,
+      title: 'Done work',
+    );
+    await fake.setTaskStatus(taskId: completed.id, status: 'done');
 
-      await tester.pumpWidget(
-        TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
-      );
-      await tester.pumpAndSettle();
-      await _openListsScreen(tester);
-      await tester.tap(find.text('Work'));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await _openListsScreen(tester);
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('List actions'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('List actions'));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Archive'), findsOneWidget);
-      expect(find.text('Delete'), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.text('Archive')).dy,
-        lessThan(tester.getTopLeft(find.text('Delete')).dy),
-      );
+    expect(find.text('Archive'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Archive')).dy,
+      lessThan(tester.getTopLeft(find.text('Delete')).dy),
+    );
 
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Delete Work?'), findsOneWidget);
-      expect(find.textContaining('2 tasks'), findsOneWidget);
-      expect(find.textContaining('including completed tasks'), findsOneWidget);
-      expect(find.textContaining('Archive the list instead'), findsOneWidget);
+    expect(find.text('Delete Work?'), findsOneWidget);
+    expect(find.textContaining('2 tasks'), findsOneWidget);
+    expect(find.textContaining('including completed tasks'), findsOneWidget);
+    expect(find.textContaining('will move to Inbox'), findsOneWidget);
+    expect(
+      find.textContaining('keep their reminders and history'),
+      findsOneWidget,
+    );
 
-      await tester.tap(find.text('Delete').last);
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
 
-      expect((await fake.getLists()).map((list) => list.name), ['Inbox']);
-      expect(await fake.getTasks(listId: work.id), isEmpty);
-      expect(find.text('Work'), findsNothing);
-    },
-  );
+    expect((await fake.getLists()).map((list) => list.name), ['Inbox']);
+    expect(await fake.getTasks(listId: work.id), isEmpty);
+    expect(await fake.getTasks(listId: inbox.id), hasLength(2));
+    expect(find.text('Work'), findsNothing);
+  });
 
   testWidgets('archived section is hidden when there are no archived lists', (
     tester,
