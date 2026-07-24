@@ -147,7 +147,10 @@ mod tests {
     #[test]
     fn personal_tenant_requires_exactly_one_active_owner() {
         let (tenant, owner) = personal_fixture();
-        assert_eq!(tenant.validate_current_release(&[owner.clone()]), Ok(()));
+        assert_eq!(
+            tenant.validate_current_release(std::slice::from_ref(&owner)),
+            Ok(())
+        );
         assert_eq!(
             tenant.validate_current_release(&[]),
             Err(TenantBoundaryError::InvalidPersonalOwner)
