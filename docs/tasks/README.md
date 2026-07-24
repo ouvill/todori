@@ -7,7 +7,7 @@
 ## 作業開始時の読む順
 
 1. リポジトリルートの [`AGENTS.md`](../../AGENTS.md)
-2. 対応するPhase計画書、技術仕様、ADR
+2. 対応するPhase計画書、技術仕様、個別ADR（索引は [`../05_設計判断記録.md`](../05_設計判断記録.md)）
 3. [`PLAYBOOK.md`](./PLAYBOOK.md)（標準・重要変更レーン、またはオーケストレーション時）
 4. 対象の `work-<UUIDv7>-<slug>.md`、または既存の `task-NN-*.md`
 5. [`STATUS.md`](./STATUS.md) / [`BACKLOG.md`](./BACKLOG.md)（pilot移行情報やlegacy候補が必要な場合だけ）
@@ -67,6 +67,7 @@ ID生成、即時着手、main登録済みbacklogへの着手、branch / worktre
 - public repoへprivate詳細（課金、収益、法務、監査、公開前ロードマップ）を転記しない。
 - `docs/01_企画書.md` / `docs/02_機能仕様書.md` の変更は人間承認を必要とする。
 - `docs/03_技術仕様書.md` は技術的な唯一の真実源であり、変更時は外科的差分と日付・ADR参照を維持する。
+- ADR本文は `docs/adr/ADR-NNN.md` を正本とし、追加・状態変更時は `docs/05_設計判断記録.md` の互換索引も更新する。作業branch上の新規番号は暫定とし、merge前に対象branchの最新状態を取り込んで、競合時は個別ファイル、索引、参照を次の空き番号へ変更する。
 - 新規Rust依存はルート `Cargo.toml` の `[workspace.dependencies]` へ集約する。
 - Flutter UI文字列はARB化する。
 - FRB生成物は手編集しない。

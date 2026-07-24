@@ -24,7 +24,7 @@ correctness・security・設計の一貫性を優先し、必要ならbreaking c
 - `docs/02_機能仕様書.md` ── 機能仕様（F-01〜F-53）
 - `docs/03_技術仕様書.md` ── **技術的な唯一の真実源**。実装と仕様書に矛盾があればこちらを優先する
 - `docs/billing_overview.md` ── 公開版の課金方針（詳細な課金設計はprivate repo側）
-- `docs/05_設計判断記録.md` ── ADR（設計判断記録）
+- `docs/05_設計判断記録.md` ── ADRの互換索引。各判断の正本は `docs/adr/ADR-NNN.md`
 - `docs/legal_overview.md` ── 公開版の法務・OSS方針（詳細な事業・法務メモはprivate repo側）
 - `docs/07_Phase1計画書.md` ── Phase 1のマイルストーン（M1〜M5）と完了条件。M1〜M4は完了し、M5は課金基盤完成後のリリース工程へ延期している
 - `docs/08_Phase2計画書.md` ── Phase 2の実行計画と現在地。P2-M1〜M4・M6・M7は完了し、P2-M5のAndroid検証、P2-M8、課金release gateが残る
@@ -69,6 +69,7 @@ sh app/tool/test_client_boundaries.sh
 - `core/` はcrate群の配置ディレクトリでありcrate名ではない。Cargo packageは `taskveil-<role>`、Rust crate名は `taskveil_<role>` とし、bare `core` package/lib、dependency alias、曖昧なumbrella crateを作らない。`taskveil_app_bridge`だけはCargo / pod / FRB stemの固定契約として例外とする。
 - Flutter bridge、CLI、MCPのTaskveil共通入口は `taskveil-client` の `TaskveilClient` とする。frontend adapterから `taskveil-crypto` / `taskveil-domain` / `taskveil-storage` / `taskveil-sync`へ直接依存せず、repository、暗号鍵、同期coordinatorを保持しない。`app/rust`はFRB公開関数、process内client handle、typed input / DTO変換だけに限定する。新しい共通機能は先に `core/client` のfrontend-neutral APIとして実装する。ローカル暗号化データ境界は`LocalProfile`、それを開く設定は`LocalProfileConfig`と呼び、ユーザー表示profileやruntime facadeと混同しない。詳細は `docs/dev/client-profile-architecture.md` を参照する。
 - 作業は `docs/tasks/README.md` の3レーン（軽量 / 標準 / 重要変更）で行う。新規の標準・重要変更は `work-<UUIDv7>-<slug>.md` で管理し、状態はYAML front matterへ記録する。既存の連番taskは履歴として変更しない。`docs/tasks/PLAYBOOK.md` のフェーズを通し、`## 9. 完了報告` は実装結果と独立検証の共同記録とする。軽量作業ではtask文書を省略できる。
+- ADRは `docs/adr/ADR-NNN.md` の1件1ファイルで管理し、`docs/05_設計判断記録.md` の互換索引を同じ変更で更新する。作業branch上の新規ADR番号は暫定とし、merge前に対象branchの最新状態を取り込んで、競合時は次の空き番号へ変更する。採用済み判断を変更する場合は本文を履歴書き換えせず、新しいADRで置換関係を記録する。
 
 ## 環境
 
