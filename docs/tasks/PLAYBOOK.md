@@ -4,7 +4,7 @@
 
 ## 状態と正本
 
-- 長期の進行方向とマイルストーン完了条件はPhase計画書、設計判断はADRを正本とする。
+- 長期の進行方向とマイルストーン完了条件はPhase計画書、設計判断は `docs/adr/ADR-NNN.md` の個別ADRを正本とする。`docs/05_設計判断記録.md` は互換索引として扱う。
 - 新形式work itemの状態は各 `work-<UUIDv7>-<slug>.md` のYAML front matter、実装契約と結果は本文、変更履歴はgit / CIを正本とする。
 - `STATUS.md` と `BACKLOG.md` はUUIDv7 pilot中の移行案内とlegacy情報であり、新形式work itemの中央一覧として更新しない。
 - statusは `backlog` / `active` / `blocked` / `done` / `cancelled` のいずれかとする。レビューと修正の間も `active` を維持する。
