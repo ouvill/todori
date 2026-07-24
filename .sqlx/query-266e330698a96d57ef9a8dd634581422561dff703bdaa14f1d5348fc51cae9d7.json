@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT continuity_generation, required_generation\n         FROM tenant_device_continuity\n         WHERE tenant_id = $1 AND device_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "continuity_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "continuity_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "required_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "required_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "266e330698a96d57ef9a8dd634581422561dff703bdaa14f1d5348fc51cae9d7"
+}

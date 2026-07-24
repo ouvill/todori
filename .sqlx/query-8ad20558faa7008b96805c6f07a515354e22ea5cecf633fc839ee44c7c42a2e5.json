@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_subscriptions\n                 SET status = 'revoked', gives_access = FALSE,\n                     access_expires_at = NULL, will_renew = FALSE,\n                     revocation_reason = 'refund', updated_at = now()\n                 WHERE user_id = $1 AND environment = $2 AND provider = 'revenuecat'\n                   AND store_transaction_identifier = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ad20558faa7008b96805c6f07a515354e22ea5cecf633fc839ee44c7c42a2e5"
+}

@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT verification_state,\n                owner_confirmed_at IS NOT NULL AS \"owner_confirmed!\",\n                member_confirmed_at IS NOT NULL AS \"member_confirmed!\",\n                safety_owner_root_fingerprint, safety_member_root_fingerprint\n         FROM tenant_members WHERE tenant_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "verification_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tenant_members",
+            "name": "verification_state"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_confirmed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "member_confirmed!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "safety_owner_root_fingerprint",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_members",
+            "name": "safety_owner_root_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "safety_member_root_fingerprint",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_members",
+            "name": "safety_member_root_fingerprint"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "4a3b4afefc367dfa7f47e94a28f0dc1d65efdb65a492d7a50d206a9a3f204b86"
+}

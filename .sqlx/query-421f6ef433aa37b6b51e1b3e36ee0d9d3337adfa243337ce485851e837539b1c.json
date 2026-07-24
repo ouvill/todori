@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH deleted AS (\n             DELETE FROM sync_records\n             WHERE delete_hlc IS NOT NULL AND updated_at < $1\n             RETURNING tenant_id, seq\n         ), horizons AS (\n             SELECT tenant_id, max(seq) AS gc_horizon_seq, count(*) AS deleted_count\n             FROM deleted\n             GROUP BY tenant_id\n         ), advanced AS (\n             UPDATE tenant_seq AS target\n             SET gc_horizon_seq = greatest(target.gc_horizon_seq, horizons.gc_horizon_seq)\n             FROM horizons\n             WHERE target.tenant_id = horizons.tenant_id\n             RETURNING target.tenant_id\n         ), expired AS (\n             UPDATE tenant_device_continuity AS continuity\n             SET required_generation = greatest(\n                     continuity.required_generation,\n                     continuity.continuity_generation + 1\n                 ),\n                 updated_at = now()\n             FROM tenant_seq AS seq, advanced\n             WHERE continuity.tenant_id = advanced.tenant_id\n               AND seq.tenant_id = continuity.tenant_id\n               AND continuity.continuity_seq < seq.gc_horizon_seq\n             RETURNING continuity.tenant_id\n         )\n         SELECT coalesce(sum(horizons.deleted_count), 0)::BIGINT AS deleted_count\n         FROM horizons\n         JOIN advanced USING (tenant_id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deleted_count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "421f6ef433aa37b6b51e1b3e36ee0d9d3337adfa243337ce485851e837539b1c"
+}

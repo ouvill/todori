@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE device_resync_sessions\n         SET base_cursor_collection = $4, base_cursor_record_id = $5,\n             base_complete = $6, updated_at = now()\n         WHERE tenant_id = $1 AND device_id = $2 AND generation = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e7f4008830d7ede044733db25910ac12d2987f8c90c159bb1c4928b1976b2e1"
+}

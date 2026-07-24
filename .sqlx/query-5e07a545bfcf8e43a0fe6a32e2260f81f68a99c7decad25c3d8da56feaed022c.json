@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT suite_id, generation, minimum_write_generation\n         FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'active'\n         FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suite_id",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "suite_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "minimum_write_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "minimum_write_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5e07a545bfcf8e43a0fe6a32e2260f81f68a99c7decad25c3d8da56feaed022c"
+}

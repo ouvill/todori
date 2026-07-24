@@ -78,6 +78,20 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+serverのSQLはSQLxのコンパイル時検証を使用します。通常のbuildとtestはversion control済みの`.sqlx/`を使うため、PostgreSQLへの接続は不要です。クエリまたはmigrationを変更した場合は、Postgres対応のSQLx CLIを導入してfresh databaseからmetadataを更新します。
+
+```sh
+cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features postgres,rustls
+./tool/sqlx_prepare.sh
+./tool/sqlx_prepare.sh --check
+env -u DATABASE_URL SQLX_OFFLINE=true cargo check -p taskveil-server --all-targets
+```
+
+`sqlx_prepare.sh`は一時的なDocker Postgresへ全migrationを適用し、終了時にコンテナを削除します。
+SQLxはPostgreSQL専用です。SQLx 0.9.0がlockfileへ解決する未使用のSQLite driverは
+`third_party/sqlx-sqlite-lockfile-shim`でfail-closedにし、クライアントの
+rusqlite / SQLCipher依存から分離しています。
+
 Flutter側を変更した場合は、Rust bridgeをビルドしてから解析とテストを実行します。
 
 ```sh

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM continuity_closure_proofs\n             WHERE tenant_id = $1 AND device_id = $2 AND acknowledged_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "620828cf758e984711d2f7d52522531b7b14d698c98e8c34ceced0db8a86f2e6"
+}

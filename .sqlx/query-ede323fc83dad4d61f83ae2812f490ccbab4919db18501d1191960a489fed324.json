@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_entitlements\n            (user_id, environment, lookup_key, status, gives_access,\n             source_subscription_id, store_product_identifier, expires_at,\n             grace_expires_at, will_renew, provider_observed_at)\n         VALUES ($1, $2, 'pro', $3, $4, $5, $6, $7, $8, $9, $10)\n         ON CONFLICT (user_id, environment, lookup_key) DO UPDATE SET\n             status = EXCLUDED.status,\n             gives_access = EXCLUDED.gives_access,\n             source_subscription_id = EXCLUDED.source_subscription_id,\n             store_product_identifier = EXCLUDED.store_product_identifier,\n             expires_at = EXCLUDED.expires_at,\n             grace_expires_at = EXCLUDED.grace_expires_at,\n             will_renew = EXCLUDED.will_renew,\n             provider_observed_at = EXCLUDED.provider_observed_at,\n             updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ede323fc83dad4d61f83ae2812f490ccbab4919db18501d1191960a489fed324"
+}

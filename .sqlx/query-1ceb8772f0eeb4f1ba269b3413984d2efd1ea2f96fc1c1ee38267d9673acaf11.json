@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n             SELECT 1 FROM tenant_key_generations\n             WHERE tenant_id = $1 AND status IN ('prepared', 'migrating')\n         ) AS \"in_progress!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "in_progress!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1ceb8772f0eeb4f1ba269b3413984d2efd1ea2f96fc1c1ee38267d9673acaf11"
+}

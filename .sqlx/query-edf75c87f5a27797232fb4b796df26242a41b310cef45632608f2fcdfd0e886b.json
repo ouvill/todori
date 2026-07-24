@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO key_generation_acks (tenant_id, generation, device_id)\n         VALUES ($1, $2, $3)\n         ON CONFLICT (tenant_id, generation, device_id)\n         DO UPDATE SET acknowledged_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "edf75c87f5a27797232fb4b796df26242a41b310cef45632608f2fcdfd0e886b"
+}

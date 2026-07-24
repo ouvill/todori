@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT processing_status, processing_started_at FROM billing_events\n             WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2\n             FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "processing_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "billing_events",
+            "name": "processing_status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "processing_started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "billing_events",
+            "name": "processing_started_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "232d9de8ae13e4ef7c70f9947f27d018a4388e814f0dc828dd99fccff9912ab8"
+}

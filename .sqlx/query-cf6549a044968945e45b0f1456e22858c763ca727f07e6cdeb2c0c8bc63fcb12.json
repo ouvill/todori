@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.user_id, s.device_id, d.enrollment_challenge,\n                d.enrollment_challenge_expires_at, u.account_root_public\n         FROM sessions s\n         JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id\n         JOIN users u ON u.id = s.user_id\n         WHERE s.token_hash = $1 AND s.expires_at > now()\n           AND s.revoked_at IS NULL AND d.revoked_at IS NULL\n           AND d.certificate IS NULL\n           AND d.enrollment_challenge_expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "device_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "enrollment_challenge",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "enrollment_challenge"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "enrollment_challenge_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "enrollment_challenge_expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "account_root_public",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "account_root_public"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "cf6549a044968945e45b0f1456e22858c763ca727f07e6cdeb2c0c8bc63fcb12"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tenant_device_continuity (tenant_id, device_id)\n         VALUES ($1, $2)\n         ON CONFLICT (tenant_id, device_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0fea62db95c278283f157ef801c515422a36b116a590ed915697b1f9609cae1"
+}

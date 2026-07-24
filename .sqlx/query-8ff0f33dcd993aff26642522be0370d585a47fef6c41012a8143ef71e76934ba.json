@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_key_generations\n         SET status = 'retired', wrapped_tenant_root_dek = ''::bytea,\n             live_heads_remaining = 0, migration_completed_at = coalesce(migration_completed_at, now()),\n             retired_at = now(), updated_at = now()\n         WHERE tenant_id = $1 AND generation = $2 AND status = 'migrating'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ff0f33dcd993aff26642522be0370d585a47fef6c41012a8143ef71e76934ba"
+}

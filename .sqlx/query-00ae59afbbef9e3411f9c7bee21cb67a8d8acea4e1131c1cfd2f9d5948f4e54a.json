@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT proof.high_water, proof.generation, proof.acknowledged_at,\n                continuity.continuity_seq, continuity.continuity_generation,\n                continuity.required_generation\n         FROM continuity_closure_proofs AS proof\n         JOIN tenant_device_continuity AS continuity\n           ON continuity.tenant_id = proof.tenant_id\n          AND continuity.device_id = proof.device_id\n         WHERE proof.proof_id = $1 AND proof.tenant_id = $2 AND proof.device_id = $3\n         FOR UPDATE OF proof, continuity",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "high_water",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "continuity_closure_proofs",
+            "name": "high_water"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "continuity_closure_proofs",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "acknowledged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "continuity_closure_proofs",
+            "name": "acknowledged_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "continuity_seq",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "continuity_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "continuity_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "continuity_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "required_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "required_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "00ae59afbbef9e3411f9c7bee21cb67a8d8acea4e1131c1cfd2f9d5948f4e54a"
+}

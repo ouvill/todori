@@ -83,6 +83,8 @@ jobs:
     if: ${{ always() && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docs_only != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      SQLX_OFFLINE: "true"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
@@ -112,6 +114,9 @@ jobs:
           sh app/tool/check_client_boundaries.sh
           sh app/tool/test_client_boundaries.sh
 
+      - name: SQLx offline metadata
+        run: env -u DATABASE_URL cargo check -p taskveil-server --all-targets
+
       - name: Rust clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -127,6 +132,44 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+  sqlx-metadata:
+    name: SQLx metadata freshness
+    needs: changes
+    if: ${{ always() && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docs_only != 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+
+      - name: Cache SQLx tooling and Cargo dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.cargo/bin/cargo-sqlx
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-sqlx-cli-0.9.0-rust-1.97.0-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-sqlx-cli-0.9.0-rust-1.97.0-
+
+      - name: Install SQLx CLI
+        run: |
+          if ! cargo sqlx --version 2>/dev/null | grep -q '0.9.0'; then
+            cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features postgres,rustls --force
+          fi
+          cargo sqlx --version
+
+      - name: Verify SQLx metadata against fresh migrations
+        run: ./tool/sqlx_prepare.sh --check
 
   flutter-quality:
     name: Flutter quality gates

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sync_records\n         (tenant_id, record_id, collection, seq, revision_hlc, mutation_hlc,\n          delete_hlc, encrypted_blob, suite_id, key_generation)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Int2",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c0480118154ae8b1829177314c134e354749f0e540db29524fbf96af9149d77c"
+}

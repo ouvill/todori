@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_members SET owner_confirmed_at = now(),\n                 safety_number_digest = $3,\n                 safety_owner_root_fingerprint = $4,\n                 safety_member_root_fingerprint = $5\n             WHERE tenant_id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ed9f76eda0aa15e6939e397c09e0935d2d4bfdac0408ccf34829502842ff962"
+}

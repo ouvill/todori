@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_members\n         SET verification_state = 'verified', verified_at = now()\n         WHERE tenant_id = $1 AND user_id = $2\n           AND owner_confirmed_at IS NOT NULL AND member_confirmed_at IS NOT NULL\n           AND safety_number_digest = $3\n           AND safety_owner_root_fingerprint = $4\n           AND safety_member_root_fingerprint = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93bba68cb8ee0c6ece4812dae6914d20c47b1d68ba4ff5034bd58452bc728121"
+}

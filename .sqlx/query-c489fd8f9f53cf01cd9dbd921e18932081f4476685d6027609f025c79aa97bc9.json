@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT suite_id, generation, minimum_write_generation, signed_manifest, prepared_manifest\n         FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'active'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suite_id",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "suite_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "minimum_write_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "minimum_write_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "signed_manifest",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "signed_manifest"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "prepared_manifest",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "prepared_manifest"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c489fd8f9f53cf01cd9dbd921e18932081f4476685d6027609f025c79aa97bc9"
+}

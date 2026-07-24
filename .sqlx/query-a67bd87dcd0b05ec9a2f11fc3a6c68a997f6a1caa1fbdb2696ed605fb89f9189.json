@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE sync_records\n         SET seq = $3, revision_hlc = $4, mutation_hlc = $5,\n             delete_hlc = $6, encrypted_blob = $7, suite_id = $8,\n             key_generation = $9, updated_at = now()\n         WHERE tenant_id = $1 AND record_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Int2",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a67bd87dcd0b05ec9a2f11fc3a6c68a997f6a1caa1fbdb2696ed605fb89f9189"
+}

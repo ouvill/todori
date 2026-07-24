@@ -12,8 +12,7 @@ use hmac::{Hmac, Mac};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx_core::{query::query, row::Row};
-use sqlx_postgres::{PgPool, PgTransaction, Postgres};
+use sqlx_postgres::{PgPool, PgTransaction};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -339,22 +338,30 @@ async fn claim_provider_snapshot(
     environment: BillingEnvironment,
 ) -> Result<ProviderSnapshot, AppError> {
     let refresh_token = Uuid::now_v7();
-    let claim_sql = match environment {
+    let claimed = match environment {
         BillingEnvironment::Sandbox => {
-            "UPDATE billing_customers SET sandbox_refresh_token = $3
-             WHERE user_id = $1 AND provider_app_user_id = $2"
+            sqlx::query!(
+                "UPDATE billing_customers SET sandbox_refresh_token = $3
+                 WHERE user_id = $1 AND provider_app_user_id = $2",
+                user_id,
+                provider_app_user_id,
+                refresh_token
+            )
+            .execute(pool)
+            .await?
         }
         BillingEnvironment::Production => {
-            "UPDATE billing_customers SET production_refresh_token = $3
-             WHERE user_id = $1 AND provider_app_user_id = $2"
+            sqlx::query!(
+                "UPDATE billing_customers SET production_refresh_token = $3
+                 WHERE user_id = $1 AND provider_app_user_id = $2",
+                user_id,
+                provider_app_user_id,
+                refresh_token
+            )
+            .execute(pool)
+            .await?
         }
     };
-    let claimed = query::<Postgres>(claim_sql)
-        .bind(user_id)
-        .bind(provider_app_user_id)
-        .bind(refresh_token)
-        .execute(pool)
-        .await?;
     if claimed.rows_affected() != 1 {
         return Err(AppError::not_found("billing_customer_not_found"));
     }
@@ -628,58 +635,44 @@ pub async fn require_sync_entitlement(
     let mut tx = pool.begin().await?;
     db::set_user_context(&mut tx, user_id).await?;
     db::set_tenant_context(&mut tx, tenant_id).await?;
-    let tenant = query::<Postgres>("SELECT kind, owner_user_id FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(AppError::unauthorized)?;
-    let kind: String = tenant.try_get("kind").map_err(|_| AppError::internal())?;
-    if kind != "personal" {
+    let tenant = sqlx::query!(
+        "SELECT kind, owner_user_id FROM tenants WHERE id = $1",
+        tenant_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::unauthorized)?;
+    if tenant.kind != "personal" {
         return Err(AppError::forbidden());
     }
-    let owner: Uuid = tenant
-        .try_get("owner_user_id")
-        .map_err(|_| AppError::internal())?;
-    if owner != user_id {
+    if tenant.owner_user_id != user_id {
         return Err(AppError::forbidden());
     }
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT ae.status, ae.gives_access, ae.expires_at, ae.grace_expires_at,
                 bs.user_id AS source_user_id, bs.revocation_reason
          FROM account_entitlements ae
          LEFT JOIN billing_subscriptions bs ON bs.id = ae.source_subscription_id
          WHERE ae.user_id = $1 AND ae.environment = $2 AND ae.lookup_key = 'pro'",
+        user_id,
+        environment.as_str()
     )
-    .bind(user_id)
-    .bind(environment.as_str())
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
     let Some(row) = row else {
         return Err(AppError::payment_required("entitlement_required"));
     };
-    let status: String = row.try_get("status").map_err(|_| AppError::internal())?;
-    let gives_access: bool = row
-        .try_get("gives_access")
-        .map_err(|_| AppError::internal())?;
-    let source_user_id: Option<Uuid> = row
-        .try_get("source_user_id")
-        .map_err(|_| AppError::internal())?;
-    let revocation_reason: Option<String> = row
-        .try_get("revocation_reason")
-        .map_err(|_| AppError::internal())?;
-    let deadline: Option<DateTime<Utc>> = if status == "grace" {
-        row.try_get("grace_expires_at")
-            .map_err(|_| AppError::internal())?
+    let deadline = if row.status == "grace" {
+        row.grace_expires_at
     } else {
-        row.try_get("expires_at")
-            .map_err(|_| AppError::internal())?
+        row.expires_at
     };
-    let allowed = gives_access
-        && matches!(status.as_str(), "trial" | "active" | "grace")
+    let allowed = row.gives_access
+        && matches!(row.status.as_str(), "trial" | "active" | "grace")
         && deadline.is_some_and(|value| value > Utc::now())
-        && source_user_id == Some(user_id)
-        && revocation_reason.is_none();
+        && row.source_user_id == Some(user_id)
+        && row.revocation_reason.is_none();
     if allowed {
         Ok(())
     } else {
@@ -694,15 +687,13 @@ pub async fn get_billing(
     user_id: Uuid,
 ) -> Result<BillingResponse, AppError> {
     require_personal_owner(pool, tenant_id, user_id).await?;
-    let customer =
-        query::<Postgres>("SELECT provider_app_user_id FROM billing_customers WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(AppError::internal)?;
-    let provider_app_user_id = customer
-        .try_get("provider_app_user_id")
-        .map_err(|_| AppError::internal())?;
+    let provider_app_user_id = sqlx::query_scalar!(
+        "SELECT provider_app_user_id FROM billing_customers WHERE user_id = $1",
+        user_id
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(AppError::internal)?;
     let entitlement = load_entitlement(pool, environment, user_id).await?;
     Ok(BillingResponse {
         provider: "revenuecat".into(),
@@ -718,15 +709,13 @@ pub async fn refresh_billing(
     user_id: Uuid,
 ) -> Result<BillingResponse, AppError> {
     require_personal_owner(pool, tenant_id, user_id).await?;
-    let customer =
-        query::<Postgres>("SELECT provider_app_user_id FROM billing_customers WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?
-            .ok_or_else(AppError::internal)?;
-    let provider_app_user_id: Uuid = customer
-        .try_get("provider_app_user_id")
-        .map_err(|_| AppError::internal())?;
+    let provider_app_user_id = sqlx::query_scalar!(
+        "SELECT provider_app_user_id FROM billing_customers WHERE user_id = $1",
+        user_id
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(AppError::internal)?;
     let snapshot = claim_provider_snapshot(
         pool,
         service,
@@ -755,17 +744,15 @@ async fn require_personal_owner(
     let mut tx = pool.begin().await?;
     db::set_user_context(&mut tx, user_id).await?;
     db::set_tenant_context(&mut tx, tenant_id).await?;
-    let row = query::<Postgres>("SELECT kind, owner_user_id FROM tenants WHERE id = $1")
-        .bind(tenant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(AppError::forbidden)?;
-    let kind: String = row.try_get("kind").map_err(|_| AppError::internal())?;
-    let owner: Uuid = row
-        .try_get("owner_user_id")
-        .map_err(|_| AppError::internal())?;
+    let row = sqlx::query!(
+        "SELECT kind, owner_user_id FROM tenants WHERE id = $1",
+        tenant_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
     tx.commit().await?;
-    if kind == "personal" && owner == user_id {
+    if row.kind == "personal" && row.owner_user_id == user_id {
         Ok(())
     } else {
         Err(AppError::forbidden())
@@ -777,14 +764,14 @@ async fn load_entitlement(
     environment: BillingEnvironment,
     user_id: Uuid,
 ) -> Result<BillingEntitlement, AppError> {
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT status, gives_access, store_product_identifier, expires_at,
                 grace_expires_at, will_renew, updated_at
          FROM account_entitlements
          WHERE user_id = $1 AND environment = $2 AND lookup_key = 'pro'",
+        user_id,
+        environment.as_str()
     )
-    .bind(user_id)
-    .bind(environment.as_str())
     .fetch_optional(pool)
     .await?;
     let Some(row) = row else {
@@ -800,41 +787,23 @@ async fn load_entitlement(
             updated_at: None,
         });
     };
-    let status: String = row.try_get("status").map_err(|_| AppError::internal())?;
-    let gives_access: bool = row
-        .try_get("gives_access")
-        .map_err(|_| AppError::internal())?;
-    let expires_at: Option<DateTime<Utc>> = row
-        .try_get("expires_at")
-        .map_err(|_| AppError::internal())?;
-    let grace_expires_at: Option<DateTime<Utc>> = row
-        .try_get("grace_expires_at")
-        .map_err(|_| AppError::internal())?;
-    let deadline = if status == "grace" {
-        grace_expires_at
+    let deadline = if row.status == "grace" {
+        row.grace_expires_at
     } else {
-        expires_at
+        row.expires_at
     };
     Ok(BillingEntitlement {
         lookup_key: PRO_LOOKUP_KEY.into(),
-        sync_allowed: gives_access
-            && matches!(status.as_str(), "trial" | "active" | "grace")
+        sync_allowed: row.gives_access
+            && matches!(row.status.as_str(), "trial" | "active" | "grace")
             && deadline.is_some_and(|value| value > Utc::now()),
-        status,
-        store_product_identifier: row
-            .try_get("store_product_identifier")
-            .map_err(|_| AppError::internal())?,
-        expires_at: expires_at.map(|value| value.timestamp_millis()),
-        grace_expires_at: grace_expires_at.map(|value| value.timestamp_millis()),
-        will_renew: row
-            .try_get("will_renew")
-            .map_err(|_| AppError::internal())?,
+        status: row.status,
+        store_product_identifier: row.store_product_identifier,
+        expires_at: row.expires_at.map(|value| value.timestamp_millis()),
+        grace_expires_at: row.grace_expires_at.map(|value| value.timestamp_millis()),
+        will_renew: row.will_renew,
         environment: environment.as_str().into(),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(|_| AppError::internal())?
-            .timestamp_millis()
-            .into(),
+        updated_at: Some(row.updated_at.timestamp_millis()),
     })
 }
 
@@ -876,28 +845,22 @@ async fn apply_snapshot_with_revocation(
     revocation: Option<SnapshotRevocation>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-    let customer = query::<Postgres>(
+    let customer = sqlx::query!(
         "SELECT user_id, sandbox_refresh_token, production_refresh_token
          FROM billing_customers
          WHERE provider_app_user_id = $1 FOR UPDATE",
+        provider_app_user_id
     )
-    .bind(provider_app_user_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::not_found("billing_customer_not_found"))?;
-    let owner: Uuid = customer
-        .try_get("user_id")
-        .map_err(|_| AppError::internal())?;
-    if owner != user_id {
+    if customer.user_id != user_id {
         return Err(AppError::conflict("billing_subscription_owner_conflict"));
     }
-    let refresh_token_column = match environment {
-        BillingEnvironment::Sandbox => "sandbox_refresh_token",
-        BillingEnvironment::Production => "production_refresh_token",
+    let current_refresh_token = match environment {
+        BillingEnvironment::Sandbox => customer.sandbox_refresh_token,
+        BillingEnvironment::Production => customer.production_refresh_token,
     };
-    let current_refresh_token: Option<Uuid> = customer
-        .try_get(refresh_token_column)
-        .map_err(|_| AppError::internal())?;
     if snapshot
         .refresh_token
         .is_some_and(|token| current_refresh_token != Some(token))
@@ -919,25 +882,19 @@ async fn apply_snapshot_with_revocation(
                 "billing_provider_invalid_response",
             ));
         }
-        let existing = query::<Postgres>(
+        let existing = sqlx::query_scalar!(
             "SELECT user_id FROM billing_subscriptions
              WHERE provider = 'revenuecat' AND environment = $1
                AND provider_subscription_id = $2",
+            environment.as_str(),
+            subscription.provider_subscription_id
         )
-        .bind(environment.as_str())
-        .bind(&subscription.provider_subscription_id)
         .fetch_optional(&mut *tx)
         .await?;
-        if existing
-            .as_ref()
-            .map(|row| row.try_get::<Uuid, _>("user_id"))
-            .transpose()
-            .map_err(|_| AppError::internal())?
-            .is_some_and(|existing_user| existing_user != user_id)
-        {
+        if existing.is_some_and(|existing_user| existing_user != user_id) {
             return Err(AppError::conflict("billing_subscription_owner_conflict"));
         }
-        query::<Postgres>(
+        sqlx::query!(
             "INSERT INTO billing_subscriptions
                 (user_id, provider, environment, provider_subscription_id,
                  store_transaction_identifier, store_original_transaction_identifier,
@@ -990,36 +947,36 @@ async fn apply_snapshot_with_revocation(
                  provider_observed_at = EXCLUDED.provider_observed_at,
                  last_seen_at = EXCLUDED.last_seen_at,
                  updated_at = now()",
+            user_id,
+            environment.as_str(),
+            subscription.provider_subscription_id,
+            subscription.store_transaction_identifier,
+            subscription.store_original_transaction_identifier,
+            subscription.store_product_identifier,
+            subscription.provider_product_id,
+            subscription.status.as_str(),
+            subscription.gives_access,
+            subscription.current_period_ends_at,
+            subscription.access_expires_at,
+            subscription.will_renew,
+            subscription.revocation_reason,
+            observed_at
         )
-        .bind(user_id)
-        .bind(environment.as_str())
-        .bind(&subscription.provider_subscription_id)
-        .bind(&subscription.store_transaction_identifier)
-        .bind(&subscription.store_original_transaction_identifier)
-        .bind(&subscription.store_product_identifier)
-        .bind(&subscription.provider_product_id)
-        .bind(subscription.status.as_str())
-        .bind(subscription.gives_access)
-        .bind(subscription.current_period_ends_at)
-        .bind(subscription.access_expires_at)
-        .bind(subscription.will_renew)
-        .bind(subscription.revocation_reason)
-        .bind(observed_at)
         .execute(&mut *tx)
         .await?;
     }
 
-    query::<Postgres>(
+    sqlx::query!(
         "UPDATE billing_subscriptions
          SET status = CASE WHEN revocation_reason IS NULL THEN 'expired' ELSE 'revoked' END,
              gives_access = FALSE, access_expires_at = NULL,
              will_renew = FALSE, provider_observed_at = $3, updated_at = now()
          WHERE user_id = $1 AND environment = $2 AND provider = 'revenuecat'
            AND last_seen_at < $3",
+        user_id,
+        environment.as_str(),
+        observed_at
     )
-    .bind(user_id)
-    .bind(environment.as_str())
-    .bind(observed_at)
     .execute(&mut *tx)
     .await?;
 
@@ -1027,32 +984,32 @@ async fn apply_snapshot_with_revocation(
         Some(SnapshotRevocation::Refund {
             store_transaction_identifier,
         }) => {
-            query::<Postgres>(
+            sqlx::query!(
                 "UPDATE billing_subscriptions
                  SET status = 'revoked', gives_access = FALSE,
                      access_expires_at = NULL, will_renew = FALSE,
                      revocation_reason = 'refund', updated_at = now()
                  WHERE user_id = $1 AND environment = $2 AND provider = 'revenuecat'
                    AND store_transaction_identifier = $3",
+                user_id,
+                environment.as_str(),
+                store_transaction_identifier
             )
-            .bind(user_id)
-            .bind(environment.as_str())
-            .bind(store_transaction_identifier)
             .execute(&mut *tx)
             .await?;
         }
         Some(SnapshotRevocation::TransferAway) => {
-            query::<Postgres>(
+            sqlx::query!(
                 "UPDATE billing_subscriptions
                  SET status = 'revoked', gives_access = FALSE,
                      access_expires_at = NULL, will_renew = FALSE,
                      revocation_reason = 'ownership_transfer', updated_at = now()
                  WHERE user_id = $1 AND environment = $2 AND provider = 'revenuecat'
                    AND provider_observed_at = $3 AND gives_access = FALSE",
+                user_id,
+                environment.as_str(),
+                observed_at
             )
-            .bind(user_id)
-            .bind(environment.as_str())
-            .bind(observed_at)
             .execute(&mut *tx)
             .await?;
         }
@@ -1061,13 +1018,13 @@ async fn apply_snapshot_with_revocation(
 
     aggregate_entitlement(&mut tx, user_id, environment, observed_at).await?;
     if let Some((project_id, provider_event_id)) = processed_event {
-        query::<Postgres>(
+        sqlx::query!(
             "UPDATE billing_events SET processing_status = 'processed',
                     processing_error_code = NULL, processed_at = now()
              WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2",
+            project_id,
+            provider_event_id
         )
-        .bind(project_id)
-        .bind(provider_event_id)
         .execute(&mut *tx)
         .await?;
     }
@@ -1183,14 +1140,13 @@ pub async fn process_revenuecat_webhook(
     }
     let mut resolved = Vec::new();
     for provider_app_user_id in customer_ids {
-        if let Some(row) = query::<Postgres>(
+        if let Some(user_id) = sqlx::query_scalar!(
             "SELECT user_id FROM billing_customers WHERE provider_app_user_id = $1",
+            provider_app_user_id
         )
-        .bind(provider_app_user_id)
         .fetch_optional(pool)
         .await?
         {
-            let user_id: Uuid = row.try_get("user_id").map_err(|_| AppError::internal())?;
             if !resolved
                 .iter()
                 .any(|(known_user, _)| *known_user == user_id)
@@ -1215,62 +1171,58 @@ pub async fn process_revenuecat_webhook(
         .map(|value| format!("{value:.4}"));
 
     let mut tx = pool.begin().await?;
-    let inserted = query::<Postgres>(
+    let inserted = sqlx::query!(
         "INSERT INTO billing_events
             (provider, project_id, provider_event_id, app_id, environment,
              provider_app_user_id, event_type, store, store_product_identifier,
              store_transaction_identifier, store_original_transaction_identifier,
              price, currency, country_code, payload_sha256)
          VALUES ('revenuecat', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11::numeric, $12, $13, $14)
+                 $11::text::numeric, $12, $13, $14)
          ON CONFLICT (provider, project_id, provider_event_id) DO NOTHING",
+        config.project_id,
+        envelope.event.id,
+        envelope.event.app_id,
+        environment.as_str(),
+        provider_app_user_id,
+        envelope.event.event_type,
+        envelope.event.store,
+        envelope.event.product_id,
+        envelope.event.transaction_id,
+        envelope.event.original_transaction_id,
+        price,
+        envelope.event.currency,
+        envelope.event.country_code,
+        payload_sha256
     )
-    .bind(&config.project_id)
-    .bind(&envelope.event.id)
-    .bind(&envelope.event.app_id)
-    .bind(environment.as_str())
-    .bind(provider_app_user_id)
-    .bind(&envelope.event.event_type)
-    .bind(&envelope.event.store)
-    .bind(&envelope.event.product_id)
-    .bind(&envelope.event.transaction_id)
-    .bind(&envelope.event.original_transaction_id)
-    .bind(price)
-    .bind(envelope.event.currency.as_deref())
-    .bind(envelope.event.country_code.as_deref())
-    .bind(payload_sha256)
     .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
-        let existing = query::<Postgres>(
+        let existing = sqlx::query!(
             "SELECT processing_status, processing_started_at FROM billing_events
              WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2
              FOR UPDATE",
+            config.project_id,
+            envelope.event.id
         )
-        .bind(&config.project_id)
-        .bind(&envelope.event.id)
         .fetch_one(&mut *tx)
         .await?;
-        let status: String = existing
-            .try_get("processing_status")
-            .map_err(|_| AppError::internal())?;
-        if status == "processed" {
+        if existing.processing_status == "processed" {
             tx.commit().await?;
             return Ok(WebhookOutcome::Duplicate);
         }
-        let started_at: DateTime<Utc> = existing
-            .try_get("processing_started_at")
-            .map_err(|_| AppError::internal())?;
-        if status == "processing" && Utc::now() - started_at < chrono::Duration::minutes(2) {
+        if existing.processing_status == "processing"
+            && Utc::now() - existing.processing_started_at < chrono::Duration::minutes(2)
+        {
             return Err(AppError::service_unavailable("billing_event_in_progress"));
         }
-        query::<Postgres>(
+        sqlx::query!(
             "UPDATE billing_events SET processing_status = 'processing',
                     processing_started_at = now(), processing_error_code = NULL
              WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2",
+            config.project_id,
+            envelope.event.id
         )
-        .bind(&config.project_id)
-        .bind(&envelope.event.id)
         .execute(&mut *tx)
         .await?;
     }
@@ -1282,13 +1234,13 @@ pub async fn process_revenuecat_webhook(
         {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                query::<Postgres>(
+                sqlx::query!(
                     "UPDATE billing_events SET processing_status = 'failed',
                         processing_error_code = 'provider_unavailable'
                  WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2",
+                    config.project_id,
+                    envelope.event.id
                 )
-                .bind(&config.project_id)
-                .bind(&envelope.event.id)
                 .execute(pool)
                 .await?;
                 return Err(error);
@@ -1417,7 +1369,7 @@ async fn aggregate_entitlement(
     environment: BillingEnvironment,
     observed_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
-    let selected = query::<Postgres>(
+    let selected = sqlx::query!(
         "SELECT id, status, gives_access, store_product_identifier, access_expires_at,
                 will_renew, revocation_reason
          FROM billing_subscriptions
@@ -1431,49 +1383,37 @@ async fn aggregate_entitlement(
                        WHEN 'revoked' THEN 3 ELSE 4 END,
            updated_at DESC
          LIMIT 1",
+        user_id,
+        environment.as_str(),
+        MONTHLY_PRODUCT_ID,
+        YEARLY_PRODUCT_ID
     )
-    .bind(user_id)
-    .bind(environment.as_str())
-    .bind(MONTHLY_PRODUCT_ID)
-    .bind(YEARLY_PRODUCT_ID)
     .fetch_optional(&mut **tx)
     .await?;
 
     let result = if let Some(row) = selected {
-        let status: String = row.try_get("status").map_err(|_| AppError::internal())?;
-        let access_expires_at: Option<DateTime<Utc>> = row
-            .try_get("access_expires_at")
-            .map_err(|_| AppError::internal())?;
-        let raw_access: bool = row
-            .try_get("gives_access")
-            .map_err(|_| AppError::internal())?;
-        let revoked: Option<String> = row
-            .try_get("revocation_reason")
-            .map_err(|_| AppError::internal())?;
-        let gives_access = raw_access
-            && matches!(status.as_str(), "trial" | "active" | "grace")
-            && access_expires_at.is_some_and(|deadline| deadline > Utc::now())
-            && revoked.is_none();
+        let gives_access = row.gives_access
+            && matches!(row.status.as_str(), "trial" | "active" | "grace")
+            && row
+                .access_expires_at
+                .is_some_and(|deadline| deadline > Utc::now())
+            && row.revocation_reason.is_none();
         AggregatedEntitlement {
-            source_id: Some(row.try_get("id").map_err(|_| AppError::internal())?),
-            status: status.clone(),
+            source_id: Some(row.id),
+            status: row.status.clone(),
             gives_access,
-            product: row
-                .try_get("store_product_identifier")
-                .map_err(|_| AppError::internal())?,
-            expires_at: if status == "grace" {
+            product: Some(row.store_product_identifier),
+            expires_at: if row.status == "grace" {
                 None
             } else {
-                access_expires_at
+                row.access_expires_at
             },
-            grace_expires_at: if status == "grace" {
-                access_expires_at
+            grace_expires_at: if row.status == "grace" {
+                row.access_expires_at
             } else {
                 None
             },
-            will_renew: row
-                .try_get("will_renew")
-                .map_err(|_| AppError::internal())?,
+            will_renew: row.will_renew,
         }
     } else {
         AggregatedEntitlement {
@@ -1486,7 +1426,7 @@ async fn aggregate_entitlement(
             will_renew: None,
         }
     };
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO account_entitlements
             (user_id, environment, lookup_key, status, gives_access,
              source_subscription_id, store_product_identifier, expires_at,
@@ -1502,17 +1442,17 @@ async fn aggregate_entitlement(
              will_renew = EXCLUDED.will_renew,
              provider_observed_at = EXCLUDED.provider_observed_at,
              updated_at = now()",
+        user_id,
+        environment.as_str(),
+        result.status,
+        result.gives_access,
+        result.source_id,
+        result.product,
+        result.expires_at,
+        result.grace_expires_at,
+        result.will_renew,
+        observed_at
     )
-    .bind(user_id)
-    .bind(environment.as_str())
-    .bind(result.status)
-    .bind(result.gives_access)
-    .bind(result.source_id)
-    .bind(result.product)
-    .bind(result.expires_at)
-    .bind(result.grace_expires_at)
-    .bind(result.will_renew)
-    .bind(observed_at)
     .execute(&mut **tx)
     .await?;
     Ok(())

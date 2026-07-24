@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE continuity_closure_proofs\n         SET acknowledged_at = coalesce(acknowledged_at, now())\n         WHERE proof_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f94d6b4aaf7bded7448862c03cb2aa77e47d8f7b8b30f9058c18d42fd54c19d"
+}

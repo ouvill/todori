@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_events SET processing_status = 'processing',\n                    processing_started_at = now(), processing_error_code = NULL\n             WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec23e49e425911f122307af1f52b8815e06c8ede63055b17091aba8a9b4f4279"
+}

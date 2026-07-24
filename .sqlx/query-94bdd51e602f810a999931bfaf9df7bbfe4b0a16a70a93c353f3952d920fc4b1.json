@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT setup FROM opaque_server_setup\n             WHERE singleton = TRUE AND opaque_suite_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "setup",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "opaque_server_setup",
+            "name": "setup"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "94bdd51e602f810a999931bfaf9df7bbfe4b0a16a70a93c353f3952d920fc4b1"
+}

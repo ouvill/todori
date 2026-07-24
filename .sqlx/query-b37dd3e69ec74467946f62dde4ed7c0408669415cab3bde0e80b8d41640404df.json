@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenants SET rotation_required = TRUE WHERE id = $1 AND kind = 'org'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b37dd3e69ec74467946f62dde4ed7c0408669415cab3bde0e80b8d41640404df"
+}

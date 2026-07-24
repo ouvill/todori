@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_device_continuity\n         SET continuity_seq = greatest(continuity_seq, $3),\n             continuity_generation = $4, initialized = true, updated_at = now()\n         WHERE tenant_id = $1 AND device_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "045743d0b822718f11bf97e75cfd74fbc9fa8a358c186c2489d73f717c9520c6"
+}

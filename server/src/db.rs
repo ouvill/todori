@@ -1,5 +1,5 @@
-use sqlx_core::{query::query, raw_sql::raw_sql, row::Row};
-use sqlx_postgres::{PgPool, PgPoolOptions, PgTransaction, Postgres};
+use sqlx_core::raw_sql::raw_sql;
+use sqlx_postgres::{PgPool, PgPoolOptions, PgTransaction};
 use uuid::Uuid;
 
 pub async fn connect(database_url: &str) -> Result<PgPool, sqlx_core::Error> {
@@ -14,20 +14,7 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
         .max_connections(10)
         .connect(database_url)
         .await?;
-    let role = query::<Postgres>(
-        "SELECT r.rolcanlogin, r.rolsuper, r.rolinherit, r.rolbypassrls,
-                pg_has_role(current_user, 'taskveil_app', 'USAGE') AS has_app_privileges,
-                EXISTS (
-                    SELECT 1
-                    FROM pg_class c
-                    WHERE c.relnamespace = 'public'::regnamespace
-                      AND c.relname = ANY($1)
-                      AND c.relowner = r.oid
-                ) AS owns_protected_table
-         FROM pg_roles r
-         WHERE r.rolname = current_user",
-    )
-    .bind(vec![
+    let protected_tables = [
         "tenants",
         "tenant_members",
         "tenant_seq",
@@ -39,15 +26,33 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
         "tenant_device_continuity",
         "device_resync_sessions",
         "continuity_closure_proofs",
-    ])
+    ];
+    let role = sqlx::query!(
+        "SELECT r.rolcanlogin AS \"rolcanlogin!\",
+                r.rolsuper AS \"rolsuper!\",
+                r.rolinherit AS \"rolinherit!\",
+                r.rolbypassrls AS \"rolbypassrls!\",
+                pg_has_role(current_user, 'taskveil_app', 'USAGE')
+                    AS \"has_app_privileges!\",
+                EXISTS (
+                    SELECT 1
+                    FROM pg_class c
+                    WHERE c.relnamespace = 'public'::regnamespace
+                      AND c.relname = ANY($1)
+                      AND c.relowner = r.oid
+                ) AS \"owns_protected_table!\"
+         FROM pg_roles r
+         WHERE r.rolname = current_user",
+        &protected_tables as &[&str],
+    )
     .fetch_one(&pool)
     .await?;
-    let is_safe = role.try_get::<bool, _>("rolcanlogin")?
-        && !role.try_get::<bool, _>("rolsuper")?
-        && role.try_get::<bool, _>("rolinherit")?
-        && !role.try_get::<bool, _>("rolbypassrls")?
-        && role.try_get::<bool, _>("has_app_privileges")?
-        && !role.try_get::<bool, _>("owns_protected_table")?;
+    let is_safe = role.rolcanlogin
+        && !role.rolsuper
+        && role.rolinherit
+        && !role.rolbypassrls
+        && role.has_app_privileges
+        && !role.owns_protected_table;
     if !is_safe {
         pool.close().await;
         return Err(sqlx_core::Error::InvalidArgument(
@@ -124,10 +129,12 @@ pub async fn set_tenant_context(
     tx: &mut PgTransaction<'_>,
     tenant_id: Uuid,
 ) -> Result<(), sqlx_core::Error> {
-    query::<Postgres>("SELECT set_config('taskveil.tenant_id', $1, true)")
-        .bind(tenant_id.to_string())
-        .execute(&mut **tx)
-        .await?;
+    let _ = sqlx::query_scalar!(
+        "SELECT set_config('taskveil.tenant_id', $1, true)",
+        tenant_id.to_string()
+    )
+    .fetch_one(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -135,9 +142,11 @@ pub async fn set_user_context(
     tx: &mut PgTransaction<'_>,
     user_id: Uuid,
 ) -> Result<(), sqlx_core::Error> {
-    query::<Postgres>("SELECT set_config('taskveil.user_id', $1, true)")
-        .bind(user_id.to_string())
-        .execute(&mut **tx)
-        .await?;
+    let _ = sqlx::query_scalar!(
+        "SELECT set_config('taskveil.user_id', $1, true)",
+        user_id.to_string()
+    )
+    .fetch_one(&mut **tx)
+    .await?;
     Ok(())
 }

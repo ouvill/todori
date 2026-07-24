@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            suite_id,\n            generation,\n            wrapper_revision,\n            wrapped_mk_by_password AS wrapped_master_key_by_password,\n            wrapped_mk_by_recovery AS wrapped_master_key_by_recovery,\n            account_root_public,\n            wrapped_account_root_private\n         FROM user_key_generations\n         WHERE user_id = $1 AND status = 'active'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suite_id",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "suite_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "wrapper_revision",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "wrapper_revision"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "wrapped_master_key_by_password",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "wrapped_mk_by_password"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "wrapped_master_key_by_recovery",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "wrapped_mk_by_recovery"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "account_root_public",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "account_root_public"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "wrapped_account_root_private",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_key_generations",
+            "name": "wrapped_account_root_private"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2433b7a34fe1a615ac44d0c52e94405376728a9d6a3c33a5ce34edf812b39f48"
+}

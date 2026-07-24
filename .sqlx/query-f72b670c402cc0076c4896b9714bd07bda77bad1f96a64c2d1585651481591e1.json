@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.rolcanlogin AS \"rolcanlogin!\",\n                r.rolsuper AS \"rolsuper!\",\n                r.rolinherit AS \"rolinherit!\",\n                r.rolbypassrls AS \"rolbypassrls!\",\n                pg_has_role(current_user, 'taskveil_app', 'USAGE')\n                    AS \"has_app_privileges!\",\n                EXISTS (\n                    SELECT 1\n                    FROM pg_class c\n                    WHERE c.relnamespace = 'public'::regnamespace\n                      AND c.relname = ANY($1)\n                      AND c.relowner = r.oid\n                ) AS \"owns_protected_table!\"\n         FROM pg_roles r\n         WHERE r.rolname = current_user",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rolcanlogin!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolcanlogin"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rolsuper!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolsuper"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rolinherit!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolinherit"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rolbypassrls!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolbypassrls"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "has_app_privileges!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "owns_protected_table!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "NameArray"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "f72b670c402cc0076c4896b9714bd07bda77bad1f96a64c2d1585651481591e1"
+}

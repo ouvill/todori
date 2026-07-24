@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_subscriptions\n         SET status = CASE WHEN revocation_reason IS NULL THEN 'expired' ELSE 'revoked' END,\n             gives_access = FALSE, access_expires_at = NULL,\n             will_renew = FALSE, provider_observed_at = $3, updated_at = now()\n         WHERE user_id = $1 AND environment = $2 AND provider = 'revenuecat'\n           AND last_seen_at < $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5ac394f2605abc3f3221d740e0b9c3db362df4a52e3c21c6c517dcc728d5108"
+}

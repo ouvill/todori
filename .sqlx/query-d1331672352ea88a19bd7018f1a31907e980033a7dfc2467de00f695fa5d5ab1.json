@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            (SELECT account_root_public FROM users WHERE id = $1) AS \"owner_root!\",\n            (SELECT account_root_public FROM users WHERE id = $2) AS \"member_root!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_root!",
+        "type_info": "Bytea",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "member_root!",
+        "type_info": "Bytea",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "d1331672352ea88a19bd7018f1a31907e980033a7dfc2467de00f695fa5d5ab1"
+}
