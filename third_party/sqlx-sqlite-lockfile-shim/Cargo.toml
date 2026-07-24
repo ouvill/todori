@@ -1,0 +1,32 @@
+[package]
+name = "sqlx-sqlite"
+version = "0.9.0"
+edition = "2021"
+rust-version = "1.94.0"
+publish = false
+
+[features]
+default = []
+any = []
+bigdecimal = []
+bundled = []
+chrono = []
+deserialize = []
+json = []
+load-extension = []
+migrate = []
+offline = []
+preupdate-hook = []
+regexp = []
+rust_decimal = []
+sqlx-toml = []
+time = []
+unbundled = []
+unlock-notify = []
+uuid = []
+_unstable-all-sqlite-features = []
+_unstable-all-types = []
+_unstable-docs = []
+
+[lib]
+path = "src/lib.rs"

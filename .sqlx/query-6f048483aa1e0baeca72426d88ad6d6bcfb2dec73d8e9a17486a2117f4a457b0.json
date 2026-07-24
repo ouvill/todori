@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO continuity_closure_proofs\n             (proof_id, tenant_id, device_id, high_water, generation)\n             VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f048483aa1e0baeca72426d88ad6d6bcfb2dec73d8e9a17486a2117f4a457b0"
+}

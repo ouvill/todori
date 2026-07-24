@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.id, d.certificate\n         FROM devices d\n         JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1\n         JOIN tenants t ON t.id = m.tenant_id\n         WHERE d.certificate IS NOT NULL AND d.certificate_fingerprint IS NOT NULL\n           AND d.revoked_at IS NULL AND (d.key_expires_at IS NULL OR d.key_expires_at > now())\n           AND (d.user_id = t.owner_user_id OR m.verification_state = 'verified')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "certificate",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "certificate"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "af2194b6f2c8fb82589b4d4d213f0d3ab1d4bcd0d8747214ff3e5598332b188a"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_key_generations\n             SET live_heads_remaining = $3::bigint,\n                 migration_completed_at = CASE WHEN $3::bigint = 0 THEN coalesce(migration_completed_at, now()) ELSE NULL END,\n                 history_retain_until = CASE\n                     WHEN $3::bigint = 0 THEN coalesce(history_retain_until, now() + ($4::bigint * interval '1 day'))\n                     ELSE NULL\n                 END,\n                 updated_at = now()\n             WHERE tenant_id = $1 AND generation = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a76f1f1109fba55d0936b049a6a488bff713b3af03d7445c72d0a74a509d30a8"
+}

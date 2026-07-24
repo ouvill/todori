@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO billing_subscriptions\n                (user_id, provider, environment, provider_subscription_id,\n                 store_transaction_identifier, store_original_transaction_identifier,\n                 store_product_identifier, provider_product_id, status, gives_access,\n                 current_period_ends_at, access_expires_at, will_renew, revocation_reason,\n                 provider_observed_at, last_seen_at)\n             VALUES ($1, 'revenuecat', $2, $3, $4, $5, $6, $7, $8, $9,\n                     $10, $11, $12, $13, $14, $14)\n             ON CONFLICT (provider, environment, provider_subscription_id) DO UPDATE SET\n                 store_transaction_identifier = EXCLUDED.store_transaction_identifier,\n                 store_original_transaction_identifier = COALESCE(\n                     EXCLUDED.store_original_transaction_identifier,\n                     billing_subscriptions.store_original_transaction_identifier\n                 ),\n                 store_product_identifier = EXCLUDED.store_product_identifier,\n                 provider_product_id = EXCLUDED.provider_product_id,\n                 status = CASE\n                     WHEN billing_subscriptions.revocation_reason = 'ownership_transfer'\n                         THEN 'revoked'\n                     WHEN billing_subscriptions.revocation_reason = 'refund'\n                          AND (NOT EXCLUDED.gives_access\n                               OR EXCLUDED.store_transaction_identifier\n                                  IS NOT DISTINCT FROM billing_subscriptions.store_transaction_identifier)\n                         THEN 'revoked'\n                     ELSE EXCLUDED.status\n                 END,\n                 gives_access = CASE\n                     WHEN billing_subscriptions.revocation_reason = 'ownership_transfer'\n                         THEN FALSE\n                     WHEN billing_subscriptions.revocation_reason = 'refund'\n                          AND (NOT EXCLUDED.gives_access\n                               OR EXCLUDED.store_transaction_identifier\n                                  IS NOT DISTINCT FROM billing_subscriptions.store_transaction_identifier)\n                         THEN FALSE\n                     ELSE EXCLUDED.gives_access\n                 END,\n                 current_period_ends_at = EXCLUDED.current_period_ends_at,\n                 access_expires_at = EXCLUDED.access_expires_at,\n                 will_renew = EXCLUDED.will_renew,\n                 revocation_reason = CASE\n                     WHEN billing_subscriptions.revocation_reason = 'ownership_transfer'\n                         THEN 'ownership_transfer'\n                     WHEN billing_subscriptions.revocation_reason = 'refund'\n                          AND (NOT EXCLUDED.gives_access\n                               OR EXCLUDED.store_transaction_identifier\n                                  IS NOT DISTINCT FROM billing_subscriptions.store_transaction_identifier)\n                         THEN 'refund'\n                     ELSE EXCLUDED.revocation_reason\n                 END,\n                 provider_observed_at = EXCLUDED.provider_observed_at,\n                 last_seen_at = EXCLUDED.last_seen_at,\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamptz",
+        "Timestamptz",
+        "Bool",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ed2ae1fa1653054a1979078e382bfd881b04392def2ac6e5579a5ceae52640f"
+}

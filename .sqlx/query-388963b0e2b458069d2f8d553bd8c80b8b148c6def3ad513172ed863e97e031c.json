@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM sync_records_history\n         WHERE tenant_id = $1 AND record_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "388963b0e2b458069d2f8d553bd8c80b8b148c6def3ad513172ed863e97e031c"
+}

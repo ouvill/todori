@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_customers SET sandbox_refresh_token = $3\n                 WHERE user_id = $1 AND provider_app_user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "08ad6253554ed2287ee15c4098f4824a68b74f353c85560bb09fbbdd6a1d1000"
+}

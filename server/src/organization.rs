@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use sqlx_core::{query::query, row::Row};
-use sqlx_postgres::{PgPool, PgTransaction, Postgres};
+use sqlx_postgres::{PgPool, PgTransaction};
 use taskveil_crypto::organization::{
     derive_safety_number, AccountRootPublicKeys, DeviceCertificate, HybridDekPackage,
     HybridScopeKind, SignedDeviceRevocation,
@@ -27,35 +26,32 @@ pub async fn invite_member(
     }
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     let owner_user_id = require_org_admin(&mut tx, tenant_id, auth.user_id).await?;
-    let member_user_id: Uuid =
-        query::<Postgres>("SELECT id FROM users WHERE lower(email) = lower($1)")
-            .bind(email)
+    let member_user_id =
+        sqlx::query_scalar!("SELECT id FROM users WHERE lower(email) = lower($1)", email)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| AppError::not_found("account not found"))?
-            .try_get("id")?;
+            .ok_or_else(|| AppError::not_found("account not found"))?;
     if member_user_id == owner_user_id {
         return Err(AppError::conflict("owner is already a member"));
     }
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO tenant_members
             (tenant_id, user_id, role, verification_state)
          VALUES ($1, $2, 'member', 'unverified')
          ON CONFLICT (tenant_id, user_id) DO NOTHING",
+        tenant_id,
+        member_user_id,
     )
-    .bind(tenant_id)
-    .bind(member_user_id)
     .execute(&mut *tx)
     .await?;
-    let verification_state: String = query::<Postgres>(
+    let verification_state = sqlx::query_scalar!(
         "SELECT verification_state FROM tenant_members
          WHERE tenant_id = $1 AND user_id = $2",
+        tenant_id,
+        member_user_id,
     )
-    .bind(tenant_id)
-    .bind(member_user_id)
     .fetch_one(&mut *tx)
-    .await?
-    .try_get("verification_state")?;
+    .await?;
     tx.commit().await?;
     Ok(OrganizationMemberResponse {
         member_user_id,
@@ -118,7 +114,7 @@ pub async fn confirm_safety_number(
         .fingerprint()
         .map_err(|_| AppError::internal())?;
 
-    query::<Postgres>(
+    sqlx::query!(
         "UPDATE tenant_members
          SET verification_state = 'unverified', owner_confirmed_at = NULL,
              member_confirmed_at = NULL, verified_at = NULL,
@@ -128,46 +124,46 @@ pub async fn confirm_safety_number(
          WHERE tenant_id = $1 AND user_id = $2
            AND (safety_owner_root_fingerprint IS DISTINCT FROM $4
                 OR safety_member_root_fingerprint IS DISTINCT FROM $5)",
+        tenant_id,
+        request.member_user_id,
+        &expected_digest,
+        owner_fingerprint.as_slice(),
+        member_fingerprint.as_slice(),
     )
-    .bind(tenant_id)
-    .bind(request.member_user_id)
-    .bind(&expected_digest)
-    .bind(owner_fingerprint.as_slice())
-    .bind(member_fingerprint.as_slice())
     .execute(&mut *tx)
     .await?;
     if auth.user_id == owner_user_id {
-        query::<Postgres>(
+        sqlx::query!(
             "UPDATE tenant_members SET owner_confirmed_at = now(),
                  safety_number_digest = $3,
                  safety_owner_root_fingerprint = $4,
                  safety_member_root_fingerprint = $5
              WHERE tenant_id = $1 AND user_id = $2",
+            tenant_id,
+            request.member_user_id,
+            &expected_digest,
+            owner_fingerprint.as_slice(),
+            member_fingerprint.as_slice(),
         )
-        .bind(tenant_id)
-        .bind(request.member_user_id)
-        .bind(&expected_digest)
-        .bind(owner_fingerprint.as_slice())
-        .bind(member_fingerprint.as_slice())
         .execute(&mut *tx)
         .await?;
     } else {
-        query::<Postgres>(
+        sqlx::query!(
             "UPDATE tenant_members SET member_confirmed_at = now(),
                  safety_number_digest = $3,
                  safety_owner_root_fingerprint = $4,
                  safety_member_root_fingerprint = $5
              WHERE tenant_id = $1 AND user_id = $2",
+            tenant_id,
+            request.member_user_id,
+            &expected_digest,
+            owner_fingerprint.as_slice(),
+            member_fingerprint.as_slice(),
         )
-        .bind(tenant_id)
-        .bind(request.member_user_id)
-        .bind(&expected_digest)
-        .bind(owner_fingerprint.as_slice())
-        .bind(member_fingerprint.as_slice())
         .execute(&mut *tx)
         .await?;
     }
-    query::<Postgres>(
+    sqlx::query!(
         "UPDATE tenant_members
          SET verification_state = 'verified', verified_at = now()
          WHERE tenant_id = $1 AND user_id = $2
@@ -175,12 +171,12 @@ pub async fn confirm_safety_number(
            AND safety_number_digest = $3
            AND safety_owner_root_fingerprint = $4
            AND safety_member_root_fingerprint = $5",
+        tenant_id,
+        request.member_user_id,
+        &expected_digest,
+        owner_fingerprint.as_slice(),
+        member_fingerprint.as_slice(),
     )
-    .bind(tenant_id)
-    .bind(request.member_user_id)
-    .bind(&expected_digest)
-    .bind(owner_fingerprint.as_slice())
-    .bind(member_fingerprint.as_slice())
     .execute(&mut *tx)
     .await?;
     let response =
@@ -198,53 +194,51 @@ pub async fn list_member_devices(
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_membership(&mut tx, tenant_id, auth.user_id).await?;
     require_membership(&mut tx, tenant_id, member_user_id).await?;
-    let root_row = query::<Postgres>(
+    let root_row = sqlx::query!(
         "SELECT account_root_public, device_roster_revision FROM users WHERE id = $1",
+        member_user_id,
     )
-    .bind(member_user_id)
     .fetch_one(&mut *tx)
     .await?;
-    let root: Vec<u8> = root_row.try_get("account_root_public")?;
-    let roster_revision: i64 = root_row.try_get("device_roster_revision")?;
+    let root = root_row.account_root_public;
+    let roster_revision = root_row.device_roster_revision;
     AccountRootPublicKeys::decode(&root).map_err(|_| AppError::internal())?;
-    let rows = query::<Postgres>(
-        "SELECT id, certificate, certificate_fingerprint, revoked_at IS NOT NULL AS revoked
+    let rows = sqlx::query!(
+        "SELECT id, certificate AS \"certificate!\",
+                certificate_fingerprint AS \"certificate_fingerprint!\",
+                revoked_at IS NOT NULL AS \"revoked!\"
          FROM devices WHERE user_id = $1 AND certificate IS NOT NULL
            AND revoked_at IS NULL AND (key_expires_at IS NULL OR key_expires_at > now())
          ORDER BY created_at, id",
+        member_user_id,
     )
-    .bind(member_user_id)
     .fetch_all(&mut *tx)
     .await?;
     let mut result = Vec::with_capacity(rows.len());
     for row in rows {
-        let certificate: Vec<u8> = row.try_get("certificate")?;
+        let certificate = row.certificate;
         DeviceCertificate::decode(&certificate).map_err(|_| AppError::internal())?;
         result.push(OrganizationDeviceDto {
             user_id: member_user_id,
-            device_id: row.try_get("id")?,
+            device_id: row.id,
             account_root_public: STANDARD.encode(&root),
             certificate: STANDARD.encode(certificate),
-            certificate_fingerprint: STANDARD
-                .encode(row.try_get::<Vec<u8>, _>("certificate_fingerprint")?),
-            revoked: row.try_get("revoked")?,
+            certificate_fingerprint: STANDARD.encode(row.certificate_fingerprint),
+            revoked: row.revoked,
         });
     }
-    let revocation_rows = query::<Postgres>(
-        "SELECT signed_revocation FROM devices
+    let revocation_rows = sqlx::query!(
+        "SELECT signed_revocation AS \"signed_revocation!\" FROM devices
          WHERE user_id = $1 AND signed_revocation IS NOT NULL
          ORDER BY revocation_revision",
+        member_user_id,
     )
-    .bind(member_user_id)
     .fetch_all(&mut *tx)
     .await?;
     let signed_revocations = revocation_rows
         .into_iter()
-        .map(|row| {
-            row.try_get::<Vec<u8>, _>("signed_revocation")
-                .map(|value| STANDARD.encode(value))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|row| STANDARD.encode(row.signed_revocation))
+        .collect();
     tx.commit().await?;
     Ok(OrganizationDeviceRosterDto {
         user_id: member_user_id,
@@ -273,38 +267,38 @@ pub async fn store_recipient_package(
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_org_admin(&mut tx, tenant_id, auth.user_id).await?;
     require_generation(&mut tx, tenant_id, scope_kind, scope_id, generation).await?;
-    let sender_fingerprint: Vec<u8> = query::<Postgres>(
-        "SELECT certificate_fingerprint FROM devices
+    let sender_fingerprint = sqlx::query_scalar!(
+        "SELECT certificate_fingerprint AS \"certificate_fingerprint!\" FROM devices
          WHERE id = $1 AND user_id = $2 AND certificate IS NOT NULL
            AND revoked_at IS NULL AND (key_expires_at IS NULL OR key_expires_at > now())",
+        auth.device_id,
+        auth.user_id,
     )
-    .bind(auth.device_id)
-    .bind(auth.user_id)
     .fetch_optional(&mut *tx)
     .await?
-    .ok_or_else(AppError::forbidden)?
-    .try_get("certificate_fingerprint")?;
+    .ok_or_else(AppError::forbidden)?;
     if sender_fingerprint != package.sender_certificate_fingerprint {
         return Err(AppError::bad_request("sender certificate mismatch"));
     }
-    let recipient = query::<Postgres>(
-        "SELECT d.certificate, d.certificate_fingerprint, d.user_id
+    let recipient = sqlx::query!(
+        "SELECT d.certificate AS \"certificate!\",
+                d.certificate_fingerprint AS \"certificate_fingerprint!\",
+                d.user_id
          FROM devices d
          JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1
          WHERE d.id = $2 AND d.certificate IS NOT NULL AND d.revoked_at IS NULL
            AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
+        tenant_id,
+        request.device_id,
     )
-    .bind(tenant_id)
-    .bind(request.device_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::bad_request("invalid recipient device"))?;
-    let recipient_user_id: Uuid = recipient.try_get("user_id")?;
+    let recipient_user_id = recipient.user_id;
     require_verified_recipient(&mut tx, tenant_id, recipient_user_id).await?;
-    let recipient_fingerprint: Vec<u8> = recipient.try_get("certificate_fingerprint")?;
+    let recipient_fingerprint = recipient.certificate_fingerprint;
     let recipient_certificate =
-        DeviceCertificate::decode(&recipient.try_get::<Vec<u8>, _>("certificate")?)
-            .map_err(|_| AppError::internal())?;
+        DeviceCertificate::decode(&recipient.certificate).map_err(|_| AppError::internal())?;
     let recipient_key_fingerprint = recipient_certificate
         .recipient_key_fingerprint()
         .map_err(|_| AppError::internal())?;
@@ -322,30 +316,31 @@ pub async fn store_recipient_package(
         &recipient_key_fingerprint,
     )
     .await?;
-    let inserted = query::<Postgres>(
+    let generation_i64 =
+        i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?;
+    let inserted = sqlx::query!(
         "INSERT INTO key_recipients
             (tenant_id, generation, device_id, recipient_key_fingerprint, wrapped_dek)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT DO NOTHING",
+        tenant_id,
+        generation_i64,
+        request.device_id,
+        recipient_key_fingerprint.as_slice(),
+        &package_bytes,
     )
-    .bind(tenant_id)
-    .bind(i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?)
-    .bind(request.device_id)
-    .bind(recipient_key_fingerprint.as_slice())
-    .bind(&package_bytes)
     .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
-        let existing: Vec<u8> = query::<Postgres>(
+        let existing = sqlx::query_scalar!(
             "SELECT wrapped_dek FROM key_recipients
              WHERE tenant_id = $1 AND generation = $2 AND device_id = $3",
+            tenant_id,
+            generation_i64,
+            request.device_id,
         )
-        .bind(tenant_id)
-        .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
-        .bind(request.device_id)
         .fetch_one(&mut *tx)
-        .await?
-        .try_get("wrapped_dek")?;
+        .await?;
         if existing != package_bytes {
             return Err(AppError::conflict("recipient package changed"));
         }
@@ -366,17 +361,18 @@ pub async fn load_recipient_package(
 ) -> Result<RecipientPackageResponse, AppError> {
     let mut tx = db::begin_tenant_transaction(pool, tenant_id).await?;
     require_verified_recipient(&mut tx, tenant_id, auth.user_id).await?;
-    let package_bytes: Vec<u8> = query::<Postgres>(
+    let generation_i64 =
+        i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?;
+    let package_bytes = sqlx::query_scalar!(
         "SELECT wrapped_dek FROM key_recipients
          WHERE tenant_id = $1 AND generation = $2 AND device_id = $3",
+        tenant_id,
+        generation_i64,
+        auth.device_id,
     )
-    .bind(tenant_id)
-    .bind(i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?)
-    .bind(auth.device_id)
     .fetch_optional(&mut *tx)
     .await?
-    .ok_or_else(|| AppError::not_found("recipient package not found"))?
-    .try_get("wrapped_dek")?;
+    .ok_or_else(|| AppError::not_found("recipient package not found"))?;
     let package = HybridDekPackage::decode(&package_bytes).map_err(|_| AppError::internal())?;
     validate_package_scope(&package, tenant_id, scope_kind, scope_id, generation)?;
     tx.commit().await?;
@@ -396,12 +392,13 @@ pub async fn remove_member(
     if member_user_id == owner_user_id {
         return Err(AppError::conflict("organization owner cannot be removed"));
     }
-    let deleted =
-        query::<Postgres>("DELETE FROM tenant_members WHERE tenant_id = $1 AND user_id = $2")
-            .bind(tenant_id)
-            .bind(member_user_id)
-            .execute(&mut *tx)
-            .await?;
+    let deleted = sqlx::query!(
+        "DELETE FROM tenant_members WHERE tenant_id = $1 AND user_id = $2",
+        tenant_id,
+        member_user_id
+    )
+    .execute(&mut *tx)
+    .await?;
     if deleted.rows_affected() != 1 {
         return Err(AppError::not_found("organization member not found"));
     }
@@ -420,8 +417,10 @@ pub async fn revoke_device(
     let mut tx = pool.begin().await?;
     db::set_user_context(&mut tx, auth.user_id).await?;
     require_membership(&mut tx, tenant_id, auth.user_id).await?;
-    let target = query::<Postgres>(
-        "SELECT d.user_id, d.certificate_fingerprint, d.revoked_at,
+    let target = sqlx::query!(
+        "SELECT d.user_id,
+                d.certificate_fingerprint AS \"certificate_fingerprint!\",
+                d.revoked_at,
                 u.account_root_public, u.device_roster_revision,
                 (SELECT previous.signed_revocation FROM devices previous
                  WHERE previous.user_id = d.user_id
@@ -431,23 +430,20 @@ pub async fn revoke_device(
          JOIN users u ON u.id = d.user_id
          JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1
          WHERE d.id = $2",
+        tenant_id,
+        device_id,
     )
-    .bind(tenant_id)
-    .bind(device_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::not_found("device not found"))?;
-    let target_user_id: Uuid = target.try_get("user_id")?;
+    let target_user_id = target.user_id;
     if target_user_id != auth.user_id {
         return Err(AppError::forbidden());
     }
-    if target
-        .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("revoked_at")?
-        .is_some()
-    {
+    if target.revoked_at.is_some() {
         return Err(AppError::conflict("device is already revoked"));
     }
-    let root_bytes: Vec<u8> = target.try_get("account_root_public")?;
+    let root_bytes = target.account_root_public;
     let root = AccountRootPublicKeys::decode(&root_bytes)
         .map_err(|_| AppError::bad_request("invalid account root"))?;
     let statement_bytes = STANDARD
@@ -458,16 +454,15 @@ pub async fn revoke_device(
     statement
         .verify(&root)
         .map_err(|_| AppError::bad_request("invalid device revocation"))?;
-    let certificate_fingerprint: Vec<u8> = target.try_get("certificate_fingerprint")?;
-    let roster_revision: i64 = target.try_get("device_roster_revision")?;
-    let previous_statement_hash =
-        match target.try_get::<Option<Vec<u8>>, _>("previous_signed_revocation")? {
-            Some(bytes) => SignedDeviceRevocation::decode(&bytes)
-                .and_then(|previous| previous.authenticated_hash())
-                .map_err(|_| AppError::internal())?,
-            None if roster_revision == 0 => [0; 32],
-            None => return Err(AppError::internal()),
-        };
+    let certificate_fingerprint = target.certificate_fingerprint;
+    let roster_revision = target.device_roster_revision;
+    let previous_statement_hash = match target.previous_signed_revocation {
+        Some(bytes) => SignedDeviceRevocation::decode(&bytes)
+            .and_then(|previous| previous.authenticated_hash())
+            .map_err(|_| AppError::internal())?,
+        None if roster_revision == 0 => [0; 32],
+        None => return Err(AppError::internal()),
+    };
     let next_revision = roster_revision
         .checked_add(1)
         .ok_or_else(AppError::internal)?;
@@ -479,32 +474,32 @@ pub async fn revoke_device(
     {
         return Err(AppError::conflict("device revocation revision mismatch"));
     }
-    let updated = query::<Postgres>(
+    let updated = sqlx::query!(
         "UPDATE users SET device_roster_revision = $2
          WHERE id = $1 AND device_roster_revision = $3",
+        target_user_id,
+        next_revision,
+        roster_revision,
     )
-    .bind(target_user_id)
-    .bind(next_revision)
-    .bind(roster_revision)
     .execute(&mut *tx)
     .await?;
     if updated.rows_affected() != 1 {
         return Err(AppError::conflict("device roster changed"));
     }
-    query::<Postgres>(
+    sqlx::query!(
         "UPDATE devices
          SET revoked_at = now(), revocation_revision = $2, signed_revocation = $3
          WHERE id = $1 AND revoked_at IS NULL",
+        device_id,
+        next_revision,
+        &statement_bytes,
     )
-    .bind(device_id)
-    .bind(next_revision)
-    .bind(&statement_bytes)
     .execute(&mut *tx)
     .await?;
-    query::<Postgres>(
+    sqlx::query!(
         "UPDATE sessions SET revoked_at = coalesce(revoked_at, now()) WHERE device_id = $1",
+        device_id,
     )
-    .bind(device_id)
     .execute(&mut *tx)
     .await?;
     mark_all_organization_rotations_required(&mut tx, target_user_id).await?;
@@ -516,14 +511,13 @@ async fn mark_all_organization_rotations_required(
     tx: &mut PgTransaction<'_>,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let tenant_rows = query::<Postgres>(
+    let tenant_rows = sqlx::query_scalar!(
         "SELECT tenant_id FROM tenant_members WHERE user_id = $1 ORDER BY tenant_id",
+        user_id,
     )
-    .bind(user_id)
     .fetch_all(&mut **tx)
     .await?;
-    for row in tenant_rows {
-        let tenant_id: Uuid = row.try_get("tenant_id")?;
+    for tenant_id in tenant_rows {
         db::set_tenant_context(tx, tenant_id).await?;
         mark_rotation_required(tx, tenant_id).await?;
     }
@@ -534,10 +528,12 @@ async fn mark_rotation_required(
     tx: &mut PgTransaction<'_>,
     tenant_id: Uuid,
 ) -> Result<(), AppError> {
-    query::<Postgres>("UPDATE tenants SET rotation_required = TRUE WHERE id = $1 AND kind = 'org'")
-        .bind(tenant_id)
-        .execute(&mut **tx)
-        .await?;
+    sqlx::query!(
+        "UPDATE tenants SET rotation_required = TRUE WHERE id = $1 AND kind = 'org'",
+        tenant_id
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -552,19 +548,19 @@ async fn require_manifest_recipient(
     if scope_kind != HybridScopeKind::Tenant as i16 || scope_id != tenant_id {
         return Err(AppError::bad_request("invalid recipient scope"));
     }
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT g.signed_manifest, u.account_root_public
          FROM tenant_key_generations g JOIN tenants t ON t.id = g.tenant_id
          JOIN users u ON u.id = t.owner_user_id
          WHERE g.tenant_id = $1 AND g.generation = $2",
+        tenant_id,
+        i64::try_from(generation).map_err(|_| AppError::internal())?,
     )
-    .bind(tenant_id)
-    .bind(i64::try_from(generation).map_err(|_| AppError::internal())?)
     .fetch_one(&mut **tx)
     .await?;
-    let root = AccountRootPublicKeys::decode(&row.try_get::<Vec<u8>, _>("account_root_public")?)
+    let root = AccountRootPublicKeys::decode(&row.account_root_public)
         .map_err(|_| AppError::internal())?;
-    let signed = OrganizationKeyManifest::decode(&row.try_get::<Vec<u8>, _>("signed_manifest")?)
+    let signed = OrganizationKeyManifest::decode(&row.signed_manifest)
         .map_err(|_| AppError::bad_request("invalid key manifest"))?;
     signed
         .verify(&root)
@@ -588,17 +584,17 @@ async fn load_safety_response(
     owner_user_id: Uuid,
     member_user_id: Uuid,
 ) -> Result<OrganizationSafetyResponse, AppError> {
-    let roots = query::<Postgres>(
+    let roots = sqlx::query!(
         "SELECT
-            (SELECT account_root_public FROM users WHERE id = $1) AS owner_root,
-            (SELECT account_root_public FROM users WHERE id = $2) AS member_root",
+            (SELECT account_root_public FROM users WHERE id = $1) AS \"owner_root!\",
+            (SELECT account_root_public FROM users WHERE id = $2) AS \"member_root!\"",
+        owner_user_id,
+        member_user_id,
     )
-    .bind(owner_user_id)
-    .bind(member_user_id)
     .fetch_one(&mut **tx)
     .await?;
-    let owner_bytes: Vec<u8> = roots.try_get("owner_root")?;
-    let member_bytes: Vec<u8> = roots.try_get("member_root")?;
+    let owner_bytes = roots.owner_root;
+    let member_bytes = roots.member_root;
     let owner_root =
         AccountRootPublicKeys::decode(&owner_bytes).map_err(|_| AppError::internal())?;
     let member_root =
@@ -608,14 +604,15 @@ async fn load_safety_response(
     }
     let safety =
         derive_safety_number(&owner_root, &member_root).map_err(|_| AppError::internal())?;
-    let membership = query::<Postgres>(
-        "SELECT verification_state, owner_confirmed_at IS NOT NULL AS owner_confirmed,
-                member_confirmed_at IS NOT NULL AS member_confirmed,
+    let membership = sqlx::query!(
+        "SELECT verification_state,
+                owner_confirmed_at IS NOT NULL AS \"owner_confirmed!\",
+                member_confirmed_at IS NOT NULL AS \"member_confirmed!\",
                 safety_owner_root_fingerprint, safety_member_root_fingerprint
          FROM tenant_members WHERE tenant_id = $1 AND user_id = $2",
+        tenant_id,
+        member_user_id,
     )
-    .bind(tenant_id)
-    .bind(member_user_id)
     .fetch_one(&mut **tx)
     .await?;
     let owner_fingerprint = owner_root.fingerprint().map_err(|_| AppError::internal())?;
@@ -623,10 +620,10 @@ async fn load_safety_response(
         .fingerprint()
         .map_err(|_| AppError::internal())?;
     let fingerprints_current = membership
-        .try_get::<Option<Vec<u8>>, _>("safety_owner_root_fingerprint")?
+        .safety_owner_root_fingerprint
         .is_some_and(|value| value == owner_fingerprint)
         && membership
-            .try_get::<Option<Vec<u8>>, _>("safety_member_root_fingerprint")?
+            .safety_member_root_fingerprint
             .is_some_and(|value| value == member_fingerprint);
     Ok(OrganizationSafetyResponse {
         owner_user_id,
@@ -637,12 +634,12 @@ async fn load_safety_response(
         decimal: safety.decimal,
         qr_payload: STANDARD.encode(safety.qr_payload),
         verification_state: if fingerprints_current {
-            membership.try_get("verification_state")?
+            membership.verification_state
         } else {
             "unverified".to_string()
         },
-        owner_confirmed: fingerprints_current && membership.try_get("owner_confirmed")?,
-        member_confirmed: fingerprints_current && membership.try_get("member_confirmed")?,
+        owner_confirmed: fingerprints_current && membership.owner_confirmed,
+        member_confirmed: fingerprints_current && membership.member_confirmed,
     })
 }
 
@@ -651,22 +648,20 @@ async fn require_org_admin(
     tenant_id: Uuid,
     user_id: Uuid,
 ) -> Result<Uuid, AppError> {
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT t.owner_user_id, t.kind, m.role
          FROM tenants t JOIN tenant_members m ON m.tenant_id = t.id
          WHERE t.id = $1 AND m.user_id = $2",
+        tenant_id,
+        user_id,
     )
-    .bind(tenant_id)
-    .bind(user_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(AppError::forbidden)?;
-    let kind: String = row.try_get("kind")?;
-    let role: String = row.try_get("role")?;
-    if kind != "org" || (role != "owner" && role != "admin") {
+    if row.kind != "org" || (row.role != "owner" && row.role != "admin") {
         return Err(AppError::forbidden());
     }
-    row.try_get("owner_user_id").map_err(AppError::from)
+    Ok(row.owner_user_id)
 }
 
 async fn require_membership(
@@ -674,14 +669,15 @@ async fn require_membership(
     tenant_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let exists: bool = query::<Postgres>(
-        "SELECT EXISTS (SELECT 1 FROM tenant_members WHERE tenant_id = $1 AND user_id = $2) AS e",
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS (
+            SELECT 1 FROM tenant_members WHERE tenant_id = $1 AND user_id = $2
+         ) AS \"exists!\"",
+        tenant_id,
+        user_id,
     )
-    .bind(tenant_id)
-    .bind(user_id)
     .fetch_one(&mut **tx)
-    .await?
-    .try_get("e")?;
+    .await?;
     if !exists {
         return Err(AppError::forbidden());
     }
@@ -694,13 +690,13 @@ async fn require_safety_participant(
     actor_user_id: Uuid,
     member_user_id: Uuid,
 ) -> Result<Uuid, AppError> {
-    let owner_user_id: Uuid =
-        query::<Postgres>("SELECT owner_user_id FROM tenants WHERE id = $1 AND kind = 'org'")
-            .bind(tenant_id)
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or_else(AppError::forbidden)?
-            .try_get("owner_user_id")?;
+    let owner_user_id = sqlx::query_scalar!(
+        "SELECT owner_user_id FROM tenants WHERE id = $1 AND kind = 'org'",
+        tenant_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(AppError::forbidden)?;
     require_membership(tx, tenant_id, member_user_id).await?;
     if actor_user_id != owner_user_id && actor_user_id != member_user_id {
         return Err(AppError::forbidden());
@@ -713,7 +709,7 @@ async fn require_verified_recipient(
     tenant_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT t.owner_user_id, m.verification_state,
                 m.safety_owner_root_fingerprint, m.safety_member_root_fingerprint,
                 owner.account_root_public AS owner_root,
@@ -723,31 +719,30 @@ async fn require_verified_recipient(
          JOIN users owner ON owner.id = t.owner_user_id
          JOIN users member ON member.id = m.user_id
          WHERE t.id = $1 AND t.kind = 'org'",
+        tenant_id,
+        user_id,
     )
-    .bind(tenant_id)
-    .bind(user_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(AppError::forbidden)?;
-    let owner_user_id: Uuid = row.try_get("owner_user_id")?;
+    let owner_user_id = row.owner_user_id;
     if user_id == owner_user_id {
         return Ok(());
     }
-    if row.try_get::<String, _>("verification_state")? != "verified" {
+    if row.verification_state != "verified" {
         return Err(AppError::forbidden());
     }
-    let owner = AccountRootPublicKeys::decode(&row.try_get::<Vec<u8>, _>("owner_root")?)
-        .map_err(|_| AppError::internal())?;
-    let member = AccountRootPublicKeys::decode(&row.try_get::<Vec<u8>, _>("member_root")?)
-        .map_err(|_| AppError::internal())?;
-    if row.try_get::<Option<Vec<u8>>, _>("safety_owner_root_fingerprint")?
+    let owner = AccountRootPublicKeys::decode(&row.owner_root).map_err(|_| AppError::internal())?;
+    let member =
+        AccountRootPublicKeys::decode(&row.member_root).map_err(|_| AppError::internal())?;
+    if row.safety_owner_root_fingerprint
         != Some(
             owner
                 .fingerprint()
                 .map_err(|_| AppError::internal())?
                 .to_vec(),
         )
-        || row.try_get::<Option<Vec<u8>>, _>("safety_member_root_fingerprint")?
+        || row.safety_member_root_fingerprint
             != Some(
                 member
                     .fingerprint()
@@ -770,15 +765,19 @@ async fn require_generation(
     let generation =
         i64::try_from(generation).map_err(|_| AppError::bad_request("invalid generation"))?;
     let exists = match scope_kind {
-        1 if scope_id == tenant_id => query::<Postgres>(
-            "SELECT EXISTS (SELECT 1 FROM tenant_key_generations
-             WHERE tenant_id = $1 AND generation = $2 AND status IN ('prepared', 'active')) AS e",
-        )
-        .bind(tenant_id)
-        .bind(generation)
-        .fetch_one(&mut **tx)
-        .await?
-        .try_get::<bool, _>("e")?,
+        1 if scope_id == tenant_id => {
+            sqlx::query_scalar!(
+                "SELECT EXISTS (
+                SELECT 1 FROM tenant_key_generations
+                WHERE tenant_id = $1 AND generation = $2
+                  AND status IN ('prepared', 'active')
+             ) AS \"exists!\"",
+                tenant_id,
+                generation,
+            )
+            .fetch_one(&mut **tx)
+            .await?
+        }
         _ => false,
     };
     if !exists {

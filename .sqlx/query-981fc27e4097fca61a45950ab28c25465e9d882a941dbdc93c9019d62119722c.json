@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tenant_seq (tenant_id, last_seq) VALUES ($1, 0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "981fc27e4097fca61a45950ab28c25465e9d882a941dbdc93c9019d62119722c"
+}

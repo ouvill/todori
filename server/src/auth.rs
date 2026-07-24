@@ -7,8 +7,7 @@ use opaque_ke::{
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx_core::{query::query, row::Row};
-use sqlx_postgres::{PgPool, PgTransaction, Postgres};
+use sqlx_postgres::{PgPool, PgTransaction};
 use taskveil_crypto::{
     key_hierarchy::INITIAL_KEY_GENERATION,
     organization::{
@@ -118,21 +117,21 @@ pub async fn register_start(
     let device_challenge = random_device_challenge();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
 
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO opaque_registration_states
             (id, user_id, tenant_id, device_id, device_challenge, email, device_name,
              opaque_suite_id, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        state_id,
+        user_id,
+        tenant_id,
+        device_id,
+        device_challenge.as_slice(),
+        &email,
+        &device_name,
+        i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?,
+        expires_at,
     )
-    .bind(state_id)
-    .bind(user_id)
-    .bind(tenant_id)
-    .bind(device_id)
-    .bind(device_challenge.as_slice())
-    .bind(&email)
-    .bind(&device_name)
-    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
-    .bind(expires_at)
     .execute(pool)
     .await?;
 
@@ -175,46 +174,52 @@ pub async fn register_finish(
         return Err(AppError::bad_request("account root mismatch"));
     }
 
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO users
             (id, email, opaque_suite_id, opaque_record, account_root_public)
          VALUES ($1, $2, $3, $4, $5)",
+        user_id,
+        &state.email,
+        i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?,
+        &server_record_bytes,
+        &enrollment.account_root_public,
     )
-    .bind(user_id)
-    .bind(&state.email)
-    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
-    .bind(&server_record_bytes)
-    .bind(&enrollment.account_root_public)
     .execute(&mut *tx)
     .await
     .map_err(map_insert_user_error)?;
 
-    query::<Postgres>("INSERT INTO billing_customers (user_id) VALUES ($1)")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "INSERT INTO billing_customers (user_id) VALUES ($1)",
+        user_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     db::set_user_context(&mut tx, user_id).await?;
     db::set_tenant_context(&mut tx, tenant_id).await?;
 
-    query::<Postgres>("INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)")
-        .bind(tenant_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    query::<Postgres>(
+    sqlx::query!(
+        "INSERT INTO tenants (id, kind, owner_user_id) VALUES ($1, 'personal', $2)",
+        tenant_id,
+        user_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
         "INSERT INTO tenant_members
             (tenant_id, user_id, role, verification_state, verified_at)
          VALUES ($1, $2, 'owner', 'verified', now())",
+        tenant_id,
+        user_id,
     )
-    .bind(tenant_id)
-    .bind(user_id)
     .execute(&mut *tx)
     .await?;
-    query::<Postgres>("INSERT INTO tenant_seq (tenant_id, last_seq) VALUES ($1, 0)")
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "INSERT INTO tenant_seq (tenant_id, last_seq) VALUES ($1, 0)",
+        tenant_id
+    )
+    .execute(&mut *tx)
+    .await?;
     insert_account_key_bundle(&mut tx, user_id, tenant_id, key_bundle).await?;
     insert_certified_device(&mut tx, device_id, user_id, &state.device_name, &enrollment).await?;
     let session = create_session(&mut tx, user_id, device_id).await?;
@@ -240,36 +245,30 @@ pub async fn login_start(
     let credential_request = CredentialRequest::<TaskveilCipherSuite>::deserialize(&client_message)
         .map_err(|_| AppError::bad_request("invalid opaque message"))?;
 
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT u.id, u.opaque_record, u.opaque_suite_id
              FROM users u WHERE lower(u.email) = lower($1)",
+        &email,
     )
-    .bind(&email)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::not_found("account not found"))?;
-    let user_id: Uuid = row.try_get("id").map_err(|_| AppError::internal())?;
-    let stored_suite: i16 = row
-        .try_get("opaque_suite_id")
-        .map_err(|_| AppError::internal())?;
+    let user_id = row.id;
+    let stored_suite = row.opaque_suite_id;
     if stored_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
         return Err(AppError::bad_request("unsupported opaque suite"));
     }
     let mut membership_tx = pool.begin().await?;
     db::set_user_context(&mut membership_tx, user_id).await?;
-    let tenant_id: Uuid = query::<Postgres>(
+    let tenant_id = sqlx::query_scalar!(
         "SELECT tenant_id FROM tenant_members
          WHERE user_id = $1 ORDER BY joined_at ASC LIMIT 1",
+        user_id,
     )
-    .bind(user_id)
     .fetch_one(&mut *membership_tx)
-    .await?
-    .try_get("tenant_id")
-    .map_err(|_| AppError::internal())?;
+    .await?;
     membership_tx.commit().await?;
-    let record_bytes: Vec<u8> = row
-        .try_get("opaque_record")
-        .map_err(|_| AppError::internal())?;
+    let record_bytes = row.opaque_record;
     let server_record =
         TaskveilServerRegistration::deserialize(&record_bytes).map_err(|_| AppError::internal())?;
     let server_setup = get_or_create_server_setup(pool).await?;
@@ -288,21 +287,21 @@ pub async fn login_start(
     let device_id = Uuid::now_v7();
     let device_challenge = random_device_challenge();
     let expires_at = Utc::now() + Duration::minutes(OPAQUE_STATE_TTL_MINUTES);
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO opaque_login_states
             (id, user_id, tenant_id, device_id, device_challenge, device_name,
              opaque_suite_id, server_login_state, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        state_id,
+        user_id,
+        tenant_id,
+        device_id,
+        device_challenge.as_slice(),
+        &device_name,
+        i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?,
+        login_start.state.serialize().to_vec(),
+        expires_at,
     )
-    .bind(state_id)
-    .bind(user_id)
-    .bind(tenant_id)
-    .bind(device_id)
-    .bind(device_challenge.as_slice())
-    .bind(&device_name)
-    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
-    .bind(login_start.state.serialize().to_vec())
-    .bind(expires_at)
     .execute(pool)
     .await?;
 
@@ -367,12 +366,12 @@ pub async fn login_finish(
 
 pub async fn logout(pool: &PgPool, bearer_token: &str) -> Result<LogoutResponse, AppError> {
     let token_hash = hash_token(bearer_token);
-    let rows = query::<Postgres>(
+    let rows = sqlx::query!(
         "UPDATE sessions
          SET revoked_at = now()
          WHERE token_hash = $1 AND revoked_at IS NULL",
+        token_hash.as_slice(),
     )
-    .bind(token_hash.as_slice())
     .execute(pool)
     .await?
     .rows_affected();
@@ -389,7 +388,7 @@ pub async fn certify_device(
 ) -> Result<LogoutResponse, AppError> {
     let token_hash = hash_token(bearer_token);
     let mut tx = pool.begin().await?;
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT s.user_id, s.device_id, d.enrollment_challenge,
                 d.enrollment_challenge_expires_at, u.account_root_public
          FROM sessions s
@@ -399,15 +398,16 @@ pub async fn certify_device(
            AND s.revoked_at IS NULL AND d.revoked_at IS NULL
            AND d.certificate IS NULL
            AND d.enrollment_challenge_expires_at > now()",
+        token_hash.as_slice(),
     )
-    .bind(token_hash.as_slice())
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::unauthorized)?;
-    let user_id: Uuid = row.try_get("user_id")?;
-    let device_id: Uuid = row.try_get("device_id")?;
+    let user_id = row.user_id;
+    let device_id = row.device_id;
     let challenge: [u8; DEVICE_CHALLENGE_LEN] = row
-        .try_get::<Vec<u8>, _>("enrollment_challenge")?
+        .enrollment_challenge
+        .ok_or_else(AppError::internal)?
         .try_into()
         .map_err(|_| AppError::internal())?;
     let verified = verify_device_enrollment(
@@ -417,12 +417,12 @@ pub async fn certify_device(
         &challenge,
         Utc::now().timestamp_millis(),
     )?;
-    let stored_root: Vec<u8> = row.try_get("account_root_public")?;
+    let stored_root = row.account_root_public;
     if stored_root != verified.account_root_public {
         return Err(AppError::bad_request("account root mismatch"));
     }
     db::set_user_context(&mut tx, user_id).await?;
-    let updated = query::<Postgres>(
+    let updated = sqlx::query!(
         "UPDATE devices
          SET certificate = $3, certificate_fingerprint = $4,
              key_expires_at = $5, certified_at = now(),
@@ -430,12 +430,12 @@ pub async fn certify_device(
              enrollment_challenge_expires_at = NULL
          WHERE id = $1 AND user_id = $2 AND certificate IS NULL
            AND revoked_at IS NULL",
+        device_id,
+        user_id,
+        &verified.certificate,
+        verified.certificate_fingerprint.as_slice(),
+        verified.expires_at,
     )
-    .bind(device_id)
-    .bind(user_id)
-    .bind(&verified.certificate)
-    .bind(verified.certificate_fingerprint.as_slice())
-    .bind(verified.expires_at)
     .execute(&mut *tx)
     .await?;
     if updated.rows_affected() != 1 {
@@ -468,7 +468,7 @@ pub async fn update_key_wrappers(
     }
     let token_hash = hash_token(bearer_token);
     let mut tx = pool.begin().await?;
-    let session = query::<Postgres>(
+    let session = sqlx::query!(
         "SELECT s.user_id
          FROM sessions s
          JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
@@ -476,35 +476,34 @@ pub async fn update_key_wrappers(
            AND s.revoked_at IS NULL AND d.revoked_at IS NULL
            AND d.certificate IS NOT NULL AND d.certified_at IS NOT NULL
            AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
+        token_hash.as_slice(),
     )
-    .bind(token_hash.as_slice())
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::unauthorized)?;
-    let user_id: Uuid = session.try_get("user_id")?;
+    let user_id = session.user_id;
     db::set_user_context(&mut tx, user_id).await?;
-    let updated = query::<Postgres>(
+    let generation = i64::try_from(request.generation)
+        .map_err(|_| AppError::bad_request("invalid generation"))?;
+    let suite_id =
+        i16::try_from(request.suite_id).map_err(|_| AppError::bad_request("invalid suite"))?;
+    let wrapper_revision = i64::try_from(request.wrapper_revision)
+        .map_err(|_| AppError::bad_request("invalid wrapper revision"))?;
+    let expected_wrapper_revision = i64::try_from(request.expected_wrapper_revision)
+        .map_err(|_| AppError::bad_request("invalid wrapper revision"))?;
+    let updated = sqlx::query!(
         "UPDATE user_key_generations
          SET wrapper_revision = $4, wrapped_mk_by_password = $5,
              wrapped_mk_by_recovery = $6, updated_at = now()
          WHERE user_id = $1 AND generation = $2 AND suite_id = $3
            AND status = 'active' AND wrapper_revision = $7",
-    )
-    .bind(user_id)
-    .bind(
-        i64::try_from(request.generation)
-            .map_err(|_| AppError::bad_request("invalid generation"))?,
-    )
-    .bind(i16::try_from(request.suite_id).map_err(|_| AppError::bad_request("invalid suite"))?)
-    .bind(
-        i64::try_from(request.wrapper_revision)
-            .map_err(|_| AppError::bad_request("invalid wrapper revision"))?,
-    )
-    .bind(wrapped_password)
-    .bind(wrapped_recovery)
-    .bind(
-        i64::try_from(request.expected_wrapper_revision)
-            .map_err(|_| AppError::bad_request("invalid wrapper revision"))?,
+        user_id,
+        generation,
+        suite_id,
+        wrapper_revision,
+        wrapped_password,
+        wrapped_recovery,
+        expected_wrapper_revision,
     )
     .execute(&mut *tx)
     .await?;
@@ -522,7 +521,7 @@ pub async fn authenticate(
 ) -> Result<AuthContext, AppError> {
     let token_hash = hash_token(bearer_token);
     let mut tx = pool.begin().await?;
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "SELECT s.user_id, s.device_id
          FROM sessions s
          JOIN devices d ON d.id = s.device_id AND d.user_id = s.user_id
@@ -532,32 +531,34 @@ pub async fn authenticate(
            AND d.revoked_at IS NULL
            AND d.certificate IS NOT NULL AND d.certified_at IS NOT NULL
            AND (d.key_expires_at IS NULL OR d.key_expires_at > now())",
+        token_hash.as_slice(),
     )
-    .bind(token_hash.as_slice())
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(AppError::unauthorized)?;
 
-    let user_id = row.try_get("user_id").map_err(|_| AppError::internal())?;
-    let device_id = row.try_get("device_id").map_err(|_| AppError::internal())?;
+    let user_id = row.user_id;
+    let device_id = row.device_id;
     db::set_user_context(&mut tx, user_id).await?;
-    let membership = query::<Postgres>(
+    let membership = sqlx::query_scalar!(
         "SELECT 1
          FROM tenant_members
          WHERE tenant_id = $1 AND user_id = $2",
+        tenant_id,
+        user_id,
     )
-    .bind(tenant_id)
-    .bind(user_id)
     .fetch_optional(&mut *tx)
     .await?;
     if membership.is_none() {
         return Err(AppError::unauthorized());
     }
     db::set_tenant_context(&mut tx, tenant_id).await?;
-    query::<Postgres>("UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1")
-        .bind(token_hash.as_slice())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1",
+        token_hash.as_slice()
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     Ok(AuthContext { user_id, device_id })
@@ -565,11 +566,11 @@ pub async fn authenticate(
 
 pub async fn cleanup_expired_opaque_states(pool: &PgPool) -> Result<u64, AppError> {
     let registration =
-        query::<Postgres>("DELETE FROM opaque_registration_states WHERE expires_at <= now()")
+        sqlx::query!("DELETE FROM opaque_registration_states WHERE expires_at <= now()")
             .execute(pool)
             .await?
             .rows_affected();
-    let login = query::<Postgres>("DELETE FROM opaque_login_states WHERE expires_at <= now()")
+    let login = sqlx::query!("DELETE FROM opaque_login_states WHERE expires_at <= now()")
         .execute(pool)
         .await?
         .rows_affected();
@@ -630,25 +631,23 @@ fn random_device_challenge() -> [u8; DEVICE_CHALLENGE_LEN] {
 async fn get_or_create_server_setup(pool: &PgPool) -> Result<TaskveilServerSetup, AppError> {
     let mut rng = OsRng;
     let generated = TaskveilServerSetup::new(&mut rng).serialize().to_vec();
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO opaque_server_setup (singleton, opaque_suite_id, setup)
          VALUES (TRUE, $1, $2)
          ON CONFLICT (singleton) DO NOTHING",
+        i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?,
+        &generated,
     )
-    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
-    .bind(&generated)
     .execute(pool)
     .await?;
 
-    let bytes: Vec<u8> = query::<Postgres>(
+    let bytes = sqlx::query_scalar!(
         "SELECT setup FROM opaque_server_setup
              WHERE singleton = TRUE AND opaque_suite_id = $1",
+        i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?,
     )
-    .bind(i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?)
     .fetch_one(pool)
-    .await?
-    .try_get("setup")
-    .map_err(|_| AppError::internal())?;
+    .await?;
     TaskveilServerSetup::deserialize(&bytes).map_err(|_| AppError::internal())
 }
 
@@ -665,35 +664,30 @@ async fn consume_registration_state(
     tx: &mut PgTransaction<'_>,
     state_id: Uuid,
 ) -> Result<RegistrationState, AppError> {
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "DELETE FROM opaque_registration_states
          WHERE id = $1 AND expires_at > now()
          RETURNING user_id, tenant_id, device_id, device_challenge, email, device_name,
                    opaque_suite_id",
+        state_id,
     )
-    .bind(state_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::bad_request("invalid or expired opaque state"))?;
-    let suite_id: i16 = row
-        .try_get("opaque_suite_id")
-        .map_err(|_| AppError::internal())?;
+    let suite_id = row.opaque_suite_id;
     if suite_id != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
         return Err(AppError::bad_request("unsupported opaque suite"));
     }
     Ok(RegistrationState {
-        user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
-        tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
-        device_id: row.try_get("device_id").map_err(|_| AppError::internal())?,
+        user_id: row.user_id,
+        tenant_id: row.tenant_id,
+        device_id: row.device_id,
         device_challenge: row
-            .try_get::<Vec<u8>, _>("device_challenge")
-            .map_err(|_| AppError::internal())?
+            .device_challenge
             .try_into()
             .map_err(|_| AppError::internal())?,
-        email: row.try_get("email").map_err(|_| AppError::internal())?,
-        device_name: row
-            .try_get("device_name")
-            .map_err(|_| AppError::internal())?,
+        email: row.email,
+        device_name: row.device_name,
     })
 }
 
@@ -710,37 +704,30 @@ async fn consume_login_state(
     tx: &mut PgTransaction<'_>,
     state_id: Uuid,
 ) -> Result<LoginState, AppError> {
-    let row = query::<Postgres>(
+    let row = sqlx::query!(
         "DELETE FROM opaque_login_states
          WHERE id = $1 AND expires_at > now()
          RETURNING user_id, tenant_id, device_id, device_challenge, device_name,
                    opaque_suite_id, server_login_state",
+        state_id,
     )
-    .bind(state_id)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::bad_request("invalid or expired opaque state"))?;
-    let suite_id: i16 = row
-        .try_get("opaque_suite_id")
-        .map_err(|_| AppError::internal())?;
+    let suite_id = row.opaque_suite_id;
     if suite_id != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())? {
         return Err(AppError::bad_request("unsupported opaque suite"));
     }
     Ok(LoginState {
-        user_id: row.try_get("user_id").map_err(|_| AppError::internal())?,
-        tenant_id: row.try_get("tenant_id").map_err(|_| AppError::internal())?,
-        device_id: row.try_get("device_id").map_err(|_| AppError::internal())?,
+        user_id: row.user_id,
+        tenant_id: row.tenant_id,
+        device_id: row.device_id,
         device_challenge: row
-            .try_get::<Vec<u8>, _>("device_challenge")
-            .map_err(|_| AppError::internal())?
+            .device_challenge
             .try_into()
             .map_err(|_| AppError::internal())?,
-        device_name: row
-            .try_get("device_name")
-            .map_err(|_| AppError::internal())?,
-        server_login_state: row
-            .try_get("server_login_state")
-            .map_err(|_| AppError::internal())?,
+        device_name: row.device_name,
+        server_login_state: row.server_login_state,
     })
 }
 
@@ -806,7 +793,7 @@ async fn insert_account_key_bundle(
     tenant_id: Uuid,
     bundle: DecodedAccountKeyBundle,
 ) -> Result<(), AppError> {
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO user_key_generations (
             user_id,
             status,
@@ -818,29 +805,29 @@ async fn insert_account_key_bundle(
             account_root_public,
             wrapped_account_root_private
          ) VALUES ($1, 'active', $2, $3, $4, $5, $6, $7, $8)",
+        user_id,
+        bundle.suite_id,
+        bundle.generation,
+        bundle.wrapper_revision,
+        &bundle.wrapped_master_key_by_password,
+        &bundle.wrapped_master_key_by_recovery,
+        &bundle.account_root_public,
+        &bundle.wrapped_account_root_private,
     )
-    .bind(user_id)
-    .bind(bundle.suite_id)
-    .bind(bundle.generation)
-    .bind(bundle.wrapper_revision)
-    .bind(&bundle.wrapped_master_key_by_password)
-    .bind(&bundle.wrapped_master_key_by_recovery)
-    .bind(&bundle.account_root_public)
-    .bind(&bundle.wrapped_account_root_private)
     .execute(&mut **tx)
     .await?;
 
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO tenant_key_generations
             (tenant_id, suite_id, generation, status, minimum_write_generation,
              signed_manifest, wrapped_tenant_root_dek, activated_at)
          VALUES ($1, $2, $3, 'active', $3, $4, $5, now())",
+        tenant_id,
+        bundle.suite_id,
+        bundle.tenant_generation,
+        &bundle.tenant_key_manifest,
+        &bundle.wrapped_tenant_root_dek,
     )
-    .bind(tenant_id)
-    .bind(bundle.suite_id)
-    .bind(bundle.tenant_generation)
-    .bind(&bundle.tenant_key_manifest)
-    .bind(&bundle.wrapped_tenant_root_dek)
     .execute(&mut **tx)
     .await?;
 
@@ -852,7 +839,7 @@ async fn load_account_key_bundle(
     user_id: Uuid,
     tenant_id: Uuid,
 ) -> Result<AccountKeyBundleDto, AppError> {
-    let user = query::<Postgres>(
+    let user = sqlx::query!(
         "SELECT
             suite_id,
             generation,
@@ -863,25 +850,21 @@ async fn load_account_key_bundle(
             wrapped_account_root_private
          FROM user_key_generations
          WHERE user_id = $1 AND status = 'active'",
+        user_id,
     )
-    .bind(user_id)
     .fetch_one(&mut **tx)
     .await?;
-    let tenant = query::<Postgres>(
+    let tenant = sqlx::query!(
         "SELECT suite_id, generation, signed_manifest, wrapped_tenant_root_dek
          FROM tenant_key_generations
          WHERE tenant_id = $1 AND status = 'active'",
+        tenant_id,
     )
-    .bind(tenant_id)
     .fetch_one(&mut **tx)
     .await?;
-    let expected_suite: i16 = user.try_get("suite_id").map_err(|_| AppError::internal())?;
-    let tenant_suite: i16 = tenant
-        .try_get("suite_id")
-        .map_err(|_| AppError::internal())?;
-    let tenant_generation: i64 = tenant
-        .try_get("generation")
-        .map_err(|_| AppError::internal())?;
+    let expected_suite = user.suite_id;
+    let tenant_suite = tenant.suite_id;
+    let tenant_generation = tenant.generation;
     if expected_suite != i16::try_from(CRYPTO_SUITE_ID).map_err(|_| AppError::internal())?
         || expected_suite != tenant_suite
     {
@@ -889,48 +872,16 @@ async fn load_account_key_bundle(
     }
 
     Ok(AccountKeyBundleDto {
-        suite_id: u16::try_from(
-            user.try_get::<i16, _>("suite_id")
-                .map_err(|_| AppError::internal())?,
-        )
-        .map_err(|_| AppError::internal())?,
-        generation: u64::try_from(
-            user.try_get::<i64, _>("generation")
-                .map_err(|_| AppError::internal())?,
-        )
-        .map_err(|_| AppError::internal())?,
+        suite_id: u16::try_from(user.suite_id).map_err(|_| AppError::internal())?,
+        generation: u64::try_from(user.generation).map_err(|_| AppError::internal())?,
         tenant_generation: u64::try_from(tenant_generation).map_err(|_| AppError::internal())?,
-        wrapper_revision: u64::try_from(
-            user.try_get::<i64, _>("wrapper_revision")
-                .map_err(|_| AppError::internal())?,
-        )
-        .map_err(|_| AppError::internal())?,
-        wrapped_master_key_by_password: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_password")
-                .map_err(|_| AppError::internal())?,
-        ),
-        wrapped_master_key_by_recovery: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("wrapped_master_key_by_recovery")
-                .map_err(|_| AppError::internal())?,
-        ),
-        account_root_public: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("account_root_public")
-                .map_err(|_| AppError::internal())?,
-        ),
-        wrapped_account_root_private: STANDARD.encode(
-            user.try_get::<Vec<u8>, _>("wrapped_account_root_private")
-                .map_err(|_| AppError::internal())?,
-        ),
-        wrapped_tenant_root_dek: STANDARD.encode(
-            tenant
-                .try_get::<Vec<u8>, _>("wrapped_tenant_root_dek")
-                .map_err(|_| AppError::internal())?,
-        ),
-        tenant_key_manifest: STANDARD.encode(
-            tenant
-                .try_get::<Vec<u8>, _>("signed_manifest")
-                .map_err(|_| AppError::internal())?,
-        ),
+        wrapper_revision: u64::try_from(user.wrapper_revision).map_err(|_| AppError::internal())?,
+        wrapped_master_key_by_password: STANDARD.encode(user.wrapped_master_key_by_password),
+        wrapped_master_key_by_recovery: STANDARD.encode(user.wrapped_master_key_by_recovery),
+        account_root_public: STANDARD.encode(user.account_root_public),
+        wrapped_account_root_private: STANDARD.encode(user.wrapped_account_root_private),
+        wrapped_tenant_root_dek: STANDARD.encode(tenant.wrapped_tenant_root_dek),
+        tenant_key_manifest: STANDARD.encode(tenant.signed_manifest),
     })
 }
 
@@ -1000,18 +951,18 @@ async fn insert_certified_device(
     device_name: &str,
     enrollment: &VerifiedEnrollment,
 ) -> Result<(), AppError> {
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO devices
             (id, user_id, device_name, certificate, certificate_fingerprint,
              key_expires_at, certified_at)
          VALUES ($1, $2, $3, $4, $5, $6, now())",
+        device_id,
+        user_id,
+        device_name,
+        &enrollment.certificate,
+        enrollment.certificate_fingerprint.as_slice(),
+        enrollment.expires_at,
     )
-    .bind(device_id)
-    .bind(user_id)
-    .bind(device_name)
-    .bind(&enrollment.certificate)
-    .bind(enrollment.certificate_fingerprint.as_slice())
-    .bind(enrollment.expires_at)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1024,16 +975,16 @@ async fn insert_pending_device(
     device_name: &str,
     challenge: &[u8; DEVICE_CHALLENGE_LEN],
 ) -> Result<(), AppError> {
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO devices
             (id, user_id, device_name, enrollment_challenge,
              enrollment_challenge_expires_at)
          VALUES ($1, $2, $3, $4, now() + interval '10 minutes')",
+        device_id,
+        user_id,
+        device_name,
+        challenge.as_slice(),
     )
-    .bind(device_id)
-    .bind(user_id)
-    .bind(device_name)
-    .bind(challenge.as_slice())
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -1052,15 +1003,15 @@ async fn create_session(
     let token = generate_session_token();
     let token_hash = hash_token(&token);
     let expires_at = Utc::now() + Duration::days(SESSION_TTL_DAYS);
-    query::<Postgres>(
+    sqlx::query!(
         "INSERT INTO sessions (id, user_id, device_id, token_hash, expires_at)
          VALUES ($1, $2, $3, $4, $5)",
+        Uuid::now_v7(),
+        user_id,
+        device_id,
+        token_hash.as_slice(),
+        expires_at,
     )
-    .bind(Uuid::now_v7())
-    .bind(user_id)
-    .bind(device_id)
-    .bind(token_hash.as_slice())
-    .bind(expires_at)
     .execute(&mut **tx)
     .await?;
     Ok(CreatedSession { token, expires_at })

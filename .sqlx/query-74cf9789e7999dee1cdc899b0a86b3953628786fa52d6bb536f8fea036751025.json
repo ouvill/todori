@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT generation, signed_manifest, wrapped_tenant_root_dek\n         FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'migrating'\n         ORDER BY generation ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "signed_manifest",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "signed_manifest"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "wrapped_tenant_root_dek",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "wrapped_tenant_root_dek"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "74cf9789e7999dee1cdc899b0a86b3953628786fa52d6bb536f8fea036751025"
+}

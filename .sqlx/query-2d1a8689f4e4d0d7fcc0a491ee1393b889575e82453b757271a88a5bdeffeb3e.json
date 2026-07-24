@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT seq.last_seq, continuity.required_generation\n         FROM tenant_seq AS seq\n         JOIN tenant_device_continuity AS continuity\n           ON continuity.tenant_id = seq.tenant_id\n          AND continuity.device_id = $2\n         WHERE seq.tenant_id = $1\n         FOR UPDATE OF seq, continuity",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_seq",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_seq",
+            "name": "last_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "required_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "required_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2d1a8689f4e4d0d7fcc0a491ee1393b889575e82453b757271a88a5bdeffeb3e"
+}

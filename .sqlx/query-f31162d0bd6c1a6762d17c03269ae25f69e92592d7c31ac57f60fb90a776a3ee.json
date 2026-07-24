@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM opaque_registration_states\n         WHERE id = $1 AND expires_at > now()\n         RETURNING user_id, tenant_id, device_id, device_challenge, email, device_name,\n                   opaque_suite_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "tenant_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "device_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "device_challenge",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "device_challenge"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "device_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "device_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "opaque_suite_id",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "opaque_registration_states",
+            "name": "opaque_suite_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f31162d0bd6c1a6762d17c03269ae25f69e92592d7c31ac57f60fb90a776a3ee"
+}

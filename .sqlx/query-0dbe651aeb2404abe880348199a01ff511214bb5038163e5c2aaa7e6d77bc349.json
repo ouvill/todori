@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tenant_key_generations\n         (tenant_id, generation, suite_id, status, minimum_write_generation,\n          signed_manifest, wrapped_tenant_root_dek)\n         VALUES ($1, $2, $3, 'prepared', $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int2",
+        "Int8",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0dbe651aeb2404abe880348199a01ff511214bb5038163e5c2aaa7e6d77bc349"
+}

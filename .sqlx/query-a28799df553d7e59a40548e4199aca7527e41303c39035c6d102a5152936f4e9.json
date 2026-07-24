@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT signed_manifest FROM tenant_key_generations\n         WHERE tenant_id = $1 AND generation = $2 AND status = 'prepared' FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "signed_manifest",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "signed_manifest"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a28799df553d7e59a40548e4199aca7527e41303c39035c6d102a5152936f4e9"
+}

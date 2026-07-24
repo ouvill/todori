@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.user_id,\n                d.certificate_fingerprint AS \"certificate_fingerprint!\",\n                d.revoked_at,\n                u.account_root_public, u.device_roster_revision,\n                (SELECT previous.signed_revocation FROM devices previous\n                 WHERE previous.user_id = d.user_id\n                   AND previous.revocation_revision = u.device_roster_revision)\n                    AS previous_signed_revocation\n         FROM devices d\n         JOIN users u ON u.id = d.user_id\n         JOIN tenant_members m ON m.user_id = d.user_id AND m.tenant_id = $1\n         WHERE d.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "certificate_fingerprint!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "certificate_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "revoked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "devices",
+            "name": "revoked_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "account_root_public",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "account_root_public"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "device_roster_revision",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "device_roster_revision"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "previous_signed_revocation",
+        "type_info": "Bytea",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "b72f7423ee8c649fbc70ca1cdf2eb7bfe5dacf74671a0c30a1b6bdd81dfccc56"
+}

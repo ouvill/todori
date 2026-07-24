@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT session.base_cursor_collection, session.base_cursor_record_id,\n                session.base_complete, continuity.required_generation\n         FROM device_resync_sessions AS session\n         JOIN tenant_device_continuity AS continuity\n           ON continuity.tenant_id = session.tenant_id\n          AND continuity.device_id = session.device_id\n         WHERE session.tenant_id = $1 AND session.device_id = $2\n           AND session.generation = $3\n         FOR UPDATE OF session, continuity",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_cursor_collection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "device_resync_sessions",
+            "name": "base_cursor_collection"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "base_cursor_record_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "device_resync_sessions",
+            "name": "base_cursor_record_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "base_complete",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "device_resync_sessions",
+            "name": "base_complete"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "required_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_device_continuity",
+            "name": "required_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e72013003d4605f8314b7914c7537b4c30ca8b63ea40dc261563db5499d371ad"
+}

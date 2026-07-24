@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT generation FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'active' FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eb4222bf7b087f4e8f19f27a0b84aa8e61b48a7bd8cb2fcc5a0438e7cc97b9dc"
+}

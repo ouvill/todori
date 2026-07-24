@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tenant_members\n            (tenant_id, user_id, role, verification_state)\n         VALUES ($1, $2, 'member', 'unverified')\n         ON CONFLICT (tenant_id, user_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4eb9039ebbec5d97909999ed44334ca67a5adff7467a9ea9f4b73875cceb682c"
+}

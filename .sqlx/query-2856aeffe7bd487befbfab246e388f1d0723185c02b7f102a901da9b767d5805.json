@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT provider_app_user_id FROM billing_customers WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider_app_user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "billing_customers",
+            "name": "provider_app_user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2856aeffe7bd487befbfab246e388f1d0723185c02b7f102a901da9b767d5805"
+}

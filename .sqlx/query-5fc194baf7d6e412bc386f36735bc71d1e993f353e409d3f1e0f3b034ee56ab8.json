@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tenant_members\n         SET verification_state = 'unverified', owner_confirmed_at = NULL,\n             member_confirmed_at = NULL, verified_at = NULL,\n             safety_number_digest = $3,\n             safety_owner_root_fingerprint = $4,\n             safety_member_root_fingerprint = $5\n         WHERE tenant_id = $1 AND user_id = $2\n           AND (safety_owner_root_fingerprint IS DISTINCT FROM $4\n                OR safety_member_root_fingerprint IS DISTINCT FROM $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5fc194baf7d6e412bc386f36735bc71d1e993f353e409d3f1e0f3b034ee56ab8"
+}

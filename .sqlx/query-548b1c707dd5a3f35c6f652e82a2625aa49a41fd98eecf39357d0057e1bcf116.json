@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT generation FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'migrating'\n         ORDER BY generation DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "548b1c707dd5a3f35c6f652e82a2625aa49a41fd98eecf39357d0057e1bcf116"
+}

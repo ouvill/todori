@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO billing_events\n            (provider, project_id, provider_event_id, app_id, environment,\n             provider_app_user_id, event_type, store, store_product_identifier,\n             store_transaction_identifier, store_original_transaction_identifier,\n             price, currency, country_code, payload_sha256)\n         VALUES ('revenuecat', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,\n                 $11::text::numeric, $12, $13, $14)\n         ON CONFLICT (provider, project_id, provider_event_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bpchar",
+        "Bpchar",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9460b4198c3e899fcccf4d79b56e51e25d2ad71a4b9b281e6f009a4384e017fa"
+}

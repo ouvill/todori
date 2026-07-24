@@ -1,7 +1,5 @@
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
 use serde_json::{json, Value};
-use sqlx_core::query::query;
-use sqlx_postgres::Postgres;
 
 use crate::SharedState;
 
@@ -29,7 +27,7 @@ async fn health() -> Json<Value> {
 }
 
 async fn ready(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
-    match query::<Postgres>("SELECT 1").execute(&state.pool).await {
+    match sqlx::query_scalar!("SELECT 1").fetch_one(&state.pool).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "ready" }))),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,

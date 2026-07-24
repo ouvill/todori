@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT base_complete\n             FROM device_resync_sessions\n             WHERE tenant_id = $1 AND device_id = $2 AND generation = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_complete",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "device_resync_sessions",
+            "name": "base_complete"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "74e7b60bec61a585abf8b028504cbdf86162a3ec0c2d801bffbaa0c7779e2da7"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_events SET processing_status = 'failed',\n                        processing_error_code = 'provider_unavailable'\n                 WHERE provider = 'revenuecat' AND project_id = $1 AND provider_event_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce52328d4623107c3f11569bfb230ba298ad94b1503f90f8c373e8e478f766cd"
+}

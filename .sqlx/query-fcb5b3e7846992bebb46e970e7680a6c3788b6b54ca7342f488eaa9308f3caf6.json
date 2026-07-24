@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO opaque_server_setup (singleton, opaque_suite_id, setup)\n         VALUES (TRUE, $1, $2)\n         ON CONFLICT (singleton) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int2",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fcb5b3e7846992bebb46e970e7680a6c3788b6b54ca7342f488eaa9308f3caf6"
+}

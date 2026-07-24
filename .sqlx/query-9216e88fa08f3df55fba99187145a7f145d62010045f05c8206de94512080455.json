@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT suite_id, generation, signed_manifest, wrapped_tenant_root_dek\n         FROM tenant_key_generations\n         WHERE tenant_id = $1 AND status = 'active'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suite_id",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "suite_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "signed_manifest",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "signed_manifest"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "wrapped_tenant_root_dek",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "tenant_key_generations",
+            "name": "wrapped_tenant_root_dek"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9216e88fa08f3df55fba99187145a7f145d62010045f05c8206de94512080455"
+}

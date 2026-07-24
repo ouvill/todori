@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE billing_customers SET production_refresh_token = $3\n                 WHERE user_id = $1 AND provider_app_user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0928d2df610552ea3ef3108aea6579b0b1210ad0fba36d13937eca717a93c6d4"
+}

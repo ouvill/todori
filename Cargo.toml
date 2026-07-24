@@ -66,6 +66,7 @@ iana-time-zone = "0.1"
 http = "1"
 hmac = "0.12.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "macros", "uuid", "chrono"] }
 sqlx-core = { version = "0.9.0", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-native-roots"] }
 sqlx-postgres = { version = "0.9.0", default-features = false, features = ["uuid", "chrono"] }
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
@@ -80,3 +81,11 @@ taskveil-crypto = { path = "core/crypto" }
 taskveil-client = { path = "core/client" }
 taskveil-sync = { path = "core/sync" }
 taskveil-storage = { path = "core/storage" }
+
+[patch.crates-io]
+# SQLx 0.9.0 resolves its optional SQLite driver into Cargo.lock even for the
+# Postgres-only macro feature set. That driver requires libsqlite3-sys <0.38,
+# while the client deliberately uses rusqlite 0.40 / libsqlite3-sys 0.38 for
+# the patched SQLCipher amalgamation. This never-built shim removes only that
+# lockfile edge and fails loudly if SQLx SQLite is ever enabled.
+sqlx-sqlite = { path = "third_party/sqlx-sqlite-lockfile-shim" }
