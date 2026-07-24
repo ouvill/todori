@@ -1480,7 +1480,7 @@ abstract class AppLocalizations {
   /// No description provided for @menuTemplatesBody.
   ///
   /// In en, this message translates to:
-  /// **'Reusable tasks and recurring schedules'**
+  /// **'Reusable and recurring tasks'**
   String get menuTemplatesBody;
 
   /// No description provided for @calendarSettingsTitle.
@@ -2350,8 +2350,20 @@ abstract class AppLocalizations {
   /// No description provided for @templatesEmptyBody.
   ///
   /// In en, this message translates to:
-  /// **'Open a task and choose Save as template.'**
+  /// **'Create a reusable task blueprint here, or save an existing task as a template.'**
   String get templatesEmptyBody;
+
+  /// No description provided for @newTemplateButton.
+  ///
+  /// In en, this message translates to:
+  /// **'New template'**
+  String get newTemplateButton;
+
+  /// No description provided for @newTemplateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New template'**
+  String get newTemplateTitle;
 
   /// No description provided for @templateActionsTooltip.
   ///
@@ -2386,8 +2398,32 @@ abstract class AppLocalizations {
   /// No description provided for @addScheduleTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Add schedule'**
+  /// **'Add recurring task'**
   String get addScheduleTooltip;
+
+  /// No description provided for @createTaskSeriesTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Create recurring tasks from this template'**
+  String get createTaskSeriesTooltip;
+
+  /// No description provided for @taskSeriesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring tasks'**
+  String get taskSeriesTitle;
+
+  /// No description provided for @taskSeriesEmptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No recurring tasks'**
+  String get taskSeriesEmptyTitle;
+
+  /// No description provided for @taskSeriesEmptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Create one from a template. It becomes independent after creation.'**
+  String get taskSeriesEmptyBody;
 
   /// No description provided for @templateCreatedMessage.
   ///
@@ -2400,6 +2436,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Replace template contents'**
   String get replaceTemplateSnapshotTitle;
+
+  /// No description provided for @duplicateTemplateMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicateTemplateMenuItem;
+
+  /// No description provided for @templateCopyName.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} copy'**
+  String templateCopyName(String name);
 
   /// No description provided for @sourceTaskIdLabel.
   ///
@@ -2422,13 +2470,13 @@ abstract class AppLocalizations {
   /// No description provided for @deleteTemplateDialogBody.
   ///
   /// In en, this message translates to:
-  /// **'Its schedules will also be deleted. Tasks already created will stay unchanged.'**
+  /// **'Recurring tasks and tasks created from this template will stay unchanged.'**
   String get deleteTemplateDialogBody;
 
   /// No description provided for @deleteScheduleDialogTitle.
   ///
   /// In en, this message translates to:
-  /// **'Delete schedule?'**
+  /// **'Delete recurring task?'**
   String get deleteScheduleDialogTitle;
 
   /// No description provided for @deleteScheduleDialogBody.
@@ -2446,7 +2494,7 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleSemantics.
   ///
   /// In en, this message translates to:
-  /// **'Schedule {rule}, next {next}'**
+  /// **'Recurring task {rule}, next {next}'**
   String scheduleSemantics(String rule, String next);
 
   /// No description provided for @scheduleStreak.
@@ -2458,7 +2506,7 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleActionsTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Schedule actions'**
+  /// **'Recurring task actions'**
   String get scheduleActionsTooltip;
 
   /// No description provided for @pauseScheduleMenuItem.
@@ -2479,6 +2527,36 @@ abstract class AppLocalizations {
   /// **'Edit template'**
   String get editTemplateTitle;
 
+  /// No description provided for @blueprintRootLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Root task'**
+  String get blueprintRootLabel;
+
+  /// No description provided for @blueprintChildLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Child task'**
+  String get blueprintChildLabel;
+
+  /// No description provided for @addBlueprintChildButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Add child task'**
+  String get addBlueprintChildButton;
+
+  /// No description provided for @moveUpButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get moveUpButton;
+
+  /// No description provided for @moveDownButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get moveDownButton;
+
   /// No description provided for @defaultListLabel.
   ///
   /// In en, this message translates to:
@@ -2494,13 +2572,13 @@ abstract class AppLocalizations {
   /// No description provided for @newScheduleTitle.
   ///
   /// In en, this message translates to:
-  /// **'New schedule'**
+  /// **'New recurring task'**
   String get newScheduleTitle;
 
   /// No description provided for @editScheduleTitle.
   ///
   /// In en, this message translates to:
-  /// **'Edit schedule'**
+  /// **'Edit recurring task'**
   String get editScheduleTitle;
 
   /// No description provided for @schedulePresetLabel.
@@ -2554,8 +2632,26 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleEnabledLabel.
   ///
   /// In en, this message translates to:
-  /// **'Schedule enabled'**
+  /// **'Recurring task enabled'**
   String get scheduleEnabledLabel;
+
+  /// No description provided for @editSeriesContentMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit tasks and destination'**
+  String get editSeriesContentMenuItem;
+
+  /// No description provided for @editSeriesContentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit recurring task contents'**
+  String get editSeriesContentTitle;
+
+  /// No description provided for @targetListLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Destination list'**
+  String get targetListLabel;
 
   /// No description provided for @scheduleValidationFailed.
   ///
@@ -2568,6 +2664,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save as template'**
   String get saveAsTemplateMenuItem;
+
+  /// No description provided for @createTaskSeriesMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Make recurring'**
+  String get createTaskSeriesMenuItem;
+
+  /// No description provided for @taskSeriesCreatedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring task created.'**
+  String get taskSeriesCreatedMessage;
 
   /// No description provided for @saveAsTemplateTitle.
   ///

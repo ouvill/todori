@@ -1037,7 +1037,7 @@ impl From<TaskUndoEntry> for TaskUndoView {
             },
             task_id: value.task_id,
             list_id: value.list_id,
-            task_title: value.before_snapshot.title,
+            task_title: value.before_snapshot.content.title,
             created_at: value.created_at,
         }
     }

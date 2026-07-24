@@ -47,18 +47,20 @@ pub use model::{
 pub use mutation_service::ClientError;
 pub(crate) use mutation_service::{LocalMutationContext, SqliteMutationService, UpdateTaskInput};
 pub use runtime::{
-    CalendarOccurrenceKind, CalendarOccurrenceView, CalendarRange, CreateScheduleCommand,
-    CreateTaskCommand, HomeTaskView, LocalProfileConfig, ReminderView, ReorderTaskCommand,
-    ReplaceTemplateSnapshotCommand, SaveTemplateCommand, SetTaskStatusCommand, SettlementSummary,
-    TaskUndoKind, TaskUndoView, TaskveilClient, UpdateScheduleCommand, UpdateTaskCommand,
+    CalendarOccurrenceKind, CalendarOccurrenceView, CalendarRange, CreateTaskCommand,
+    CreateTaskSeriesFromTaskCommand, CreateTaskSeriesFromTemplateCommand, CreateTemplateCommand,
+    HomeTaskView, LocalProfileConfig, ReminderView, ReorderTaskCommand,
+    ReplaceTaskBlueprintCommand, SaveTemplateCommand, SetTaskStatusCommand, SettlementSummary,
+    TaskUndoKind, TaskUndoView, TaskveilClient, UpdateTaskCommand, UpdateTaskSeriesCommand,
     UpdateTemplateCommand,
 };
 pub(crate) use sqlite_sync_store::SqliteSyncStore;
+pub use taskveil_domain::TASK_BLUEPRINT_SCHEMA_REVISION;
 pub use taskveil_domain::{
     pomodoro_target_reached_at, ActiveTimerSession, CivilDate, CompletedTimerSession,
-    DueValueError, IanaTimeZone, List, RecurrenceSchedule, ScheduleCursor, Streak, Task, TaskDue,
-    TaskStatus, TaskTemplate, TemplateNode, TemplateSnapshot, TimerFinishKind, TimerMode,
-    TimerPhase, TimerRunState, UtcInstant, Uuid,
+    DueValueError, IanaTimeZone, List, SeriesCursor, Streak, Task, TaskBlueprint,
+    TaskBlueprintNode, TaskContent, TaskDue, TaskSeries, TaskStatus, TaskTemplate, TimerFinishKind,
+    TimerMode, TimerPhase, TimerRunState, UtcInstant, Uuid,
 };
 
 pub use chrono;

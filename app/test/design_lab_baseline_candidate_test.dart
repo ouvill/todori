@@ -27,9 +27,7 @@ void main() {
       final lists = await fixture.fake.getLists();
       final tasks = await fixture.fake.getTasks(listId: fixture.homeListId);
       final templates = await fixture.fake.getTemplates();
-      final schedules = await fixture.fake.getTemplateSchedules(
-        templateId: fixture.templateId,
-      );
+      final schedules = await fixture.fake.getTaskSeries();
       final reminders = await fixture.fake.getTaskReminders(
         taskId: fixture.parentWithSubtasksId,
       );

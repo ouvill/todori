@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'api.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `billing_state_to_dto`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `schedule_to_dto`, `settlement_to_dto`, `status_to_string`, `streak_to_dto`, `sync_status_to_dto`, `task_due_to_dto`, `task_to_dto`, `task_undo_to_dto`, `template_node_to_dto`, `template_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
+// These functions are ignored because they are not marked as `pub`: `account_auth_to_dto`, `account_session_to_dto`, `active_timer_to_dto`, `billing_state_to_dto`, `blueprint_from_dtos`, `calendar_occurrence_to_dto`, `client_result`, `completed_timer_to_dto`, `count_to_i32`, `home_task_to_dto`, `instant_to_datetime`, `json_string`, `list_to_dto`, `millis_to_datetime`, `organization_safety_to_dto`, `parse_active_timer`, `parse_completed_timer`, `parse_status`, `parse_task_due`, `parse_timer_finish_kind`, `parse_timer_mode`, `parse_timer_phase`, `parse_timer_run_state`, `parse_uuid`, `realtime_ticket_to_dto`, `reminder_to_dto`, `saturating_i32`, `settlement_to_dto`, `status_to_string`, `streak_to_dto`, `sync_status_to_dto`, `task_due_to_dto`, `task_series_to_dto`, `task_to_dto`, `task_undo_to_dto`, `template_node_to_dto`, `template_to_dto`, `timer_finish_kind_to_dto`, `timer_mode_to_dto`, `timer_phase_to_dto`, `timer_run_state_to_dto`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`
 
 Future<String> greet({required String name}) =>
@@ -127,8 +127,8 @@ Future<List<ListDto>> getArchivedLists() =>
 Future<List<TemplateDto>> getTemplates() =>
     RustLib.instance.api.crateApiGetTemplates();
 
-Future<List<ScheduleDto>> getTemplateSchedules({required String templateId}) =>
-    RustLib.instance.api.crateApiGetTemplateSchedules(templateId: templateId);
+Future<List<TaskSeriesDto>> getTaskSeries() =>
+    RustLib.instance.api.crateApiGetTaskSeries();
 
 Future<String> validateRecurrenceRule({
   required String rrule,
@@ -150,20 +150,32 @@ Future<TemplateDto> saveTaskAsTemplate({
   defaultListId: defaultListId,
 );
 
+Future<TemplateDto> createTemplate({
+  required String name,
+  String? defaultListId,
+  required List<TaskBlueprintNodeDto> nodes,
+}) => RustLib.instance.api.crateApiCreateTemplate(
+  name: name,
+  defaultListId: defaultListId,
+  nodes: nodes,
+);
+
 Future<TemplateDto> updateTemplate({
   required String templateId,
   required String name,
   String? defaultListId,
+  required List<TaskBlueprintNodeDto> nodes,
 }) => RustLib.instance.api.crateApiUpdateTemplate(
   templateId: templateId,
   name: name,
   defaultListId: defaultListId,
+  nodes: nodes,
 );
 
-Future<TemplateDto> replaceTemplateSnapshot({
+Future<TemplateDto> replaceTemplateBlueprint({
   required String templateId,
   required String taskId,
-}) => RustLib.instance.api.crateApiReplaceTemplateSnapshot(
+}) => RustLib.instance.api.crateApiReplaceTemplateBlueprint(
   templateId: templateId,
   taskId: taskId,
 );
@@ -171,47 +183,64 @@ Future<TemplateDto> replaceTemplateSnapshot({
 Future<List<TaskDto>> instantiateTemplate({required String templateId}) =>
     RustLib.instance.api.crateApiInstantiateTemplate(templateId: templateId);
 
-Future<ScheduleDto> createSchedule({
+Future<TaskSeriesDto> createTaskSeriesFromTemplate({
   required String templateId,
   required String rrule,
   required PlatformInt64 startsAt,
   required String timeZone,
-}) => RustLib.instance.api.crateApiCreateSchedule(
+}) => RustLib.instance.api.crateApiCreateTaskSeriesFromTemplate(
   templateId: templateId,
   rrule: rrule,
   startsAt: startsAt,
   timeZone: timeZone,
 );
 
-Future<ScheduleDto> updateSchedule({
-  required String scheduleId,
+Future<TaskSeriesDto> createTaskSeriesFromTask({
+  required String taskId,
+  String? targetListId,
+  required String rrule,
+  required PlatformInt64 startsAt,
+  required String timeZone,
+}) => RustLib.instance.api.crateApiCreateTaskSeriesFromTask(
+  taskId: taskId,
+  targetListId: targetListId,
+  rrule: rrule,
+  startsAt: startsAt,
+  timeZone: timeZone,
+);
+
+Future<TaskSeriesDto> updateTaskSeries({
+  required String seriesId,
+  String? targetListId,
+  required List<TaskBlueprintNodeDto> nodes,
   required String rrule,
   required PlatformInt64 startsAt,
   required String timeZone,
   required bool enabled,
-}) => RustLib.instance.api.crateApiUpdateSchedule(
-  scheduleId: scheduleId,
+}) => RustLib.instance.api.crateApiUpdateTaskSeries(
+  seriesId: seriesId,
+  targetListId: targetListId,
+  nodes: nodes,
   rrule: rrule,
   startsAt: startsAt,
   timeZone: timeZone,
   enabled: enabled,
 );
 
-Future<void> deleteSchedule({required String scheduleId}) =>
-    RustLib.instance.api.crateApiDeleteSchedule(scheduleId: scheduleId);
+Future<void> deleteTaskSeries({required String seriesId}) =>
+    RustLib.instance.api.crateApiDeleteTaskSeries(seriesId: seriesId);
 
 Future<void> deleteTemplate({required String templateId}) =>
     RustLib.instance.api.crateApiDeleteTemplate(templateId: templateId);
 
-Future<SettlementSummaryDto> settleDueSchedules({
-  required PlatformInt64 atMs,
-}) => RustLib.instance.api.crateApiSettleDueSchedules(atMs: atMs);
+Future<SettlementSummaryDto> settleDueSeries({required PlatformInt64 atMs}) =>
+    RustLib.instance.api.crateApiSettleDueSeries(atMs: atMs);
 
-Future<StreakDto> getScheduleStreak({
-  required String scheduleId,
+Future<StreakDto> getTaskSeriesStreak({
+  required String seriesId,
   required PlatformInt64 atMs,
-}) => RustLib.instance.api.crateApiGetScheduleStreak(
-  scheduleId: scheduleId,
+}) => RustLib.instance.api.crateApiGetTaskSeriesStreak(
+  seriesId: seriesId,
   atMs: atMs,
 );
 
@@ -865,61 +894,6 @@ class ReminderDto {
           createdAt == other.createdAt;
 }
 
-class ScheduleDto {
-  final String id;
-  final String templateId;
-  final String rrule;
-  final PlatformInt64 startsAt;
-  final String timeZone;
-  final PlatformInt64? nextRunAt;
-  final bool enabled;
-  final String configRevision;
-  final PlatformInt64 createdAt;
-  final PlatformInt64 updatedAt;
-
-  const ScheduleDto({
-    required this.id,
-    required this.templateId,
-    required this.rrule,
-    required this.startsAt,
-    required this.timeZone,
-    this.nextRunAt,
-    required this.enabled,
-    required this.configRevision,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  @override
-  int get hashCode =>
-      id.hashCode ^
-      templateId.hashCode ^
-      rrule.hashCode ^
-      startsAt.hashCode ^
-      timeZone.hashCode ^
-      nextRunAt.hashCode ^
-      enabled.hashCode ^
-      configRevision.hashCode ^
-      createdAt.hashCode ^
-      updatedAt.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ScheduleDto &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          templateId == other.templateId &&
-          rrule == other.rrule &&
-          startsAt == other.startsAt &&
-          timeZone == other.timeZone &&
-          nextRunAt == other.nextRunAt &&
-          enabled == other.enabled &&
-          configRevision == other.configRevision &&
-          createdAt == other.createdAt &&
-          updatedAt == other.updatedAt;
-}
-
 class SettlementSummaryDto {
   final int generatedOccurrences;
   final int generatedTasks;
@@ -1062,6 +1036,49 @@ class SyncStatusDto {
           upgradeRequired == other.upgradeRequired;
 }
 
+class TaskBlueprintNodeDto {
+  final String nodeKey;
+  final String? parentNodeKey;
+  final int siblingOrder;
+  final String title;
+  final String note;
+  final int priority;
+  final int? estimatedMinutes;
+
+  const TaskBlueprintNodeDto({
+    required this.nodeKey,
+    this.parentNodeKey,
+    required this.siblingOrder,
+    required this.title,
+    required this.note,
+    required this.priority,
+    this.estimatedMinutes,
+  });
+
+  @override
+  int get hashCode =>
+      nodeKey.hashCode ^
+      parentNodeKey.hashCode ^
+      siblingOrder.hashCode ^
+      title.hashCode ^
+      note.hashCode ^
+      priority.hashCode ^
+      estimatedMinutes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskBlueprintNodeDto &&
+          runtimeType == other.runtimeType &&
+          nodeKey == other.nodeKey &&
+          parentNodeKey == other.parentNodeKey &&
+          siblingOrder == other.siblingOrder &&
+          title == other.title &&
+          note == other.note &&
+          priority == other.priority &&
+          estimatedMinutes == other.estimatedMinutes;
+}
+
 class TaskDto {
   final String id;
   final String listId;
@@ -1167,6 +1184,65 @@ sealed class TaskDueInput with _$TaskDueInput {
   }) = TaskDueInput_DateTime;
 }
 
+class TaskSeriesDto {
+  final String id;
+  final String? targetListId;
+  final List<TaskBlueprintNodeDto> nodes;
+  final String rrule;
+  final PlatformInt64 startsAt;
+  final String timeZone;
+  final PlatformInt64? nextRunAt;
+  final bool enabled;
+  final String configRevision;
+  final PlatformInt64 createdAt;
+  final PlatformInt64 updatedAt;
+
+  const TaskSeriesDto({
+    required this.id,
+    this.targetListId,
+    required this.nodes,
+    required this.rrule,
+    required this.startsAt,
+    required this.timeZone,
+    this.nextRunAt,
+    required this.enabled,
+    required this.configRevision,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      targetListId.hashCode ^
+      nodes.hashCode ^
+      rrule.hashCode ^
+      startsAt.hashCode ^
+      timeZone.hashCode ^
+      nextRunAt.hashCode ^
+      enabled.hashCode ^
+      configRevision.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TaskSeriesDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          targetListId == other.targetListId &&
+          nodes == other.nodes &&
+          rrule == other.rrule &&
+          startsAt == other.startsAt &&
+          timeZone == other.timeZone &&
+          nextRunAt == other.nextRunAt &&
+          enabled == other.enabled &&
+          configRevision == other.configRevision &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt;
+}
+
 class TaskUndoDto {
   final String id;
   final String operationType;
@@ -1210,8 +1286,8 @@ class TemplateDto {
   final String id;
   final String name;
   final String? defaultListId;
-  final String snapshotRevision;
-  final List<TemplateNodeDto> nodes;
+  final String blueprintRevision;
+  final List<TaskBlueprintNodeDto> nodes;
   final PlatformInt64 createdAt;
   final PlatformInt64 updatedAt;
 
@@ -1219,7 +1295,7 @@ class TemplateDto {
     required this.id,
     required this.name,
     this.defaultListId,
-    required this.snapshotRevision,
+    required this.blueprintRevision,
     required this.nodes,
     required this.createdAt,
     required this.updatedAt,
@@ -1230,7 +1306,7 @@ class TemplateDto {
       id.hashCode ^
       name.hashCode ^
       defaultListId.hashCode ^
-      snapshotRevision.hashCode ^
+      blueprintRevision.hashCode ^
       nodes.hashCode ^
       createdAt.hashCode ^
       updatedAt.hashCode;
@@ -1243,53 +1319,10 @@ class TemplateDto {
           id == other.id &&
           name == other.name &&
           defaultListId == other.defaultListId &&
-          snapshotRevision == other.snapshotRevision &&
+          blueprintRevision == other.blueprintRevision &&
           nodes == other.nodes &&
           createdAt == other.createdAt &&
           updatedAt == other.updatedAt;
-}
-
-class TemplateNodeDto {
-  final String nodeKey;
-  final String? parentNodeKey;
-  final int siblingOrder;
-  final String title;
-  final String note;
-  final int priority;
-  final int? estimatedMinutes;
-
-  const TemplateNodeDto({
-    required this.nodeKey,
-    this.parentNodeKey,
-    required this.siblingOrder,
-    required this.title,
-    required this.note,
-    required this.priority,
-    this.estimatedMinutes,
-  });
-
-  @override
-  int get hashCode =>
-      nodeKey.hashCode ^
-      parentNodeKey.hashCode ^
-      siblingOrder.hashCode ^
-      title.hashCode ^
-      note.hashCode ^
-      priority.hashCode ^
-      estimatedMinutes.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TemplateNodeDto &&
-          runtimeType == other.runtimeType &&
-          nodeKey == other.nodeKey &&
-          parentNodeKey == other.parentNodeKey &&
-          siblingOrder == other.siblingOrder &&
-          title == other.title &&
-          note == other.note &&
-          priority == other.priority &&
-          estimatedMinutes == other.estimatedMinutes;
 }
 
 enum TimerFinishKindDto { completed, interrupted }

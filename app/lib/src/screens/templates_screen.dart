@@ -7,7 +7,10 @@ import 'package:taskveil/src/core/providers.dart';
 import 'package:taskveil/src/generated/l10n/app_localizations.dart';
 import 'package:taskveil/src/rust/api.dart';
 import 'package:taskveil/src/ui/states.dart';
+import 'package:taskveil/src/ui/task_components.dart';
 import 'package:taskveil/src/ui/theme.dart';
+
+const _emptyBlueprintText = '';
 
 class TemplatesScreen extends ConsumerStatefulWidget {
   const TemplatesScreen({super.key});
@@ -21,7 +24,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
   Object? _error;
   List<TemplateDto> _templates = const [];
   List<ListDto> _lists = const [];
-  final Map<String, List<ScheduleDto>> _schedules = {};
+  List<TaskSeriesDto> _series = const [];
   final Map<String, StreakDto> _streaks = {};
 
   @override
@@ -39,27 +42,19 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
       final bridge = ref.read(bridgeServiceProvider);
       final templates = await bridge.getTemplates();
       final lists = await bridge.getLists();
-      final schedules = <String, List<ScheduleDto>>{};
+      final series = await bridge.getTaskSeries();
       final streaks = <String, StreakDto>{};
-      for (final template in templates) {
-        final values = await bridge.getTemplateSchedules(
-          templateId: template.id,
+      for (final value in series) {
+        streaks[value.id] = await bridge.getTaskSeriesStreak(
+          seriesId: value.id,
+          atMs: DateTime.now().millisecondsSinceEpoch,
         );
-        schedules[template.id] = values;
-        for (final schedule in values) {
-          streaks[schedule.id] = await bridge.getScheduleStreak(
-            scheduleId: schedule.id,
-            atMs: DateTime.now().millisecondsSinceEpoch,
-          );
-        }
       }
       if (!mounted) return;
       setState(() {
         _templates = templates;
         _lists = lists;
-        _schedules
-          ..clear()
-          ..addAll(schedules);
+        _series = series;
         _streaks
           ..clear()
           ..addAll(streaks);
@@ -104,6 +99,23 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
                     AppSpacing.xl,
                   ),
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            l10n.templatesTitle,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          key: const Key('create-template'),
+                          tooltip: l10n.newTemplateButton,
+                          onPressed: _createTemplate,
+                          icon: const Icon(LucideIcons.plus300),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
                     if (_templates.isEmpty)
                       AppEmptyState(
                         icon: LucideIcons.copyPlus300,
@@ -114,9 +126,27 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
                       for (final template in _templates)
                         _TemplateCard(
                           template: template,
-                          schedules: _schedules[template.id] ?? const [],
-                          streaks: _streaks,
                           lists: _lists,
+                          onChanged: _reload,
+                        ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      l10n.taskSeriesTitle,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    if (_series.isEmpty)
+                      AppEmptyState(
+                        icon: LucideIcons.repeat2300,
+                        title: l10n.taskSeriesEmptyTitle,
+                        body: l10n.taskSeriesEmptyBody,
+                      )
+                    else
+                      for (final series in _series)
+                        _TaskSeriesCard(
+                          series: series,
+                          lists: _lists,
+                          streak: _streaks[series.id],
                           onChanged: _reload,
                         ),
                   ],
@@ -125,20 +155,29 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
       ),
     );
   }
+
+  Future<void> _createTemplate() async {
+    final value = await _showTemplateEditDialog(context, null, _lists);
+    if (value == null || !mounted) return;
+    await ref
+        .read(bridgeServiceProvider)
+        .createTemplate(
+          name: value.name,
+          defaultListId: value.defaultListId,
+          nodes: value.nodes,
+        );
+    await _reload();
+  }
 }
 
 class _TemplateCard extends ConsumerWidget {
   const _TemplateCard({
     required this.template,
-    required this.schedules,
-    required this.streaks,
     required this.lists,
     required this.onChanged,
   });
 
   final TemplateDto template;
-  final List<ScheduleDto> schedules;
-  final Map<String, StreakDto> streaks;
   final List<ListDto> lists;
   final Future<void> Function() onChanged;
 
@@ -167,6 +206,10 @@ class _TemplateCard extends ConsumerWidget {
                       _handleTemplateAction(context, ref, value),
                   itemBuilder: (context) => [
                     PopupMenuItem(value: 'edit', child: Text(l10n.editButton)),
+                    PopupMenuItem(
+                      value: 'duplicate',
+                      child: Text(l10n.duplicateTemplateMenuItem),
+                    ),
                     PopupMenuItem(
                       value: 'replace',
                       child: Text(l10n.replaceTemplateSnapshotMenuItem),
@@ -198,23 +241,12 @@ class _TemplateCard extends ConsumerWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 IconButton.filledTonal(
-                  tooltip: l10n.addScheduleTooltip,
-                  onPressed: () => _editSchedule(context, ref),
+                  tooltip: l10n.createTaskSeriesTooltip,
+                  onPressed: () => _createSeries(context, ref),
                   icon: const Icon(LucideIcons.calendarPlus300),
                 ),
               ],
             ),
-            if (schedules.isNotEmpty) ...[
-              const Divider(height: AppSpacing.xl),
-              for (final schedule in schedules)
-                _ScheduleRow(
-                  schedule: schedule,
-                  streak: streaks[schedule.id],
-                  onEdit: () => _editSchedule(context, ref, schedule),
-                  onToggle: () => _toggleSchedule(context, ref, schedule),
-                  onDelete: () => _deleteSchedule(context, ref, schedule),
-                ),
-            ],
           ],
         ),
       ),
@@ -239,6 +271,7 @@ class _TemplateCard extends ConsumerWidget {
     WidgetRef ref,
     String action,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     if (action == 'edit') {
       final value = await _showTemplateEditDialog(context, template, lists);
       if (value == null) return;
@@ -248,13 +281,22 @@ class _TemplateCard extends ConsumerWidget {
             templateId: template.id,
             name: value.name,
             defaultListId: value.defaultListId,
+            nodes: value.nodes,
+          );
+    } else if (action == 'duplicate') {
+      await ref
+          .read(bridgeServiceProvider)
+          .createTemplate(
+            name: l10n.templateCopyName(template.name),
+            defaultListId: template.defaultListId,
+            nodes: template.nodes,
           );
     } else if (action == 'replace') {
       final taskId = await _showTaskIdDialog(context);
       if (taskId == null) return;
       await ref
           .read(bridgeServiceProvider)
-          .replaceTemplateSnapshot(templateId: template.id, taskId: taskId);
+          .replaceTemplateBlueprint(templateId: template.id, taskId: taskId);
     } else if (action == 'delete') {
       final confirmed = await _confirmTemplateDelete(context, template.name);
       if (!confirmed) return;
@@ -265,16 +307,11 @@ class _TemplateCard extends ConsumerWidget {
     await onChanged();
   }
 
-  Future<void> _editSchedule(
-    BuildContext context,
-    WidgetRef ref, [
-    ScheduleDto? schedule,
-  ]) async {
+  Future<void> _createSeries(BuildContext context, WidgetRef ref) async {
     final bridge = ref.read(bridgeServiceProvider);
-    final defaultTimeZone =
-        schedule?.timeZone ?? await bridge.getLocalTimeZone();
+    final defaultTimeZone = await bridge.getLocalTimeZone();
     if (!context.mounted) return;
-    final input = await _showScheduleDialog(context, schedule, defaultTimeZone);
+    final input = await showTaskSeriesDialog(context, null, defaultTimeZone);
     if (input == null) return;
     try {
       await bridge.validateRecurrenceRule(
@@ -294,47 +331,114 @@ class _TemplateCard extends ConsumerWidget {
       }
       return;
     }
-    if (schedule == null) {
-      await bridge.createSchedule(
-        templateId: template.id,
+    await bridge.createTaskSeriesFromTemplate(
+      templateId: template.id,
+      rrule: input.rrule,
+      startsAt: input.startsAt,
+      timeZone: input.timeZone,
+    );
+    await onChanged();
+  }
+}
+
+class _TaskSeriesCard extends ConsumerWidget {
+  const _TaskSeriesCard({
+    required this.series,
+    required this.lists,
+    required this.streak,
+    required this.onChanged,
+  });
+
+  final TaskSeriesDto series;
+  final List<ListDto> lists;
+  final StreakDto? streak;
+  final Future<void> Function() onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+        child: _TaskSeriesRow(
+          series: series,
+          streak: streak,
+          onEdit: () => _edit(context, ref),
+          onEditContent: () => _editContent(context, ref),
+          onToggle: () => _toggle(ref),
+          onDelete: () => _delete(context, ref),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _edit(BuildContext context, WidgetRef ref) async {
+    final bridge = ref.read(bridgeServiceProvider);
+    final input = await showTaskSeriesDialog(context, series, series.timeZone);
+    if (input == null) return;
+    try {
+      await bridge.validateRecurrenceRule(
         rrule: input.rrule,
         startsAt: input.startsAt,
         timeZone: input.timeZone,
       );
-    } else {
-      await bridge.updateSchedule(
-        scheduleId: schedule.id,
-        rrule: input.rrule,
-        startsAt: input.startsAt,
-        timeZone: input.timeZone,
-        enabled: input.enabled,
-      );
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.scheduleValidationFailed,
+            ),
+          ),
+        );
+      }
+      return;
     }
+    await bridge.updateTaskSeries(
+      seriesId: series.id,
+      targetListId: series.targetListId,
+      nodes: series.nodes,
+      rrule: input.rrule,
+      startsAt: input.startsAt,
+      timeZone: input.timeZone,
+      enabled: input.enabled,
+    );
     await onChanged();
   }
 
-  Future<void> _toggleSchedule(
-    BuildContext context,
-    WidgetRef ref,
-    ScheduleDto schedule,
-  ) async {
+  Future<void> _toggle(WidgetRef ref) async {
     await ref
         .read(bridgeServiceProvider)
-        .updateSchedule(
-          scheduleId: schedule.id,
-          rrule: schedule.rrule,
-          startsAt: schedule.startsAt,
-          timeZone: schedule.timeZone,
-          enabled: !schedule.enabled,
+        .updateTaskSeries(
+          seriesId: series.id,
+          targetListId: series.targetListId,
+          nodes: series.nodes,
+          rrule: series.rrule,
+          startsAt: series.startsAt,
+          timeZone: series.timeZone,
+          enabled: !series.enabled,
         );
     await onChanged();
   }
 
-  Future<void> _deleteSchedule(
-    BuildContext context,
-    WidgetRef ref,
-    ScheduleDto schedule,
-  ) async {
+  Future<void> _editContent(BuildContext context, WidgetRef ref) async {
+    final value = await _showSeriesContentDialog(context, series, lists);
+    if (value == null) return;
+    await ref
+        .read(bridgeServiceProvider)
+        .updateTaskSeries(
+          seriesId: series.id,
+          targetListId: value.targetListId,
+          nodes: value.nodes,
+          rrule: series.rrule,
+          startsAt: series.startsAt,
+          timeZone: series.timeZone,
+          enabled: series.enabled,
+        );
+    await onChanged();
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -354,25 +458,25 @@ class _TemplateCard extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    await ref
-        .read(bridgeServiceProvider)
-        .deleteSchedule(scheduleId: schedule.id);
+    await ref.read(bridgeServiceProvider).deleteTaskSeries(seriesId: series.id);
     await onChanged();
   }
 }
 
-class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow({
-    required this.schedule,
+class _TaskSeriesRow extends StatelessWidget {
+  const _TaskSeriesRow({
+    required this.series,
     required this.streak,
     required this.onEdit,
+    required this.onEditContent,
     required this.onToggle,
     required this.onDelete,
   });
 
-  final ScheduleDto schedule;
+  final TaskSeriesDto series;
   final StreakDto? streak;
   final VoidCallback onEdit;
+  final VoidCallback onEditContent;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
 
@@ -380,19 +484,19 @@ class _ScheduleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final locale = Localizations.localeOf(context).toLanguageTag();
-    final next = schedule.nextRunAt == null
+    final next = series.nextRunAt == null
         ? l10n.scheduleEndedLabel
         : DateFormat.yMMMd(locale).add_jm().format(
-            DateTime.fromMillisecondsSinceEpoch(schedule.nextRunAt!),
+            DateTime.fromMillisecondsSinceEpoch(series.nextRunAt!),
           );
     return Semantics(
-      label: l10n.scheduleSemantics(schedule.rrule, next),
+      label: l10n.scheduleSemantics(series.rrule, next),
       child: ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(
-          schedule.enabled ? LucideIcons.repeat2300 : LucideIcons.pause300,
+          series.enabled ? LucideIcons.repeat2300 : LucideIcons.pause300,
         ),
-        title: Text(schedule.rrule),
+        title: Text(series.rrule),
         subtitle: Text(
           streak == null || streak!.current == 0
               ? next
@@ -402,15 +506,20 @@ class _ScheduleRow extends StatelessWidget {
           tooltip: l10n.scheduleActionsTooltip,
           onSelected: (value) {
             if (value == 'edit') onEdit();
+            if (value == 'edit-content') onEditContent();
             if (value == 'toggle') onToggle();
             if (value == 'delete') onDelete();
           },
           itemBuilder: (context) => [
             PopupMenuItem(value: 'edit', child: Text(l10n.editButton)),
             PopupMenuItem(
+              value: 'edit-content',
+              child: Text(l10n.editSeriesContentMenuItem),
+            ),
+            PopupMenuItem(
               value: 'toggle',
               child: Text(
-                schedule.enabled
+                series.enabled
                     ? l10n.pauseScheduleMenuItem
                     : l10n.resumeScheduleMenuItem,
               ),
@@ -423,44 +532,110 @@ class _ScheduleRow extends StatelessWidget {
   }
 }
 
-typedef _TemplateEditValue = ({String name, String? defaultListId});
+typedef _TemplateEditValue = ({
+  String name,
+  String? defaultListId,
+  List<TaskBlueprintNodeDto> nodes,
+});
 
-Future<_TemplateEditValue?> _showTemplateEditDialog(
+typedef _SeriesContentValue = ({
+  String? targetListId,
+  List<TaskBlueprintNodeDto> nodes,
+});
+
+Future<_SeriesContentValue?> _showSeriesContentDialog(
   BuildContext context,
-  TemplateDto template,
+  TaskSeriesDto series,
   List<ListDto> lists,
 ) {
   final l10n = AppLocalizations.of(context)!;
-  final controller = TextEditingController(text: template.name);
-  var listId = template.defaultListId;
-  return showDialog<_TemplateEditValue>(
+  var targetListId = series.targetListId;
+  var nodes = series.nodes.toList();
+  return showDialog<_SeriesContentValue>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
-        title: Text(l10n.editTemplateTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: InputDecoration(labelText: l10n.nameLabel),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            DropdownButtonFormField<String?>(
-              initialValue: listId,
-              isExpanded: true,
-              decoration: InputDecoration(labelText: l10n.defaultListLabel),
-              items: [
-                DropdownMenuItem(
-                  value: null,
-                  child: Text(l10n.inboxFallbackLabel),
+        title: Text(l10n.editSeriesContentTitle),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String?>(
+                  initialValue: targetListId,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: l10n.targetListLabel),
+                  items: [
+                    DropdownMenuItem(
+                      value: null,
+                      child: Text(l10n.inboxFallbackLabel),
+                    ),
+                    for (final list in lists)
+                      DropdownMenuItem(value: list.id, child: Text(list.name)),
+                  ],
+                  onChanged: (value) => setState(() => targetListId = value),
                 ),
-                for (final list in lists)
-                  DropdownMenuItem(value: list.id, child: Text(list.name)),
+                const SizedBox(height: AppSpacing.lg),
+                for (var index = 0; index < nodes.length; index++)
+                  _BlueprintNodeEditor(
+                    key: ValueKey(nodes[index].nodeKey),
+                    node: nodes[index],
+                    isRoot: nodes[index].parentNodeKey == null,
+                    canMoveUp: _canMoveBlueprintNode(nodes, index, -1),
+                    canMoveDown: _canMoveBlueprintNode(nodes, index, 1),
+                    onTitleChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        title: value,
+                      );
+                    }),
+                    onNoteChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        note: value,
+                      );
+                    }),
+                    onPriorityChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        priority: value,
+                      );
+                    }),
+                    onEstimatedMinutesChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        estimatedMinutes: value,
+                        replaceEstimatedMinutes: true,
+                      );
+                    }),
+                    onMoveUp: () => setState(() {
+                      nodes = _moveBlueprintNode(nodes, index, -1);
+                    }),
+                    onMoveDown: () => setState(() {
+                      nodes = _moveBlueprintNode(nodes, index, 1);
+                    }),
+                    onDelete: () => setState(() {
+                      nodes = _removeBlueprintSubtree(
+                        nodes,
+                        nodes[index].nodeKey,
+                      );
+                    }),
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const Key('add-series-blueprint-child'),
+                    onPressed: () => setState(() {
+                      nodes = _appendBlueprintChild(nodes);
+                    }),
+                    icon: const Icon(LucideIcons.plus300),
+                    label: Text(l10n.addBlueprintChildButton),
+                  ),
+                ),
               ],
-              onChanged: (value) => setState(() => listId = value),
             ),
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -468,16 +643,395 @@ Future<_TemplateEditValue?> _showTemplateEditDialog(
             child: Text(l10n.cancelButton),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, (
-              name: controller.text.trim(),
-              defaultListId: listId,
-            )),
+            key: const Key('save-series-content'),
+            onPressed: nodes.any((node) => node.title.trim().isEmpty)
+                ? null
+                : () => Navigator.pop(context, (
+                    targetListId: targetListId,
+                    nodes: _normalizeBlueprintOrder(nodes),
+                  )),
             child: Text(l10n.saveButton),
           ),
         ],
       ),
     ),
   );
+}
+
+Future<_TemplateEditValue?> _showTemplateEditDialog(
+  BuildContext context,
+  TemplateDto? template,
+  List<ListDto> lists,
+) {
+  final l10n = AppLocalizations.of(context)!;
+  final controller = TextEditingController(text: template?.name ?? '');
+  var listId = template?.defaultListId;
+  var nodes =
+      template?.nodes.toList() ??
+      [
+        const TaskBlueprintNodeDto(
+          nodeKey: 'root',
+          siblingOrder: 0,
+          title: _emptyBlueprintText,
+          note: '',
+          priority: 0,
+        ),
+      ];
+  return showDialog<_TemplateEditValue>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: Text(
+          template == null ? l10n.newTemplateTitle : l10n.editTemplateTitle,
+        ),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  key: const Key('template-name'),
+                  controller: controller,
+                  decoration: InputDecoration(labelText: l10n.nameLabel),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                DropdownButtonFormField<String?>(
+                  initialValue: listId,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: l10n.defaultListLabel),
+                  items: [
+                    DropdownMenuItem(
+                      value: null,
+                      child: Text(l10n.inboxFallbackLabel),
+                    ),
+                    for (final list in lists)
+                      DropdownMenuItem(value: list.id, child: Text(list.name)),
+                  ],
+                  onChanged: (value) => setState(() => listId = value),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                for (var index = 0; index < nodes.length; index++)
+                  _BlueprintNodeEditor(
+                    key: ValueKey(nodes[index].nodeKey),
+                    node: nodes[index],
+                    isRoot: nodes[index].parentNodeKey == null,
+                    canMoveUp: _canMoveBlueprintNode(nodes, index, -1),
+                    canMoveDown: _canMoveBlueprintNode(nodes, index, 1),
+                    onTitleChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        title: value,
+                      );
+                    }),
+                    onNoteChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        note: value,
+                      );
+                    }),
+                    onPriorityChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        priority: value,
+                      );
+                    }),
+                    onEstimatedMinutesChanged: (value) => setState(() {
+                      nodes[index] = _copyBlueprintNode(
+                        nodes[index],
+                        estimatedMinutes: value,
+                        replaceEstimatedMinutes: true,
+                      );
+                    }),
+                    onMoveUp: () => setState(() {
+                      nodes = _moveBlueprintNode(nodes, index, -1);
+                    }),
+                    onMoveDown: () => setState(() {
+                      nodes = _moveBlueprintNode(nodes, index, 1);
+                    }),
+                    onDelete: () => setState(() {
+                      nodes = _removeBlueprintSubtree(
+                        nodes,
+                        nodes[index].nodeKey,
+                      );
+                    }),
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const Key('add-blueprint-child'),
+                    onPressed: () => setState(() {
+                      nodes = _appendBlueprintChild(nodes);
+                    }),
+                    icon: const Icon(LucideIcons.plus300),
+                    label: Text(l10n.addBlueprintChildButton),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancelButton),
+          ),
+          FilledButton(
+            key: const Key('save-template'),
+            onPressed:
+                controller.text.trim().isEmpty ||
+                    nodes.any((node) => node.title.trim().isEmpty)
+                ? null
+                : () => Navigator.pop(context, (
+                    name: controller.text.trim(),
+                    defaultListId: listId,
+                    nodes: _normalizeBlueprintOrder(nodes),
+                  )),
+            child: Text(l10n.saveButton),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _BlueprintNodeEditor extends StatelessWidget {
+  const _BlueprintNodeEditor({
+    super.key,
+    required this.node,
+    required this.isRoot,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    required this.onTitleChanged,
+    required this.onNoteChanged,
+    required this.onPriorityChanged,
+    required this.onEstimatedMinutesChanged,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.onDelete,
+  });
+
+  final TaskBlueprintNodeDto node;
+  final bool isRoot;
+  final bool canMoveUp;
+  final bool canMoveDown;
+  final ValueChanged<String> onTitleChanged;
+  final ValueChanged<String> onNoteChanged;
+  final ValueChanged<int> onPriorityChanged;
+  final ValueChanged<int?> onEstimatedMinutesChanged;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Card.outlined(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isRoot ? l10n.blueprintRootLabel : l10n.blueprintChildLabel,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                if (!isRoot) ...[
+                  IconButton(
+                    tooltip: l10n.moveUpButton,
+                    onPressed: canMoveUp ? onMoveUp : null,
+                    icon: const Icon(LucideIcons.arrowUp300),
+                  ),
+                  IconButton(
+                    tooltip: l10n.moveDownButton,
+                    onPressed: canMoveDown ? onMoveDown : null,
+                    icon: const Icon(LucideIcons.arrowDown300),
+                  ),
+                  IconButton(
+                    tooltip: l10n.deleteButton,
+                    onPressed: onDelete,
+                    icon: const Icon(LucideIcons.trash2300),
+                  ),
+                ],
+              ],
+            ),
+            TextFormField(
+              key: ValueKey('blueprint-title-${node.nodeKey}'),
+              initialValue: node.title,
+              decoration: InputDecoration(labelText: l10n.titleLabel),
+              onChanged: onTitleChanged,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextFormField(
+              key: ValueKey('blueprint-note-${node.nodeKey}'),
+              initialValue: node.note,
+              decoration: InputDecoration(labelText: l10n.noteLabel),
+              minLines: 1,
+              maxLines: 3,
+              onChanged: onNoteChanged,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            DropdownButtonFormField<int>(
+              key: ValueKey('blueprint-priority-${node.nodeKey}'),
+              initialValue: node.priority,
+              decoration: InputDecoration(labelText: l10n.priorityLabel),
+              items: [
+                for (var priority = 0; priority <= 3; priority++)
+                  DropdownMenuItem(
+                    value: priority,
+                    child: Text(taskPriorityLabel(l10n, priority)),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  onPriorityChanged(value);
+                }
+              },
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            DropdownButtonFormField<int?>(
+              key: ValueKey('blueprint-estimate-${node.nodeKey}'),
+              initialValue: node.estimatedMinutes,
+              decoration: InputDecoration(labelText: l10n.estimateLabel),
+              items: [
+                DropdownMenuItem(value: null, child: Text(l10n.estimateNotSet)),
+                for (final minutes in _estimateChoices(node.estimatedMinutes))
+                  DropdownMenuItem(
+                    value: minutes,
+                    child: Text(l10n.estimateMinutes(minutes)),
+                  ),
+              ],
+              onChanged: onEstimatedMinutesChanged,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+TaskBlueprintNodeDto _copyBlueprintNode(
+  TaskBlueprintNodeDto node, {
+  String? title,
+  String? note,
+  int? siblingOrder,
+  int? priority,
+  int? estimatedMinutes,
+  bool replaceEstimatedMinutes = false,
+}) => TaskBlueprintNodeDto(
+  nodeKey: node.nodeKey,
+  parentNodeKey: node.parentNodeKey,
+  siblingOrder: siblingOrder ?? node.siblingOrder,
+  title: title ?? node.title,
+  note: note ?? node.note,
+  priority: priority ?? node.priority,
+  estimatedMinutes: replaceEstimatedMinutes
+      ? estimatedMinutes
+      : node.estimatedMinutes,
+);
+
+List<TaskBlueprintNodeDto> _normalizeBlueprintOrder(
+  List<TaskBlueprintNodeDto> nodes,
+) {
+  final siblingIndexes = <String?, int>{};
+  return [
+    for (final node in nodes)
+      _copyBlueprintNode(
+        node,
+        siblingOrder: siblingIndexes.update(
+          node.parentNodeKey,
+          (value) => value + 1,
+          ifAbsent: () => 0,
+        ),
+      ),
+  ];
+}
+
+List<int> _estimateChoices(int? current) {
+  final values = <int>{5, 10, 15, 30, 45, 60, 90, 120};
+  if (current != null) values.add(current);
+  return values.toList()..sort();
+}
+
+List<TaskBlueprintNodeDto> _appendBlueprintChild(
+  List<TaskBlueprintNodeDto> nodes,
+) {
+  final rootKey = nodes
+      .firstWhere((node) => node.parentNodeKey == null)
+      .nodeKey;
+  return _normalizeBlueprintOrder([
+    ...nodes,
+    TaskBlueprintNodeDto(
+      nodeKey: 'node-${DateTime.now().microsecondsSinceEpoch}-${nodes.length}',
+      parentNodeKey: rootKey,
+      siblingOrder: 0,
+      title: _emptyBlueprintText,
+      note: '',
+      priority: 0,
+    ),
+  ]);
+}
+
+bool _canMoveBlueprintNode(
+  List<TaskBlueprintNodeDto> nodes,
+  int index,
+  int direction,
+) {
+  final node = nodes[index];
+  if (node.parentNodeKey == null) return false;
+  final siblings = [
+    for (var candidate = 0; candidate < nodes.length; candidate++)
+      if (nodes[candidate].parentNodeKey == node.parentNodeKey) candidate,
+  ];
+  final siblingIndex = siblings.indexOf(index);
+  final target = siblingIndex + direction;
+  return target >= 0 && target < siblings.length;
+}
+
+List<TaskBlueprintNodeDto> _moveBlueprintNode(
+  List<TaskBlueprintNodeDto> nodes,
+  int index,
+  int direction,
+) {
+  if (!_canMoveBlueprintNode(nodes, index, direction)) return nodes;
+  final node = nodes[index];
+  final siblings = [
+    for (var candidate = 0; candidate < nodes.length; candidate++)
+      if (nodes[candidate].parentNodeKey == node.parentNodeKey) candidate,
+  ];
+  final targetIndex = siblings[siblings.indexOf(index) + direction];
+  final moved = nodes.toList();
+  final target = moved[targetIndex];
+  moved[targetIndex] = moved[index];
+  moved[index] = target;
+  return _normalizeBlueprintOrder(moved);
+}
+
+List<TaskBlueprintNodeDto> _removeBlueprintSubtree(
+  List<TaskBlueprintNodeDto> nodes,
+  String nodeKey,
+) {
+  final removed = <String>{nodeKey};
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (final node in nodes) {
+      if (node.parentNodeKey != null &&
+          removed.contains(node.parentNodeKey) &&
+          removed.add(node.nodeKey)) {
+        changed = true;
+      }
+    }
+  }
+  return _normalizeBlueprintOrder([
+    for (final node in nodes)
+      if (!removed.contains(node.nodeKey)) node,
+  ]);
 }
 
 Future<String?> _showTaskIdDialog(BuildContext context) {
@@ -527,21 +1081,21 @@ Future<bool> _confirmTemplateDelete(BuildContext context, String name) async {
       false;
 }
 
-typedef _ScheduleInput = ({
+typedef TaskSeriesDialogValue = ({
   String rrule,
   int startsAt,
   String timeZone,
   bool enabled,
 });
 
-Future<_ScheduleInput?> _showScheduleDialog(
+Future<TaskSeriesDialogValue?> showTaskSeriesDialog(
   BuildContext context,
-  ScheduleDto? schedule,
+  TaskSeriesDto? series,
   String defaultTimeZone,
 ) async {
   final l10n = AppLocalizations.of(context)!;
   var startsAt =
-      schedule?.startsAt ??
+      series?.startsAt ??
       DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch;
   final initialStart = DateTime.fromMillisecondsSinceEpoch(startsAt);
   var selectedWeekdays = <int>{initialStart.weekday};
@@ -549,19 +1103,17 @@ Future<_ScheduleInput?> _showScheduleDialog(
   var weeklyCustomized = false;
   var monthlyCustomized = false;
   final zoneController = TextEditingController(
-    text: schedule?.timeZone ?? defaultTimeZone,
+    text: series?.timeZone ?? defaultTimeZone,
   );
-  final controller = TextEditingController(
-    text: schedule?.rrule ?? 'FREQ=DAILY',
-  );
-  var preset = schedule == null ? 'daily' : 'advanced';
-  var enabled = schedule?.enabled ?? true;
-  return showDialog<_ScheduleInput>(
+  final controller = TextEditingController(text: series?.rrule ?? 'FREQ=DAILY');
+  var preset = series == null ? 'daily' : 'advanced';
+  var enabled = series?.enabled ?? true;
+  return showDialog<TaskSeriesDialogValue>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
         title: Text(
-          schedule == null ? l10n.newScheduleTitle : l10n.editScheduleTitle,
+          series == null ? l10n.newScheduleTitle : l10n.editScheduleTitle,
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -751,7 +1303,7 @@ Future<_ScheduleInput?> _showScheduleDialog(
                 controller: zoneController,
                 decoration: InputDecoration(labelText: l10n.timeZoneLabel),
               ),
-              if (schedule != null)
+              if (series != null)
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(l10n.scheduleEnabledLabel),

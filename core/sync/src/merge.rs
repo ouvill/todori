@@ -1,8 +1,8 @@
 //! Typed field-group Last-Write-Wins merge.
 
 use crate::field_map::{
-    Clocked, FieldMapError, ListPlaintext, ScheduleCursorValue, SchedulePlaintext, SyncPlaintext,
-    TaskPlaintext, TemplatePlaintext,
+    Clocked, FieldMapError, ListPlaintext, SeriesCursorValue, SyncPlaintext, TaskPlaintext,
+    TaskSeriesPlaintext, TemplatePlaintext,
 };
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -65,10 +65,10 @@ pub fn merge_lww(
                 &mut local_won,
                 &mut incoming_won,
             ),
-            recurrence: choose(
+            series_occurrence: choose(
                 "recurrence",
-                &a.recurrence,
-                &b.recurrence,
+                &a.series_occurrence,
+                &b.series_occurrence,
                 &mut local_won,
                 &mut incoming_won,
             ),
@@ -157,10 +157,10 @@ pub fn merge_lww(
                     &mut local_won,
                     &mut incoming_won,
                 ),
-                snapshot: choose(
-                    "snapshot",
-                    &a.snapshot,
-                    &b.snapshot,
+                blueprint: choose(
+                    "blueprint",
+                    &a.blueprint,
+                    &b.blueprint,
                     &mut local_won,
                     &mut incoming_won,
                 ),
@@ -180,7 +180,7 @@ pub fn merge_lww(
                 ),
             })
         }
-        (SyncPlaintext::Schedule(a), SyncPlaintext::Schedule(b)) => {
+        (SyncPlaintext::TaskSeries(a), SyncPlaintext::TaskSeries(b)) => {
             let config = choose(
                 "config",
                 &a.config,
@@ -206,7 +206,7 @@ pub fn merge_lww(
                     }
                 }
                 Clocked::new(
-                    ScheduleCursorValue {
+                    SeriesCursorValue {
                         config_revision: config.value.revision.clone(),
                         cursor: merged,
                     },
@@ -223,7 +223,7 @@ pub fn merge_lww(
                 }
                 b.cursor.clone()
             };
-            SyncPlaintext::Schedule(SchedulePlaintext { config, cursor })
+            SyncPlaintext::TaskSeries(TaskSeriesPlaintext { config, cursor })
         }
         (SyncPlaintext::TimerSession(a), SyncPlaintext::TimerSession(b)) => {
             if a.value != b.value {
@@ -271,13 +271,31 @@ mod tests {
     use super::*;
     use crate::Hlc;
     use taskveil_domain::{
-        new_task, RecurrenceSchedule, ScheduleCursor, TaskDue, TaskStatus, Uuid,
+        new_task, SeriesCursor, TaskBlueprint, TaskBlueprintNode, TaskContent, TaskDue, TaskSeries,
+        TaskSeriesConfig, TaskStatus, Uuid, TASK_BLUEPRINT_SCHEMA_REVISION,
     };
     fn h(counter: u32, device: &str) -> Hlc {
         Hlc {
             wall_ms: 1,
             counter,
             device_id: device.into(),
+        }
+    }
+
+    fn blueprint() -> TaskBlueprint {
+        TaskBlueprint {
+            schema_revision: TASK_BLUEPRINT_SCHEMA_REVISION,
+            nodes: vec![TaskBlueprintNode {
+                node_key: "root".to_string(),
+                parent_node_key: None,
+                sibling_order: 0,
+                content: TaskContent {
+                    title: "Generated".to_string(),
+                    note: String::new(),
+                    priority: 0,
+                    estimated_minutes: None,
+                },
+            }],
         }
     }
     #[test]
@@ -291,9 +309,9 @@ mod tests {
         )
         .unwrap();
         let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
-        task.title = "title-a".into();
+        task.content.title = "title-a".into();
         let a = base.stamp_task_changes(&task, h(1, "a")).unwrap();
-        task.title = "old".into();
+        task.content.title = "old".into();
         task.status = TaskStatus::Done;
         task.completed_at = Some(9);
         let b = base.stamp_task_changes(&task, h(1, "b")).unwrap();
@@ -319,9 +337,9 @@ mod tests {
         )
         .unwrap();
         let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
-        task.title = "older".into();
+        task.content.title = "older".into();
         let older = base.stamp_task_changes(&task, h(1, "a")).unwrap();
-        task.title = "newer".into();
+        task.content.title = "newer".into();
         let newer = base.stamp_task_changes(&task, h(2, "b")).unwrap();
         let ab = merge_lww(&older, &newer).unwrap().plaintext;
         let ba = merge_lww(&newer, &older).unwrap().plaintext;
@@ -349,7 +367,7 @@ mod tests {
         let placed = base.stamp_task_changes(&task, h(1, "a")).unwrap();
         task.parent_task_id = None;
         task.sort_order = "7fffffffffffffffffffffffffffffff".into();
-        task.note = "remote note".into();
+        task.content.note = "remote note".into();
         let noted = base.stamp_task_changes(&task, h(1, "b")).unwrap();
         let merged = merge_lww(&placed, &noted).unwrap().plaintext;
         let SyncPlaintext::Task(value) = merged else {
@@ -419,59 +437,108 @@ mod tests {
     }
 
     #[test]
-    fn schedule_cursor_is_monotonic_within_revision_and_follows_new_config() {
-        let template_id = Uuid::now_v7();
-        let mut schedule = RecurrenceSchedule {
+    fn series_cursor_is_monotonic_within_revision_and_follows_new_config() {
+        let mut series = TaskSeries {
             id: Uuid::now_v7(),
-            template_id,
-            rrule: "FREQ=DAILY".to_string(),
-            starts_at: 1_800_000_000_000,
-            time_zone: "UTC".to_string(),
-            cursor: ScheduleCursor::Pending(1_800_000_000_000),
-            enabled: true,
-            config_revision: "revision-a".to_string(),
-            config_parent_revision: None,
-            config_effective_from: 1,
-            lineage: Vec::new(),
+            config: TaskSeriesConfig {
+                blueprint: blueprint(),
+                target_list_id: None,
+                rrule: "FREQ=DAILY".to_string(),
+                starts_at: 1_800_000_000_000,
+                time_zone: "UTC".to_string(),
+                enabled: true,
+                config_revision: "revision-a".to_string(),
+                config_parent_revision: None,
+                config_effective_from: 1,
+                lineage: Vec::new(),
+            },
+            cursor: SeriesCursor::Pending(1_800_000_000_000),
             created_at: 1,
             updated_at: 1,
         };
-        let base = SyncPlaintext::from_schedule(&schedule, h(0, "base")).unwrap();
-        schedule.cursor = ScheduleCursor::Pending(1_800_172_800_000);
-        let ahead = base
-            .stamp_schedule_changes(&schedule, h(1, "ahead"))
-            .unwrap();
-        schedule.cursor = ScheduleCursor::Pending(1_800_086_400_000);
-        let behind = base
-            .stamp_schedule_changes(&schedule, h(2, "behind"))
-            .unwrap();
+        let base = SyncPlaintext::from_series(&series, h(0, "base")).unwrap();
+        series.cursor = SeriesCursor::Pending(1_800_172_800_000);
+        let ahead = base.stamp_series_changes(&series, h(1, "ahead")).unwrap();
+        series.cursor = SeriesCursor::Pending(1_800_086_400_000);
+        let behind = base.stamp_series_changes(&series, h(2, "behind")).unwrap();
         let merged = merge_lww(&ahead, &behind).unwrap().plaintext;
         let reverse = merge_lww(&behind, &ahead).unwrap().plaintext;
         assert_eq!(merged, reverse);
-        let SyncPlaintext::Schedule(value) = merged else {
+        let SyncPlaintext::TaskSeries(value) = merged else {
             unreachable!()
         };
         assert_eq!(
             value.cursor.value.cursor,
-            ScheduleCursor::Pending(1_800_172_800_000)
+            SeriesCursor::Pending(1_800_172_800_000)
         );
 
-        schedule.config_revision = "revision-b".to_string();
-        schedule.config_parent_revision = Some("revision-a".to_string());
-        schedule.config_effective_from = 2;
-        schedule.cursor = ScheduleCursor::Pending(1_800_100_000_000);
-        let new_config = base
-            .stamp_schedule_changes(&schedule, h(3, "config"))
-            .unwrap();
+        series.config.config_revision = "revision-b".to_string();
+        series.config.config_parent_revision = Some("revision-a".to_string());
+        series.config.config_effective_from = 2;
+        series.cursor = SeriesCursor::Pending(1_800_100_000_000);
+        let new_config = base.stamp_series_changes(&series, h(3, "config")).unwrap();
         let merged = merge_lww(&ahead, &new_config).unwrap().plaintext;
-        let SyncPlaintext::Schedule(value) = merged else {
+        let SyncPlaintext::TaskSeries(value) = merged else {
             unreachable!()
         };
         assert_eq!(value.config.value.revision, "revision-b");
         assert_eq!(value.cursor.value.config_revision, "revision-b");
         assert_eq!(
             value.cursor.value.cursor,
-            ScheduleCursor::Pending(1_800_100_000_000)
+            SeriesCursor::Pending(1_800_100_000_000)
+        );
+    }
+
+    #[test]
+    fn concurrent_series_config_edits_converge_atomically_on_both_devices() {
+        let series = TaskSeries {
+            id: Uuid::now_v7(),
+            config: TaskSeriesConfig {
+                blueprint: blueprint(),
+                target_list_id: None,
+                rrule: "FREQ=DAILY".to_string(),
+                starts_at: 1_800_000_000_000,
+                time_zone: "UTC".to_string(),
+                enabled: true,
+                config_revision: "revision-base".to_string(),
+                config_parent_revision: None,
+                config_effective_from: 1,
+                lineage: Vec::new(),
+            },
+            cursor: SeriesCursor::Pending(1_800_000_000_000),
+            created_at: 1,
+            updated_at: 1,
+        };
+        let base = SyncPlaintext::from_series(&series, h(0, "base")).unwrap();
+
+        let mut device_a = series.clone();
+        device_a.config.blueprint.nodes[0].content.title = "Device A".into();
+        device_a.config.config_revision = "revision-a".into();
+        device_a.config.config_parent_revision = Some("revision-base".into());
+        device_a.config.config_effective_from = 2;
+        let from_a = base.stamp_series_changes(&device_a, h(1, "a")).unwrap();
+
+        let mut device_b = series;
+        device_b.config.target_list_id = Some(Uuid::now_v7());
+        device_b.config.config_revision = "revision-b".into();
+        device_b.config.config_parent_revision = Some("revision-base".into());
+        device_b.config.config_effective_from = 2;
+        let from_b = base.stamp_series_changes(&device_b, h(1, "b")).unwrap();
+
+        let on_a = merge_lww(&from_a, &from_b).unwrap().plaintext;
+        let on_b = merge_lww(&from_b, &from_a).unwrap().plaintext;
+        assert_eq!(on_a, on_b);
+        let SyncPlaintext::TaskSeries(merged) = on_a else {
+            unreachable!()
+        };
+        assert_eq!(merged.config.value.revision, "revision-b");
+        assert_eq!(
+            merged.config.value.blueprint, device_b.config.blueprint,
+            "Blueprint and destination must come from one atomic config winner"
+        );
+        assert_eq!(
+            merged.config.value.target_list_id,
+            device_b.config.target_list_id
         );
     }
 }

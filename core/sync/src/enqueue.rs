@@ -1,5 +1,5 @@
 use taskveil_crypto::key_hierarchy::KEY_LEN;
-use taskveil_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
+use taskveil_domain::{CompletedTimerSession, List, Task, TaskSeries, TaskTemplate, Uuid};
 
 use crate::{
     encrypt_plaintext, EncryptedSyncState, Hlc, SyncCollection, SyncPlaintext,
@@ -131,7 +131,7 @@ pub struct LocalFullResyncSweepSummary {
     pub swept_lists: usize,
     pub swept_tasks: usize,
     pub swept_templates: usize,
-    pub swept_schedules: usize,
+    pub swept_task_series: usize,
     pub swept_timer_sessions: usize,
     pub swept_record_states: usize,
 }
@@ -232,20 +232,14 @@ pub trait LocalSyncStore: LocalMutationSyncStore {
     fn delete_template_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
         Ok(false)
     }
-    fn get_schedule(&mut self, _id: Uuid) -> Result<Option<RecurrenceSchedule>, String> {
+    fn get_series(&mut self, _id: Uuid) -> Result<Option<TaskSeries>, String> {
         Ok(None)
     }
-    fn upsert_schedule_for_sync(&mut self, _schedule: RecurrenceSchedule) -> Result<(), String> {
-        Err("schedule storage is unavailable".to_string())
+    fn upsert_series_for_sync(&mut self, _series: TaskSeries) -> Result<(), String> {
+        Err("task series storage is unavailable".to_string())
     }
-    fn delete_schedule_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
+    fn delete_series_for_sync(&mut self, _id: Uuid) -> Result<bool, String> {
         Ok(false)
-    }
-    fn list_schedules_for_template(
-        &mut self,
-        _template_id: Uuid,
-    ) -> Result<Vec<RecurrenceSchedule>, String> {
-        Ok(Vec::new())
     }
     fn get_timer_session(&mut self, _id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
         Ok(None)
@@ -342,7 +336,7 @@ pub trait LocalSyncAtomicStore: LocalSyncStore {
 pub struct BackfillSummary {
     pub enqueued_lists: usize,
     pub enqueued_templates: usize,
-    pub enqueued_schedules: usize,
+    pub enqueued_task_series: usize,
     pub enqueued_tasks: usize,
     pub enqueued_timer_sessions: usize,
     pub skipped_existing_outbox: usize,
@@ -353,7 +347,7 @@ pub struct BackfillSummary {
 pub struct BackfillRecords<'a> {
     pub lists: &'a [List],
     pub templates: &'a [TaskTemplate],
-    pub schedules: &'a [RecurrenceSchedule],
+    pub task_series: &'a [TaskSeries],
     pub tasks: &'a [Task],
     pub timer_sessions: &'a [CompletedTimerSession],
 }
@@ -397,8 +391,8 @@ where
         summary.enqueued_templates += 1;
     }
 
-    for schedule in records.schedules {
-        if store.has_outbox_head(SyncCollection::Schedules, schedule.id)? {
+    for series in records.task_series {
+        if store.has_outbox_head(SyncCollection::TaskSeries, series.id)? {
             summary.skipped_existing_outbox += 1;
             continue;
         }
@@ -406,8 +400,8 @@ where
             summary.skipped_missing_dek += 1;
             continue;
         }
-        enqueue_schedule_sync(store, keys, device_id, schedule, false, now_ms)?;
-        summary.enqueued_schedules += 1;
+        enqueue_task_series_sync(store, keys, device_id, series, false, now_ms)?;
+        summary.enqueued_task_series += 1;
     }
 
     let mut sorted_tasks = records.tasks.iter().collect::<Vec<_>>();
@@ -483,13 +477,13 @@ where
         enqueue_template_sync(store, keys, device_id, template, false, now_ms)?;
         summary.enqueued_templates += 1;
     }
-    for schedule in records.schedules {
+    for series in records.task_series {
         if tenant_root_dek(keys).is_none() {
             summary.skipped_missing_dek += 1;
             continue;
         }
-        enqueue_schedule_sync(store, keys, device_id, schedule, false, now_ms)?;
-        summary.enqueued_schedules += 1;
+        enqueue_task_series_sync(store, keys, device_id, series, false, now_ms)?;
+        summary.enqueued_task_series += 1;
     }
     let mut sorted_tasks = records.tasks.iter().collect::<Vec<_>>();
     sorted_tasks.sort_by_key(|task| (task.created_at, task.id));
@@ -603,11 +597,11 @@ where
     )
 }
 
-pub fn enqueue_schedule_sync<S, N>(
+pub fn enqueue_task_series_sync<S, N>(
     store: &mut S,
     keys: &LocalSyncKeys,
     device_id: &str,
-    schedule: &RecurrenceSchedule,
+    series: &TaskSeries,
     deleted: bool,
     now_ms: &mut N,
 ) -> Result<(), String>
@@ -617,22 +611,22 @@ where
 {
     ensure_no_pending_rotation(store)?;
     let dek = tenant_root_dek(keys)
-        .ok_or_else(|| "missing Tenant Root DEK for schedule sync".to_string())?;
+        .ok_or_else(|| "missing Tenant Root DEK for task series sync".to_string())?;
     if keys.tenant_id.is_nil() || keys.tenant_generation == 0 {
         return Err("missing active tenant key generation".to_string());
     }
     let hlc = tick_local_hlc(store, device_id, now_ms)?;
     let encoded_hlc = hlc.encode().map_err(|_| "sync failed".to_string())?;
-    let previous_state = store.get_record_state(SyncCollection::Schedules, schedule.id)?;
+    let previous_state = store.get_record_state(SyncCollection::TaskSeries, series.id)?;
     let base_revision_hlc = previous_state
         .as_ref()
         .and_then(|state| state.current_revision_hlc.clone());
-    let plaintext = changed_schedule_plaintext(previous_state.as_ref(), schedule, hlc.clone())?;
+    let plaintext = changed_task_series_plaintext(previous_state.as_ref(), series, hlc.clone())?;
     enqueue_plaintext(
         store,
         EnqueuePlaintextRequest {
-            record_id: schedule.id,
-            collection: SyncCollection::Schedules,
+            record_id: series.id,
+            collection: SyncCollection::TaskSeries,
             deleted,
             plaintext: &plaintext,
             dek,
@@ -944,7 +938,7 @@ where
     Ok(hlc)
 }
 
-/// Reserves a durable HLC identity for a template snapshot or schedule config
+/// Reserves a durable HLC identity for a template Blueprint or TaskSeries config
 /// revision in the transaction that persists that revision.
 pub fn next_local_revision<S, N>(
     store: &mut S,
@@ -1023,8 +1017,8 @@ pub(crate) fn template_plaintext(template: &TaskTemplate, hlc: Hlc) -> SyncPlain
     SyncPlaintext::from_template(template, hlc).expect("domain template is valid")
 }
 
-pub(crate) fn schedule_plaintext(schedule: &RecurrenceSchedule, hlc: Hlc) -> SyncPlaintext {
-    SyncPlaintext::from_schedule(schedule, hlc).expect("domain schedule is valid")
+pub(crate) fn task_series_plaintext(series: &TaskSeries, hlc: Hlc) -> SyncPlaintext {
+    SyncPlaintext::from_series(series, hlc).expect("domain task series is valid")
 }
 
 fn changed_task_plaintext(
@@ -1078,9 +1072,9 @@ fn changed_template_plaintext(
     }
 }
 
-fn changed_schedule_plaintext(
+fn changed_task_series_plaintext(
     previous: Option<&LocalSyncRecordState>,
-    schedule: &RecurrenceSchedule,
+    series: &TaskSeries,
     hlc: Hlc,
 ) -> Result<SyncPlaintext, String> {
     match previous.map(|state| &state.state) {
@@ -1088,10 +1082,10 @@ fn changed_schedule_plaintext(
             let previous: SyncPlaintext =
                 serde_json::from_str(plaintext_json).map_err(|_| "sync failed".to_string())?;
             previous
-                .stamp_schedule_changes(schedule, hlc)
+                .stamp_series_changes(series, hlc)
                 .map_err(|_| "sync failed".to_string())
         }
-        _ => SyncPlaintext::from_schedule(schedule, hlc).map_err(|_| "sync failed".to_string()),
+        _ => SyncPlaintext::from_series(series, hlc).map_err(|_| "sync failed".to_string()),
     }
 }
 
@@ -1101,8 +1095,8 @@ mod tests {
 
     use super::*;
     use taskveil_domain::{
-        ScheduleCursor, TaskStatus, TemplateNode, TemplateSnapshot, MAX_TEMPLATE_SNAPSHOT_BYTES,
-        TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+        SeriesCursor, TaskBlueprint, TaskBlueprintNode, TaskContent, TaskSeriesConfig, TaskStatus,
+        MAX_TASK_BLUEPRINT_BYTES, TASK_BLUEPRINT_SCHEMA_REVISION,
     };
     use zeroize::Zeroizing;
 
@@ -1183,7 +1177,7 @@ mod tests {
             BackfillRecords {
                 lists: std::slice::from_ref(&list),
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: std::slice::from_ref(&task),
                 timer_sessions: &[],
             },
@@ -1200,9 +1194,9 @@ mod tests {
     }
 
     #[test]
-    fn backfill_encrypts_template_and_schedule_with_tenant_root_dek() {
+    fn backfill_encrypts_template_and_task_series_with_tenant_root_dek() {
         let template = sample_template(uuid(20));
-        let schedule = sample_schedule(uuid(21), template.id);
+        let series = sample_task_series(uuid(21), template.id);
         let mut store = FakeStore::default();
         let keys = tenant_sync_keys();
         let mut now = ticking_now();
@@ -1214,7 +1208,7 @@ mod tests {
             BackfillRecords {
                 lists: &[],
                 templates: std::slice::from_ref(&template),
-                schedules: std::slice::from_ref(&schedule),
+                task_series: std::slice::from_ref(&series),
                 tasks: &[],
                 timer_sessions: &[],
             },
@@ -1223,12 +1217,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(summary.enqueued_templates, 1);
-        assert_eq!(summary.enqueued_schedules, 1);
+        assert_eq!(summary.enqueued_task_series, 1);
         assert_eq!(store.outbox[0].collection, SyncCollection::Templates);
-        assert_eq!(store.outbox[1].collection, SyncCollection::Schedules);
+        assert_eq!(store.outbox[1].collection, SyncCollection::TaskSeries);
         for (entry, expected_collection) in [
             (&store.outbox[0], "templates"),
-            (&store.outbox[1], "schedules"),
+            (&store.outbox[1], "task_series"),
         ] {
             let EncryptedSyncState::Live { blob, .. } = &entry.state else {
                 panic!("backfill emitted a tombstone")
@@ -1255,7 +1249,7 @@ mod tests {
             )
             .is_err());
             let other_collection = if expected_collection == "templates" {
-                "schedules"
+                "task_series"
             } else {
                 "templates"
             };
@@ -1272,13 +1266,13 @@ mod tests {
     }
 
     #[test]
-    fn near_limit_escape_heavy_snapshot_envelope_stays_below_transport_cap() {
+    fn near_limit_escape_heavy_blueprint_envelope_stays_below_transport_cap() {
         let mut low = 0usize;
         let mut high = 600usize;
         while low < high {
             let candidate = (low + high).div_ceil(2);
             if template_with_escape_note_size(uuid(22), candidate)
-                .snapshot
+                .blueprint
                 .validate()
                 .is_ok()
             {
@@ -1288,9 +1282,9 @@ mod tests {
             }
         }
         let template = template_with_escape_note_size(uuid(22), low);
-        let snapshot_bytes = template.snapshot.validate().unwrap();
+        let snapshot_bytes = template.blueprint.validate().unwrap();
         assert!(snapshot_bytes > 47 * 1024);
-        assert!(snapshot_bytes <= MAX_TEMPLATE_SNAPSHOT_BYTES);
+        assert!(snapshot_bytes <= MAX_TASK_BLUEPRINT_BYTES);
         let keys = tenant_sync_keys();
         let mut store = FakeStore::default();
         let mut now = ticking_now();
@@ -1330,7 +1324,7 @@ mod tests {
             BackfillRecords {
                 lists: std::slice::from_ref(&list),
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: &[task],
                 timer_sessions: &[],
             },
@@ -1368,7 +1362,7 @@ mod tests {
             BackfillRecords {
                 lists: &[list],
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: &[later.clone(), earlier.clone()],
                 timer_sessions: &[],
             },
@@ -1402,7 +1396,7 @@ mod tests {
             BackfillRecords {
                 lists: &[missing_list.clone(), synced_list.clone()],
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: &[missing_task.clone(), synced_task.clone()],
                 timer_sessions: &[],
             },
@@ -1464,7 +1458,7 @@ mod tests {
             BackfillRecords {
                 lists: std::slice::from_ref(&list),
                 templates: &[],
-                schedules: &[],
+                task_series: &[],
                 tasks: std::slice::from_ref(&task),
                 timer_sessions: &[],
             },
@@ -1539,19 +1533,21 @@ mod tests {
             id,
             list_id,
             parent_task_id: None,
-            title: format!("Task {id}"),
-            note: String::new(),
+            content: TaskContent {
+                title: format!("Task {id}"),
+                note: String::new(),
+                priority: 0,
+                estimated_minutes: None,
+            },
             status: TaskStatus::Todo,
-            priority: 0,
             due: None,
             scheduled_at: None,
-            estimated_minutes: None,
             sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             completed_at: None,
             closed_reason: None,
             deleted_at: None,
             assignee: None,
-            recurrence: None,
+            series_occurrence: None,
             created_at,
             updated_at: created_at,
         }
@@ -1562,40 +1558,42 @@ mod tests {
             id,
             name: "Template".to_string(),
             default_list_id: None,
-            snapshot: TemplateSnapshot {
-                schema_revision: TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
-                nodes: vec![TemplateNode {
+            blueprint: TaskBlueprint {
+                schema_revision: TASK_BLUEPRINT_SCHEMA_REVISION,
+                nodes: vec![TaskBlueprintNode {
                     node_key: "root".to_string(),
                     parent_node_key: None,
                     sibling_order: 0,
-                    title: "Generated".to_string(),
-                    note: String::new(),
-                    priority: 0,
-                    estimated_minutes: None,
+                    content: TaskContent {
+                        title: "Generated".to_string(),
+                        note: String::new(),
+                        priority: 0,
+                        estimated_minutes: None,
+                    },
                 }],
             },
-            snapshot_revision: "template-r1".to_string(),
-            snapshot_parent_revision: None,
-            snapshot_effective_from: 1,
-            lineage: Vec::new(),
+            blueprint_revision: "template-r1".to_string(),
             created_at: 1,
             updated_at: 1,
         }
     }
 
-    fn sample_schedule(id: Uuid, template_id: Uuid) -> RecurrenceSchedule {
-        RecurrenceSchedule {
+    fn sample_task_series(id: Uuid, blueprint_seed: Uuid) -> TaskSeries {
+        TaskSeries {
             id,
-            template_id,
-            rrule: "FREQ=DAILY".to_string(),
-            starts_at: 1_800_000_000_000,
-            time_zone: "UTC".to_string(),
-            cursor: ScheduleCursor::Pending(1_800_000_000_000),
-            enabled: true,
-            config_revision: "schedule-r1".to_string(),
-            config_parent_revision: None,
-            config_effective_from: 1,
-            lineage: Vec::new(),
+            config: TaskSeriesConfig {
+                blueprint: sample_template(blueprint_seed).blueprint,
+                target_list_id: None,
+                rrule: "FREQ=DAILY".to_string(),
+                starts_at: 1_800_000_000_000,
+                time_zone: "UTC".to_string(),
+                enabled: true,
+                config_revision: "series-r1".to_string(),
+                config_parent_revision: None,
+                config_effective_from: 1,
+                lineage: Vec::new(),
+            },
+            cursor: SeriesCursor::Pending(1_800_000_000_000),
             created_at: 1,
             updated_at: 1,
         }
@@ -1603,15 +1601,17 @@ mod tests {
 
     fn template_with_escape_note_size(id: Uuid, note_size: usize) -> TaskTemplate {
         let mut template = sample_template(id);
-        template.snapshot.nodes = (0..100)
-            .map(|index| TemplateNode {
+        template.blueprint.nodes = (0..100)
+            .map(|index| TaskBlueprintNode {
                 node_key: format!("node-{index}"),
                 parent_node_key: (index != 0).then(|| "node-0".to_string()),
                 sibling_order: u32::try_from(index).unwrap(),
-                title: format!("Task {index}"),
-                note: "\"".repeat(note_size),
-                priority: 0,
-                estimated_minutes: None,
+                content: TaskContent {
+                    title: format!("Task {index}"),
+                    note: "\"".repeat(note_size),
+                    priority: 0,
+                    estimated_minutes: None,
+                },
             })
             .collect();
         template

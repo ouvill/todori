@@ -545,10 +545,10 @@ mod tests {
             .mutation_service
             .create_task(create_input(fixture.list.id), &fixture.sync)
             .unwrap();
-        assert_eq!(created.title, "created");
-        assert_eq!(created.priority, 2);
+        assert_eq!(created.content.title, "created");
+        assert_eq!(created.content.priority, 2);
         assert_eq!(created.scheduled_at, Some(BASE_MS + 30_000));
-        assert_eq!(created.estimated_minutes, Some(45));
+        assert_eq!(created.content.estimated_minutes, Some(45));
         assert_ne!(created.sort_order, fixture.task.sort_order);
 
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();

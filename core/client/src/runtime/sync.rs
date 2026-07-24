@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use taskveil_crypto::{load_account_secret, AccountSecretKind};
-use taskveil_storage::{RecurrenceRepository, TaskRepository, TimerSessionRepository};
+use taskveil_storage::{TaskRepository, TemplateSeriesRepository, TimerSessionRepository};
 use taskveil_sync::{
     account::{AccountClient, AccountClientError},
     ActiveSyncContext, LocalSyncAtomicStore, LocalSyncKeys, LocalSyncStore,
@@ -174,7 +174,7 @@ impl TaskveilClient {
         let templates =
             self.with_recurrence_repository(|repository| Ok(repository.list_templates()?))?;
         let schedules =
-            self.with_recurrence_repository(|repository| Ok(repository.list_schedules()?))?;
+            self.with_recurrence_repository(|repository| Ok(repository.list_series()?))?;
         let tasks = self.with_task_repository(|repository| Ok(repository.list_all_for_sync()?))?;
         let timer_sessions =
             self.with_timer_repository(|repository| Ok(repository.list_completed()?))?;
@@ -192,7 +192,7 @@ impl TaskveilClient {
             taskveil_sync::BackfillRecords {
                 lists: &lists,
                 templates: &templates,
-                schedules: &schedules,
+                task_series: &schedules,
                 tasks: &tasks,
                 timer_sessions: &timer_sessions,
             },

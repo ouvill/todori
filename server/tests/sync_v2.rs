@@ -1601,6 +1601,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
         SqliteTaskRepository::new(open_encrypted(&path_b, &DB_KEY_B).unwrap())
             .get(task.id)
             .unwrap()
+            .content
             .title,
         "Base title"
     );
@@ -2582,7 +2583,7 @@ async fn timer_session_live_is_immutable_and_tombstone_is_terminal_and_pullable(
 }
 
 #[tokio::test]
-async fn template_recurrence_migration_expands_every_server_collection_check() {
+async fn task_series_domain_migration_updates_every_server_collection_check() {
     let fixture = Fixture::setup().await;
     let constraints = query(
         "SELECT conname, pg_get_constraintdef(oid) AS definition
@@ -2604,7 +2605,7 @@ async fn template_recurrence_migration_expands_every_server_collection_check() {
         let definition: String = row.try_get("definition").unwrap();
         assert!(definition.contains("timer_sessions"), "{definition}");
         assert!(definition.contains("templates"), "{definition}");
-        assert!(definition.contains("schedules"), "{definition}");
+        assert!(definition.contains("task_series"), "{definition}");
     }
 }
 

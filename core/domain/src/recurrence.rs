@@ -10,30 +10,54 @@ use uuid::Uuid;
 
 use crate::TaskStatus;
 
-pub const TEMPLATE_SNAPSHOT_SCHEMA_REVISION: u16 = 1;
-pub const MAX_TEMPLATE_NODES: usize = 100;
-pub const MAX_TEMPLATE_SNAPSHOT_BYTES: usize = 48 * 1024;
+pub const TASK_BLUEPRINT_SCHEMA_REVISION: u16 = 1;
+pub const MAX_TASK_BLUEPRINT_NODES: usize = 100;
+pub const MAX_TASK_BLUEPRINT_BYTES: usize = 48 * 1024;
 pub const SETTLEMENT_BATCH_SIZE: u16 = 100;
 
 const ALLOWED_RRULE_PARTS: &[&str] = &["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "COUNT", "UNTIL"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TemplateNode {
-    pub node_key: String,
-    pub parent_node_key: Option<String>,
-    pub sibling_order: u32,
+pub struct TaskContent {
     pub title: String,
     pub note: String,
     pub priority: i32,
     pub estimated_minutes: Option<i32>,
 }
 
+impl TaskContent {
+    pub fn validate(&self) -> Result<(), RecurrenceError> {
+        if self.title.trim().is_empty() {
+            return Err(RecurrenceError::EmptyTaskTitle);
+        }
+        if !(0..=3).contains(&self.priority) {
+            return Err(RecurrenceError::InvalidPriority);
+        }
+        if self
+            .estimated_minutes
+            .is_some_and(|minutes| minutes <= 0 || minutes % 5 != 0)
+        {
+            return Err(RecurrenceError::InvalidEstimatedMinutes);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TemplateSnapshot {
+pub struct TaskBlueprintNode {
+    pub node_key: String,
+    pub parent_node_key: Option<String>,
+    pub sibling_order: u32,
+    pub content: TaskContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskBlueprint {
     pub schema_revision: u16,
-    pub nodes: Vec<TemplateNode>,
+    pub nodes: Vec<TaskBlueprintNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,23 +74,20 @@ pub struct TaskTemplate {
     pub id: Uuid,
     pub name: String,
     pub default_list_id: Option<Uuid>,
-    pub snapshot: TemplateSnapshot,
-    pub snapshot_revision: String,
-    pub snapshot_parent_revision: Option<String>,
-    pub snapshot_effective_from: i64,
-    pub lineage: Vec<RevisionBoundary>,
+    pub blueprint: TaskBlueprint,
+    pub blueprint_revision: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ScheduleCursor {
+pub enum SeriesCursor {
     Pending(i64),
     Exhausted,
 }
 
-impl ScheduleCursor {
+impl SeriesCursor {
     #[must_use]
     pub fn merge(self, other: Self) -> Self {
         match (self, other) {
@@ -86,29 +107,36 @@ impl ScheduleCursor {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RecurrenceSchedule {
-    pub id: Uuid,
-    pub template_id: Uuid,
+pub struct TaskSeriesConfig {
+    pub blueprint: TaskBlueprint,
+    pub target_list_id: Option<Uuid>,
     pub rrule: String,
     pub starts_at: i64,
     pub time_zone: String,
-    pub cursor: ScheduleCursor,
     pub enabled: bool,
     pub config_revision: String,
     pub config_parent_revision: Option<String>,
     pub config_effective_from: i64,
     pub lineage: Vec<RevisionBoundary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskSeries {
+    pub id: Uuid,
+    pub config: TaskSeriesConfig,
+    pub cursor: SeriesCursor,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RecurrenceProvenance {
-    pub schedule_id: Uuid,
-    pub schedule_revision: String,
-    pub template_revision: String,
+pub struct SeriesOccurrenceRef {
+    pub series_id: Uuid,
+    pub series_revision: String,
     pub occurrence_at: i64,
+    pub blueprint_node_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,22 +155,28 @@ pub struct Streak {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum RecurrenceError {
-    #[error("template snapshot schema revision must be 1")]
-    UnsupportedSnapshotRevision,
-    #[error("template snapshot must contain 1 to 100 nodes")]
+    #[error("task blueprint schema revision must be 1")]
+    UnsupportedBlueprintRevision,
+    #[error("task blueprint must contain 1 to 100 nodes")]
     InvalidNodeCount,
-    #[error("template snapshot exceeds 49,152 UTF-8 bytes")]
-    SnapshotTooLarge,
-    #[error("template node key must be non-empty and unique")]
+    #[error("task blueprint exceeds 49,152 UTF-8 bytes")]
+    BlueprintTooLarge,
+    #[error("task blueprint node key must be non-empty and unique")]
     InvalidNodeKey,
-    #[error("template snapshot must contain exactly one root")]
+    #[error("task blueprint must contain exactly one root")]
     InvalidRootCount,
-    #[error("template node references a missing or cyclic parent")]
+    #[error("task blueprint node references a missing or cyclic parent")]
     InvalidParent,
-    #[error("template sibling order must be unique within each parent")]
+    #[error("task blueprint sibling order must be unique within each parent")]
     DuplicateSiblingOrder,
-    #[error("estimated minutes must be positive")]
+    #[error("task blueprint titles must be non-empty")]
+    EmptyTaskTitle,
+    #[error("task blueprint priority must be between 0 and 3")]
+    InvalidPriority,
+    #[error("estimated minutes must be a positive multiple of 5")]
     InvalidEstimatedMinutes,
+    #[error("task template name must be non-empty")]
+    EmptyTemplateName,
     #[error("RRULE must contain exactly one rule and no DTSTART/RDATE/EXDATE/EXRULE")]
     InvalidRuleShape,
     #[error("RRULE part is not supported in v1: {0}")]
@@ -161,12 +195,12 @@ pub enum RecurrenceError {
     InvalidRevision,
 }
 
-impl TemplateSnapshot {
+impl TaskBlueprint {
     pub fn validate(&self) -> Result<usize, RecurrenceError> {
-        if self.schema_revision != TEMPLATE_SNAPSHOT_SCHEMA_REVISION {
-            return Err(RecurrenceError::UnsupportedSnapshotRevision);
+        if self.schema_revision != TASK_BLUEPRINT_SCHEMA_REVISION {
+            return Err(RecurrenceError::UnsupportedBlueprintRevision);
         }
-        if self.nodes.is_empty() || self.nodes.len() > MAX_TEMPLATE_NODES {
+        if self.nodes.is_empty() || self.nodes.len() > MAX_TASK_BLUEPRINT_NODES {
             return Err(RecurrenceError::InvalidNodeCount);
         }
 
@@ -180,9 +214,7 @@ impl TemplateSnapshot {
             if node.parent_node_key.is_none() {
                 roots += 1;
             }
-            if node.estimated_minutes.is_some_and(|minutes| minutes <= 0) {
-                return Err(RecurrenceError::InvalidEstimatedMinutes);
-            }
+            node.content.validate()?;
             if !sibling_orders.insert((node.parent_node_key.as_deref(), node.sibling_order)) {
                 return Err(RecurrenceError::DuplicateSiblingOrder);
             }
@@ -211,8 +243,8 @@ impl TemplateSnapshot {
 
         let encoded = serde_json::to_vec(self)
             .map_err(|error| RecurrenceError::InvalidRule(error.to_string()))?;
-        if encoded.len() > MAX_TEMPLATE_SNAPSHOT_BYTES {
-            return Err(RecurrenceError::SnapshotTooLarge);
+        if encoded.len() > MAX_TASK_BLUEPRINT_BYTES {
+            return Err(RecurrenceError::BlueprintTooLarge);
         }
         Ok(encoded.len())
     }
@@ -220,22 +252,30 @@ impl TemplateSnapshot {
 
 impl TaskTemplate {
     pub fn validate(&self) -> Result<(), RecurrenceError> {
-        validate_revision(&self.snapshot_revision)?;
-        if let Some(parent) = &self.snapshot_parent_revision {
-            validate_revision(parent)?;
+        if self.name.trim().is_empty() {
+            return Err(RecurrenceError::EmptyTemplateName);
         }
-        self.snapshot.validate()?;
+        validate_revision(&self.blueprint_revision)?;
+        self.blueprint.validate()?;
         Ok(())
     }
 }
 
-impl RecurrenceSchedule {
+impl TaskSeriesConfig {
     pub fn validate(&self) -> Result<(), RecurrenceError> {
         validate_revision(&self.config_revision)?;
         if let Some(parent) = &self.config_parent_revision {
             validate_revision(parent)?;
         }
         validate_and_normalize_rrule(&self.rrule, self.starts_at, &self.time_zone)?;
+        self.blueprint.validate()?;
+        Ok(())
+    }
+}
+
+impl TaskSeries {
+    pub fn validate(&self) -> Result<(), RecurrenceError> {
+        self.config.validate()?;
         Ok(())
     }
 }
@@ -337,8 +377,10 @@ pub fn occurrences_after(
         return Ok((Vec::new(), false));
     }
     let canonical = validate_and_normalize_rrule(normalized_rrule, starts_at, time_zone)?;
+    let subsecond_offset = starts_at.rem_euclid(1_000);
     let dt_start = recurrence_start(starts_at, time_zone)?;
-    let after = instant_in_zone(after_exclusive, time_zone)?;
+    let recurrence_after = after_exclusive.saturating_sub(subsecond_offset);
+    let after = instant_in_zone(recurrence_after, time_zone)?;
     let rule = RRule::<Unvalidated>::from_str(&canonical)
         .and_then(|rule| rule.validate(dt_start))
         .map_err(|error| RecurrenceError::InvalidRule(error.to_string()))?;
@@ -349,7 +391,11 @@ pub fn occurrences_after(
     let mut dates = result
         .dates
         .into_iter()
-        .map(|date| date.with_timezone(&Utc).timestamp_millis())
+        .map(|date| {
+            date.with_timezone(&Utc)
+                .timestamp_millis()
+                .saturating_add(subsecond_offset)
+        })
         .filter(|instant| *instant > after_exclusive)
         .collect::<Vec<_>>();
     let has_more = result.limited || dates.len() > usize::from(limit);
@@ -382,8 +428,9 @@ pub fn virtual_next_occurrence_after_end(
 }
 
 fn recurrence_start(starts_at: i64, time_zone: &str) -> Result<DateTime<RRuleTz>, RecurrenceError> {
-    let utc =
-        DateTime::<Utc>::from_timestamp_millis(starts_at).ok_or(RecurrenceError::InvalidInstant)?;
+    let whole_second = starts_at.saturating_sub(starts_at.rem_euclid(1_000));
+    let utc = DateTime::<Utc>::from_timestamp_millis(whole_second)
+        .ok_or(RecurrenceError::InvalidInstant)?;
     let zone = parse_time_zone(time_zone)?;
     let rrule_zone = RRuleTz::from(zone);
     Ok(rrule_zone.from_utc_datetime(&utc.naive_utc()))
@@ -403,22 +450,18 @@ fn parse_time_zone(time_zone: &str) -> Result<ChronoTz, RecurrenceError> {
 }
 
 #[must_use]
-pub fn scheduled_task_id(
-    schedule_id: Uuid,
-    schedule_revision: &str,
-    template_revision: &str,
+pub fn series_task_id(
+    series_id: Uuid,
+    series_revision: &str,
     occurrence_at: i64,
     node_key: &str,
 ) -> Uuid {
-    let mut name = Vec::with_capacity(
-        4 + schedule_revision.len() + template_revision.len() + node_key.len() + 20,
-    );
-    name.extend_from_slice(b"TRT1");
-    append_sized(&mut name, schedule_revision.as_bytes());
-    append_sized(&mut name, template_revision.as_bytes());
+    let mut name = Vec::with_capacity(4 + series_revision.len() + node_key.len() + 20);
+    name.extend_from_slice(b"TSR1");
+    append_sized(&mut name, series_revision.as_bytes());
     name.extend_from_slice(&occurrence_at.to_be_bytes());
     append_sized(&mut name, node_key.as_bytes());
-    Uuid::new_v5(&schedule_id, &name)
+    Uuid::new_v5(&series_id, &name)
 }
 
 fn append_sized(target: &mut Vec<u8>, value: &[u8]) {
@@ -457,57 +500,92 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn snapshot() -> TemplateSnapshot {
-        TemplateSnapshot {
-            schema_revision: TEMPLATE_SNAPSHOT_SCHEMA_REVISION,
+    fn blueprint() -> TaskBlueprint {
+        TaskBlueprint {
+            schema_revision: TASK_BLUEPRINT_SCHEMA_REVISION,
             nodes: vec![
-                TemplateNode {
+                TaskBlueprintNode {
                     node_key: "root".to_string(),
                     parent_node_key: None,
                     sibling_order: 0,
-                    title: "Weekly review".to_string(),
-                    note: "".to_string(),
-                    priority: 1,
-                    estimated_minutes: Some(30),
+                    content: TaskContent {
+                        title: "Weekly review".to_string(),
+                        note: "".to_string(),
+                        priority: 1,
+                        estimated_minutes: Some(30),
+                    },
                 },
-                TemplateNode {
+                TaskBlueprintNode {
                     node_key: "child".to_string(),
                     parent_node_key: Some("root".to_string()),
                     sibling_order: 0,
-                    title: "Collect notes".to_string(),
-                    note: "Only content".to_string(),
-                    priority: 0,
-                    estimated_minutes: None,
+                    content: TaskContent {
+                        title: "Collect notes".to_string(),
+                        note: "Only content".to_string(),
+                        priority: 0,
+                        estimated_minutes: None,
+                    },
                 },
             ],
         }
     }
 
     #[test]
-    fn snapshot_validates_content_only_tree() {
-        assert!(snapshot().validate().is_ok());
+    fn blueprint_validates_content_only_tree() {
+        assert!(blueprint().validate().is_ok());
     }
 
     #[test]
-    fn snapshot_rejects_cycles_and_duplicate_sibling_order() {
-        let mut cyclic = snapshot();
+    fn blueprint_rejects_cycles_and_duplicate_sibling_order() {
+        let mut cyclic = blueprint();
         cyclic.nodes[0].parent_node_key = Some("child".to_string());
         assert_eq!(cyclic.validate(), Err(RecurrenceError::InvalidRootCount));
 
-        let mut duplicate = snapshot();
-        duplicate.nodes.push(TemplateNode {
+        let mut duplicate = blueprint();
+        duplicate.nodes.push(TaskBlueprintNode {
             node_key: "child-2".to_string(),
             parent_node_key: Some("root".to_string()),
             sibling_order: 0,
-            title: "Duplicate".to_string(),
-            note: String::new(),
-            priority: 0,
-            estimated_minutes: None,
+            content: TaskContent {
+                title: "Duplicate".to_string(),
+                note: String::new(),
+                priority: 0,
+                estimated_minutes: None,
+            },
         });
         assert_eq!(
             duplicate.validate(),
             Err(RecurrenceError::DuplicateSiblingOrder)
         );
+    }
+
+    #[test]
+    fn blueprint_and_template_reject_invalid_task_content_and_name() {
+        let mut invalid = blueprint();
+        invalid.nodes[0].content.title = " ".to_string();
+        assert_eq!(invalid.validate(), Err(RecurrenceError::EmptyTaskTitle));
+
+        let mut invalid = blueprint();
+        invalid.nodes[0].content.priority = 4;
+        assert_eq!(invalid.validate(), Err(RecurrenceError::InvalidPriority));
+
+        let mut invalid = blueprint();
+        invalid.nodes[0].content.estimated_minutes = Some(1);
+        assert_eq!(
+            invalid.validate(),
+            Err(RecurrenceError::InvalidEstimatedMinutes)
+        );
+
+        let template = TaskTemplate {
+            id: Uuid::now_v7(),
+            name: " ".to_string(),
+            default_list_id: None,
+            blueprint: blueprint(),
+            blueprint_revision: "r1".to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+        assert_eq!(template.validate(), Err(RecurrenceError::EmptyTemplateName));
     }
 
     #[test]
@@ -557,6 +635,18 @@ mod tests {
         assert_eq!(dates.len(), 3);
         assert_eq!(dates[1] - dates[0], 23 * 60 * 60 * 1000);
         assert_eq!(dates[2] - dates[1], 24 * 60 * 60 * 1000);
+    }
+
+    #[test]
+    fn occurrence_generation_preserves_subsecond_start_offset() {
+        let starts_at = Utc
+            .with_ymd_and_hms(2026, 1, 1, 9, 0, 0)
+            .unwrap()
+            .timestamp_millis()
+            + 425;
+        let (dates, _) =
+            occurrences_after("FREQ=DAILY", starts_at, "UTC", starts_at - 1, 2).unwrap();
+        assert_eq!(dates, [starts_at, starts_at + 24 * 60 * 60 * 1_000]);
     }
 
     #[test]
@@ -637,7 +727,7 @@ mod tests {
         )
         .unwrap();
         // Device-local timezone is intentionally not an input. Reopening the same
-        // persisted schedule after travel must therefore produce identical instants.
+        // persisted task series after travel must therefore produce identical instants.
         let after_move = occurrences_after(
             "FREQ=DAILY;COUNT=3",
             starts_at,
@@ -653,27 +743,21 @@ mod tests {
     #[test]
     fn exhausted_cursor_is_terminal_maximum() {
         assert_eq!(
-            ScheduleCursor::Pending(200).merge(ScheduleCursor::Pending(100)),
-            ScheduleCursor::Pending(200)
+            SeriesCursor::Pending(200).merge(SeriesCursor::Pending(100)),
+            SeriesCursor::Pending(200)
         );
         assert_eq!(
-            ScheduleCursor::Exhausted.merge(ScheduleCursor::Pending(i64::MAX)),
-            ScheduleCursor::Exhausted
+            SeriesCursor::Exhausted.merge(SeriesCursor::Pending(i64::MAX)),
+            SeriesCursor::Exhausted
         );
     }
 
     #[test]
-    fn scheduled_ids_are_deterministic_and_revision_bound() {
-        let schedule_id = Uuid::now_v7();
-        let first = scheduled_task_id(schedule_id, "r1", "t1", 42, "root");
-        assert_eq!(
-            first,
-            scheduled_task_id(schedule_id, "r1", "t1", 42, "root")
-        );
-        assert_ne!(
-            first,
-            scheduled_task_id(schedule_id, "r2", "t1", 42, "root")
-        );
+    fn series_ids_are_deterministic_and_revision_bound() {
+        let series_id = Uuid::now_v7();
+        let first = series_task_id(series_id, "r1", 42, "root");
+        assert_eq!(first, series_task_id(series_id, "r1", 42, "root"));
+        assert_ne!(first, series_task_id(series_id, "r2", 42, "root"));
         assert_eq!(first.get_version_num(), 5);
     }
 

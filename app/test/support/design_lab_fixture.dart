@@ -230,7 +230,7 @@ Future<DesignLabFixture> createDesignLabFixture({
     name: 'Weekly launch review',
     defaultListId: homeListId,
   );
-  await fake.createSchedule(
+  await fake.createTaskSeriesFromTemplate(
     templateId: template.id,
     rrule: 'FREQ=WEEKLY',
     startsAt: DateTime(now.year, now.month, now.day, 9).millisecondsSinceEpoch,

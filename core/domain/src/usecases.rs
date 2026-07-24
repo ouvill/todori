@@ -12,6 +12,7 @@ use crate::entities::{
     ActiveTimerSession, CompletedTimerSession, List, Task, TaskDue, TaskStatus, TimerMode,
     TimerPhase, TimerRunState, UtcInstant,
 };
+use crate::recurrence::{RecurrenceError, TaskContent};
 
 pub const MAX_TIMER_SESSION_DURATION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 
@@ -246,19 +247,21 @@ pub fn new_task(
         id: Uuid::now_v7(),
         list_id,
         parent_task_id,
-        title,
-        note: String::new(),
+        content: TaskContent {
+            title,
+            note: String::new(),
+            priority: 0,
+            estimated_minutes: None,
+        },
         status: TaskStatus::Todo,
-        priority: 0,
         due: None,
         scheduled_at: None,
-        estimated_minutes: None,
         sort_order,
         completed_at: None,
         closed_reason: None,
         deleted_at: None,
         assignee: None,
-        recurrence: None,
+        series_occurrence: None,
         created_at: now_ms,
         updated_at: now_ms,
     })
@@ -301,26 +304,36 @@ fn new_list_with_default(
 
 /// タスクタイトルを更新する。
 pub fn update_title(mut task: Task, title: String, now_ms: i64) -> Result<Task, DomainError> {
-    validate_title(&title)?;
-
-    task.title = title;
+    let content = TaskContent {
+        title,
+        ..task.content.clone()
+    };
+    validate_task_content(&content)?;
+    task.content = content;
     task.updated_at = now_ms;
     Ok(task)
 }
 
 /// タスクノートを更新する。
 pub fn update_note(mut task: Task, note: String, now_ms: i64) -> Result<Task, DomainError> {
-    task.note = note;
+    let content = TaskContent {
+        note,
+        ..task.content.clone()
+    };
+    validate_task_content(&content)?;
+    task.content = content;
     task.updated_at = now_ms;
     Ok(task)
 }
 
 /// タスク優先度を更新する。
 pub fn update_priority(mut task: Task, priority: i32, now_ms: i64) -> Result<Task, DomainError> {
-    if !(0..=3).contains(&priority) {
-        return Err(DomainError::InvalidPriority);
-    }
-    task.priority = priority;
+    let content = TaskContent {
+        priority,
+        ..task.content.clone()
+    };
+    validate_task_content(&content)?;
+    task.content = content;
     task.updated_at = now_ms;
     Ok(task)
 }
@@ -349,10 +362,12 @@ pub fn update_estimated_minutes(
     estimated_minutes: Option<i32>,
     now_ms: i64,
 ) -> Result<Task, DomainError> {
-    if estimated_minutes.is_some_and(|minutes| minutes <= 0 || minutes % 5 != 0) {
-        return Err(DomainError::InvalidEstimatedMinutes);
-    }
-    task.estimated_minutes = estimated_minutes;
+    let content = TaskContent {
+        estimated_minutes,
+        ..task.content.clone()
+    };
+    validate_task_content(&content)?;
+    task.content = content;
     task.updated_at = now_ms;
     Ok(task)
 }
@@ -474,6 +489,15 @@ fn validate_title(title: &str) -> Result<(), DomainError> {
         return Err(DomainError::EmptyTitle);
     }
     Ok(())
+}
+
+fn validate_task_content(content: &TaskContent) -> Result<(), DomainError> {
+    content.validate().map_err(|error| match error {
+        RecurrenceError::EmptyTaskTitle => DomainError::EmptyTitle,
+        RecurrenceError::InvalidPriority => DomainError::InvalidPriority,
+        RecurrenceError::InvalidEstimatedMinutes => DomainError::InvalidEstimatedMinutes,
+        _ => unreachable!("TaskContent validation returned a non-content error"),
+    })
 }
 
 fn validate_name(name: &str) -> Result<(), DomainError> {
@@ -750,13 +774,13 @@ mod tests {
 
         assert_eq!(task.list_id, list_id);
         assert_eq!(task.parent_task_id, None);
-        assert_eq!(task.title, "buy milk");
-        assert_eq!(task.note, "");
+        assert_eq!(task.content.title, "buy milk");
+        assert_eq!(task.content.note, "");
         assert_eq!(task.status, TaskStatus::Todo);
-        assert_eq!(task.priority, 0);
+        assert_eq!(task.content.priority, 0);
         assert_eq!(task.due, None);
         assert_eq!(task.scheduled_at, None);
-        assert_eq!(task.estimated_minutes, None);
+        assert_eq!(task.content.estimated_minutes, None);
         assert_eq!(task.sort_order, "a0");
         assert_eq!(task.completed_at, None);
         assert_eq!(task.closed_reason, None);
@@ -785,7 +809,7 @@ mod tests {
         let task = task_fixture();
         let updated = update_title(task, "updated".to_string(), LATER).unwrap();
 
-        assert_eq!(updated.title, "updated");
+        assert_eq!(updated.content.title, "updated");
         assert_eq!(updated.updated_at, LATER);
     }
 
@@ -795,7 +819,7 @@ mod tests {
         let result = update_title(task.clone(), "".to_string(), LATER);
 
         assert_eq!(result, Err(DomainError::EmptyTitle));
-        assert_eq!(task.title, "task");
+        assert_eq!(task.content.title, "task");
         assert_eq!(task.updated_at, NOW);
     }
 
@@ -809,11 +833,11 @@ mod tests {
         let task = update_scheduled_at(task, Some(LATER + 3), LATER + 3).unwrap();
         let task = update_estimated_minutes(task, Some(45), LATER + 4).unwrap();
 
-        assert_eq!(task.note, "note");
-        assert_eq!(task.priority, 3);
+        assert_eq!(task.content.note, "note");
+        assert_eq!(task.content.priority, 3);
         assert_eq!(task.due, Some(due));
         assert_eq!(task.scheduled_at, Some(LATER + 3));
-        assert_eq!(task.estimated_minutes, Some(45));
+        assert_eq!(task.content.estimated_minutes, Some(45));
         assert_eq!(task.updated_at, LATER + 4);
     }
 
@@ -837,12 +861,14 @@ mod tests {
         assert_eq!(
             update_estimated_minutes(task.clone(), None, LATER)
                 .unwrap()
+                .content
                 .estimated_minutes,
             None
         );
         assert_eq!(
             update_estimated_minutes(task, Some(45), LATER)
                 .unwrap()
+                .content
                 .estimated_minutes,
             Some(45)
         );

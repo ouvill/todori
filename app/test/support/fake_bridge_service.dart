@@ -28,7 +28,7 @@ class FakeBridgeService implements BridgeService {
   final List<ListDto> _lists = [];
   final List<TaskDto> _tasks = [];
   final List<TemplateDto> _templates = [];
-  final List<ScheduleDto> _schedules = [];
+  final List<TaskSeriesDto> _series = [];
   final List<ReminderDto> _reminders = [];
   final List<CompletedTimerSessionDto> _completedTimerSessions = [];
   final List<FakeTaskUndoEntry> _undoEntries = [];
@@ -75,7 +75,7 @@ class FakeBridgeService implements BridgeService {
     _lists.clear();
     _tasks.clear();
     _templates.clear();
-    _schedules.clear();
+    _series.clear();
     _reminders.clear();
     _completedTimerSessions.clear();
     _activeTimerSession = null;
@@ -477,11 +477,8 @@ class FakeBridgeService implements BridgeService {
       List.unmodifiable(_templates);
 
   @override
-  Future<List<ScheduleDto>> getTemplateSchedules({
-    required String templateId,
-  }) async => List.unmodifiable(
-    _schedules.where((schedule) => schedule.templateId == templateId),
-  );
+  Future<List<TaskSeriesDto>> getTaskSeries() async =>
+      List.unmodifiable(_series);
 
   @override
   Future<String> validateRecurrenceRule({
@@ -510,9 +507,9 @@ class FakeBridgeService implements BridgeService {
       id: 'template-${_templateSeq++}',
       name: name,
       defaultListId: defaultListId,
-      snapshotRevision: 'template-revision-$now',
+      blueprintRevision: 'template-revision-$now',
       nodes: [
-        TemplateNodeDto(
+        TaskBlueprintNodeDto(
           nodeKey: task.id,
           siblingOrder: 0,
           title: task.title,
@@ -529,10 +526,31 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
+  Future<TemplateDto> createTemplate({
+    required String name,
+    String? defaultListId,
+    required List<TaskBlueprintNodeDto> nodes,
+  }) async {
+    final now = _fakeTimestamp(5000 + _templateSeq);
+    final template = TemplateDto(
+      id: 'template-${_templateSeq++}',
+      name: name,
+      defaultListId: defaultListId,
+      blueprintRevision: 'template-revision-$now',
+      nodes: List.unmodifiable(nodes),
+      createdAt: now,
+      updatedAt: now,
+    );
+    _templates.add(template);
+    return template;
+  }
+
+  @override
   Future<TemplateDto> updateTemplate({
     required String templateId,
     required String name,
     String? defaultListId,
+    required List<TaskBlueprintNodeDto> nodes,
   }) async {
     final index = _templates.indexWhere((value) => value.id == templateId);
     final before = _templates[index];
@@ -540,8 +558,8 @@ class FakeBridgeService implements BridgeService {
       id: before.id,
       name: name,
       defaultListId: defaultListId,
-      snapshotRevision: before.snapshotRevision,
-      nodes: before.nodes,
+      blueprintRevision: '${before.blueprintRevision}-next',
+      nodes: List.unmodifiable(nodes),
       createdAt: before.createdAt,
       updatedAt: before.updatedAt + _fakeMinuteMs,
     );
@@ -550,7 +568,7 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<TemplateDto> replaceTemplateSnapshot({
+  Future<TemplateDto> replaceTemplateBlueprint({
     required String templateId,
     required String taskId,
   }) async {
@@ -561,9 +579,9 @@ class FakeBridgeService implements BridgeService {
       id: before.id,
       name: before.name,
       defaultListId: before.defaultListId,
-      snapshotRevision: '${before.snapshotRevision}-next',
+      blueprintRevision: '${before.blueprintRevision}-next',
       nodes: [
-        TemplateNodeDto(
+        TaskBlueprintNodeDto(
           nodeKey: task.id,
           siblingOrder: 0,
           title: task.title,
@@ -607,16 +625,18 @@ class FakeBridgeService implements BridgeService {
   }
 
   @override
-  Future<ScheduleDto> createSchedule({
+  Future<TaskSeriesDto> createTaskSeriesFromTemplate({
     required String templateId,
     required String rrule,
     required int startsAt,
     required String timeZone,
   }) async {
+    final template = _templates.firstWhere((value) => value.id == templateId);
     final now = _fakeTimestamp(7000 + _scheduleSeq);
-    final schedule = ScheduleDto(
-      id: 'schedule-${_scheduleSeq++}',
-      templateId: templateId,
+    final series = TaskSeriesDto(
+      id: 'series-${_scheduleSeq++}',
+      targetListId: template.defaultListId,
+      nodes: List.unmodifiable(template.nodes),
       rrule: rrule,
       startsAt: startsAt,
       timeZone: timeZone,
@@ -626,23 +646,62 @@ class FakeBridgeService implements BridgeService {
       createdAt: now,
       updatedAt: now,
     );
-    _schedules.add(schedule);
-    return schedule;
+    _series.add(series);
+    return series;
   }
 
   @override
-  Future<ScheduleDto> updateSchedule({
-    required String scheduleId,
+  Future<TaskSeriesDto> createTaskSeriesFromTask({
+    required String taskId,
+    String? targetListId,
+    required String rrule,
+    required int startsAt,
+    required String timeZone,
+  }) async {
+    final task = _tasks.firstWhere((value) => value.id == taskId);
+    final now = _fakeTimestamp(7000 + _scheduleSeq);
+    final series = TaskSeriesDto(
+      id: 'series-${_scheduleSeq++}',
+      targetListId: targetListId ?? task.listId,
+      nodes: [
+        TaskBlueprintNodeDto(
+          nodeKey: task.id,
+          siblingOrder: 0,
+          title: task.title,
+          note: task.note,
+          priority: task.priority,
+          estimatedMinutes: task.estimatedMinutes,
+        ),
+      ],
+      rrule: rrule,
+      startsAt: startsAt,
+      timeZone: timeZone,
+      nextRunAt: startsAt,
+      enabled: true,
+      configRevision: 'series-revision-$now',
+      createdAt: now,
+      updatedAt: now,
+    );
+    _series.add(series);
+    return series;
+  }
+
+  @override
+  Future<TaskSeriesDto> updateTaskSeries({
+    required String seriesId,
+    String? targetListId,
+    required List<TaskBlueprintNodeDto> nodes,
     required String rrule,
     required int startsAt,
     required String timeZone,
     required bool enabled,
   }) async {
-    final index = _schedules.indexWhere((value) => value.id == scheduleId);
-    final before = _schedules[index];
-    final updated = ScheduleDto(
+    final index = _series.indexWhere((value) => value.id == seriesId);
+    final before = _series[index];
+    final updated = TaskSeriesDto(
       id: before.id,
-      templateId: before.templateId,
+      targetListId: targetListId,
+      nodes: nodes,
       rrule: rrule,
       startsAt: startsAt,
       timeZone: timeZone,
@@ -652,23 +711,22 @@ class FakeBridgeService implements BridgeService {
       createdAt: before.createdAt,
       updatedAt: before.updatedAt + _fakeMinuteMs,
     );
-    _schedules[index] = updated;
+    _series[index] = updated;
     return updated;
   }
 
   @override
-  Future<void> deleteSchedule({required String scheduleId}) async {
-    _schedules.removeWhere((value) => value.id == scheduleId);
+  Future<void> deleteTaskSeries({required String seriesId}) async {
+    _series.removeWhere((value) => value.id == seriesId);
   }
 
   @override
   Future<void> deleteTemplate({required String templateId}) async {
-    _schedules.removeWhere((value) => value.templateId == templateId);
     _templates.removeWhere((value) => value.id == templateId);
   }
 
   @override
-  Future<SettlementSummaryDto> settleDueSchedules({required int atMs}) async =>
+  Future<SettlementSummaryDto> settleDueSeries({required int atMs}) async =>
       const SettlementSummaryDto(
         generatedOccurrences: 0,
         generatedTasks: 0,
@@ -677,8 +735,8 @@ class FakeBridgeService implements BridgeService {
       );
 
   @override
-  Future<StreakDto> getScheduleStreak({
-    required String scheduleId,
+  Future<StreakDto> getTaskSeriesStreak({
+    required String seriesId,
     required int atMs,
   }) async => const StreakDto(current: 0, finalized: false);
 
