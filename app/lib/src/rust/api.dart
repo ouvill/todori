@@ -712,7 +712,6 @@ class ListDto {
   final String name;
   final String color;
   final String icon;
-  final String? orgId;
   final String sortOrder;
   final bool isDefault;
   final PlatformInt64? archivedAt;
@@ -724,7 +723,6 @@ class ListDto {
     required this.name,
     required this.color,
     required this.icon,
-    this.orgId,
     required this.sortOrder,
     required this.isDefault,
     this.archivedAt,
@@ -738,7 +736,6 @@ class ListDto {
       name.hashCode ^
       color.hashCode ^
       icon.hashCode ^
-      orgId.hashCode ^
       sortOrder.hashCode ^
       isDefault.hashCode ^
       archivedAt.hashCode ^
@@ -754,7 +751,6 @@ class ListDto {
           name == other.name &&
           color == other.color &&
           icon == other.icon &&
-          orgId == other.orgId &&
           sortOrder == other.sortOrder &&
           isDefault == other.isDefault &&
           archivedAt == other.archivedAt &&

@@ -351,7 +351,7 @@ async fn accepted_push_survives_provider_failure_and_no_op_keeps_wire_shape() {
 
 fn structural_envelope() -> Vec<u8> {
     let mut envelope = Vec::new();
-    envelope.extend_from_slice(b"TDE4");
+    envelope.extend_from_slice(b"TDE5");
     envelope.extend_from_slice(&2_u16.to_be_bytes());
     envelope.extend_from_slice(&1_u64.to_be_bytes());
     envelope.extend_from_slice(&[0_u8; 24]);

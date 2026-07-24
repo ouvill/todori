@@ -19,7 +19,7 @@
   "deleteListMenuItem": "削除",
   "unarchiveListMenuItem": "アーカイブ解除",
   "deleteListDialogTitle": "「{listName}」を削除しますか？",
-  "deleteListDialogMessage": "このリストと配下のタスク {taskCount}件（完了済みを含む）は完全に削除され、元に戻せません。履歴を残す場合は削除ではなくアーカイブしてください。",
+  "deleteListDialogMessage": "このリストは完全に削除され、元に戻せません。配下のタスク {taskCount}件（完了済みを含む）はリマインダーや履歴を保持したままインボックスへ移動します。",
   "archivedListsSectionTitle": "アーカイブ済み（{count}件）",
   "showArchivedListsTooltip": "アーカイブ済みリストを表示",
   "hideArchivedListsTooltip": "アーカイブ済みリストを隠す",

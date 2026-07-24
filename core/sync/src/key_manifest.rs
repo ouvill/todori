@@ -10,17 +10,13 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 pub const PERSONAL_MANIFEST_AUTH_INFO: &[u8] = b"taskveil/personal-key-manifest-auth/v1";
-const MANIFEST_MAGIC: &[u8; 4] = b"TKM1";
+const MANIFEST_MAGIC: &[u8; 4] = b"TKM2";
+const MANIFEST_PAYLOAD_PREFIX_LEN: usize = 75;
+const MANIFEST_AUTHENTICATOR_LEN: usize = 32;
+pub const MIN_AUTHENTICATED_MANIFEST_LEN: usize =
+    MANIFEST_PAYLOAD_PREFIX_LEN + MANIFEST_AUTHENTICATOR_LEN;
 
 type HmacSha256 = Hmac<Sha256>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
-#[serde(rename_all = "snake_case")]
-pub enum KeyScope {
-    Tenant = 1,
-    List = 2,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -45,9 +41,7 @@ impl RotationStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyManifest {
-    pub scope: KeyScope,
     pub tenant_id: Uuid,
-    pub list_id: Option<Uuid>,
     pub suite_id: u16,
     pub generation: u64,
     pub status: RotationStatus,
@@ -80,9 +74,7 @@ pub enum KeyManifestError {
 impl KeyManifest {
     #[allow(clippy::too_many_arguments)]
     pub fn organization_unsigned(
-        scope: KeyScope,
         tenant_id: Uuid,
-        list_id: Option<Uuid>,
         generation: u64,
         status: RotationStatus,
         minimum_write_generation: u64,
@@ -92,9 +84,7 @@ impl KeyManifest {
         recipient_fingerprints.sort_unstable();
         recipient_fingerprints.dedup();
         let manifest = Self {
-            scope,
             tenant_id,
-            list_id,
             suite_id: CRYPTO_SUITE_ID,
             generation,
             status,
@@ -108,30 +98,22 @@ impl KeyManifest {
     }
 
     pub fn from_authenticated_bytes(bytes: &[u8]) -> Result<Self, KeyManifestError> {
-        if bytes.len() < 124 || &bytes[..4] != MANIFEST_MAGIC {
+        if bytes.len() < MIN_AUTHENTICATED_MANIFEST_LEN || &bytes[..4] != MANIFEST_MAGIC {
             return Err(KeyManifestError::InvalidIdentity);
         }
-        let scope = match bytes[4] {
-            1 => KeyScope::Tenant,
-            2 => KeyScope::List,
-            _ => return Err(KeyManifestError::InvalidIdentity),
-        };
         let tenant_id =
-            Uuid::from_slice(&bytes[5..21]).map_err(|_| KeyManifestError::InvalidIdentity)?;
-        let raw_list_id =
-            Uuid::from_slice(&bytes[21..37]).map_err(|_| KeyManifestError::InvalidIdentity)?;
-        let list_id = (!raw_list_id.is_nil()).then_some(raw_list_id);
+            Uuid::from_slice(&bytes[4..20]).map_err(|_| KeyManifestError::InvalidIdentity)?;
         let suite_id = u16::from_be_bytes(
-            bytes[37..39]
+            bytes[20..22]
                 .try_into()
                 .map_err(|_| KeyManifestError::InvalidIdentity)?,
         );
         let generation = u64::from_be_bytes(
-            bytes[39..47]
+            bytes[22..30]
                 .try_into()
                 .map_err(|_| KeyManifestError::InvalidIdentity)?,
         );
-        let status = match bytes[47] {
+        let status = match bytes[30] {
             1 => RotationStatus::Prepared,
             2 => RotationStatus::Active,
             3 => RotationStatus::Migrating,
@@ -139,19 +121,19 @@ impl KeyManifest {
             _ => return Err(KeyManifestError::InvalidTransition),
         };
         let minimum_write_generation = u64::from_be_bytes(
-            bytes[48..56]
+            bytes[31..39]
                 .try_into()
                 .map_err(|_| KeyManifestError::InvalidIdentity)?,
         );
-        let previous_manifest_hash = bytes[56..88]
+        let previous_manifest_hash = bytes[39..71]
             .try_into()
             .map_err(|_| KeyManifestError::InvalidIdentity)?;
         let recipient_count = u32::from_be_bytes(
-            bytes[88..92]
+            bytes[71..75]
                 .try_into()
                 .map_err(|_| KeyManifestError::InvalidIdentity)?,
         ) as usize;
-        let payload_len = 92usize
+        let payload_len = MANIFEST_PAYLOAD_PREFIX_LEN
             .checked_add(
                 recipient_count
                     .checked_mul(32)
@@ -164,7 +146,7 @@ impl KeyManifest {
         if bytes.len() != authenticated_len {
             return Err(KeyManifestError::InvalidIdentity);
         }
-        let recipient_fingerprints = bytes[92..payload_len]
+        let recipient_fingerprints = bytes[MANIFEST_PAYLOAD_PREFIX_LEN..payload_len]
             .chunks_exact(32)
             .map(|chunk| {
                 chunk
@@ -176,9 +158,7 @@ impl KeyManifest {
             .try_into()
             .map_err(|_| KeyManifestError::InvalidIdentity)?;
         let manifest = Self {
-            scope,
             tenant_id,
-            list_id,
             suite_id,
             generation,
             status,
@@ -193,9 +173,7 @@ impl KeyManifest {
 
     #[allow(clippy::too_many_arguments)]
     pub fn authenticate_personal(
-        scope: KeyScope,
         tenant_id: Uuid,
-        list_id: Option<Uuid>,
         generation: u64,
         status: RotationStatus,
         minimum_write_generation: u64,
@@ -206,9 +184,7 @@ impl KeyManifest {
         recipient_fingerprints.sort_unstable();
         recipient_fingerprints.dedup();
         let mut manifest = Self {
-            scope,
             tenant_id,
-            list_id,
             suite_id: CRYPTO_SUITE_ID,
             generation,
             status,
@@ -226,11 +202,11 @@ impl KeyManifest {
         self.validate_fields()?;
         let count = u32::try_from(self.recipient_fingerprints.len())
             .map_err(|_| KeyManifestError::EncodingOverflow)?;
-        let mut out = Vec::with_capacity(92 + self.recipient_fingerprints.len() * 32);
+        let mut out = Vec::with_capacity(
+            MANIFEST_PAYLOAD_PREFIX_LEN + self.recipient_fingerprints.len() * 32,
+        );
         out.extend_from_slice(MANIFEST_MAGIC);
-        out.push(self.scope as u8);
         out.extend_from_slice(self.tenant_id.as_bytes());
-        out.extend_from_slice(self.list_id.unwrap_or(Uuid::nil()).as_bytes());
         out.extend_from_slice(&self.suite_id.to_be_bytes());
         out.extend_from_slice(&self.generation.to_be_bytes());
         out.push(self.status as u8);
@@ -288,9 +264,7 @@ impl KeyManifest {
         auth_key: &[u8; 32],
     ) -> Result<(), KeyManifestError> {
         next.verify_personal_with_auth_key(auth_key)?;
-        if self.scope != next.scope
-            || self.tenant_id != next.tenant_id
-            || self.list_id != next.list_id
+        if self.tenant_id != next.tenant_id
             || self.suite_id != next.suite_id
             || next.previous_manifest_hash != self.authenticated_hash()?
         {
@@ -311,10 +285,7 @@ impl KeyManifest {
     }
 
     fn validate_fields(&self) -> Result<(), KeyManifestError> {
-        if self.tenant_id.is_nil()
-            || matches!(self.scope, KeyScope::List) != self.list_id.is_some()
-            || self.list_id.is_some_and(|id| id.is_nil())
-        {
+        if self.tenant_id.is_nil() {
             return Err(KeyManifestError::InvalidIdentity);
         }
         if self.suite_id != CRYPTO_SUITE_ID {
@@ -361,9 +332,7 @@ mod tests {
 
     fn manifest() -> KeyManifest {
         KeyManifest::authenticate_personal(
-            KeyScope::List,
             Uuid::from_u128(1),
-            Some(Uuid::from_u128(2)),
             2,
             RotationStatus::Prepared,
             1,
@@ -375,13 +344,12 @@ mod tests {
     }
 
     #[test]
-    fn manifest_has_canonical_tkm1_bytes_and_sorted_unique_recipients() {
+    fn manifest_has_canonical_tkm2_bytes_and_sorted_unique_recipients() {
         let manifest = manifest();
         let payload = manifest.canonical_payload().unwrap();
-        assert_eq!(&payload[..4], b"TKM1");
-        assert_eq!(payload[4], KeyScope::List as u8);
+        assert_eq!(&payload[..4], b"TKM2");
         assert_eq!(manifest.recipient_fingerprints, vec![[1; 32], [2; 32]]);
-        assert_eq!(payload.len(), 4 + 1 + 16 + 16 + 2 + 8 + 1 + 8 + 32 + 4 + 64);
+        assert_eq!(payload.len(), 4 + 16 + 2 + 8 + 1 + 8 + 32 + 4 + 64);
         manifest.verify_personal(&[7; 32]).unwrap();
         assert_eq!(
             manifest.verify_personal(&[8; 32]),
@@ -391,9 +359,9 @@ mod tests {
 
     #[test]
     fn manifest_rejects_overflowing_recipient_length() {
-        let mut encoded = vec![0; 124];
-        encoded[..4].copy_from_slice(b"TKM1");
-        encoded[88..92].copy_from_slice(&u32::MAX.to_be_bytes());
+        let mut encoded = vec![0; MIN_AUTHENTICATED_MANIFEST_LEN];
+        encoded[..4].copy_from_slice(b"TKM2");
+        encoded[71..75].copy_from_slice(&u32::MAX.to_be_bytes());
 
         assert!(KeyManifest::from_authenticated_bytes(&encoded).is_err());
     }
@@ -402,9 +370,7 @@ mod tests {
     fn manifest_rejects_replay_fork_and_skipped_status() {
         let first = manifest();
         let active = KeyManifest::authenticate_personal(
-            first.scope,
             first.tenant_id,
-            first.list_id,
             first.generation,
             RotationStatus::Active,
             2,
@@ -422,9 +388,7 @@ mod tests {
             Err(KeyManifestError::AuthenticationFailed)
         );
         let retired = KeyManifest::authenticate_personal(
-            first.scope,
             first.tenant_id,
-            first.list_id,
             first.generation,
             RotationStatus::Retired,
             2,

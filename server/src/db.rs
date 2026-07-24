@@ -32,7 +32,6 @@ pub async fn connect_application(database_url: &str) -> Result<PgPool, sqlx_core
         "tenant_members",
         "tenant_seq",
         "tenant_key_generations",
-        "list_key_generations",
         "key_recipients",
         "key_generation_acks",
         "sync_records",
@@ -96,6 +95,11 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx_core::Error> {
     .await?;
     raw_sql(include_str!(
         "../migrations/202607170001_template_recurrence.sql"
+    ))
+    .execute(pool)
+    .await?;
+    raw_sql(include_str!(
+        "../migrations/202607240001_tenant_record_keys.sql"
     ))
     .execute(pool)
     .await?;

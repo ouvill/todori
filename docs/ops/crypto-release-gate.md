@@ -22,7 +22,7 @@ cargo +nightly-2026-07-14 fuzz run crypto_parsers -- -max_total_time=60 -timeout
 git diff --check
 ```
 
-`cargo-audit 0.22.2`と`cargo-fuzz 0.13.2`を使用する。auditは脆弱性だけでなくwarning、unmaintained、unsound、yanked dependencyもfail closedにする。fuzzは`nightly-2026-07-14`でenvelope v4、personal / Organization manifest、account root、device certificate / identity、hybrid package、signed revocationのparserを同一inputで検査する。16 KiB上限とprotocol magic dictionaryにより、ML-DSA / ML-KEMを含む4 KiB超のcertificate / identity parserも対象にする。CI smokeは60秒であり、長時間campaignやcoverage reviewの代替ではない。
+`cargo-audit 0.22.2`と`cargo-fuzz 0.13.2`を使用する。auditは脆弱性だけでなくwarning、unmaintained、unsound、yanked dependencyもfail closedにする。fuzzは`nightly-2026-07-14`でenvelope v5、personal manifest、account root、device certificate / identity、hybrid package、signed revocationのparserを同一inputで検査する。16 KiB上限とprotocol magic dictionaryにより、ML-DSA / ML-KEMを含む4 KiB超のcertificate / identity parserも対象にする。CI smokeは60秒であり、長時間campaignやcoverage reviewの代替ではない。
 
 ### 1.1 依存更新policy
 

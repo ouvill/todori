@@ -135,10 +135,16 @@ void main() {
     final bridge = FakeBridgeService();
     await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     final work = await bridge.createList(name: 'Work', sortOrder: 'a1');
-    await bridge.createTask(
+    final task = await bridge.createTask(
       listId: work.id,
       title: 'Visible today',
       due: testDateOnlyDueFromMillis(_todayStartMs()),
+    );
+    final reminder = await bridge.createTaskReminder(
+      taskId: task.id,
+      remindAt: DateTime.now()
+          .add(const Duration(hours: 1))
+          .millisecondsSinceEpoch,
     );
     final container = _container(bridge, const SystemTimerClock());
     addTearDown(container.dispose);
@@ -160,39 +166,57 @@ void main() {
       'Studio',
     );
     await container.read(listsProvider.notifier).deleteList(work.id);
-    expect(await container.read(homeTasksProvider.future), isEmpty);
+    final rehomed = await container.read(homeTasksProvider.future);
+    expect(rehomed.single.task.id, task.id);
+    expect(rehomed.single.listName, 'Inbox');
+    expect(
+      (await bridge.getTaskReminders(taskId: task.id)).single.id,
+      reminder.id,
+    );
   });
 
-  test('task subtree and list deletion refresh durable active timer', () async {
-    final bridge = FakeBridgeService();
-    await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
-    final work = await bridge.createList(name: 'Work', sortOrder: 'a1');
-    final parent = await bridge.createTask(listId: work.id, title: 'Parent');
-    final child = await bridge.createTask(
-      listId: work.id,
-      title: 'Child',
-      parentTaskId: parent.id,
-    );
-    final clock = _MutableClock(DateTime.utc(2026, 7, 13, 14));
-    final container = _container(bridge, clock);
-    addTearDown(container.dispose);
-    await container.read(timerEngineProvider.future);
-    await container
-        .read(timerEngineProvider.notifier)
-        .startStopwatch(taskId: child.id);
-    await container.read(tasksProvider(work.id).notifier).deleteTask(parent.id);
-    expect((await container.read(timerEngineProvider.future)).active, isNull);
+  test(
+    'task deletion clears but list deletion preserves active timer',
+    () async {
+      final bridge = FakeBridgeService();
+      await bridge.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+      final work = await bridge.createList(name: 'Work', sortOrder: 'a1');
+      final parent = await bridge.createTask(listId: work.id, title: 'Parent');
+      final child = await bridge.createTask(
+        listId: work.id,
+        title: 'Child',
+        parentTaskId: parent.id,
+      );
+      final clock = _MutableClock(DateTime.utc(2026, 7, 13, 14));
+      final container = _container(bridge, clock);
+      addTearDown(container.dispose);
+      await container.read(timerEngineProvider.future);
+      await container
+          .read(timerEngineProvider.notifier)
+          .startStopwatch(taskId: child.id);
+      await container
+          .read(tasksProvider(work.id).notifier)
+          .deleteTask(parent.id);
+      expect((await container.read(timerEngineProvider.future)).active, isNull);
 
-    final replacement = await bridge.createTask(
-      listId: work.id,
-      title: 'Replacement',
-    );
-    await container
-        .read(timerEngineProvider.notifier)
-        .startStopwatch(taskId: replacement.id);
-    await container.read(listsProvider.notifier).deleteList(work.id);
-    expect((await container.read(timerEngineProvider.future)).active, isNull);
-  });
+      final replacement = await bridge.createTask(
+        listId: work.id,
+        title: 'Replacement',
+      );
+      await container
+          .read(timerEngineProvider.notifier)
+          .startStopwatch(taskId: replacement.id);
+      await container.read(listsProvider.notifier).deleteList(work.id);
+      final active = (await container.read(timerEngineProvider.future)).active;
+      expect(active?.taskId, replacement.id);
+      expect(
+        (await bridge.getTasks(
+          listId: (await bridge.getLists()).single.id,
+        )).single.id,
+        replacement.id,
+      );
+    },
+  );
 
   test(
     'sync failure is contained, clears running, retries, and is single-flight',

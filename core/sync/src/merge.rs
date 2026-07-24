@@ -111,13 +111,6 @@ pub fn merge_lww(
                 &mut incoming_won,
             ),
             icon: choose("icon", &a.icon, &b.icon, &mut local_won, &mut incoming_won),
-            org_id: choose(
-                "org_id",
-                &a.org_id,
-                &b.org_id,
-                &mut local_won,
-                &mut incoming_won,
-            ),
             is_default: choose(
                 "is_default",
                 &a.is_default,

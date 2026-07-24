@@ -10,7 +10,7 @@ use taskveil_crypto::organization::{
 };
 use uuid::Uuid;
 
-use crate::{account::ActiveKeyBundleDto, KeyScope, RotationStatus};
+use crate::{account::ActiveKeyBundleDto, RotationStatus};
 use crate::{KeyManifest, KeyManifestError};
 
 const ORGANIZATION_MANIFEST_MAGIC: &[u8; 4] = b"TOM1";
@@ -68,28 +68,11 @@ pub fn verify_organization_active_bundle(
     verify_active_manifest(
         &bundle.signed_manifest,
         owner_root,
-        KeyScope::Tenant,
         tenant_id,
-        None,
         bundle.generation,
         recipient_fingerprint,
         &expected_recipients,
     )?;
-    for list in &bundle.list_deks {
-        if list.generation != bundle.generation || !list.wrapped_list_dek.is_empty() {
-            return Err(OrganizationBundleError::InvalidEncoding);
-        }
-        verify_active_manifest(
-            &list.signed_manifest,
-            owner_root,
-            KeyScope::List,
-            tenant_id,
-            Some(list.list_id),
-            bundle.generation,
-            recipient_fingerprint,
-            &expected_recipients,
-        )?;
-    }
     Ok(())
 }
 
@@ -97,9 +80,7 @@ pub fn verify_organization_active_bundle(
 fn verify_active_manifest(
     encoded: &str,
     owner_root: &AccountRootPublicKeys,
-    scope: KeyScope,
     tenant_id: Uuid,
-    list_id: Option<Uuid>,
     generation: u64,
     recipient_fingerprint: [u8; 32],
     expected_recipients: &[[u8; 32]],
@@ -109,9 +90,7 @@ fn verify_active_manifest(
         .map_err(|_| OrganizationBundleError::InvalidEncoding)?;
     let signed = OrganizationKeyManifest::decode(&bytes)?;
     signed.verify(owner_root)?;
-    if signed.manifest.scope != scope
-        || signed.manifest.tenant_id != tenant_id
-        || signed.manifest.list_id != list_id
+    if signed.manifest.tenant_id != tenant_id
         || signed.manifest.generation != generation
         || signed.manifest.status != RotationStatus::Active
         || signed.manifest.minimum_write_generation != generation
@@ -349,9 +328,7 @@ mod tests {
         let tenant_id = Uuid::now_v7();
         let root = generate_account_root(Uuid::now_v7()).unwrap();
         let manifest = KeyManifest::organization_unsigned(
-            KeyScope::Tenant,
             tenant_id,
-            None,
             3,
             RotationStatus::Active,
             3,
@@ -405,9 +382,7 @@ mod tests {
         .unwrap();
         let recipient = certificate.recipient_key_fingerprint().unwrap();
         let manifest = KeyManifest::organization_unsigned(
-            KeyScope::Tenant,
             tenant_id,
-            None,
             3,
             RotationStatus::Active,
             3,
@@ -421,7 +396,6 @@ mod tests {
             generation: 3,
             wrapped_tenant_root_dek: String::new(),
             signed_manifest: STANDARD.encode(signed.encode().unwrap()),
-            list_deks: Vec::new(),
             migrating_generations: Vec::new(),
         };
         verify_organization_active_bundle(

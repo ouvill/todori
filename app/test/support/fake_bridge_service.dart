@@ -697,7 +697,6 @@ class FakeBridgeService implements BridgeService {
       name: name,
       color: list.color,
       icon: list.icon,
-      orgId: list.orgId,
       sortOrder: list.sortOrder,
       isDefault: list.isDefault,
       archivedAt: list.archivedAt,
@@ -1284,18 +1283,15 @@ class FakeBridgeService implements BridgeService {
     if (list.isDefault) {
       throw Exception('default list cannot be deleted');
     }
-    final taskIds = _tasks
-        .where((task) => task.listId == listId)
-        .map((task) => task.id)
-        .toSet();
-    _tasks.removeWhere((task) => task.listId == listId);
-    _reminders.removeWhere((reminder) => taskIds.contains(reminder.taskId));
-    _undoEntries.removeWhere((entry) => taskIds.contains(entry.taskId));
-    _completedTimerSessions.removeWhere(
-      (session) => taskIds.contains(session.taskId),
-    );
-    if (taskIds.contains(_activeTimerSession?.taskId)) {
-      _activeTimerSession = null;
+    final defaultList = _lists.singleWhere((candidate) => candidate.isDefault);
+    for (var index = 0; index < _tasks.length; index++) {
+      final task = _tasks[index];
+      if (task.listId == listId) {
+        _tasks[index] = task._copyWith(
+          listId: defaultList.id,
+          updatedAt: task.updatedAt + _fakeMinuteMs,
+        );
+      }
     }
     _lists.removeWhere((candidate) => candidate.id == listId);
   }
@@ -1706,6 +1702,7 @@ class FakeReorderCall {
 
 extension _TaskDtoCopy on TaskDto {
   TaskDto _copyWith({
+    String? listId,
     String? title,
     String? note,
     String? status,
@@ -1722,7 +1719,7 @@ extension _TaskDtoCopy on TaskDto {
   }) {
     return TaskDto(
       id: id,
-      listId: listId,
+      listId: listId ?? this.listId,
       parentTaskId: parentTaskId,
       title: title ?? this.title,
       note: note ?? this.note,
@@ -1819,7 +1816,6 @@ ListDto _copyList(
     name: name ?? list.name,
     color: list.color,
     icon: list.icon,
-    orgId: list.orgId,
     sortOrder: list.sortOrder,
     isDefault: list.isDefault,
     archivedAt: clearArchivedAt ? null : archivedAt ?? list.archivedAt,

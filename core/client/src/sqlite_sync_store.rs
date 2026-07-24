@@ -4,18 +4,18 @@ use taskveil_domain::{CompletedTimerSession, List, RecurrenceSchedule, Task, Tas
 use taskveil_storage::{
     open_encrypted, FullResyncPhase, FullResyncProgress, FullResyncStableCursor,
     FullResyncSweepSummary, ListRepository, NewSyncOutboxEntry, OwnedSqliteWriteTx,
-    PendingListKeyBundle, RecurrenceRepository, SettingsRepository, SqliteListRepository,
-    SqliteRecurrenceRepository, SqliteSettingsRepository, SqliteSyncStateRepository,
-    SqliteTaskRepository, SqliteTimerSessionRepository, StorageError, SyncOutboxState,
-    SyncQuarantineEntry, SyncRecordSemanticState, SyncRecordState, SyncStateRepository,
-    TaskRepository, TimerSessionRepository,
+    RecurrenceRepository, SettingsRepository, SqliteListRepository, SqliteRecurrenceRepository,
+    SqliteSettingsRepository, SqliteSyncStateRepository, SqliteTaskRepository,
+    SqliteTimerSessionRepository, StorageError, SyncOutboxState, SyncQuarantineEntry,
+    SyncRecordSemanticState, SyncRecordState, SyncStateRepository, TaskRepository,
+    TimerSessionRepository,
 };
 use taskveil_sync::{
     enqueue::{LocalFullResyncPhase, LocalFullResyncProgress, LocalFullResyncSweepSummary},
-    EncryptedSyncState, LocalListAlias, LocalMutationSyncStore, LocalPendingListKeyBundle,
-    LocalSyncAtomicStore, LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState,
-    LocalSyncSemanticState, LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry,
-    PullFailureReason, StableCursor, SyncCollection,
+    EncryptedSyncState, LocalListAlias, LocalMutationSyncStore, LocalSyncAtomicStore,
+    LocalSyncOutboxEntry, LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState,
+    LocalSyncStore, LocalSyncWriteTransaction, NewLocalSyncOutboxEntry, PullFailureReason,
+    StableCursor, SyncCollection,
 };
 use zeroize::Zeroizing;
 
@@ -140,32 +140,6 @@ impl LocalSyncStore for SqliteSyncStore {
             repository
                 .load_full_resync()
                 .map(|progress| progress.map(storage_resync_to_local))
-                .map_err(|error| error.to_string())
-        })
-    }
-
-    fn list_pending_list_key_bundles(
-        &mut self,
-        tenant_id: Uuid,
-        limit: usize,
-    ) -> Result<Vec<LocalPendingListKeyBundle>, String> {
-        with_sync_repository(&self.db_path, &self.db_key, |repository| {
-            repository
-                .list_pending_list_key_bundles(tenant_id, limit)
-                .map_err(|error| error.to_string())
-        })
-        .map(|entries| entries.into_iter().map(storage_pending_to_local).collect())
-    }
-
-    fn ack_pending_list_key_bundle(
-        &mut self,
-        tenant_id: Uuid,
-        list_id: Uuid,
-        wrapped_list_dek: &[u8],
-    ) -> Result<bool, String> {
-        with_sync_repository(&self.db_path, &self.db_key, |repository| {
-            repository
-                .ack_pending_list_key_bundle(tenant_id, list_id, wrapped_list_dek)
                 .map_err(|error| error.to_string())
         })
     }
@@ -388,10 +362,10 @@ impl LocalSyncStore for SqliteSyncStore {
         })
     }
 
-    fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
+    fn delete_list_and_rehome_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
         with_list_repository(&self.db_path, &self.db_key, |repository| {
             repository
-                .delete_with_tasks_for_sync(list_id)
+                .delete_and_rehome_tasks_for_sync(list_id)
                 .map_err(|error| error.to_string())
         })
     }
@@ -629,17 +603,6 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
-    fn ack_pending_list_key_bundle(
-        &mut self,
-        tenant_id: Uuid,
-        list_id: Uuid,
-        wrapped_list_dek: &[u8],
-    ) -> Result<bool, String> {
-        self.transaction
-            .ack_pending_list_key_bundle(tenant_id, list_id, wrapped_list_dek)
-            .map_err(|error| error.to_string())
-    }
-
     fn list_outbox_heads(&mut self, limit: usize) -> Result<Vec<LocalSyncOutboxEntry>, String> {
         self.transaction
             .list_outbox_heads(limit)
@@ -784,9 +747,9 @@ impl LocalSyncStore for SqliteSyncWriteTx {
             .map_err(|error| error.to_string())
     }
 
-    fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
+    fn delete_list_and_rehome_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
         self.transaction
-            .delete_list_with_tasks_for_sync(list_id)
+            .delete_list_and_rehome_tasks_for_sync(list_id)
             .map_err(|error| error.to_string())
     }
 
@@ -1071,17 +1034,6 @@ fn local_outbox_to_storage(entry: NewLocalSyncOutboxEntry) -> NewSyncOutboxEntry
     }
 }
 
-fn storage_pending_to_local(entry: PendingListKeyBundle) -> LocalPendingListKeyBundle {
-    LocalPendingListKeyBundle {
-        tenant_id: entry.tenant_id,
-        list_id: entry.list_id,
-        generation: entry.generation,
-        wrapped_list_dek: entry.wrapped_list_dek,
-        signed_manifest: entry.signed_manifest,
-        created_at: entry.created_at,
-    }
-}
-
 fn storage_outbox_to_local(
     entry: taskveil_storage::SyncOutboxEntry,
 ) -> Result<LocalSyncOutboxEntry, String> {
@@ -1302,8 +1254,8 @@ mod tests {
     use super::*;
     use taskveil_domain::{new_list, new_task};
     use taskveil_storage::{
-        ListRepository, LocalCryptoRepository, LocalListKeyBundle, LocalProfileBinding,
-        LocalTenantRootKeyBundle, PendingListKeyBundle, SqliteLocalCryptoRepository, SqliteWriteTx,
+        ListRepository, LocalCryptoRepository, LocalProfileBinding, LocalTenantRootKeyBundle,
+        SqliteLocalCryptoRepository,
     };
     use taskveil_sync::{enqueue_backfill, LocalSyncKeys, SYNC_CURSOR_NAME};
     use tempfile::tempdir;
@@ -1414,7 +1366,7 @@ mod tests {
         let mut crypto =
             SqliteLocalCryptoRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
         crypto
-            .bind_and_replace_bundles(
+            .bind_tenant_root(
                 LocalProfileBinding {
                     tenant_id,
                     user_id: Uuid::now_v7(),
@@ -1428,39 +1380,16 @@ mod tests {
                     wrapped_tenant_root_dek: vec![2],
                     updated_at: 1,
                 },
-                &[LocalListKeyBundle {
-                    tenant_id,
-                    list_id: list.id,
-                    generation: 1,
-                    wrapped_list_dek: vec![1],
-                    updated_at: 1,
-                }],
             )
             .unwrap();
-        let mut connection = open_encrypted(&db_path, &DB_KEY).unwrap();
-        let mut key_transaction = SqliteWriteTx::begin(&mut connection).unwrap();
-        key_transaction
-            .put_pending_list_key_bundle(PendingListKeyBundle {
-                tenant_id,
-                list_id: list.id,
-                generation: 1,
-                wrapped_list_dek: vec![1],
-                signed_manifest: vec![0; 124],
-                created_at: 1,
-            })
-            .unwrap();
-        key_transaction.commit().unwrap();
         let mut repository = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
         repository.insert(list.clone()).unwrap();
         drop(repository);
 
         let keys = LocalSyncKeys {
             tenant_id,
-            list_deks: vec![(list.id, [0x33; 32].into())],
-            list_generations: vec![(list.id, 1)],
-            tenant_root_dek: None,
+            tenant_root_dek: Some([0x33; 32].into()),
             tenant_generation: 1,
-            historical_list_deks: Vec::new(),
             historical_tenant_root_deks: Vec::new(),
         };
         let mut store = SqliteSyncStore::new(db_path.clone(), DB_KEY);

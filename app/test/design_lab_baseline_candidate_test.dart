@@ -23,9 +23,7 @@ void main() {
   test(
     'shared fixture covers production planning and template semantics',
     () async {
-      final fixture = await createDesignLabFixture(
-        referenceTime: DateTime(2026, 7, 19, 12),
-      );
+      final fixture = await createDesignLabFixture();
       final lists = await fixture.fake.getLists();
       final tasks = await fixture.fake.getTasks(listId: fixture.homeListId);
       final templates = await fixture.fake.getTemplates();

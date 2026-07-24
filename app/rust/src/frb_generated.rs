@@ -2808,7 +2808,6 @@ impl SseDecode for crate::api::ListDto {
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_color = <String>::sse_decode(deserializer);
         let mut var_icon = <String>::sse_decode(deserializer);
-        let mut var_orgId = <Option<String>>::sse_decode(deserializer);
         let mut var_sortOrder = <String>::sse_decode(deserializer);
         let mut var_isDefault = <bool>::sse_decode(deserializer);
         let mut var_archivedAt = <Option<i64>>::sse_decode(deserializer);
@@ -2819,7 +2818,6 @@ impl SseDecode for crate::api::ListDto {
             name: var_name,
             color: var_color,
             icon: var_icon,
-            org_id: var_orgId,
             sort_order: var_sortOrder,
             is_default: var_isDefault,
             archived_at: var_archivedAt,
@@ -3794,7 +3792,6 @@ impl flutter_rust_bridge::IntoDart for crate::api::ListDto {
             self.name.into_into_dart().into_dart(),
             self.color.into_into_dart().into_dart(),
             self.icon.into_into_dart().into_dart(),
-            self.org_id.into_into_dart().into_dart(),
             self.sort_order.into_into_dart().into_dart(),
             self.is_default.into_into_dart().into_dart(),
             self.archived_at.into_into_dart().into_dart(),
@@ -4413,7 +4410,6 @@ impl SseEncode for crate::api::ListDto {
         <String>::sse_encode(self.name, serializer);
         <String>::sse_encode(self.color, serializer);
         <String>::sse_encode(self.icon, serializer);
-        <Option<String>>::sse_encode(self.org_id, serializer);
         <String>::sse_encode(self.sort_order, serializer);
         <bool>::sse_encode(self.is_default, serializer);
         <Option<i64>>::sse_encode(self.archived_at, serializer);

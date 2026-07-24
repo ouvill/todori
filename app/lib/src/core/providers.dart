@@ -888,15 +888,11 @@ class ListsNotifier extends AsyncNotifier<List<ListDto>> {
     return ref.read(bridgeServiceProvider).countTasksInList(listId: listId);
   }
 
-  /// Permanently deletes `listId` and refreshes list collections.
+  /// Deletes `listId`, rehomes its tasks, and refreshes list collections.
   Future<void> deleteList(String listId) async {
     final bridge = ref.read(bridgeServiceProvider);
-    final reminders = await bridge.getListReminders(listId: listId);
     await bridge.deleteList(listId: listId);
     ref.read(syncStatusProvider.notifier).triggerRealtimeSync();
-    await ref
-        .read(reminderNotificationServiceProvider)
-        .cancelReminders(reminders);
     ref.invalidateSelf();
     ref.invalidate(archivedListsProvider);
     ref.invalidate(calendarOccurrencesProvider);

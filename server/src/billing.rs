@@ -635,8 +635,7 @@ pub async fn require_sync_entitlement(
         .ok_or_else(AppError::unauthorized)?;
     let kind: String = tenant.try_get("kind").map_err(|_| AppError::internal())?;
     if kind != "personal" {
-        tx.commit().await?;
-        return Ok(());
+        return Err(AppError::forbidden());
     }
     let owner: Uuid = tenant
         .try_get("owner_user_id")

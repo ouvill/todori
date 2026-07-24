@@ -71,6 +71,10 @@ void main() {
     'every list and task sync mutation reaches the common debounce',
     () async {
       final fake = FakeBridgeService();
+      final inbox = await fake.createDefaultList(
+        name: 'Inbox',
+        sortOrder: 'a0',
+      );
       final timers = FakeRealtimeTimers();
       final container = ProviderContainer(
         overrides: [
@@ -97,13 +101,17 @@ void main() {
       await expectDebouncedSync(
         () => container.read(listsProvider.notifier).createList('Realtime'),
       );
-      var list = (await container.read(listsProvider.future)).single;
+      var list = (await container.read(
+        listsProvider.future,
+      )).singleWhere((candidate) => !candidate.isDefault);
       await expectDebouncedSync(
         () => container
             .read(listsProvider.notifier)
             .renameList(list.id, 'Renamed'),
       );
-      list = (await container.read(listsProvider.future)).single;
+      list = (await container.read(
+        listsProvider.future,
+      )).singleWhere((candidate) => !candidate.isDefault);
       await expectDebouncedSync(
         () => container.read(listsProvider.notifier).archiveList(list.id),
       );
@@ -149,6 +157,7 @@ void main() {
       await expectDebouncedSync(
         () => container.read(listsProvider.notifier).deleteList(list.id),
       );
+      expect((await fake.getTasks(listId: inbox.id)).single.id, first.id);
     },
   );
 }

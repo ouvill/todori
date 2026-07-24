@@ -70,13 +70,6 @@ CREATE POLICY tenant_key_generations_isolation ON tenant_key_generations
     USING (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID)
     WITH CHECK (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID);
 
-ALTER TABLE list_key_generations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE list_key_generations FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS list_key_generations_isolation ON list_key_generations;
-CREATE POLICY list_key_generations_isolation ON list_key_generations
-    USING (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID)
-    WITH CHECK (tenant_id = NULLIF(current_setting('taskveil.tenant_id', true), '')::UUID);
-
 ALTER TABLE key_recipients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE key_recipients FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS key_recipients_isolation ON key_recipients;

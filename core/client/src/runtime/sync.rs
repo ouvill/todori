@@ -154,59 +154,7 @@ impl TaskveilClient {
                 break;
             }
         }
-        self.retire_safe_list_deks(&context).await?;
         Ok(summary)
-    }
-
-    async fn retire_safe_list_deks(&self, context: &ActiveSyncContext) -> Result<(), ClientError> {
-        let candidates =
-            super::account::retained_deleted_list_key_ids_on(&self.db_path, &self.db_key())?;
-        if candidates.is_empty() {
-            return Ok(());
-        }
-        let client =
-            AccountClient::new(context.server_url.clone()).map_err(|_| ClientError::SyncRun)?;
-        let mut retired = Vec::new();
-        for list_id in candidates {
-            if client
-                .retire_list_key_bundle(context.tenant_id, list_id, &context.session_token)
-                .await
-                .map_err(|_| ClientError::SyncRun)?
-            {
-                retired.push(list_id);
-            }
-        }
-        if retired.is_empty() {
-            return Ok(());
-        }
-
-        let (identity, master_key, mut keys) = {
-            let account = self.account_state()?;
-            let CryptoRuntimeState::Ready(crypto) = &account.crypto else {
-                return Err(ClientError::AccountBoundUnavailable);
-            };
-            (
-                crate::LocalCryptoIdentity {
-                    tenant_id: crypto.tenant_id(),
-                    user_id: crypto.user_id(),
-                    device_id: crypto.device_id(),
-                },
-                *crypto.master_key(),
-                crypto.sync_keys().clone(),
-            )
-        };
-        keys.list_deks
-            .retain(|(list_id, _)| !retired.contains(list_id));
-        let crypto = crate::persist_local_crypto_context(
-            &self.db_path,
-            &self.db_key(),
-            identity,
-            &master_key,
-            keys,
-            now_ms()?,
-        )?;
-        self.account_state()?.crypto = CryptoRuntimeState::Ready(Box::new(crypto));
-        Ok(())
     }
 
     fn run_initial_backfill_if_needed(
@@ -233,14 +181,6 @@ impl TaskveilClient {
         let context = self
             .active_sync_context()
             .ok_or(ClientError::AccountRequest)?;
-        if lists
-            .iter()
-            .any(|list| !context.keys.contains_list(list.id))
-        {
-            // Ready local crypto must cover every local list. Never perform
-            // network key creation from the synchronous pre-push hook.
-            return Err(ClientError::AccountBoundUnavailable);
-        }
         let mut clock = || now_ms().map_err(|error| error.to_string());
         let mut transaction = store
             .begin_write_transaction()
@@ -339,7 +279,7 @@ impl SyncKeyRefresher for ProductionKeyRefresher<'_> {
     ) -> Pin<Box<dyn Future<Output = Result<LocalSyncKeys, String>> + Send + 'a>> {
         Box::pin(async move {
             self.client
-                .refresh_list_deks_for_sync()
+                .refresh_tenant_keys_for_sync()
                 .await
                 .map_err(|error| error.to_string())
         })

@@ -1,13 +1,17 @@
-//! Strict encrypted sync envelope v4.
+//! Strict Tenant-scoped encrypted sync envelope v5.
 
-use taskveil_crypto::{decrypt, encrypt, CryptoError, CRYPTO_SUITE_ID};
+use taskveil_crypto::{
+    decrypt, encrypt,
+    key_hierarchy::{derive_record_key, KeyHierarchyError},
+    CryptoError, CRYPTO_SUITE_ID,
+};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::field_map::SyncPlaintext;
 
-pub const ENVELOPE_VERSION: u8 = 4;
-pub const ENVELOPE_MAGIC: &[u8; 4] = b"TDE4";
+pub const ENVELOPE_VERSION: u8 = 5;
+pub const ENVELOPE_MAGIC: &[u8; 4] = b"TDE5";
 pub const ENVELOPE_HEADER_LEN: usize = 4 + 2 + 8;
 pub const ENVELOPE_MIN_LEN: usize = ENVELOPE_HEADER_LEN + 24 + 16;
 pub const MAX_ENCRYPTED_BLOB_LEN: usize = 64 * 1024;
@@ -40,6 +44,14 @@ pub enum EnvelopeError {
     Deserialization,
     #[error("crypto error: {0}")]
     Crypto(#[from] CryptoError),
+    #[error("record key derivation failed")]
+    KeyDerivation,
+}
+
+impl From<KeyHierarchyError> for EnvelopeError {
+    fn from(_: KeyHierarchyError) -> Self {
+        Self::KeyDerivation
+    }
 }
 
 pub fn parse_envelope_header(blob: &[u8]) -> Result<EnvelopeHeader, EnvelopeError> {
@@ -71,7 +83,7 @@ pub fn parse_envelope_header(blob: &[u8]) -> Result<EnvelopeHeader, EnvelopeErro
 }
 
 pub fn encrypt_plaintext(
-    dek: &[u8; 32],
+    tenant_key: &[u8; 32],
     tenant_id: Uuid,
     key_generation: u64,
     collection: &str,
@@ -89,7 +101,9 @@ pub fn encrypt_plaintext(
         .map_err(|_| EnvelopeError::Serialization)?;
     let aad = aad(tenant_id, key_generation, collection, record_id)?;
     let plaintext_json = serde_json::to_vec(plaintext).map_err(|_| EnvelopeError::Serialization)?;
-    let inner = encrypt(dek, &plaintext_json, &aad)?;
+    let record_key =
+        derive_record_key(tenant_key, tenant_id, key_generation, collection, record_id)?;
+    let inner = encrypt(&record_key, &plaintext_json, &aad)?;
     let mut out = Vec::with_capacity(ENVELOPE_HEADER_LEN + inner.len());
     out.extend_from_slice(ENVELOPE_MAGIC);
     out.extend_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
@@ -102,7 +116,7 @@ pub fn encrypt_plaintext(
 }
 
 pub fn decrypt_plaintext(
-    dek: &[u8; 32],
+    tenant_key: &[u8; 32],
     tenant_id: Uuid,
     expected_generation: u64,
     collection: &str,
@@ -117,7 +131,14 @@ pub fn decrypt_plaintext(
         return Err(EnvelopeError::InvalidGeneration);
     }
     let aad = aad(tenant_id, header.key_generation, collection, record_id)?;
-    let plaintext_json = decrypt(dek, &blob[ENVELOPE_HEADER_LEN..], &aad)?;
+    let record_key = derive_record_key(
+        tenant_key,
+        tenant_id,
+        header.key_generation,
+        collection,
+        record_id,
+    )?;
+    let plaintext_json = decrypt(&record_key, &blob[ENVELOPE_HEADER_LEN..], &aad)?;
     let plaintext: SyncPlaintext =
         serde_json::from_slice(&plaintext_json).map_err(|_| EnvelopeError::Deserialization)?;
     plaintext
@@ -135,7 +156,7 @@ fn aad(
     let collection_len =
         u16::try_from(collection.len()).map_err(|_| EnvelopeError::CollectionTooLong)?;
     let mut aad = Vec::with_capacity(4 + 2 + 8 + 16 + 2 + collection.len() + 16);
-    aad.extend_from_slice(b"TDA4");
+    aad.extend_from_slice(b"TDA5");
     aad.extend_from_slice(&CRYPTO_SUITE_ID.to_be_bytes());
     aad.extend_from_slice(&generation.to_be_bytes());
     aad.extend_from_slice(tenant_id.as_bytes());
@@ -194,11 +215,11 @@ mod tests {
     }
 
     #[test]
-    fn envelope_v4_roundtrips_and_has_canonical_header() {
+    fn envelope_v5_roundtrips_and_has_canonical_header() {
         let blob = envelope();
         let header = parse_envelope_header(&blob).unwrap();
 
-        assert_eq!(&blob[..4], b"TDE4");
+        assert_eq!(&blob[..4], b"TDE5");
         assert_eq!(&blob[4..6], &CRYPTO_SUITE_ID.to_be_bytes());
         assert_eq!(&blob[6..14], &GENERATION.to_be_bytes());
         assert_eq!(header.key_generation, GENERATION);

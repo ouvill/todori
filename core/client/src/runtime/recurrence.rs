@@ -196,7 +196,6 @@ impl TaskveilClient {
         for task in &tasks {
             transaction.insert_task(task.clone())?;
             if let Some(sync) = sync_context(&state) {
-                ensure_list_key(sync, list_id)?;
                 enqueue_task_in_transaction(&mut transaction, sync, task, false, now)?;
             }
         }
@@ -431,9 +430,6 @@ impl TaskveilClient {
             }
             let template = transaction.get_template(schedule.template_id)?;
             let list_id = resolve_target_list(&transaction, template.default_list_id)?;
-            if let Some(sync) = sync_context(state) {
-                ensure_list_key(sync, list_id)?;
-            }
             while remaining > 0 {
                 let ScheduleCursor::Pending(occurrence_at) = schedule.cursor else {
                     break;
@@ -535,14 +531,6 @@ fn reserve_revision(
         .map(|sync| sync.device_id.as_str())
         .unwrap_or("anonymous-local");
     next_revision_in_transaction(transaction, device_id, now)
-}
-
-fn ensure_list_key(sync: &LocalMutationContext, list_id: Uuid) -> Result<(), ClientError> {
-    if sync.keys.contains_list(list_id) {
-        Ok(())
-    } else {
-        Err(ClientError::MissingListKey(list_id))
-    }
 }
 
 fn first_cursor(

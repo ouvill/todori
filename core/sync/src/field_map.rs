@@ -28,7 +28,6 @@ pub const LIST_FIELD_GROUPS: &[&str] = &[
     "name",
     "color",
     "icon",
-    "org_id",
     "is_default",
     "archived_at",
     "created_at",
@@ -178,7 +177,6 @@ pub struct ListPlaintext {
     pub name: Clocked<String>,
     pub color: Clocked<String>,
     pub icon: Clocked<String>,
-    pub org_id: Clocked<Option<Uuid>>,
     pub is_default: Clocked<bool>,
     pub archived_at: Clocked<Option<i64>>,
     pub created_at: Clocked<i64>,
@@ -297,7 +295,6 @@ impl SyncPlaintext {
                     &list.name.hlc,
                     &list.color.hlc,
                     &list.icon.hlc,
-                    &list.org_id.hlc,
                     &list.is_default.hlc,
                     &list.archived_at.hlc,
                     &list.created_at.hlc,
@@ -340,7 +337,6 @@ impl SyncPlaintext {
                 &value.name.hlc,
                 &value.color.hlc,
                 &value.icon.hlc,
-                &value.org_id.hlc,
                 &value.is_default.hlc,
                 &value.archived_at.hlc,
                 &value.created_at.hlc,
@@ -459,7 +455,6 @@ impl SyncPlaintext {
             name: Clocked::new(list.name.clone(), hlc.clone()),
             color: Clocked::new(list.color.clone(), hlc.clone()),
             icon: Clocked::new(list.icon.clone(), hlc.clone()),
-            org_id: Clocked::new(list.org_id, hlc.clone()),
             is_default: Clocked::new(list.is_default, hlc.clone()),
             archived_at: Clocked::new(list.archived_at, hlc.clone()),
             created_at: Clocked::new(list.created_at, hlc.clone()),
@@ -519,7 +514,6 @@ impl SyncPlaintext {
         retain_unchanged(&mut next.name, &previous.name);
         retain_unchanged(&mut next.color, &previous.color);
         retain_unchanged(&mut next.icon, &previous.icon);
-        retain_unchanged(&mut next.org_id, &previous.org_id);
         retain_unchanged(&mut next.is_default, &previous.is_default);
         retain_unchanged(&mut next.archived_at, &previous.archived_at);
         retain_unchanged(&mut next.created_at, &previous.created_at);

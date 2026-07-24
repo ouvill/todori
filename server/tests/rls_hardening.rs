@@ -105,19 +105,6 @@ impl Fixture {
             .execute(&admin_pool)
             .await
             .unwrap();
-            query::<Postgres>(
-                "INSERT INTO list_key_generations
-                    (tenant_id, list_id, suite_id, generation, status,
-                     minimum_write_generation, signed_manifest, wrapped_list_dek)
-                 VALUES ($1, $2, 2, 1, 'active', 1, $3, $4)",
-            )
-            .bind(tenant_id)
-            .bind(Uuid::now_v7())
-            .bind(vec![0_u8; 124])
-            .bind(vec![seq as u8])
-            .execute(&admin_pool)
-            .await
-            .unwrap();
             let record_id = Uuid::now_v7();
             query::<Postgres>(
                 "INSERT INTO sync_records
@@ -242,7 +229,6 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
         "tenant_seq",
         "user_key_generations",
         "tenant_key_generations",
-        "list_key_generations",
         "key_recipients",
         "key_generation_acks",
         "sync_records",
@@ -254,7 +240,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
     .fetch_all(&fixture.admin_pool)
     .await
     .unwrap();
-    assert_eq!(protected_tables.len(), 13);
+    assert_eq!(protected_tables.len(), 12);
     assert!(protected_tables.iter().all(|row| {
         row.try_get::<bool, _>("relrowsecurity").unwrap()
             && row.try_get::<bool, _>("relforcerowsecurity").unwrap()
@@ -313,10 +299,6 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
             "tenant_key_generations",
             "SELECT count(*) AS count FROM tenant_key_generations",
         ),
-        (
-            "list_key_generations",
-            "SELECT count(*) AS count FROM list_key_generations",
-        ),
         ("sync_records", "SELECT count(*) AS count FROM sync_records"),
         (
             "sync_records_history",
@@ -338,7 +320,7 @@ async fn application_role_and_rls_policies_fail_closed_and_isolate_tenants() {
             .await
             .unwrap();
     assert_eq!(wrong_update.rows_affected(), 0);
-    let wrong_delete = query::<Postgres>("DELETE FROM list_key_generations WHERE tenant_id = $1")
+    let wrong_delete = query::<Postgres>("DELETE FROM tenant_key_generations WHERE tenant_id = $1")
         .bind(fixture.tenant_b)
         .execute(&mut *tx)
         .await

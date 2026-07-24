@@ -916,27 +916,24 @@ impl TaskveilClient {
             }
             .into());
         }
-        let tasks = transaction.list_tasks_by_list(list_id)?;
-        let mut sessions = Vec::new();
-        for task in &tasks {
-            sessions.extend(transaction.list_timer_sessions_by_task(task.id)?);
+        let default_list_id = transaction.default_list_id()?.ok_or_else(|| {
+            ClientError::Storage(StorageError::IncompatibleSchema(
+                "Tenant must have a default Inbox before deleting a List".to_string(),
+            ))
+        })?;
+        let mut tasks = transaction.list_tasks_by_list(list_id)?;
+        for task in &mut tasks {
+            task.list_id = default_list_id;
+            task.updated_at = now;
+            transaction.update_task(task.clone())?;
         }
         if let Some(sync) = sync.as_ref() {
-            for session in &sessions {
-                enqueue_timer_session_in_transaction(&mut transaction, sync, session, true, now)?;
-            }
             for task in &tasks {
-                enqueue_task_in_transaction(&mut transaction, sync, task, true, now)?;
+                enqueue_task_in_transaction(&mut transaction, sync, task, false, now)?;
             }
             enqueue_list_in_transaction(&mut transaction, sync, &list, true, now)?;
         }
-        for session in sessions {
-            transaction.delete_timer_session(session.id)?;
-        }
-        for task in &tasks {
-            transaction.clear_active_timer_for_task(task.id)?;
-        }
-        transaction.delete_list_with_tasks(list_id)?;
+        transaction.delete_list_and_rehome_tasks(list_id)?;
         transaction.commit()?;
         Ok(())
     }
@@ -1091,9 +1088,12 @@ mod tests {
         let db_path = temp.path().join("deleted-list-read.sqlite3");
         let list = new_list("Removed".into(), "a0".into(), BASE_MS).unwrap();
         let list_id = list.id;
+        let mut default_list = new_list("Inbox".into(), "a1".into(), BASE_MS).unwrap();
+        default_list.is_default = true;
         let mut lists = SqliteListRepository::new(open_encrypted(&db_path, &DB_KEY).unwrap());
         lists.insert(list).unwrap();
-        lists.delete_with_tasks(list_id).unwrap();
+        lists.insert(default_list).unwrap();
+        lists.delete_and_rehome_tasks(list_id).unwrap();
         drop(lists);
         let client = TaskveilClient {
             db_dir: temp.path().to_path_buf(),
@@ -1279,11 +1279,8 @@ mod tests {
             &[0x44; 32],
             LocalSyncKeys {
                 tenant_id: Uuid::from_u128(100),
-                list_deks: vec![(list.id, [0x55; 32].into())],
-                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
@@ -1399,11 +1396,8 @@ mod tests {
             &[0x44; 32],
             LocalSyncKeys {
                 tenant_id: Uuid::from_u128(100),
-                list_deks: vec![(list.id, [0x55; 32].into())],
-                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
@@ -1610,11 +1604,8 @@ mod tests {
             &[0x44; 32],
             LocalSyncKeys {
                 tenant_id: Uuid::from_u128(100),
-                list_deks: vec![(ready_list.id, [0x55; 32].into())],
-                list_generations: vec![(ready_list.id, 1)],
                 tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             BASE_MS,
@@ -1712,11 +1703,8 @@ mod tests {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
                 tenant_id: Uuid::from_u128(100),
-                list_deks: vec![(list.id, [0x55; 32].into())],
-                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: None,
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
         };
@@ -1771,11 +1759,8 @@ mod tests {
             device_id: "device-a".into(),
             keys: LocalSyncKeys {
                 tenant_id: Uuid::from_u128(100),
-                list_deks: vec![(list.id, [0x55; 32].into())],
-                list_generations: vec![(list.id, 1)],
                 tenant_root_dek: None,
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
         };

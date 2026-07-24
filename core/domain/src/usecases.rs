@@ -291,7 +291,6 @@ fn new_list_with_default(
         name,
         color: "#4F8EF7".to_string(),
         icon: "list".to_string(),
-        org_id: None,
         sort_order,
         is_default,
         archived_at: None,
@@ -918,7 +917,6 @@ mod tests {
         assert_eq!(list.name, "Inbox");
         assert_eq!(list.color, "#4F8EF7");
         assert_eq!(list.icon, "list");
-        assert_eq!(list.org_id, None);
         assert_eq!(list.sort_order, "a0");
         assert!(!list.is_default);
         assert_eq!(list.archived_at, None);

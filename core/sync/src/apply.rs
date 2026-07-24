@@ -8,11 +8,10 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use taskveil_domain::{List, RecurrenceSchedule, Task, TaskTemplate, Uuid};
 
 use crate::{
-    account::{AccountClient, ListDekBundleDto},
-    decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc, PullRecord, PushOp,
-    PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext, SyncRunSummary,
-    LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME, SYNC_UPGRADE_REQUIRED_SETTING_KEY,
-    TASKS_COLLECTION, TEMPLATES_COLLECTION,
+    account::AccountClient, decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc,
+    PullRecord, PushOp, PushStatus, SyncCollection, SyncEngine, SyncEngineError, SyncPlaintext,
+    SyncRunSummary, LISTS_COLLECTION, SCHEDULES_COLLECTION, SYNC_CURSOR_NAME,
+    SYNC_UPGRADE_REQUIRED_SETTING_KEY, TASKS_COLLECTION, TEMPLATES_COLLECTION,
 };
 
 use crate::enqueue::{
@@ -22,12 +21,11 @@ use crate::enqueue::{
     LocalSyncQuarantineEntry, LocalSyncRecordState, LocalSyncSemanticState, LocalSyncStore,
     LocalSyncWriteTransaction, PullFailureReason, RebasePlaintextRequest, RebaseTombstoneRequest,
 };
-use crate::keys::{dek_for_list, tenant_root_dek, LocalSyncKeys};
+use crate::keys::{tenant_root_dek, LocalSyncKeys};
 
 const PUSH_BATCH_LIMIT: usize = 100;
 const MAX_PUSH_DRAIN_ITERATIONS: usize = 100;
 const QUARANTINE_REPLAY_BATCH_LIMIT: usize = 100;
-const KEY_BUNDLE_UPLOAD_BATCH_LIMIT: usize = 100;
 const FULL_RESYNC_PAGE_LIMIT: i64 = 100;
 const FULL_RESYNC_SWEEP_BATCH_LIMIT: usize = 100;
 
@@ -42,7 +40,7 @@ enum ApplyDisposition {
 enum TaskDependencyDisposition {
     Valid,
     Missing,
-    Deleted(String),
+    Deleted,
 }
 
 pub trait SyncKeyRefresher {
@@ -225,40 +223,6 @@ where
     // readers only after every known task has moved and been re-encrypted.
     reconcile_canonical_inbox(&context, store, now_ms)?;
 
-    loop {
-        let pending = store
-            .list_pending_list_key_bundles(context.tenant_id, KEY_BUNDLE_UPLOAD_BATCH_LIMIT)?;
-        if pending.is_empty() {
-            break;
-        }
-        let client = AccountClient::new(context.server_url.clone())
-            .map_err(|_| "sync failed".to_string())?;
-        for bundle in pending {
-            client
-                .upsert_list_key_bundle(
-                    context.tenant_id,
-                    &context.session_token,
-                    ListDekBundleDto {
-                        list_id: bundle.list_id,
-                        generation: bundle.generation,
-                        wrapped_list_dek: STANDARD.encode(&bundle.wrapped_list_dek),
-                        signed_manifest: STANDARD.encode(&bundle.signed_manifest),
-                    },
-                )
-                .await
-                .map_err(|_| "sync failed".to_string())?;
-            let mut transaction = store.begin_write_transaction()?;
-            if !transaction.ack_pending_list_key_bundle(
-                bundle.tenant_id,
-                bundle.list_id,
-                &bundle.wrapped_list_dek,
-            )? {
-                return Err("sync failed".to_string());
-            }
-            transaction.commit()?;
-        }
-    }
-
     for _ in 0..MAX_PUSH_DRAIN_ITERATIONS {
         let outbox = store.list_outbox_heads(PUSH_BATCH_LIMIT)?;
         if outbox.is_empty() {
@@ -387,36 +351,17 @@ where
     }
     let tenant_manifest = preflight
         .key_manifests
-        .iter()
-        .find(|manifest| manifest.scope == crate::KeyScope::Tenant && manifest.list_id.is_none())
+        .first()
         .ok_or_else(|| "authenticated key manifest required".to_string())?;
     let tenant = verify_preflight_manifest(tenant_manifest, context)?;
     verify_manifest_anchor(tenant_manifest, &tenant, context, store)?;
     if tenant_manifest.generation != context.keys.tenant_generation {
         return Err("active key generation required".to_string());
     }
-    let mut accepted = vec![(
-        manifest_anchor_key(crate::KeyScope::Tenant, None),
+    let accepted = vec![(
+        manifest_anchor_key(),
         tenant_manifest.signed_manifest.clone(),
     )];
-    for (list_id, _) in &context.keys.list_deks {
-        let manifest = preflight.key_manifests.iter().find(|manifest| {
-            manifest.scope == crate::KeyScope::List && manifest.list_id == Some(*list_id)
-        });
-        if let Some(manifest) = manifest {
-            let verified = verify_preflight_manifest(manifest, context)?;
-            verify_manifest_anchor(manifest, &verified, context, store)?;
-            if context.keys.generation_for_list(*list_id) != Some(manifest.generation)
-                || manifest.generation < manifest.minimum_write_generation
-            {
-                return Err("active key generation required".to_string());
-            }
-            accepted.push((
-                manifest_anchor_key(crate::KeyScope::List, Some(*list_id)),
-                manifest.signed_manifest.clone(),
-            ));
-        }
-    }
     let updated_at = now_ms()?;
     for (key, value) in accepted {
         store.set_setting(&key, &value, updated_at)?;
@@ -433,9 +378,7 @@ fn verify_preflight_manifest(
         .map_err(|_| "authenticated key manifest required".to_string())?;
     let manifest = crate::KeyManifest::from_authenticated_bytes(&bytes)
         .map_err(|_| "authenticated key manifest required".to_string())?;
-    if manifest.scope != descriptor.scope
-        || manifest.tenant_id != context.tenant_id
-        || manifest.list_id != descriptor.list_id
+    if manifest.tenant_id != context.tenant_id
         || manifest.suite_id != descriptor.suite_id
         || manifest.generation != descriptor.generation
         || manifest.status != descriptor.status
@@ -450,14 +393,8 @@ fn verify_preflight_manifest(
     Ok(manifest)
 }
 
-fn manifest_anchor_key(scope: crate::KeyScope, list_id: Option<Uuid>) -> String {
-    match scope {
-        crate::KeyScope::Tenant => "key_manifest_anchor:tenant".to_string(),
-        crate::KeyScope::List => format!(
-            "key_manifest_anchor:list:{}",
-            list_id.expect("list manifest has list id")
-        ),
-    }
+fn manifest_anchor_key() -> String {
+    "key_manifest_anchor:tenant".to_string()
 }
 
 fn verify_manifest_anchor<S: LocalSyncStore>(
@@ -466,7 +403,7 @@ fn verify_manifest_anchor<S: LocalSyncStore>(
     context: &ActiveSyncContext,
     store: &mut S,
 ) -> Result<(), String> {
-    let key = manifest_anchor_key(descriptor.scope, descriptor.list_id);
+    let key = manifest_anchor_key();
     let Some(encoded_anchor) = store.get_setting(&key)? else {
         return Ok(());
     };
@@ -552,7 +489,7 @@ where
     let Some(canonical_id) = candidates.first().copied() else {
         return Ok(());
     };
-    if dek_for_list(&context.keys, canonical_id).is_none() {
+    if tenant_root_dek(&context.keys).is_none() {
         return Err("sync failed".to_string());
     }
 
@@ -1766,33 +1703,28 @@ where
     let (incoming_mutation_hlc, blob) = match &record.state {
         EncryptedSyncState::Tombstone { delete_hlc } => {
             store.delete_outbox_head(SyncCollection::Lists, record.record_id)?;
-            let known_tasks = store.list_tasks_by_list_for_sync(record.record_id)?;
-            summary.deleted_count += cascade_timer_sessions_for_tasks(
-                store,
-                &known_tasks,
-                delete_hlc,
-                &context.device_id,
-                now_ms,
-            )?;
-            for task in &known_tasks {
+            let default_list_id = store
+                .default_list_id()?
+                .filter(|default_id| *default_id != record.record_id)
+                .ok_or_else(|| "Tenant must retain a default Inbox".to_string())?;
+            let mut known_tasks = store.list_tasks_by_list_for_sync(record.record_id)?;
+            for task in &mut known_tasks {
                 store.delete_outbox_head(SyncCollection::Tasks, task.id)?;
-                let base_revision = store
-                    .get_record_state(SyncCollection::Tasks, task.id)?
-                    .and_then(|state| state.current_revision_hlc);
-                enqueue_rebased_tombstone(
+                task.list_id = default_list_id;
+                task.updated_at = now_ms()?;
+                store.upsert_task_for_sync(task.clone())?;
+                enqueue_task_sync(
                     store,
-                    RebaseTombstoneRequest {
-                        record_id: task.id,
-                        collection: SyncCollection::Tasks,
-                        delete_hlc,
-                        device_id: &context.device_id,
-                        base_revision_hlc: base_revision.as_deref(),
-                    },
+                    &context.keys,
+                    &context.device_id,
+                    task,
+                    false,
                     now_ms,
                 )?;
+                summary.repush_count += 1;
             }
-            let deleted = store.delete_list_with_tasks_for_sync(record.record_id)?;
-            summary.deleted_count += 1 + deleted;
+            store.delete_list_and_rehome_tasks_for_sync(record.record_id)?;
+            summary.deleted_count += 1;
             store.put_record_state(
                 SyncCollection::Lists,
                 record.record_id,
@@ -1841,8 +1773,7 @@ where
             ))
         }
     };
-    let Some(dek) =
-        crate::dek_for_list_generation(&context.keys, record.record_id, header.key_generation)
+    let Some(dek) = crate::tenant_root_dek_for_generation(&context.keys, header.key_generation)
     else {
         return Ok(ApplyDisposition::Deferred(
             PullFailureReason::MissingDek,
@@ -1915,12 +1846,8 @@ where
     )?;
     summary.applied_count += 1;
     if needs_repush {
-        let active_dek = dek_for_list(&context.keys, record.record_id)
-            .ok_or_else(|| "sync failed".to_string())?;
-        let active_generation = context
-            .keys
-            .generation_for_list(record.record_id)
-            .ok_or_else(|| "sync failed".to_string())?;
+        let active_dek = tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?;
+        let active_generation = context.keys.tenant_generation;
         enqueue_merged_plaintext(
             store,
             RebasePlaintextRequest {
@@ -2021,21 +1948,14 @@ where
         Ok(incoming) => incoming,
         Err(disposition) => return Ok(disposition),
     };
-    let incoming_list_id = match &incoming {
-        SyncPlaintext::Task(task) => task.placement.value.list_id,
+    match &incoming {
+        SyncPlaintext::Task(_) => {}
         SyncPlaintext::List(_)
         | SyncPlaintext::Template(_)
         | SyncPlaintext::Schedule(_)
         | SyncPlaintext::TimerSession(_) => return Err("sync failed".to_string()),
-    };
-    let dek = if let Some(incoming_dek) = dek_for_list(&context.keys, incoming_list_id) {
-        incoming_dek
-    } else {
-        return Ok(ApplyDisposition::Deferred(
-            PullFailureReason::MissingDek,
-            Some(incoming_list_id),
-        ));
-    };
+    }
+    let dek = tenant_root_dek(&context.keys).ok_or_else(|| "sync failed".to_string())?;
     let stored_plaintext = stored_sync_plaintext(store, SyncCollection::Tasks, record.record_id)?;
     let (merged, needs_repush) = match (stored_plaintext, existing.as_ref()) {
         (Some(local_plaintext), _) => {
@@ -2051,12 +1971,7 @@ where
         }
         (None, None) => (incoming, false),
     };
-    let needs_repush = needs_repush
-        || incoming_generation
-            < context
-                .keys
-                .generation_for_list(incoming_list_id)
-                .ok_or_else(|| "sync failed".to_string())?;
+    let needs_repush = needs_repush || incoming_generation < context.keys.tenant_generation;
     let mut task = task_from_plaintext(record.record_id, existing.as_ref(), &merged, now_ms)?;
     let authenticated_list_id = task.list_id;
     let resolved_list_id = store.resolve_list_alias(authenticated_list_id)?;
@@ -2071,27 +1986,27 @@ where
             Some(task.list_id),
         ));
     }
-    if let TaskDependencyDisposition::Deleted(delete_hlc) = dependency {
-        store.delete_outbox_head(SyncCollection::Tasks, record.record_id)?;
-        let known_tasks = store.list_task_subtree_for_sync(record.record_id)?;
-        summary.deleted_count += cascade_timer_sessions_for_tasks(
+    if let TaskDependencyDisposition::Deleted = dependency {
+        task.list_id = store
+            .default_list_id()?
+            .ok_or_else(|| "Tenant must retain a default Inbox".to_string())?;
+        task.updated_at = now_ms()?;
+        store.upsert_task_for_sync(task.clone())?;
+        store_sync_plaintext(
             store,
-            &known_tasks,
-            &delete_hlc,
-            &context.device_id,
+            SyncCollection::Tasks,
+            record.record_id,
+            &record.revision_hlc,
+            incoming_mutation_hlc,
+            &merged,
             now_ms,
         )?;
-        let deleted = store.delete_task_subtree_for_sync(record.record_id)?;
-        summary.deleted_count += deleted;
-        enqueue_rebased_tombstone(
+        enqueue_task_sync(
             store,
-            RebaseTombstoneRequest {
-                record_id: record.record_id,
-                collection: SyncCollection::Tasks,
-                delete_hlc: &delete_hlc,
-                device_id: &context.device_id,
-                base_revision_hlc: Some(&record.revision_hlc),
-            },
+            &context.keys,
+            &context.device_id,
+            &task,
+            false,
             now_ms,
         )?;
         summary.repush_count += 1;
@@ -2137,8 +2052,8 @@ where
     summary.applied_count += 1;
     if resolved_alias {
         // Persist the authenticated remote merge first, then reuse the normal
-        // mutation enqueue path to stamp only placement, select the canonical
-        // List DEK, and replace any stale outbox head transactionally.
+        // mutation enqueue path to stamp only placement, reuse the Tenant
+        // generation, and replace any stale outbox head transactionally.
         enqueue_task_sync(
             store,
             &context.keys,
@@ -2157,10 +2072,7 @@ where
                 plaintext: &merged,
                 dek,
                 tenant_id: context.tenant_id,
-                generation: context
-                    .keys
-                    .generation_for_list(incoming_list_id)
-                    .ok_or_else(|| "sync failed".to_string())?,
+                generation: context.keys.tenant_generation,
                 device_id: &context.device_id,
                 base_revision_hlc: &record.revision_hlc,
             },
@@ -2223,7 +2135,8 @@ where
         ..
     }) = store.get_record_state(SyncCollection::Lists, task.list_id)?
     {
-        return Ok(TaskDependencyDisposition::Deleted(delete_hlc));
+        let _ = delete_hlc;
+        return Ok(TaskDependencyDisposition::Deleted);
     }
     if store.get_list(task.list_id)?.is_none() {
         return Ok(TaskDependencyDisposition::Missing);
@@ -2240,7 +2153,8 @@ where
             ..
         }) = store.get_record_state(SyncCollection::Tasks, id)?
         {
-            return Ok(TaskDependencyDisposition::Deleted(delete_hlc));
+            let _ = delete_hlc;
+            return Ok(TaskDependencyDisposition::Deleted);
         }
         let Some(parent) = store.get_task(id)? else {
             return Ok(TaskDependencyDisposition::Missing);
@@ -2339,104 +2253,25 @@ fn decrypt_task_plaintext(
     };
     let header = crate::parse_envelope_header(blob)
         .map_err(|error| classify_envelope_error(error, None, 0))?;
-    let mut candidates = Vec::new();
-    let mut expected_list_id = None;
-    let mut expected_dek_available = false;
-    if let Some(task) = existing {
-        expected_list_id = Some(task.list_id);
-        if let Some(dek) = dek_for_list(keys, task.list_id) {
-            if let Some(generation) = keys.generation_for_list(task.list_id) {
-                if generation == header.key_generation {
-                    candidates.push((task.list_id, dek, generation));
-                }
-            }
-        }
-    }
-    for (list_id, dek) in &keys.list_deks {
-        if !candidates
-            .iter()
-            .any(|(candidate_list_id, _, _)| candidate_list_id == list_id)
-        {
-            if let Some(generation) = keys.generation_for_list(*list_id) {
-                if generation == header.key_generation {
-                    candidates.push((*list_id, &**dek, generation));
-                }
-            }
-        }
-    }
-    for (list_id, generation, dek) in &keys.historical_list_deks {
-        if *generation == header.key_generation
-            && !candidates
-                .iter()
-                .any(|(candidate_list_id, _, _)| candidate_list_id == list_id)
-        {
-            candidates.push((*list_id, &**dek, *generation));
-        }
-    }
-    if let Some(expected_list_id) = expected_list_id {
-        expected_dek_available = candidates
-            .iter()
-            .any(|(candidate_list_id, _, _)| *candidate_list_id == expected_list_id);
-    }
-    if candidates.is_empty() {
+    let expected_list_id = existing.map(|task| task.list_id);
+    let Some(tenant_key) = crate::tenant_root_dek_for_generation(keys, header.key_generation)
+    else {
         return Err(ApplyDisposition::Deferred(
-            if expected_list_id.is_some() {
-                PullFailureReason::MissingDek
-            } else {
-                PullFailureReason::NoMatchingDek
-            },
-            expected_list_id,
-        ));
-    }
-    let mut invalid_plaintext = false;
-    for (candidate_list_id, dek, generation) in candidates {
-        match decrypt_plaintext(
-            dek,
-            keys.tenant_id,
-            generation,
-            TASKS_COLLECTION,
-            record.record_id,
-            blob,
-        ) {
-            Ok(plaintext) => {
-                let SyncPlaintext::Task(task) = &plaintext else {
-                    invalid_plaintext = true;
-                    continue;
-                };
-                if task.placement.value.list_id == candidate_list_id {
-                    return Ok(plaintext);
-                }
-            }
-            Err(EnvelopeError::UnsupportedVersion) => {
-                return Err(ApplyDisposition::UpgradeRequired(blob[0]))
-            }
-            Err(EnvelopeError::Deserialization | EnvelopeError::Serialization) => {
-                invalid_plaintext = true;
-            }
-            Err(_) => {}
-        }
-    }
-    if !expected_dek_available && expected_list_id.is_some() {
-        Err(ApplyDisposition::Deferred(
             PullFailureReason::MissingDek,
             expected_list_id,
-        ))
-    } else if invalid_plaintext {
-        Err(ApplyDisposition::Deferred(
-            PullFailureReason::InvalidPlaintext,
-            expected_list_id,
-        ))
-    } else if expected_list_id.is_some() {
-        Err(ApplyDisposition::Deferred(
-            PullFailureReason::AuthenticationFailed,
-            expected_list_id,
-        ))
-    } else {
-        Err(ApplyDisposition::Deferred(
-            PullFailureReason::NoMatchingDek,
-            None,
-        ))
-    }
+        ));
+    };
+    decrypt_plaintext(
+        tenant_key,
+        keys.tenant_id,
+        header.key_generation,
+        TASKS_COLLECTION,
+        record.record_id,
+        blob,
+    )
+    .map_err(|error| {
+        classify_envelope_error(error, expected_list_id, blob.first().copied().unwrap_or(0))
+    })
 }
 
 fn classify_envelope_error(
@@ -2457,7 +2292,8 @@ fn classify_envelope_error(
         | EnvelopeError::UnsupportedSuite
         | EnvelopeError::InvalidGeneration
         | EnvelopeError::InvalidIdentity
-        | EnvelopeError::CollectionTooLong => {
+        | EnvelopeError::CollectionTooLong
+        | EnvelopeError::KeyDerivation => {
             ApplyDisposition::Deferred(PullFailureReason::CorruptEnvelope, required_list_id)
         }
     }
@@ -2592,7 +2428,6 @@ where
         name: fields.name.value.clone(),
         color: fields.color.value.clone(),
         icon: fields.icon.value.clone(),
-        org_id: fields.org_id.value,
         sort_order: fields.placement.value.rank.clone(),
         is_default: fields.is_default.value,
         archived_at: fields.archived_at.value,
@@ -2825,11 +2660,23 @@ mod tests {
             Ok(())
         }
 
-        fn delete_list_with_tasks_for_sync(&mut self, list_id: Uuid) -> Result<usize, String> {
+        fn delete_list_and_rehome_tasks_for_sync(
+            &mut self,
+            list_id: Uuid,
+        ) -> Result<usize, String> {
+            let default_list_id = self
+                .default_list_id()?
+                .filter(|default_id| *default_id != list_id)
+                .ok_or_else(|| "Tenant must retain a default Inbox".to_string())?;
             self.lists.remove(&list_id);
-            let previous = self.tasks.len();
-            self.tasks.retain(|_, task| task.list_id != list_id);
-            Ok(previous - self.tasks.len())
+            let mut rehomed = 0;
+            for task in self.tasks.values_mut() {
+                if task.list_id == list_id {
+                    task.list_id = default_list_id;
+                    rehomed += 1;
+                }
+            }
+            Ok(rehomed)
         }
 
         fn get_task(&mut self, id: Uuid) -> Result<Option<Task>, String> {
@@ -3274,12 +3121,11 @@ mod tests {
         let active_dek = [0x32; KEY_LEN];
         let record = encrypted_list_record(&list, &old_dek);
         let mut context = context_with_keys(&[(list.id, active_dek)]);
-        context.keys.list_generations = vec![(list.id, 2)];
         context.keys.tenant_generation = 2;
         context
             .keys
-            .historical_list_deks
-            .push((list.id, 1, Zeroizing::new(old_dek)));
+            .historical_tenant_root_deks
+            .push((1, Zeroizing::new(old_dek)));
         let mut store = FakeStore::default();
         let mut now = ticking_now();
         let mut summary = SyncRunSummary::default();
@@ -3307,7 +3153,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_canonical_dek_fails_before_materialization() {
+    fn missing_tenant_key_fails_before_canonical_materialization() {
         let canonical = sample_list(uuid(1), true);
         let loser = sample_list(uuid(2), true);
         let mut canonical_domain = canonical.clone();
@@ -3323,7 +3169,8 @@ mod tests {
                 list_plaintext(list, test_hlc(1, "remote")),
             );
         }
-        let context = context_with_keys(&[(loser.id, [0x22; KEY_LEN])]);
+        let mut context = context_with_keys(&[(loser.id, [0x22; KEY_LEN])]);
+        context.keys.tenant_root_dek = None;
         let mut now = ticking_now();
 
         assert!(reconcile_canonical_inbox_in_transaction(&context, &mut store, &mut now).is_err());
@@ -3338,8 +3185,7 @@ mod tests {
         let canonical = sample_list(uuid(1), true);
         let mut alias = sample_list(uuid(2), true);
         alias.is_default = false;
-        let canonical_dek = [0x41; KEY_LEN];
-        let alias_dek = [0x42; KEY_LEN];
+        let tenant_dek = [0x41; KEY_LEN];
         let mut task = new_task(
             alias.id,
             None,
@@ -3351,8 +3197,8 @@ mod tests {
         task.id = uuid(40);
         let task_hlc = test_hlc(1, "remote");
         let task_plaintext = task_plaintext(&task, task_hlc.clone());
-        let record = encrypted_task_record(task.id, &task_plaintext, &alias_dek, &task_hlc);
-        let context = context_with_keys(&[(canonical.id, canonical_dek), (alias.id, alias_dek)]);
+        let record = encrypted_task_record(task.id, &task_plaintext, &tenant_dek, &task_hlc);
+        let context = context_with_keys(&[(canonical.id, tenant_dek)]);
         let mut store = FakeStore::default();
         store.lists.insert(canonical.id, canonical.clone());
         store.lists.insert(alias.id, alias.clone());
@@ -3372,8 +3218,7 @@ mod tests {
             panic!("live");
         };
         let plaintext =
-            decrypt_plaintext(&canonical_dek, TASKS_COLLECTION, &task.id.to_string(), blob)
-                .unwrap();
+            decrypt_plaintext(&tenant_dek, TASKS_COLLECTION, &task.id.to_string(), blob).unwrap();
         let SyncPlaintext::Task(plaintext) = plaintext else {
             panic!("task");
         };
@@ -3385,6 +3230,7 @@ mod tests {
     fn remote_tombstone_discards_newer_local_live_and_outbox() {
         let list_id = uuid(30);
         let local = sample_list(list_id, false);
+        let default_list = sample_list(uuid(29), true);
         let local_hlc = Hlc {
             wall_ms: 1_799_000_000_500,
             counter: 0,
@@ -3407,6 +3253,7 @@ mod tests {
         .encode()
         .unwrap();
         let mut store = FakeStore::default();
+        store.lists.insert(default_list.id, default_list);
         store.lists.insert(list_id, local.clone());
         store.record_states.insert(
             (SyncCollection::Lists, list_id),
@@ -3468,9 +3315,10 @@ mod tests {
     }
 
     #[test]
-    fn remote_list_tombstone_replaces_known_descendant_live_outbox_with_tombstone() {
+    fn remote_list_tombstone_rehomes_known_descendant_and_republishes_it() {
         let list_id = uuid(33);
         let list = sample_list(list_id, false);
+        let default_list = sample_list(uuid(34), true);
         let task = new_task(
             list_id,
             None,
@@ -3494,6 +3342,7 @@ mod tests {
         .encode()
         .unwrap();
         let mut store = FakeStore::default();
+        store.lists.insert(default_list.id, default_list.clone());
         store.lists.insert(list_id, list);
         store.tasks.insert(task.id, task.clone());
         store.record_states.insert(
@@ -3543,19 +3392,20 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!store.tasks.contains_key(&task.id));
+        assert_eq!(store.tasks.get(&task.id).unwrap().list_id, default_list.id);
         assert_eq!(store.outbox.len(), 1);
         assert_eq!(store.outbox[0].record_id, task.id);
         assert!(matches!(
             store.outbox[0].state,
-            EncryptedSyncState::Tombstone { .. }
+            EncryptedSyncState::Live { .. }
         ));
     }
 
     #[test]
-    fn late_descendant_of_tombstoned_list_is_not_materialized_and_cascades() {
+    fn late_descendant_of_tombstoned_list_is_rehomed_to_default_inbox() {
         let list_id = uuid(31);
         let task_id = uuid(32);
+        let default_list = sample_list(uuid(30), true);
         let dek = [4; KEY_LEN];
         let task = new_task(
             list_id,
@@ -3575,6 +3425,7 @@ mod tests {
         let plaintext = task_plaintext(&task, hlc.clone());
         let record = encrypted_task_record(task_id, &plaintext, &dek, &hlc);
         let mut store = FakeStore::default();
+        store.lists.insert(default_list.id, default_list.clone());
         store.record_states.insert(
             (SyncCollection::Lists, list_id),
             LocalSyncRecordState {
@@ -3596,11 +3447,11 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!store.tasks.contains_key(&task_id));
+        assert_eq!(store.tasks.get(&task_id).unwrap().list_id, default_list.id);
         assert_eq!(store.outbox.len(), 1);
         assert!(matches!(
             store.outbox[0].state,
-            EncryptedSyncState::Tombstone { .. }
+            EncryptedSyncState::Live { .. }
         ));
         assert_eq!(summary.repush_count, 1);
     }
@@ -3796,7 +3647,7 @@ mod tests {
         fields.note.hlc.device_id.clear();
         let plaintext_json = serde_json::to_vec(&plaintext).unwrap();
         let mut aad = Vec::new();
-        aad.extend_from_slice(b"TDA4");
+        aad.extend_from_slice(b"TDA5");
         aad.extend_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
         aad.extend_from_slice(&1_u64.to_be_bytes());
         aad.extend_from_slice(test_tenant_id().as_bytes());
@@ -3804,10 +3655,20 @@ mod tests {
         aad.extend_from_slice(TASKS_COLLECTION.as_bytes());
         aad.extend_from_slice(record_id.as_bytes());
         let mut blob = Vec::new();
-        blob.extend_from_slice(b"TDE4");
+        blob.extend_from_slice(b"TDE5");
         blob.extend_from_slice(&taskveil_crypto::CRYPTO_SUITE_ID.to_be_bytes());
         blob.extend_from_slice(&1_u64.to_be_bytes());
-        blob.extend_from_slice(&taskveil_crypto::encrypt(&dek, &plaintext_json, &aad).unwrap());
+        let record_key = taskveil_crypto::key_hierarchy::derive_record_key(
+            &dek,
+            test_tenant_id(),
+            1,
+            TASKS_COLLECTION,
+            record_id,
+        )
+        .unwrap();
+        blob.extend_from_slice(
+            &taskveil_crypto::encrypt(&record_key, &plaintext_json, &aad).unwrap(),
+        );
         let record = PullRecord {
             record_id,
             collection: SyncCollection::Tasks,
@@ -3836,96 +3697,6 @@ mod tests {
         assert!(!store
             .record_states
             .contains_key(&(SyncCollection::Tasks, record_id)));
-    }
-
-    #[test]
-    fn task_decryption_binds_the_authenticated_dek_to_plaintext_placement() {
-        let list_a = uuid(60);
-        let list_b = uuid(61);
-        let list_c = uuid(62);
-        let record_id = uuid(63);
-        let dek_a = [0x60; KEY_LEN];
-        let dek_b = [0x61; KEY_LEN];
-        let mut existing = new_task(
-            list_a,
-            None,
-            "move".to_string(),
-            "7fffffffffffffffffffffffffffffff".to_string(),
-            1,
-        )
-        .unwrap();
-        existing.id = record_id;
-        let clock = Hlc {
-            wall_ms: 1_799_000_000_060,
-            counter: 0,
-            device_id: "remote".to_string(),
-        };
-
-        let mut moved = existing.clone();
-        moved.list_id = list_b;
-        let moved_plaintext = SyncPlaintext::from_task(&moved, clock.clone()).unwrap();
-        let moved_record = encrypted_task_record(record_id, &moved_plaintext, &dek_b, &clock);
-        let moved_keys = LocalSyncKeys {
-            tenant_id: test_tenant_id(),
-            list_deks: vec![(list_b, dek_b.into())],
-            list_generations: vec![(list_b, 1)],
-            tenant_root_dek: None,
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        let SyncPlaintext::Task(decrypted_move) =
-            decrypt_task_plaintext(&moved_record, Some(&existing), &moved_keys).unwrap()
-        else {
-            panic!("task");
-        };
-        assert_eq!(decrypted_move.placement.value.list_id, list_b);
-
-        let mut mismatched = existing.clone();
-        mismatched.list_id = list_c;
-        let mismatched_plaintext = SyncPlaintext::from_task(&mismatched, clock.clone()).unwrap();
-        let mismatched_record =
-            encrypted_task_record(record_id, &mismatched_plaintext, &dek_b, &clock);
-        let all_keys = LocalSyncKeys {
-            tenant_id: test_tenant_id(),
-            list_deks: vec![(list_a, dek_a.into()), (list_b, dek_b.into())],
-            list_generations: vec![(list_a, 1), (list_b, 1)],
-            tenant_root_dek: None,
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        assert_eq!(
-            decrypt_task_plaintext(&mismatched_record, Some(&existing), &all_keys),
-            Err(ApplyDisposition::Deferred(
-                PullFailureReason::AuthenticationFailed,
-                Some(list_a)
-            ))
-        );
-        assert_eq!(
-            decrypt_task_plaintext(&mismatched_record, None, &all_keys),
-            Err(ApplyDisposition::Deferred(
-                PullFailureReason::NoMatchingDek,
-                None
-            ))
-        );
-
-        let no_matching_key = LocalSyncKeys {
-            tenant_id: test_tenant_id(),
-            list_deks: vec![(list_b, [0x62; KEY_LEN].into())],
-            list_generations: vec![(list_b, 1)],
-            tenant_root_dek: None,
-            tenant_generation: 1,
-            historical_list_deks: Vec::new(),
-            historical_tenant_root_deks: Vec::new(),
-        };
-        assert_eq!(
-            decrypt_task_plaintext(&moved_record, Some(&existing), &no_matching_key),
-            Err(ApplyDisposition::Deferred(
-                PullFailureReason::MissingDek,
-                Some(list_a)
-            ))
-        );
     }
 
     #[test]
@@ -4054,9 +3825,7 @@ mod tests {
     fn persisted_manifest_anchor_requires_complete_authenticated_successor_chain() {
         let tenant_id = test_tenant_id();
         let first = crate::KeyManifest::authenticate_personal(
-            crate::KeyScope::Tenant,
             tenant_id,
-            None,
             1,
             crate::RotationStatus::Active,
             1,
@@ -4066,9 +3835,7 @@ mod tests {
         )
         .unwrap();
         let prepared = crate::KeyManifest::authenticate_personal(
-            crate::KeyScope::Tenant,
             tenant_id,
-            None,
             2,
             crate::RotationStatus::Prepared,
             1,
@@ -4078,9 +3845,7 @@ mod tests {
         )
         .unwrap();
         let active = crate::KeyManifest::authenticate_personal(
-            crate::KeyScope::Tenant,
             tenant_id,
-            None,
             2,
             crate::RotationStatus::Active,
             2,
@@ -4091,13 +3856,11 @@ mod tests {
         .unwrap();
         let mut store = FakeStore::default();
         store.settings.insert(
-            manifest_anchor_key(crate::KeyScope::Tenant, None),
+            manifest_anchor_key(),
             STANDARD.encode(first.authenticated_bytes().unwrap()),
         );
         let context = context_with_keys(&[]);
         let descriptor = crate::protocol::KeyManifestDescriptor {
-            scope: crate::KeyScope::Tenant,
-            list_id: None,
             suite_id: taskveil_crypto::CRYPTO_SUITE_ID,
             generation: 2,
             status: crate::RotationStatus::Active,
@@ -4122,14 +3885,10 @@ mod tests {
             session_token: "token".to_string(),
             keys: LocalSyncKeys {
                 tenant_id: test_tenant_id(),
-                list_deks: keys
-                    .iter()
-                    .map(|(id, key)| (*id, Zeroizing::new(*key)))
-                    .collect(),
-                list_generations: keys.iter().map(|(id, _)| (*id, 1)).collect(),
-                tenant_root_dek: None,
+                tenant_root_dek: Some(Zeroizing::new(
+                    keys.first().map_or([0x7b; KEY_LEN], |(_, key)| *key),
+                )),
                 tenant_generation: 1,
-                historical_list_deks: Vec::new(),
                 historical_tenant_root_deks: Vec::new(),
             },
             manifest_auth_key: crate::derive_personal_manifest_auth_key(&[0x41; 32]).unwrap(),
@@ -4150,7 +3909,6 @@ mod tests {
             name: format!("List {id}"),
             color: "#ffffff".to_string(),
             icon: "list".to_string(),
-            org_id: None,
             sort_order: "7fffffffffffffffffffffffffffffff".to_string(),
             is_default,
             archived_at: None,
@@ -4173,10 +3931,11 @@ mod tests {
 }
 #[test]
 fn durable_upgrade_block_reopens_when_supported_versions_catch_up() {
-    assert!(upgrade_block_is_active("7:3"));
-    assert!(upgrade_block_is_active("5:5"));
-    assert!(!upgrade_block_is_active("4:4"));
-    assert!(!upgrade_block_is_active("6:3"));
+    assert!(upgrade_block_is_active("8:5"));
+    assert!(upgrade_block_is_active("7:6"));
+    assert!(!upgrade_block_is_active("7:5"));
+    assert!(!upgrade_block_is_active("6:5"));
+    assert!(!upgrade_block_is_active("7:3"));
     assert!(!upgrade_block_is_active("0:0"));
     assert!(upgrade_block_is_active("invalid"));
 }

@@ -108,7 +108,7 @@ curl -i <PUBLIC_API_BASE_URL>/health
 
 - `docs/dev/two-device-sync-test.md` のローカル手順で再現する。
 - batch上限、blobサイズ上限、未来HLC拒否、tenant認可、cursor進行を確認する。
-- ADR-016のterminal tombstone、server-trusted continuity、expired-device rebase、late descendant cascadeが維持されているか確認する。
+- ADR-016のterminal tombstone、server-trusted continuity、expired-device rebaseに加え、ADR-023のList削除時Task rehomeが維持されているか確認する。
 
 ユーザー影響:
 

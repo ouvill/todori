@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{KeyScope, RotationStatus};
+use crate::RotationStatus;
 
-pub const SYNC_PROTOCOL_VERSION: u16 = 6;
+pub const SYNC_PROTOCOL_VERSION: u16 = 7;
 pub const SYNC_PROTOCOL_VERSION_HEADER: &str = "x-taskveil-protocol-version";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,8 +29,6 @@ pub struct SyncCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyManifestDescriptor {
-    pub scope: KeyScope,
-    pub list_id: Option<Uuid>,
     pub suite_id: u16,
     pub generation: u64,
     pub status: RotationStatus,

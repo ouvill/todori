@@ -18,9 +18,7 @@ use taskveil_crypto::{
     },
     TaskveilCipherSuite, CRYPTO_SUITE_ID,
 };
-use taskveil_sync::account::{
-    AccountKeyBundleDto, DeviceEnrollmentDto, ListDekBundleDto, UpdateKeyWrappersRequest,
-};
+use taskveil_sync::account::{AccountKeyBundleDto, DeviceEnrollmentDto, UpdateKeyWrappersRequest};
 use uuid::Uuid;
 
 use crate::{db, AppError};
@@ -757,30 +755,15 @@ struct DecodedAccountKeyBundle {
     wrapped_account_root_private: Vec<u8>,
     wrapped_tenant_root_dek: Vec<u8>,
     tenant_key_manifest: Vec<u8>,
-    list_deks: Vec<DecodedListDekBundle>,
-}
-
-struct DecodedListDekBundle {
-    list_id: Uuid,
-    generation: i64,
-    wrapped_list_dek: Vec<u8>,
-    signed_manifest: Vec<u8>,
 }
 
 fn decode_account_key_bundle(
     bundle: &AccountKeyBundleDto,
 ) -> Result<DecodedAccountKeyBundle, AppError> {
-    if bundle.list_deks.is_empty() {
-        return Err(AppError::bad_request("missing list key bundle"));
-    }
     if bundle.suite_id != CRYPTO_SUITE_ID
         || bundle.generation != INITIAL_KEY_GENERATION
         || bundle.tenant_generation != INITIAL_KEY_GENERATION
         || bundle.wrapper_revision == 0
-        || bundle
-            .list_deks
-            .iter()
-            .any(|list_dek| list_dek.generation != bundle.generation)
     {
         return Err(AppError::bad_request("invalid key bundle"));
     }
@@ -814,25 +797,6 @@ fn decode_account_key_bundle(
             "invalid key bundle",
         )?,
         tenant_key_manifest: decode_bytes_field(&bundle.tenant_key_manifest, "invalid key bundle")?,
-        list_deks: bundle
-            .list_deks
-            .iter()
-            .map(|list_dek| {
-                Ok(DecodedListDekBundle {
-                    list_id: list_dek.list_id,
-                    generation: i64::try_from(list_dek.generation)
-                        .map_err(|_| AppError::bad_request("invalid key bundle"))?,
-                    wrapped_list_dek: decode_bytes_field(
-                        &list_dek.wrapped_list_dek,
-                        "invalid key bundle",
-                    )?,
-                    signed_manifest: decode_bytes_field(
-                        &list_dek.signed_manifest,
-                        "invalid key bundle",
-                    )?,
-                })
-            })
-            .collect::<Result<Vec<_>, AppError>>()?,
     })
 }
 
@@ -880,23 +844,6 @@ async fn insert_account_key_bundle(
     .execute(&mut **tx)
     .await?;
 
-    for list_dek in bundle.list_deks {
-        query::<Postgres>(
-            "INSERT INTO list_key_generations
-                (tenant_id, list_id, suite_id, generation, status,
-                 minimum_write_generation, signed_manifest, wrapped_list_dek, activated_at)
-             VALUES ($1, $2, $3, $4, 'active', $4, $5, $6, now())",
-        )
-        .bind(tenant_id)
-        .bind(list_dek.list_id)
-        .bind(bundle.suite_id)
-        .bind(list_dek.generation)
-        .bind(&list_dek.signed_manifest)
-        .bind(&list_dek.wrapped_list_dek)
-        .execute(&mut **tx)
-        .await?;
-    }
-
     Ok(())
 }
 
@@ -928,16 +875,6 @@ async fn load_account_key_bundle(
     .bind(tenant_id)
     .fetch_one(&mut **tx)
     .await?;
-    let list_rows = query::<Postgres>(
-        "SELECT list_id, suite_id, generation, signed_manifest, wrapped_list_dek
-         FROM list_key_generations
-         WHERE tenant_id = $1 AND status = 'active'
-         ORDER BY created_at ASC, list_id ASC",
-    )
-    .bind(tenant_id)
-    .fetch_all(&mut **tx)
-    .await?;
-
     let expected_suite: i16 = user.try_get("suite_id").map_err(|_| AppError::internal())?;
     let tenant_suite: i16 = tenant
         .try_get("suite_id")
@@ -949,30 +886,6 @@ async fn load_account_key_bundle(
         || expected_suite != tenant_suite
     {
         return Err(AppError::internal());
-    }
-
-    let mut list_deks = Vec::with_capacity(list_rows.len());
-    for row in list_rows {
-        let list_suite: i16 = row.try_get("suite_id").map_err(|_| AppError::internal())?;
-        let list_generation: i64 = row
-            .try_get("generation")
-            .map_err(|_| AppError::internal())?;
-        if list_suite != expected_suite {
-            return Err(AppError::internal());
-        }
-        let list_id: Uuid = row.try_get("list_id").map_err(|_| AppError::internal())?;
-        let wrapped_list_dek: Vec<u8> = row
-            .try_get("wrapped_list_dek")
-            .map_err(|_| AppError::internal())?;
-        list_deks.push(ListDekBundleDto {
-            list_id,
-            generation: u64::try_from(list_generation).map_err(|_| AppError::internal())?,
-            wrapped_list_dek: STANDARD.encode(wrapped_list_dek),
-            signed_manifest: STANDARD.encode(
-                row.try_get::<Vec<u8>, _>("signed_manifest")
-                    .map_err(|_| AppError::internal())?,
-            ),
-        });
     }
 
     Ok(AccountKeyBundleDto {
@@ -1018,7 +931,6 @@ async fn load_account_key_bundle(
                 .try_get::<Vec<u8>, _>("signed_manifest")
                 .map_err(|_| AppError::internal())?,
         ),
-        list_deks,
     })
 }
 

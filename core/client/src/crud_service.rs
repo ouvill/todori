@@ -1,6 +1,4 @@
-use taskveil_crypto::key_hierarchy::{
-    generate_list_dek, wrap_list_dek_with_master_key, wrap_local_list_dek_with_master_key, KEY_LEN,
-};
+use taskveil_crypto::key_hierarchy::KEY_LEN;
 use taskveil_domain::{
     archive_list as domain_archive_list, fractional_index_after, fractional_index_between,
     new_list, new_task, rebalance_ranks, rename_list as domain_rename_list, transition_task,
@@ -8,12 +6,7 @@ use taskveil_domain::{
     update_priority, update_scheduled_at, validate_parent_for, List, Task, TaskDue, TaskStatus,
     Uuid,
 };
-use taskveil_storage::{
-    open_encrypted, LocalListKeyBundle, PendingListKeyBundle, SqliteWriteTx, StorageError,
-    TaskUndoOperation,
-};
-use taskveil_sync::{KeyManifest, KeyScope, RotationStatus};
-use zeroize::Zeroizing;
+use taskveil_storage::{open_encrypted, SqliteWriteTx, StorageError, TaskUndoOperation};
 
 use crate::mutation_service::{enqueue_list_in_transaction, enqueue_task_in_transaction};
 use crate::{ClientError, LocalMutationContext, SqliteMutationService};
@@ -52,8 +45,8 @@ impl SqliteMutationService {
         &self,
         name: String,
         now_ms: i64,
-        tenant_id: Uuid,
-        master_key: &[u8; KEY_LEN],
+        _tenant_id: Uuid,
+        _master_key: &[u8; KEY_LEN],
         sync: &LocalMutationContext,
     ) -> Result<List, ClientError> {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
@@ -77,55 +70,9 @@ impl SqliteMutationService {
             Err(error) => return Err(error.into()),
         };
         let list = new_list(name, rank, now_ms)?;
-        let generation = sync.keys.tenant_generation;
-        if sync.keys.tenant_id != tenant_id || generation == 0 {
-            return Err(ClientError::Sync);
-        }
-        let list_dek = Zeroizing::new(generate_list_dek());
-        let local_wrapped = wrap_local_list_dek_with_master_key(
-            tenant_id, list.id, generation, &list_dek, master_key,
-        )
-        .map_err(|_| ClientError::Sync)?;
-        let server_wrapped =
-            wrap_list_dek_with_master_key(tenant_id, list.id, generation, &list_dek, master_key)
-                .map_err(|_| ClientError::Sync)?;
-        let mut create_sync = sync.clone();
-        create_sync.keys.list_deks.push((list.id, list_dek.clone()));
-        create_sync
-            .keys
-            .list_generations
-            .push((list.id, generation));
-        let signed_manifest = KeyManifest::authenticate_personal(
-            KeyScope::List,
-            tenant_id,
-            Some(list.id),
-            generation,
-            RotationStatus::Active,
-            generation,
-            [0; 32],
-            Vec::new(),
-            master_key,
-        )
-        .and_then(|manifest| manifest.authenticated_bytes())
-        .map_err(|_| ClientError::Sync)?;
-
-        transaction.put_local_list_key_bundle(LocalListKeyBundle {
-            tenant_id,
-            list_id: list.id,
-            generation,
-            wrapped_list_dek: local_wrapped,
-            updated_at: now_ms,
-        })?;
+        require_tenant_key(sync)?;
         transaction.insert_list(list.clone())?;
-        enqueue_list_in_transaction(&mut transaction, &create_sync, &list, false, now_ms)?;
-        transaction.put_pending_list_key_bundle(PendingListKeyBundle {
-            tenant_id,
-            list_id: list.id,
-            generation,
-            wrapped_list_dek: server_wrapped,
-            signed_manifest,
-            created_at: now_ms,
-        })?;
+        enqueue_list_in_transaction(&mut transaction, sync, &list, false, now_ms)?;
         transaction.commit()?;
         Ok(list)
     }
@@ -146,7 +93,7 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let target = transaction.get_task(input.task_id)?;
-        require_list_key(sync, target.list_id)?;
+        require_tenant_key(sync)?;
         let mut scope = transaction
             .list_active_tasks_by_list(target.list_id)?
             .into_iter()
@@ -205,7 +152,7 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let list_id = transaction.get_list(input.list_id)?.id;
-        require_list_key(sync, list_id)?;
+        require_tenant_key(sync)?;
         let mut tasks = transaction.list_active_tasks_by_list(list_id)?;
         let last_sibling_sort_order = tasks
             .iter()
@@ -292,7 +239,7 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_task(input.task_id)?;
-        require_list_key(sync, before.list_id)?;
+        require_tenant_key(sync)?;
         let updated = transition_task(
             before.clone(),
             input.status,
@@ -323,7 +270,7 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let task = transaction.undo_task_operation(undo_id, now_ms)?;
-        require_list_key(sync, task.list_id)?;
+        require_tenant_key(sync)?;
         enqueue_task_in_transaction(&mut transaction, sync, &task, false, now_ms)?;
         transaction.commit()?;
         Ok(task)
@@ -380,7 +327,7 @@ impl SqliteMutationService {
         let mut connection = open_encrypted(&self.db_path, &self.db_key)?;
         let mut transaction = SqliteWriteTx::begin(&mut connection)?;
         let before = transaction.get_list(list_id)?;
-        require_list_key(sync, before.id)?;
+        require_tenant_key(sync)?;
         let updated = mutation(before.clone())?;
         if updated == before {
             return Ok(before);
@@ -431,16 +378,21 @@ fn insertion_index(
     Ok(index)
 }
 
-fn require_list_key(sync: &LocalMutationContext, list_id: Uuid) -> Result<(), ClientError> {
-    if sync.keys.contains_list(list_id) {
+fn require_tenant_key(sync: &LocalMutationContext) -> Result<(), ClientError> {
+    if sync.keys.tenant_root_dek.is_some()
+        && !sync.keys.tenant_id.is_nil()
+        && sync.keys.tenant_generation > 0
+    {
         Ok(())
     } else {
-        Err(ClientError::MissingListKey(list_id))
+        Err(ClientError::Sync)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use zeroize::Zeroizing;
+
     use taskveil_domain::{new_list, new_task};
     use taskveil_storage::{
         ListRepository, OwnedSqliteWriteTx, SettingsRepository, SqliteListRepository,
@@ -454,13 +406,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{
-        load_local_crypto_context, persist_local_crypto_context, LocalCryptoAvailability,
-        LocalCryptoIdentity,
-    };
-
     const DB_KEY: [u8; 32] = [0x85; 32];
-    const MASTER_KEY: [u8; 32] = [0x86; 32];
     const BASE_MS: i64 = 1_799_100_000_000;
 
     struct Fixture {
@@ -519,11 +465,8 @@ mod tests {
                 device_id: "device-a".to_string(),
                 keys: LocalSyncKeys {
                     tenant_id: Uuid::from_u128(100),
-                    list_deks: vec![(list.id, [0x55; 32].into())],
-                    list_generations: vec![(list.id, 1)],
                     tenant_root_dek: Some(Zeroizing::new([0x56; 32])),
                     tenant_generation: 1,
-                    historical_list_deks: Vec::new(),
                     historical_tenant_root_deks: Vec::new(),
                 },
             },
@@ -1056,55 +999,6 @@ mod tests {
     }
 
     #[test]
-    fn missing_list_key_rejects_task_and_list_mutations_before_commit() {
-        let fixture = fixture();
-        let missing = LocalMutationContext {
-            device_id: "device-a".to_string(),
-            keys: LocalSyncKeys::default(),
-        };
-        assert!(matches!(
-            fixture
-                .mutation_service
-                .create_task(create_input(fixture.list.id), &missing),
-            Err(ClientError::MissingListKey(id)) if id == fixture.list.id
-        ));
-        assert!(matches!(
-            fixture.mutation_service.set_task_status(
-                SetTaskStatusInput {
-                    task_id: fixture.task.id,
-                    status: TaskStatus::Done,
-                    closed_reason: None,
-                    now_ms: BASE_MS + 1,
-                },
-                &missing,
-            ),
-            Err(ClientError::MissingListKey(id)) if id == fixture.list.id
-        ));
-        assert!(matches!(
-            fixture.mutation_service.rename_list(
-                fixture.list.id,
-                "No key".to_string(),
-                BASE_MS + 1,
-                &missing,
-            ),
-            Err(ClientError::MissingListKey(id)) if id == fixture.list.id
-        ));
-
-        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-        let tasks = SqliteTaskRepository::new(connection);
-        assert_eq!(tasks.get(fixture.task.id).unwrap(), fixture.task);
-        assert_eq!(tasks.list_active_by_list(fixture.list.id).unwrap().len(), 1);
-        drop(tasks);
-        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-        assert_eq!(
-            SqliteListRepository::new(connection)
-                .get(fixture.list.id)
-                .unwrap(),
-            fixture.list
-        );
-    }
-
-    #[test]
     fn default_list_archive_is_rejected_without_sync_writes() {
         let fixture = fixture();
         let mut default_list = fixture.list.clone();
@@ -1129,122 +1023,6 @@ mod tests {
             .list_outbox_heads(10)
             .unwrap()
             .is_empty());
-    }
-
-    #[test]
-    fn account_bound_list_create_commits_key_cache_domain_sync_and_queue_atomically() {
-        let fixture = fixture();
-        let tenant_id = fixture.sync.keys.tenant_id;
-        let identity = LocalCryptoIdentity {
-            tenant_id,
-            user_id: Uuid::now_v7(),
-            device_id: Uuid::now_v7(),
-        };
-        persist_local_crypto_context(
-            fixture.mutation_service.db_path(),
-            &DB_KEY,
-            identity,
-            &MASTER_KEY,
-            fixture.sync.keys.clone(),
-            BASE_MS,
-        )
-        .unwrap();
-
-        let created = fixture
-            .mutation_service
-            .create_list(
-                "Offline".to_string(),
-                BASE_MS + 1,
-                tenant_id,
-                &MASTER_KEY,
-                &fixture.sync,
-            )
-            .unwrap();
-        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-        assert_eq!(
-            SqliteListRepository::new(connection)
-                .get(created.id)
-                .unwrap()
-                .name,
-            "Offline"
-        );
-        let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-        let sync = SqliteSyncStateRepository::new(connection);
-        let pending = sync.list_pending_list_key_bundles(tenant_id, 10).unwrap();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].list_id, created.id);
-        assert_eq!(sync.list_outbox_heads(10).unwrap().len(), 1);
-        assert!(sync
-            .get_record_state(LISTS_COLLECTION, created.id)
-            .unwrap()
-            .is_some());
-        assert!(matches!(
-            load_local_crypto_context(fixture.mutation_service.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
-            LocalCryptoAvailability::Ready(context) if context.sync_keys().contains_list(created.id)
-        ));
-    }
-
-    #[test]
-    fn account_bound_list_create_rolls_back_at_every_local_write_boundary() {
-        for trigger in [
-            "CREATE TRIGGER fail_cache BEFORE INSERT ON local_list_key_bundles BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-            "CREATE TRIGGER fail_list BEFORE INSERT ON lists BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-            "CREATE TRIGGER fail_hlc BEFORE UPDATE ON settings WHEN OLD.key = 'sync_local_hlc' BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-            "CREATE TRIGGER fail_state BEFORE INSERT ON sync_record_states BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-            "CREATE TRIGGER fail_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-            "CREATE TRIGGER fail_pending BEFORE INSERT ON pending_list_key_bundles BEGIN SELECT RAISE(ABORT, 'fail'); END;",
-        ] {
-            let fixture = fixture();
-            let tenant_id = fixture.sync.keys.tenant_id;
-            persist_local_crypto_context(
-                fixture.mutation_service.db_path(),
-                &DB_KEY,
-                LocalCryptoIdentity {
-                    tenant_id,
-                    user_id: Uuid::now_v7(),
-                    device_id: Uuid::now_v7(),
-                },
-                &MASTER_KEY,
-                fixture.sync.keys.clone(),
-                BASE_MS,
-            )
-            .unwrap();
-            install_trigger(&fixture, trigger);
-
-            assert!(fixture
-                .mutation_service
-                .create_list(
-                    "Rollback".to_string(),
-                    BASE_MS + 1,
-                    tenant_id,
-                    &MASTER_KEY,
-                    &fixture.sync,
-                )
-                .is_err());
-            let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-            assert_eq!(
-                SqliteListRepository::new(connection)
-                    .list_all()
-                    .unwrap()
-                    .len(),
-                1
-            );
-            let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
-            let sync = SqliteSyncStateRepository::new(connection);
-            assert!(sync
-                .list_pending_list_key_bundles(tenant_id, 10)
-                .unwrap()
-                .is_empty());
-            assert!(sync.list_outbox_heads(10).unwrap().is_empty());
-            assert!(sync
-                .get_record_state(LISTS_COLLECTION, fixture.list.id)
-                .unwrap()
-                .is_none());
-            assert!(matches!(
-                load_local_crypto_context(fixture.mutation_service.db_path(), &DB_KEY, Some(MASTER_KEY)).unwrap(),
-                LocalCryptoAvailability::Ready(context) if context.sync_keys().list_deks.len() == 1
-            ));
-        }
     }
 
     fn install_trigger(fixture: &Fixture, sql: &str) {

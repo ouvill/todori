@@ -7,7 +7,6 @@ use crate::SharedState;
 
 pub mod auth;
 pub mod billing;
-pub mod organization;
 pub mod realtime;
 pub mod sync;
 
@@ -21,7 +20,6 @@ pub fn router() -> Router<SharedState> {
             "/v2/tenants",
             sync::router()
                 .merge(realtime::router())
-                .merge(organization::router())
                 .merge(billing::tenant_router()),
         )
 }
