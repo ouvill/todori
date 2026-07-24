@@ -689,6 +689,8 @@ class FakeBridgeService implements BridgeService {
   @override
   Future<TaskSeriesDto> updateTaskSeries({
     required String seriesId,
+    String? targetListId,
+    required List<TaskBlueprintNodeDto> nodes,
     required String rrule,
     required int startsAt,
     required String timeZone,
@@ -698,8 +700,8 @@ class FakeBridgeService implements BridgeService {
     final before = _series[index];
     final updated = TaskSeriesDto(
       id: before.id,
-      targetListId: before.targetListId,
-      nodes: before.nodes,
+      targetListId: targetListId,
+      nodes: nodes,
       rrule: rrule,
       startsAt: startsAt,
       timeZone: timeZone,

@@ -75,9 +75,9 @@ mod convergence_tests {
         ) {
             let mut task = new_task(Uuid::now_v7(), None, "base".into(), "7fffffffffffffffffffffffffffffff".into(), 1).unwrap();
             let base = SyncPlaintext::from_task(&task, h(0,"base")).unwrap();
-            task.title = title.clone();
+            task.content.title = title.clone();
             let a = base.stamp_task_changes(&task, h(a_counter,"a")).unwrap();
-            task.title = "base".into(); task.note = note.clone();
+            task.content.title = "base".into(); task.content.note = note.clone();
             let b = base.stamp_task_changes(&task, h(b_counter,"b")).unwrap();
             let ab = merge_lww(&a,&b).unwrap().plaintext;
             let ba = merge_lww(&b,&a).unwrap().plaintext;

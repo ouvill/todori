@@ -10,7 +10,7 @@ use taskveil_domain::{
     fractional_index_after, new_default_list, restored_active_duration_ms,
     validate_active_timer_session, validate_active_timer_update, validate_completed_timer_session,
     ActiveTimerSession, CivilDate, CompletedTimerSession, DomainError, IanaTimeZone, List,
-    RecurrenceError, SeriesCursor, SeriesOccurrenceRef, Task, TaskDue, TaskSeries,
+    RecurrenceError, SeriesCursor, SeriesOccurrenceRef, Task, TaskContent, TaskDue, TaskSeries,
     TaskSeriesConfig, TaskStatus, TaskTemplate, TimerFinishKind, TimerMode, TimerPhase,
     TimerRunState, UtcInstant, Uuid,
 };
@@ -3358,16 +3358,16 @@ fn insert_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.id.to_string(),
             task.list_id.to_string(),
             task.parent_task_id.map(|id| id.to_string()),
-            task.title,
-            task.note,
+            task.content.title,
+            task.content.note,
             status_to_str(task.status),
-            task.priority,
+            task.content.priority,
             due_kind,
             due_on,
             due_at_ms,
             due_time_zone,
             task.scheduled_at,
-            task.estimated_minutes,
+            task.content.estimated_minutes,
             task.sort_order,
             task.completed_at,
             task.closed_reason,
@@ -3424,16 +3424,16 @@ fn update_task_on(connection: &Connection, task: &Task) -> Result<(), StorageErr
             task.id.to_string(),
             task.list_id.to_string(),
             task.parent_task_id.map(|id| id.to_string()),
-            task.title,
-            task.note,
+            task.content.title,
+            task.content.note,
             status_to_str(task.status),
-            task.priority,
+            task.content.priority,
             due_kind,
             due_on,
             due_at_ms,
             due_time_zone,
             task.scheduled_at,
-            task.estimated_minutes,
+            task.content.estimated_minutes,
             task.sort_order,
             task.completed_at,
             task.closed_reason,
@@ -6292,8 +6292,12 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         id: parse_uuid(id, 0)?,
         list_id: parse_uuid(list_id, 1)?,
         parent_task_id: parse_optional_uuid(parent_task_id, 2)?,
-        title: row.get(3)?,
-        note: row.get(4)?,
+        content: TaskContent {
+            title: row.get(3)?,
+            note: row.get(4)?,
+            priority: row.get(6)?,
+            estimated_minutes: row.get(12)?,
+        },
         status: status_from_str(&status).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 5,
@@ -6301,10 +6305,8 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
                 Box::new(error),
             )
         })?,
-        priority: row.get(6)?,
         due: task_due_from_columns(due_kind, due_on, due_at_ms, due_time_zone)?,
         scheduled_at: row.get(11)?,
-        estimated_minutes: row.get(12)?,
         sort_order: row.get(13)?,
         completed_at: row.get(14)?,
         closed_reason: row.get(15)?,
@@ -6604,13 +6606,15 @@ mod tests {
             id: Uuid::now_v7(),
             list_id: Uuid::now_v7(),
             parent_task_id: Some(Uuid::now_v7()),
-            title: "Buy milk".to_string(),
-            note: "Organic whole milk".to_string(),
+            content: TaskContent {
+                title: "Buy milk".to_string(),
+                note: "Organic whole milk".to_string(),
+                priority: 2,
+                estimated_minutes: Some(15),
+            },
             status: TaskStatus::Todo,
-            priority: 2,
             due: Some(TaskDue::date_time(1_800_000_000_000, "UTC").unwrap()),
             scheduled_at: Some(1_799_900_000_000),
-            estimated_minutes: Some(15),
             sort_order: "a0".to_string(),
             completed_at: None,
             closed_reason: None,
@@ -6639,16 +6643,16 @@ mod tests {
                     task.id.to_string(),
                     task.list_id.to_string(),
                     task.parent_task_id.map(|id| id.to_string()),
-                    task.title,
-                    task.note,
+                    task.content.title,
+                    task.content.note,
                     status_to_str(task.status),
-                    task.priority,
+                    task.content.priority,
                     due_kind,
                     due_on,
                     due_at_ms,
                     due_time_zone,
                     task.scheduled_at,
-                    task.estimated_minutes,
+                    task.content.estimated_minutes,
                     task.sort_order,
                     task.completed_at,
                     task.closed_reason,
@@ -7356,8 +7360,8 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTaskRepository::new(connection);
         let mut task = sample_task();
-        task.title = "Plan Kyoto trip".to_string();
-        task.note = "Book shinkansen tickets".to_string();
+        task.content.title = "Plan Kyoto trip".to_string();
+        task.content.note = "Book shinkansen tickets".to_string();
 
         repository.insert(task.clone()).unwrap();
 
@@ -7375,8 +7379,8 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTaskRepository::new(connection);
         let mut task = sample_task();
-        task.title = "Draft itinerary".to_string();
-        task.note = "Reserve hotel".to_string();
+        task.content.title = "Draft itinerary".to_string();
+        task.content.note = "Reserve hotel".to_string();
         repository.insert(task.clone()).unwrap();
 
         assert_eq!(
@@ -7385,8 +7389,8 @@ mod tests {
         );
 
         let mut updated = task.clone();
-        updated.title = "Final packing list".to_string();
-        updated.note = "Bring passport".to_string();
+        updated.content.title = "Final packing list".to_string();
+        updated.content.note = "Bring passport".to_string();
         updated.updated_at += 1;
         repository.update(updated.clone()).unwrap();
 
@@ -7419,18 +7423,18 @@ mod tests {
         default_list.is_default = true;
         let mut kept = sample_task();
         kept.list_id = list.id;
-        kept.title = "Keep searchable".to_string();
-        kept.note = "retained".to_string();
+        kept.content.title = "Keep searchable".to_string();
+        kept.content.note = "retained".to_string();
         kept.sort_order = "a0".to_string();
         let mut task_deleted_by_subtree = sample_task();
         task_deleted_by_subtree.list_id = list.id;
-        task_deleted_by_subtree.title = "Delete searchable subtree".to_string();
-        task_deleted_by_subtree.note = "temporary".to_string();
+        task_deleted_by_subtree.content.title = "Delete searchable subtree".to_string();
+        task_deleted_by_subtree.content.note = "temporary".to_string();
         task_deleted_by_subtree.sort_order = "a1".to_string();
         let mut task_deleted_by_list = sample_task();
         task_deleted_by_list.list_id = list.id;
-        task_deleted_by_list.title = "Delete searchable list".to_string();
-        task_deleted_by_list.note = "temporary".to_string();
+        task_deleted_by_list.content.title = "Delete searchable list".to_string();
+        task_deleted_by_list.content.note = "temporary".to_string();
         task_deleted_by_list.sort_order = "a2".to_string();
 
         {
@@ -7458,7 +7462,7 @@ mod tests {
                 .search_tasks("searchable")
                 .unwrap()
                 .into_iter()
-                .map(|task| task.title)
+                .map(|task| task.content.title)
                 .collect::<Vec<_>>();
             let mut titles = titles;
             titles.sort();
@@ -7475,7 +7479,7 @@ mod tests {
             .search_tasks("searchable")
             .unwrap()
             .into_iter()
-            .map(|task| (task.title, task.list_id))
+            .map(|task| (task.content.title, task.list_id))
             .collect::<Vec<_>>();
         remaining.sort();
         assert_eq!(
@@ -7493,12 +7497,12 @@ mod tests {
         let connection = open_encrypted(file.path(), &KEY).unwrap();
         let mut repository = SqliteTaskRepository::new(connection);
         let mut english = sample_task();
-        english.title = "Buy milk".to_string();
-        english.note = "Organic whole milk".to_string();
+        english.content.title = "Buy milk".to_string();
+        english.content.note = "Organic whole milk".to_string();
         english.updated_at = 1_799_000_000_000;
         let mut japanese = sample_task();
-        japanese.title = "牛乳を買う".to_string();
-        japanese.note = "明日の朝".to_string();
+        japanese.content.title = "牛乳を買う".to_string();
+        japanese.content.note = "明日の朝".to_string();
         japanese.updated_at = 1_799_000_001_000;
         repository.insert(english.clone()).unwrap();
         repository.insert(japanese.clone()).unwrap();
@@ -7517,8 +7521,8 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         create_v3_database(file.path(), &KEY);
         let mut task = sample_task();
-        task.title = "Legacy searchable task".to_string();
-        task.note = "Backfill target".to_string();
+        task.content.title = "Legacy searchable task".to_string();
+        task.content.note = "Backfill target".to_string();
         {
             let connection = open_raw_encrypted(file.path(), &KEY);
             insert_task_pre_v20(&connection, &task);
@@ -8234,8 +8238,8 @@ mod tests {
     fn fts5_search_works_after_reopening_encrypted_database() {
         let file = NamedTempFile::new().unwrap();
         let mut task = sample_task();
-        task.title = "Encrypted search".to_string();
-        task.note = "SQLCipher FTS5".to_string();
+        task.content.title = "Encrypted search".to_string();
+        task.content.note = "SQLCipher FTS5".to_string();
         {
             let connection = open_encrypted(file.path(), &KEY).unwrap();
             let mut repository = SqliteTaskRepository::new(connection);
@@ -9834,7 +9838,7 @@ mod tests {
             .unwrap();
         let titles = home_tasks
             .iter()
-            .map(|entry| entry.task.title.as_str())
+            .map(|entry| entry.task.content.title.as_str())
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -9861,7 +9865,7 @@ mod tests {
             assert!(
                 home_tasks
                     .iter()
-                    .find(|entry| entry.task.title == title)
+                    .find(|entry| entry.task.content.title == title)
                     .unwrap()
                     .is_home_target,
                 "today's completed achievement is independent of planning fields"
@@ -9870,35 +9874,35 @@ mod tests {
         assert!(
             home_tasks
                 .iter()
-                .find(|entry| entry.task.title == "Due today")
+                .find(|entry| entry.task.content.title == "Due today")
                 .unwrap()
                 .is_home_target
         );
         assert!(
             !home_tasks
                 .iter()
-                .find(|entry| entry.task.title == "No due child")
+                .find(|entry| entry.task.content.title == "No due child")
                 .unwrap()
                 .is_home_target
         );
         assert!(
             !home_tasks
                 .iter()
-                .find(|entry| entry.task.title == "No due parent")
+                .find(|entry| entry.task.content.title == "No due parent")
                 .unwrap()
                 .is_home_target
         );
         assert!(
             home_tasks
                 .iter()
-                .find(|entry| entry.task.title == "Due child")
+                .find(|entry| entry.task.content.title == "Due child")
                 .unwrap()
                 .is_home_target
         );
         assert_eq!(
             home_tasks
                 .iter()
-                .find(|entry| entry.task.title == "Overdue")
+                .find(|entry| entry.task.content.title == "Overdue")
                 .unwrap()
                 .list_name,
             "Work"
@@ -10019,7 +10023,7 @@ mod tests {
         assert_eq!(
             occurrences
                 .iter()
-                .filter(|occurrence| occurrence.task.title == "Dual")
+                .filter(|occurrence| occurrence.task.content.title == "Dual")
                 .count(),
             2
         );
@@ -10050,8 +10054,8 @@ mod tests {
         }));
         assert!(!occurrences
             .iter()
-            .any(|occurrence| occurrence.task.title == "At end"
-                || occurrence.task.title == "Deleted"));
+            .any(|occurrence| occurrence.task.content.title == "At end"
+                || occurrence.task.content.title == "Deleted"));
     }
 
     #[test]
@@ -10516,7 +10520,7 @@ mod tests {
         task.list_id = list.id;
         task.parent_task_id = None;
         let mut prepared = task.clone();
-        prepared.note = "Updated before status transition".to_string();
+        prepared.content.note = "Updated before status transition".to_string();
         prepared.updated_at += 1;
         let done = transition_task(
             prepared.clone(),
@@ -11587,7 +11591,7 @@ mod tests {
         );
         let migrated = get_task_on(&connection, task.id).unwrap();
         assert_eq!(migrated.series_occurrence, None);
-        assert_eq!(migrated.title, task.title);
+        assert_eq!(migrated.content.title, task.content.title);
         assert_eq!(get_cursor_on(&connection, "main").unwrap(), None);
         assert_eq!(
             get_record_state_on(&connection, "tasks", tombstone_id).unwrap(),

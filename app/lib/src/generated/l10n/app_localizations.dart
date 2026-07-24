@@ -1480,7 +1480,7 @@ abstract class AppLocalizations {
   /// No description provided for @menuTemplatesBody.
   ///
   /// In en, this message translates to:
-  /// **'Reusable tasks and recurring schedules'**
+  /// **'Reusable and recurring tasks'**
   String get menuTemplatesBody;
 
   /// No description provided for @calendarSettingsTitle.
@@ -2398,7 +2398,7 @@ abstract class AppLocalizations {
   /// No description provided for @addScheduleTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Add schedule'**
+  /// **'Add recurring task'**
   String get addScheduleTooltip;
 
   /// No description provided for @createTaskSeriesTooltip.
@@ -2437,6 +2437,18 @@ abstract class AppLocalizations {
   /// **'Replace template contents'**
   String get replaceTemplateSnapshotTitle;
 
+  /// No description provided for @duplicateTemplateMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get duplicateTemplateMenuItem;
+
+  /// No description provided for @templateCopyName.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} copy'**
+  String templateCopyName(String name);
+
   /// No description provided for @sourceTaskIdLabel.
   ///
   /// In en, this message translates to:
@@ -2464,7 +2476,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteScheduleDialogTitle.
   ///
   /// In en, this message translates to:
-  /// **'Delete schedule?'**
+  /// **'Delete recurring task?'**
   String get deleteScheduleDialogTitle;
 
   /// No description provided for @deleteScheduleDialogBody.
@@ -2482,7 +2494,7 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleSemantics.
   ///
   /// In en, this message translates to:
-  /// **'Schedule {rule}, next {next}'**
+  /// **'Recurring task {rule}, next {next}'**
   String scheduleSemantics(String rule, String next);
 
   /// No description provided for @scheduleStreak.
@@ -2494,7 +2506,7 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleActionsTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Schedule actions'**
+  /// **'Recurring task actions'**
   String get scheduleActionsTooltip;
 
   /// No description provided for @pauseScheduleMenuItem.
@@ -2560,13 +2572,13 @@ abstract class AppLocalizations {
   /// No description provided for @newScheduleTitle.
   ///
   /// In en, this message translates to:
-  /// **'New schedule'**
+  /// **'New recurring task'**
   String get newScheduleTitle;
 
   /// No description provided for @editScheduleTitle.
   ///
   /// In en, this message translates to:
-  /// **'Edit schedule'**
+  /// **'Edit recurring task'**
   String get editScheduleTitle;
 
   /// No description provided for @schedulePresetLabel.
@@ -2620,8 +2632,26 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleEnabledLabel.
   ///
   /// In en, this message translates to:
-  /// **'Schedule enabled'**
+  /// **'Recurring task enabled'**
   String get scheduleEnabledLabel;
+
+  /// No description provided for @editSeriesContentMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit tasks and destination'**
+  String get editSeriesContentMenuItem;
+
+  /// No description provided for @editSeriesContentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit recurring task contents'**
+  String get editSeriesContentTitle;
+
+  /// No description provided for @targetListLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Destination list'**
+  String get targetListLabel;
 
   /// No description provided for @scheduleValidationFailed.
   ///
@@ -2634,6 +2664,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save as template'**
   String get saveAsTemplateMenuItem;
+
+  /// No description provided for @createTaskSeriesMenuItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Make recurring'**
+  String get createTaskSeriesMenuItem;
+
+  /// No description provided for @taskSeriesCreatedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring task created.'**
+  String get taskSeriesCreatedMessage;
 
   /// No description provided for @saveAsTemplateTitle.
   ///

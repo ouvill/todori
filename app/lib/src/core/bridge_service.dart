@@ -131,6 +131,8 @@ abstract class BridgeService {
 
   Future<rust_api.TaskSeriesDto> updateTaskSeries({
     required String seriesId,
+    String? targetListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
     required String rrule,
     required int startsAt,
     required String timeZone,
@@ -516,12 +518,16 @@ class FrbBridgeService implements BridgeService {
   @override
   Future<rust_api.TaskSeriesDto> updateTaskSeries({
     required String seriesId,
+    String? targetListId,
+    required List<rust_api.TaskBlueprintNodeDto> nodes,
     required String rrule,
     required int startsAt,
     required String timeZone,
     required bool enabled,
   }) => rust_api.updateTaskSeries(
     seriesId: seriesId,
+    targetListId: targetListId,
+    nodes: nodes,
     rrule: rrule,
     startsAt: startsAt,
     timeZone: timeZone,

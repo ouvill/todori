@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use taskveil_domain::{List, Task, TaskSeries, TaskSeriesConfig, TaskTemplate, Uuid};
+use taskveil_domain::{List, Task, TaskContent, TaskSeries, TaskSeriesConfig, TaskTemplate, Uuid};
 
 use crate::{
     account::AccountClient, decrypt_plaintext, merge_lww, EncryptedSyncState, EnvelopeError, Hlc,
@@ -2300,13 +2300,15 @@ where
         id,
         list_id: fields.placement.value.list_id,
         parent_task_id: fields.placement.value.parent_task_id,
-        title: fields.title.value.clone(),
-        note: fields.note.value.clone(),
+        content: TaskContent {
+            title: fields.title.value.clone(),
+            note: fields.note.value.clone(),
+            priority: fields.priority.value,
+            estimated_minutes: fields.estimated_minutes.value,
+        },
         status: fields.completion.value.status,
-        priority: fields.priority.value,
         due: fields.due.value.clone(),
         scheduled_at: fields.scheduled_at.value,
-        estimated_minutes: fields.estimated_minutes.value,
         sort_order: fields.placement.value.rank.clone(),
         completed_at: fields.completion.value.completed_at,
         closed_reason: fields.completion.value.closed_reason.clone(),
@@ -2396,7 +2398,10 @@ mod tests {
     use std::collections::HashMap;
 
     use taskveil_crypto::key_hierarchy::KEY_LEN;
-    use taskveil_domain::{new_task, CompletedTimerSession, TimerFinishKind, TimerMode};
+    use taskveil_domain::{
+        new_task, CompletedTimerSession, SeriesCursor, TaskBlueprint, TaskBlueprintNode,
+        TaskContent, TaskSeriesConfig, TimerFinishKind, TimerMode, TASK_BLUEPRINT_SCHEMA_REVISION,
+    };
     use zeroize::Zeroizing;
 
     use super::*;
@@ -2445,6 +2450,8 @@ mod tests {
     struct FakeStore {
         lists: HashMap<Uuid, List>,
         tasks: HashMap<Uuid, Task>,
+        templates: HashMap<Uuid, TaskTemplate>,
+        series: HashMap<Uuid, TaskSeries>,
         timer_sessions: HashMap<Uuid, CompletedTimerSession>,
         active_timer_task: Option<Uuid>,
         record_states: HashMap<(SyncCollection, Uuid), LocalSyncRecordState>,
@@ -2658,6 +2665,32 @@ mod tests {
 
         fn delete_task_subtree_for_sync(&mut self, _task_id: Uuid) -> Result<usize, String> {
             Ok(usize::from(self.tasks.remove(&_task_id).is_some()))
+        }
+
+        fn get_template(&mut self, id: Uuid) -> Result<Option<TaskTemplate>, String> {
+            Ok(self.templates.get(&id).cloned())
+        }
+
+        fn upsert_template_for_sync(&mut self, template: TaskTemplate) -> Result<(), String> {
+            self.templates.insert(template.id, template);
+            Ok(())
+        }
+
+        fn delete_template_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+            Ok(self.templates.remove(&id).is_some())
+        }
+
+        fn get_series(&mut self, id: Uuid) -> Result<Option<TaskSeries>, String> {
+            Ok(self.series.get(&id).cloned())
+        }
+
+        fn upsert_series_for_sync(&mut self, series: TaskSeries) -> Result<(), String> {
+            self.series.insert(series.id, series);
+            Ok(())
+        }
+
+        fn delete_series_for_sync(&mut self, id: Uuid) -> Result<bool, String> {
+            Ok(self.series.remove(&id).is_some())
         }
 
         fn get_timer_session(&mut self, id: Uuid) -> Result<Option<CompletedTimerSession>, String> {
@@ -3270,6 +3303,121 @@ mod tests {
     }
 
     #[test]
+    fn remote_series_tombstone_removes_only_series_and_keeps_generated_task() {
+        let series = sample_series(uuid(31));
+        let list = sample_list(uuid(32), true);
+        let mut generated = new_task(
+            list.id,
+            None,
+            "Generated".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        generated.series_occurrence = Some(taskveil_domain::SeriesOccurrenceRef {
+            series_id: series.id,
+            series_revision: series.config.config_revision.clone(),
+            occurrence_at: series.config.starts_at,
+            blueprint_node_key: "root".into(),
+        });
+        let delete_hlc = test_hlc(1, "remote").encode().unwrap();
+        let revision_hlc = test_hlc(2, "remote").encode().unwrap();
+        let record = PullRecord {
+            record_id: series.id,
+            collection: SyncCollection::TaskSeries,
+            seq: 2,
+            revision_hlc: revision_hlc.clone(),
+            state: EncryptedSyncState::Tombstone {
+                delete_hlc: delete_hlc.clone(),
+            },
+        };
+        let mut store = FakeStore::default();
+        store.lists.insert(list.id, list);
+        store.series.insert(series.id, series.clone());
+        store.tasks.insert(generated.id, generated.clone());
+        store.outbox.push(LocalSyncOutboxEntry {
+            op_id: Uuid::now_v7(),
+            record_id: series.id,
+            collection: SyncCollection::TaskSeries,
+            base_revision_hlc: None,
+            revision_hlc: test_hlc(1, "local").encode().unwrap(),
+            state: EncryptedSyncState::Live {
+                mutation_hlc: test_hlc(1, "local").encode().unwrap(),
+                blob: vec![1],
+            },
+            created_at: 1,
+        });
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_task_series(
+            &record,
+            &context_with_keys(&[]),
+            &mut store,
+            &mut now,
+            &mut summary,
+        )
+        .unwrap();
+
+        assert!(!store.series.contains_key(&series.id));
+        assert_eq!(store.tasks.get(&generated.id), Some(&generated));
+        assert!(store.outbox.is_empty());
+        assert_eq!(
+            store.record_states[&(SyncCollection::TaskSeries, series.id)],
+            LocalSyncRecordState {
+                current_revision_hlc: Some(revision_hlc),
+                state: LocalSyncSemanticState::Tombstone { delete_hlc },
+            }
+        );
+        assert_eq!(summary.deleted_count, 1);
+    }
+
+    #[test]
+    fn remote_template_tombstone_keeps_independent_series_and_task() {
+        let template = sample_template(uuid(41));
+        let mut series = sample_series(uuid(42));
+        series.config.blueprint = template.blueprint.clone();
+        let list = sample_list(uuid(43), true);
+        let generated = new_task(
+            list.id,
+            None,
+            "Generated".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let delete_hlc = test_hlc(1, "remote").encode().unwrap();
+        let revision_hlc = test_hlc(2, "remote").encode().unwrap();
+        let record = PullRecord {
+            record_id: template.id,
+            collection: SyncCollection::Templates,
+            seq: 2,
+            revision_hlc,
+            state: EncryptedSyncState::Tombstone { delete_hlc },
+        };
+        let mut store = FakeStore::default();
+        store.templates.insert(template.id, template.clone());
+        store.series.insert(series.id, series.clone());
+        store.tasks.insert(generated.id, generated.clone());
+        let mut now = ticking_now();
+        let mut summary = SyncRunSummary::default();
+
+        apply_pull_template(
+            &record,
+            &context_with_keys(&[]),
+            &mut store,
+            &mut now,
+            &mut summary,
+        )
+        .unwrap();
+
+        assert!(!store.templates.contains_key(&template.id));
+        assert_eq!(store.series.get(&series.id), Some(&series));
+        assert_eq!(store.tasks.get(&generated.id), Some(&generated));
+        assert_eq!(summary.deleted_count, 1);
+    }
+
+    #[test]
     fn remote_list_tombstone_rehomes_known_descendant_and_republishes_it() {
         let list_id = uuid(33);
         let list = sample_list(list_id, false);
@@ -3869,6 +4017,52 @@ mod tests {
             archived_at: None,
             created_at: 1_799_000_000_000,
             updated_at: 1_799_000_000_000,
+        }
+    }
+
+    fn sample_series(id: Uuid) -> TaskSeries {
+        TaskSeries {
+            id,
+            config: TaskSeriesConfig {
+                blueprint: TaskBlueprint {
+                    schema_revision: TASK_BLUEPRINT_SCHEMA_REVISION,
+                    nodes: vec![TaskBlueprintNode {
+                        node_key: "root".into(),
+                        parent_node_key: None,
+                        sibling_order: 0,
+                        content: TaskContent {
+                            title: "Generated".into(),
+                            note: String::new(),
+                            priority: 0,
+                            estimated_minutes: None,
+                        },
+                    }],
+                },
+                target_list_id: None,
+                rrule: "FREQ=DAILY;COUNT=1".into(),
+                starts_at: 1_800_000_000_000,
+                time_zone: "UTC".into(),
+                enabled: true,
+                config_revision: "revision-a".into(),
+                config_parent_revision: None,
+                config_effective_from: 1,
+                lineage: Vec::new(),
+            },
+            cursor: SeriesCursor::Pending(1_800_000_000_000),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    fn sample_template(id: Uuid) -> TaskTemplate {
+        TaskTemplate {
+            id,
+            name: "Reusable".into(),
+            default_list_id: None,
+            blueprint: sample_series(uuid(999)).config.blueprint,
+            blueprint_revision: "template-revision-a".into(),
+            created_at: 1,
+            updated_at: 1,
         }
     }
 

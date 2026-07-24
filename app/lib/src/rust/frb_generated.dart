@@ -330,6 +330,8 @@ abstract class RustLibApi extends BaseApi {
 
   Future<TaskSeriesDto> crateApiUpdateTaskSeries({
     required String seriesId,
+    String? targetListId,
+    required List<TaskBlueprintNodeDto> nodes,
     required String rrule,
     required PlatformInt64 startsAt,
     required String timeZone,
@@ -2602,6 +2604,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @override
   Future<TaskSeriesDto> crateApiUpdateTaskSeries({
     required String seriesId,
+    String? targetListId,
+    required List<TaskBlueprintNodeDto> nodes,
     required String rrule,
     required PlatformInt64 startsAt,
     required String timeZone,
@@ -2612,6 +2616,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(seriesId, serializer);
+          sse_encode_opt_String(targetListId, serializer);
+          sse_encode_list_task_blueprint_node_dto(nodes, serializer);
           sse_encode_String(rrule, serializer);
           sse_encode_i_64(startsAt, serializer);
           sse_encode_String(timeZone, serializer);
@@ -2628,7 +2634,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiUpdateTaskSeriesConstMeta,
-        argValues: [seriesId, rrule, startsAt, timeZone, enabled],
+        argValues: [
+          seriesId,
+          targetListId,
+          nodes,
+          rrule,
+          startsAt,
+          timeZone,
+          enabled,
+        ],
         apiImpl: this,
       ),
     );
@@ -2636,7 +2650,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUpdateTaskSeriesConstMeta => const TaskConstMeta(
     debugName: "update_task_series",
-    argNames: ["seriesId", "rrule", "startsAt", "timeZone", "enabled"],
+    argNames: [
+      "seriesId",
+      "targetListId",
+      "nodes",
+      "rrule",
+      "startsAt",
+      "timeZone",
+      "enabled",
+    ],
   );
 
   @override

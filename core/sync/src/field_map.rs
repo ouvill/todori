@@ -365,12 +365,12 @@ impl SyncPlaintext {
     pub fn from_task(task: &Task, hlc: Hlc) -> Result<Self, FieldMapError> {
         validate_rank(&task.sort_order)?;
         Ok(Self::Task(TaskPlaintext {
-            title: Clocked::new(task.title.clone(), hlc.clone()),
-            note: Clocked::new(task.note.clone(), hlc.clone()),
-            priority: Clocked::new(task.priority, hlc.clone()),
+            title: Clocked::new(task.content.title.clone(), hlc.clone()),
+            note: Clocked::new(task.content.note.clone(), hlc.clone()),
+            priority: Clocked::new(task.content.priority, hlc.clone()),
             due: Clocked::new(task.due.clone(), hlc.clone()),
             scheduled_at: Clocked::new(task.scheduled_at, hlc.clone()),
-            estimated_minutes: Clocked::new(task.estimated_minutes, hlc.clone()),
+            estimated_minutes: Clocked::new(task.content.estimated_minutes, hlc.clone()),
             assignee: Clocked::new(task.assignee, hlc.clone()),
             series_occurrence: Clocked::new(task.series_occurrence.clone(), hlc.clone()),
             created_at: Clocked::new(task.created_at, hlc.clone()),
@@ -753,7 +753,7 @@ mod tests {
         )
         .unwrap();
         let before = SyncPlaintext::from_task(&task, hlc(1)).unwrap();
-        task.note = "changed".into();
+        task.content.note = "changed".into();
         task.status = TaskStatus::Done;
         task.completed_at = Some(2);
         let after = before.stamp_task_changes(&task, hlc(2)).unwrap();

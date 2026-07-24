@@ -2503,6 +2503,8 @@ fn wire__crate__api__update_task_series_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_series_id = <String>::sse_decode(&mut deserializer);
+            let api_target_list_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_nodes = <Vec<crate::api::TaskBlueprintNodeDto>>::sse_decode(&mut deserializer);
             let api_rrule = <String>::sse_decode(&mut deserializer);
             let api_starts_at = <i64>::sse_decode(&mut deserializer);
             let api_time_zone = <String>::sse_decode(&mut deserializer);
@@ -2512,6 +2514,8 @@ fn wire__crate__api__update_task_series_impl(
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::update_task_series(
                         api_series_id,
+                        api_target_list_id,
+                        api_nodes,
                         api_rrule,
                         api_starts_at,
                         api_time_zone,

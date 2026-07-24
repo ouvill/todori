@@ -330,6 +330,7 @@ mod tests {
             SqliteTaskRepository::new(connection)
                 .get(task.id)
                 .unwrap()
+                .content
                 .title,
             "after restart"
         );

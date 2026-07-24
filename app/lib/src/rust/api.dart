@@ -211,12 +211,16 @@ Future<TaskSeriesDto> createTaskSeriesFromTask({
 
 Future<TaskSeriesDto> updateTaskSeries({
   required String seriesId,
+  String? targetListId,
+  required List<TaskBlueprintNodeDto> nodes,
   required String rrule,
   required PlatformInt64 startsAt,
   required String timeZone,
   required bool enabled,
 }) => RustLib.instance.api.crateApiUpdateTaskSeries(
   seriesId: seriesId,
+  targetListId: targetListId,
+  nodes: nodes,
   rrule: rrule,
   startsAt: startsAt,
   timeZone: timeZone,

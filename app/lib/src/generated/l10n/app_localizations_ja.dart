@@ -778,7 +778,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get menuAccountBody => 'ログイン、同期、セキュリティ、Pro';
 
   @override
-  String get menuTemplatesBody => '繰り返し使えるタスクとスケジュール';
+  String get menuTemplatesBody => '再利用タスクと繰り返しタスク';
 
   @override
   String get calendarSettingsTitle => 'カレンダー設定';
@@ -1267,7 +1267,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get createFromTemplateButton => 'タスクを作成';
 
   @override
-  String get addScheduleTooltip => 'スケジュールを追加';
+  String get addScheduleTooltip => '繰り返しタスクを追加';
 
   @override
   String get createTaskSeriesTooltip => 'このテンプレートから繰り返しタスクを作成';
@@ -1288,6 +1288,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get replaceTemplateSnapshotTitle => 'テンプレート内容を置き換える';
 
   @override
+  String get duplicateTemplateMenuItem => '複製';
+
+  @override
+  String templateCopyName(String name) {
+    return '$name（コピー）';
+  }
+
+  @override
   String get sourceTaskIdLabel => '元タスクID';
 
   @override
@@ -1302,7 +1310,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get deleteTemplateDialogBody => 'このテンプレートから作成した繰り返しタスクとタスクは変更されません。';
 
   @override
-  String get deleteScheduleDialogTitle => 'スケジュールを削除しますか？';
+  String get deleteScheduleDialogTitle => '繰り返しタスクを削除しますか？';
 
   @override
   String get deleteScheduleDialogBody => '作成済みタスクは変更されません。';
@@ -1312,7 +1320,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String scheduleSemantics(String rule, String next) {
-    return 'スケジュール $rule、次回 $next';
+    return '繰り返しタスク $rule、次回 $next';
   }
 
   @override
@@ -1321,7 +1329,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get scheduleActionsTooltip => 'スケジュールの操作';
+  String get scheduleActionsTooltip => '繰り返しタスクの操作';
 
   @override
   String get pauseScheduleMenuItem => '停止';
@@ -1354,10 +1362,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get inboxFallbackLabel => 'Inboxへフォールバック';
 
   @override
-  String get newScheduleTitle => '新しいスケジュール';
+  String get newScheduleTitle => '新しい繰り返しタスク';
 
   @override
-  String get editScheduleTitle => 'スケジュールを編集';
+  String get editScheduleTitle => '繰り返しタスクを編集';
 
   @override
   String get schedulePresetLabel => '繰り返し';
@@ -1384,13 +1392,28 @@ class AppLocalizationsJa extends AppLocalizations {
   String get timeZoneLabel => 'タイムゾーン';
 
   @override
-  String get scheduleEnabledLabel => 'スケジュールを有効にする';
+  String get scheduleEnabledLabel => '繰り返しタスクを有効にする';
+
+  @override
+  String get editSeriesContentMenuItem => 'タスク内容と起票先を編集';
+
+  @override
+  String get editSeriesContentTitle => '繰り返しタスクの内容を編集';
+
+  @override
+  String get targetListLabel => '起票先リスト';
 
   @override
   String get scheduleValidationFailed => '繰り返しルール、開始日時、タイムゾーンを確認してください。';
 
   @override
   String get saveAsTemplateMenuItem => 'テンプレートとして保存';
+
+  @override
+  String get createTaskSeriesMenuItem => '繰り返しタスクにする';
+
+  @override
+  String get taskSeriesCreatedMessage => '繰り返しタスクを作成しました。';
 
   @override
   String get saveAsTemplateTitle => 'テンプレートとして保存';

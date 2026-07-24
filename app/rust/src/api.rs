@@ -578,6 +578,8 @@ pub fn create_task_series_from_task(
 #[allow(clippy::too_many_arguments)]
 pub fn update_task_series(
     series_id: String,
+    target_list_id: Option<String>,
+    nodes: Vec<TaskBlueprintNodeDto>,
     rrule: String,
     starts_at: i64,
     time_zone: String,
@@ -585,6 +587,8 @@ pub fn update_task_series(
 ) -> Result<TaskSeriesDto, String> {
     let command = UpdateTaskSeriesCommand {
         series_id: parse_uuid(&series_id)?,
+        blueprint: blueprint_from_dtos(nodes)?,
+        target_list_id: target_list_id.as_deref().map(parse_uuid).transpose()?,
         rrule,
         starts_at,
         time_zone,
@@ -926,13 +930,13 @@ fn task_to_dto(task: Task) -> TaskDto {
         id: task.id.to_string(),
         list_id: task.list_id.to_string(),
         parent_task_id: task.parent_task_id.map(|id| id.to_string()),
-        title: task.title,
-        note: task.note,
+        title: task.content.title,
+        note: task.content.note,
         status: status_to_string(task.status),
-        priority: task.priority,
+        priority: task.content.priority,
         due: task.due.map(task_due_to_dto),
         scheduled_at: task.scheduled_at,
-        estimated_minutes: task.estimated_minutes,
+        estimated_minutes: task.content.estimated_minutes,
         sort_order: task.sort_order,
         completed_at: task.completed_at,
         closed_reason: task.closed_reason,

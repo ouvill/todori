@@ -1601,6 +1601,7 @@ async fn production_two_client_distinct_fields_and_due_mode_conflict_converge() 
         SqliteTaskRepository::new(open_encrypted(&path_b, &DB_KEY_B).unwrap())
             .get(task.id)
             .unwrap()
+            .content
             .title,
         "Base title"
     );

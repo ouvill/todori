@@ -3,9 +3,8 @@ use std::collections::{HashMap, HashSet};
 use taskveil_domain::{
     calculate_streak, next_occurrence_after, series_task_id, validate_and_normalize_rrule,
     virtual_next_occurrence_after_end, RevisionBoundary, SeriesCursor, SeriesOccurrenceRef, Streak,
-    StreakOccurrence, Task, TaskBlueprint, TaskBlueprintNode, TaskContent, TaskSeries,
-    TaskSeriesConfig, TaskStatus, TaskTemplate, Uuid, SETTLEMENT_BATCH_SIZE,
-    TASK_BLUEPRINT_SCHEMA_REVISION,
+    StreakOccurrence, Task, TaskBlueprint, TaskBlueprintNode, TaskSeries, TaskSeriesConfig,
+    TaskStatus, TaskTemplate, Uuid, SETTLEMENT_BATCH_SIZE, TASK_BLUEPRINT_SCHEMA_REVISION,
 };
 use taskveil_storage::{
     open_encrypted, SqliteWriteTx, StorageError, TaskRepository, TemplateSeriesRepository,
@@ -67,6 +66,8 @@ pub struct CreateTaskSeriesFromTaskCommand {
 #[derive(Debug, Clone)]
 pub struct UpdateTaskSeriesCommand {
     pub series_id: Uuid,
+    pub blueprint: TaskBlueprint,
+    pub target_list_id: Option<Uuid>,
     pub rrule: String,
     pub starts_at: i64,
     pub time_zone: String,
@@ -343,6 +344,7 @@ impl TaskveilClient {
         let _guard = self.operation_guard()?;
         let state = self.local_mutation_state()?;
         ensure_available(&state)?;
+        command.blueprint.validate()?;
         let now = now_ms()?;
         self.settle_all_before_edit(&state, now)?;
         let normalized =
@@ -357,6 +359,8 @@ impl TaskveilClient {
             series.config.config_parent_revision.clone(),
             series.config.config_effective_from,
         );
+        series.config.blueprint = command.blueprint;
+        series.config.target_list_id = command.target_list_id;
         series.config.rrule = normalized;
         series.config.starts_at = command.starts_at;
         series.config.time_zone = command.time_zone;
@@ -669,12 +673,7 @@ fn blueprint_from_subtree(tasks: &[Task], root_id: Uuid) -> Result<TaskBlueprint
                         .map(|id| id.to_string())
                 },
                 sibling_order: *order_by_id.get(&task.id).unwrap_or(&0),
-                content: TaskContent {
-                    title: task.title.clone(),
-                    note: task.note.clone(),
-                    priority: task.priority,
-                    estimated_minutes: task.estimated_minutes,
-                },
+                content: task.content.clone(),
             })
             .collect(),
     };
@@ -747,15 +746,12 @@ fn instantiate_blueprint(
                     .parent_node_key
                     .as_ref()
                     .and_then(|parent| ids.get(parent.as_str()).copied()),
-                title: node.content.title.clone(),
-                note: node.content.note.clone(),
+                content: node.content.clone(),
                 status: TaskStatus::Todo,
-                priority: node.content.priority,
                 due: None,
                 scheduled_at: series_occurrence
                     .filter(|_| is_root)
                     .map(|(_, occurrence_at)| occurrence_at),
-                estimated_minutes: node.content.estimated_minutes,
                 sort_order: format!("{:032x}", u128::from(node.sibling_order) + 1),
                 completed_at: None,
                 closed_reason: None,
@@ -873,7 +869,7 @@ fn revision_accepts_occurrence(
 mod tests {
     use std::sync::{atomic::AtomicBool, Mutex};
 
-    use taskveil_domain::{new_list, new_task};
+    use taskveil_domain::{new_list, new_task, TaskContent};
     use taskveil_storage::{
         ListRepository, SqliteListRepository, SqliteTaskRepository, TaskRepository,
     };
@@ -1125,6 +1121,8 @@ mod tests {
         let resumed_series = client
             .update_task_series(UpdateTaskSeriesCommand {
                 series_id: series.id,
+                blueprint: series.config.blueprint.clone(),
+                target_list_id: series.config.target_list_id,
                 rrule: series.config.rrule.clone(),
                 starts_at,
                 time_zone: "UTC".into(),
@@ -1139,6 +1137,8 @@ mod tests {
         client
             .update_task_series(UpdateTaskSeriesCommand {
                 series_id: series.id,
+                blueprint: series.config.blueprint.clone(),
+                target_list_id: series.config.target_list_id,
                 rrule: series.config.rrule,
                 starts_at,
                 time_zone: "UTC".into(),
@@ -1152,6 +1152,91 @@ mod tests {
         assert_eq!(
             client.settle_due_series(starts_at).unwrap(),
             SettlementSummary::default()
+        );
+    }
+
+    #[test]
+    fn series_update_replaces_blueprint_and_target_as_one_future_config() {
+        let (_temp, client, inbox, source) = anonymous_client_fixture();
+        let starts_at = now_ms().unwrap() + 60_000;
+        let series = client
+            .create_task_series_from_task(CreateTaskSeriesFromTaskCommand {
+                task_id: source.id,
+                target_list_id: Some(inbox.id),
+                rrule: "FREQ=DAILY;COUNT=1".into(),
+                starts_at,
+                time_zone: "UTC".into(),
+            })
+            .unwrap();
+        let mut blueprint = series.config.blueprint.clone();
+        blueprint.nodes[0].content.title = "Updated series content".into();
+
+        let updated = client
+            .update_task_series(UpdateTaskSeriesCommand {
+                series_id: series.id,
+                blueprint: blueprint.clone(),
+                target_list_id: None,
+                rrule: series.config.rrule,
+                starts_at,
+                time_zone: "UTC".into(),
+                enabled: true,
+            })
+            .unwrap();
+
+        assert_eq!(updated.config.blueprint, blueprint);
+        assert_eq!(updated.config.target_list_id, None);
+        assert_eq!(
+            updated.config.config_parent_revision,
+            Some(series.config.config_revision)
+        );
+        let generated = client.settle_due_series(starts_at).unwrap();
+        assert_eq!(generated.generated_occurrences, 1);
+        assert!(client
+            .get_tasks(inbox.id)
+            .unwrap()
+            .iter()
+            .any(|task| task.content.title == "Updated series content"));
+    }
+
+    #[test]
+    fn stale_series_cursor_replay_does_not_duplicate_generated_tasks() {
+        let (_temp, client, inbox, source) = anonymous_client_fixture();
+        let starts_at = 1_900_000_000_000;
+        let day_ms = 24 * 60 * 60 * 1_000;
+        let series = client
+            .create_task_series_from_task(CreateTaskSeriesFromTaskCommand {
+                task_id: source.id,
+                target_list_id: Some(inbox.id),
+                rrule: "FREQ=DAILY;COUNT=2".into(),
+                starts_at,
+                time_zone: "UTC".into(),
+            })
+            .unwrap();
+        let first = client.settle_due_series(starts_at + day_ms).unwrap();
+        assert_eq!(first.generated_tasks, 2);
+
+        let mut connection = open_encrypted(&client.db_path, &client.db_key()).unwrap();
+        let mut transaction = SqliteWriteTx::begin(&mut connection).unwrap();
+        let mut stale = transaction.get_series(series.id).unwrap();
+        stale.cursor = SeriesCursor::Pending(starts_at);
+        transaction.upsert_series(stale).unwrap();
+        transaction.commit().unwrap();
+
+        let replay = client.settle_due_series(starts_at + day_ms).unwrap();
+        assert_eq!(replay.generated_occurrences, 2);
+        assert_eq!(replay.generated_tasks, 0);
+        assert_eq!(
+            client
+                .get_tasks(inbox.id)
+                .unwrap()
+                .iter()
+                .filter(|task| {
+                    task.series_occurrence
+                        .as_ref()
+                        .is_some_and(|value| value.series_id == series.id)
+                })
+                .count(),
+            2
         );
     }
 
@@ -1217,7 +1302,7 @@ mod tests {
                     .is_some_and(|value| value.series_id == series.id)
             })
             .unwrap();
-        assert_eq!(generated.title, source.title);
+        assert_eq!(generated.content.title, source.content.title);
     }
 
     #[test]
@@ -1290,7 +1375,10 @@ mod tests {
 
         assert_eq!(series.config.target_list_id, Some(inbox.id));
         assert_eq!(series.config.blueprint.nodes.len(), 1);
-        assert_eq!(series.config.blueprint.nodes[0].content.title, source.title);
+        assert_eq!(
+            series.config.blueprint.nodes[0].content.title,
+            source.content.title
+        );
     }
 
     #[test]

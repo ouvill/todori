@@ -309,9 +309,9 @@ mod tests {
         )
         .unwrap();
         let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
-        task.title = "title-a".into();
+        task.content.title = "title-a".into();
         let a = base.stamp_task_changes(&task, h(1, "a")).unwrap();
-        task.title = "old".into();
+        task.content.title = "old".into();
         task.status = TaskStatus::Done;
         task.completed_at = Some(9);
         let b = base.stamp_task_changes(&task, h(1, "b")).unwrap();
@@ -337,9 +337,9 @@ mod tests {
         )
         .unwrap();
         let base = SyncPlaintext::from_task(&task, h(0, "base")).unwrap();
-        task.title = "older".into();
+        task.content.title = "older".into();
         let older = base.stamp_task_changes(&task, h(1, "a")).unwrap();
-        task.title = "newer".into();
+        task.content.title = "newer".into();
         let newer = base.stamp_task_changes(&task, h(2, "b")).unwrap();
         let ab = merge_lww(&older, &newer).unwrap().plaintext;
         let ba = merge_lww(&newer, &older).unwrap().plaintext;
@@ -367,7 +367,7 @@ mod tests {
         let placed = base.stamp_task_changes(&task, h(1, "a")).unwrap();
         task.parent_task_id = None;
         task.sort_order = "7fffffffffffffffffffffffffffffff".into();
-        task.note = "remote note".into();
+        task.content.note = "remote note".into();
         let noted = base.stamp_task_changes(&task, h(1, "b")).unwrap();
         let merged = merge_lww(&placed, &noted).unwrap().plaintext;
         let SyncPlaintext::Task(value) = merged else {
@@ -486,6 +486,59 @@ mod tests {
         assert_eq!(
             value.cursor.value.cursor,
             SeriesCursor::Pending(1_800_100_000_000)
+        );
+    }
+
+    #[test]
+    fn concurrent_series_config_edits_converge_atomically_on_both_devices() {
+        let series = TaskSeries {
+            id: Uuid::now_v7(),
+            config: TaskSeriesConfig {
+                blueprint: blueprint(),
+                target_list_id: None,
+                rrule: "FREQ=DAILY".to_string(),
+                starts_at: 1_800_000_000_000,
+                time_zone: "UTC".to_string(),
+                enabled: true,
+                config_revision: "revision-base".to_string(),
+                config_parent_revision: None,
+                config_effective_from: 1,
+                lineage: Vec::new(),
+            },
+            cursor: SeriesCursor::Pending(1_800_000_000_000),
+            created_at: 1,
+            updated_at: 1,
+        };
+        let base = SyncPlaintext::from_series(&series, h(0, "base")).unwrap();
+
+        let mut device_a = series.clone();
+        device_a.config.blueprint.nodes[0].content.title = "Device A".into();
+        device_a.config.config_revision = "revision-a".into();
+        device_a.config.config_parent_revision = Some("revision-base".into());
+        device_a.config.config_effective_from = 2;
+        let from_a = base.stamp_series_changes(&device_a, h(1, "a")).unwrap();
+
+        let mut device_b = series;
+        device_b.config.target_list_id = Some(Uuid::now_v7());
+        device_b.config.config_revision = "revision-b".into();
+        device_b.config.config_parent_revision = Some("revision-base".into());
+        device_b.config.config_effective_from = 2;
+        let from_b = base.stamp_series_changes(&device_b, h(1, "b")).unwrap();
+
+        let on_a = merge_lww(&from_a, &from_b).unwrap().plaintext;
+        let on_b = merge_lww(&from_b, &from_a).unwrap().plaintext;
+        assert_eq!(on_a, on_b);
+        let SyncPlaintext::TaskSeries(merged) = on_a else {
+            unreachable!()
+        };
+        assert_eq!(merged.config.value.revision, "revision-b");
+        assert_eq!(
+            merged.config.value.blueprint, device_b.config.blueprint,
+            "Blueprint and destination must come from one atomic config winner"
+        );
+        assert_eq!(
+            merged.config.value.target_list_id,
+            device_b.config.target_list_id
         );
     }
 }

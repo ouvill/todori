@@ -11,6 +11,8 @@ import 'package:taskveil/src/core/task_due.dart';
 import 'package:taskveil/src/generated/l10n/app_localizations.dart';
 import 'package:taskveil/src/notifications/reminder_notifications.dart';
 import 'package:taskveil/src/rust/api.dart';
+import 'package:taskveil/src/screens/templates_screen.dart'
+    show showTaskSeriesDialog;
 import 'package:taskveil/src/ui/dialogs.dart';
 import 'package:taskveil/src/ui/states.dart';
 import 'package:taskveil/src/ui/task_components.dart';
@@ -60,6 +62,8 @@ class TaskDetailScreen extends ConsumerWidget {
                       unawaited(_setTaskStatus(context, ref, task, 'todo'));
                     case _TaskDetailAction.saveAsTemplate:
                       unawaited(_saveAsTemplate(context, ref, task));
+                    case _TaskDetailAction.createTaskSeries:
+                      unawaited(_createTaskSeries(context, ref, task));
                     case _TaskDetailAction.delete:
                       unawaited(_deleteTask(context, ref, task));
                   }
@@ -728,7 +732,7 @@ class TaskDetailScreen extends ConsumerWidget {
                                     ..sort(_compareReminderDtos);
                                 });
                               }
-                      },
+                            },
                       icon: const Icon(LucideIcons.plus300),
                       label: Text(l10n.addReminderButton),
                     ),
@@ -1063,7 +1067,14 @@ class TaskDetailScreen extends ConsumerWidget {
   }
 }
 
-enum _TaskDetailAction { markDone, markWontDo, reopen, saveAsTemplate, delete }
+enum _TaskDetailAction {
+  markDone,
+  markWontDo,
+  reopen,
+  saveAsTemplate,
+  createTaskSeries,
+  delete,
+}
 
 List<PopupMenuEntry<_TaskDetailAction>> _taskDetailMenuItems({
   required AppLocalizations l10n,
@@ -1096,6 +1107,12 @@ List<PopupMenuEntry<_TaskDetailAction>> _taskDetailMenuItems({
     PopupMenuItem(
       value: _TaskDetailAction.saveAsTemplate,
       child: Text(l10n.saveAsTemplateMenuItem),
+    ),
+  );
+  items.add(
+    PopupMenuItem(
+      value: _TaskDetailAction.createTaskSeries,
+      child: Text(l10n.createTaskSeriesMenuItem),
     ),
   );
   items.add(const PopupMenuDivider());
@@ -1134,6 +1151,48 @@ Future<void> _saveAsTemplate(
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(l10n.templateSavedMessage)));
+  }
+}
+
+Future<void> _createTaskSeries(
+  BuildContext context,
+  WidgetRef ref,
+  TaskDto task,
+) async {
+  final bridge = ref.read(bridgeServiceProvider);
+  final defaultTimeZone = await bridge.getLocalTimeZone();
+  if (!context.mounted) return;
+  final input = await showTaskSeriesDialog(context, null, defaultTimeZone);
+  if (input == null) return;
+  try {
+    await bridge.validateRecurrenceRule(
+      rrule: input.rrule,
+      startsAt: input.startsAt,
+      timeZone: input.timeZone,
+    );
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.scheduleValidationFailed),
+        ),
+      );
+    }
+    return;
+  }
+  await bridge.createTaskSeriesFromTask(
+    taskId: task.id,
+    targetListId: task.listId,
+    rrule: input.rrule,
+    startsAt: input.startsAt,
+    timeZone: input.timeZone,
+  );
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context)!.taskSeriesCreatedMessage),
+      ),
+    );
   }
 }
 

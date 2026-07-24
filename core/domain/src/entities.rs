@@ -277,14 +277,12 @@ pub struct Task {
     pub id: Uuid,
     pub list_id: Uuid,
     pub parent_task_id: Option<Uuid>,
-    /// 暗号化対象フィールド（§4.8）。
-    pub title: String,
-    pub note: String,
+    /// TaskとBlueprintNodeで共有する、実行状態を含まない内容値。
+    #[serde(flatten)]
+    pub content: crate::recurrence::TaskContent,
     pub status: TaskStatus,
-    pub priority: i32,
     pub due: Option<TaskDue>,
     pub scheduled_at: Option<i64>,
-    pub estimated_minutes: Option<i32>,
     /// 同一階層内でのfractional index。
     pub sort_order: String,
     pub completed_at: Option<i64>,
@@ -341,13 +339,15 @@ mod tests {
             id: Uuid::now_v7(),
             list_id: Uuid::now_v7(),
             parent_task_id: None,
-            title: "牛乳を買う".to_string(),
-            note: String::new(),
+            content: crate::recurrence::TaskContent {
+                title: "牛乳を買う".to_string(),
+                note: String::new(),
+                priority: 0,
+                estimated_minutes: None,
+            },
             status: TaskStatus::Todo,
-            priority: 0,
             due: None,
             scheduled_at: None,
-            estimated_minutes: None,
             sort_order: "a0".to_string(),
             completed_at: None,
             closed_reason: None,

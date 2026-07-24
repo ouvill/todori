@@ -26,6 +26,24 @@ pub struct TaskContent {
     pub estimated_minutes: Option<i32>,
 }
 
+impl TaskContent {
+    pub fn validate(&self) -> Result<(), RecurrenceError> {
+        if self.title.trim().is_empty() {
+            return Err(RecurrenceError::EmptyTaskTitle);
+        }
+        if !(0..=3).contains(&self.priority) {
+            return Err(RecurrenceError::InvalidPriority);
+        }
+        if self
+            .estimated_minutes
+            .is_some_and(|minutes| minutes <= 0 || minutes % 5 != 0)
+        {
+            return Err(RecurrenceError::InvalidEstimatedMinutes);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskBlueprintNode {
@@ -155,7 +173,7 @@ pub enum RecurrenceError {
     EmptyTaskTitle,
     #[error("task blueprint priority must be between 0 and 3")]
     InvalidPriority,
-    #[error("estimated minutes must be positive")]
+    #[error("estimated minutes must be a positive multiple of 5")]
     InvalidEstimatedMinutes,
     #[error("task template name must be non-empty")]
     EmptyTemplateName,
@@ -196,19 +214,7 @@ impl TaskBlueprint {
             if node.parent_node_key.is_none() {
                 roots += 1;
             }
-            if node
-                .content
-                .estimated_minutes
-                .is_some_and(|minutes| minutes <= 0)
-            {
-                return Err(RecurrenceError::InvalidEstimatedMinutes);
-            }
-            if node.content.title.trim().is_empty() {
-                return Err(RecurrenceError::EmptyTaskTitle);
-            }
-            if !(0..=3).contains(&node.content.priority) {
-                return Err(RecurrenceError::InvalidPriority);
-            }
+            node.content.validate()?;
             if !sibling_orders.insert((node.parent_node_key.as_deref(), node.sibling_order)) {
                 return Err(RecurrenceError::DuplicateSiblingOrder);
             }
@@ -562,6 +568,13 @@ mod tests {
         let mut invalid = blueprint();
         invalid.nodes[0].content.priority = 4;
         assert_eq!(invalid.validate(), Err(RecurrenceError::InvalidPriority));
+
+        let mut invalid = blueprint();
+        invalid.nodes[0].content.estimated_minutes = Some(1);
+        assert_eq!(
+            invalid.validate(),
+            Err(RecurrenceError::InvalidEstimatedMinutes)
+        );
 
         let template = TaskTemplate {
             id: Uuid::now_v7(),

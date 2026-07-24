@@ -791,7 +791,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get menuAccountBody => 'Sign in, sync, security, and Pro';
 
   @override
-  String get menuTemplatesBody => 'Reusable tasks and recurring schedules';
+  String get menuTemplatesBody => 'Reusable and recurring tasks';
 
   @override
   String get calendarSettingsTitle => 'Calendar settings';
@@ -1307,7 +1307,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createFromTemplateButton => 'Create tasks';
 
   @override
-  String get addScheduleTooltip => 'Add schedule';
+  String get addScheduleTooltip => 'Add recurring task';
 
   @override
   String get createTaskSeriesTooltip =>
@@ -1330,6 +1330,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get replaceTemplateSnapshotTitle => 'Replace template contents';
 
   @override
+  String get duplicateTemplateMenuItem => 'Duplicate';
+
+  @override
+  String templateCopyName(String name) {
+    return '$name copy';
+  }
+
+  @override
   String get sourceTaskIdLabel => 'Source task ID';
 
   @override
@@ -1345,7 +1353,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Recurring tasks and tasks created from this template will stay unchanged.';
 
   @override
-  String get deleteScheduleDialogTitle => 'Delete schedule?';
+  String get deleteScheduleDialogTitle => 'Delete recurring task?';
 
   @override
   String get deleteScheduleDialogBody =>
@@ -1356,7 +1364,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String scheduleSemantics(String rule, String next) {
-    return 'Schedule $rule, next $next';
+    return 'Recurring task $rule, next $next';
   }
 
   @override
@@ -1365,7 +1373,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get scheduleActionsTooltip => 'Schedule actions';
+  String get scheduleActionsTooltip => 'Recurring task actions';
 
   @override
   String get pauseScheduleMenuItem => 'Pause';
@@ -1398,10 +1406,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get inboxFallbackLabel => 'Inbox fallback';
 
   @override
-  String get newScheduleTitle => 'New schedule';
+  String get newScheduleTitle => 'New recurring task';
 
   @override
-  String get editScheduleTitle => 'Edit schedule';
+  String get editScheduleTitle => 'Edit recurring task';
 
   @override
   String get schedulePresetLabel => 'Repeat';
@@ -1428,7 +1436,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get timeZoneLabel => 'Time zone';
 
   @override
-  String get scheduleEnabledLabel => 'Schedule enabled';
+  String get scheduleEnabledLabel => 'Recurring task enabled';
+
+  @override
+  String get editSeriesContentMenuItem => 'Edit tasks and destination';
+
+  @override
+  String get editSeriesContentTitle => 'Edit recurring task contents';
+
+  @override
+  String get targetListLabel => 'Destination list';
 
   @override
   String get scheduleValidationFailed =>
@@ -1436,6 +1453,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get saveAsTemplateMenuItem => 'Save as template';
+
+  @override
+  String get createTaskSeriesMenuItem => 'Make recurring';
+
+  @override
+  String get taskSeriesCreatedMessage => 'Recurring task created.';
 
   @override
   String get saveAsTemplateTitle => 'Save as template';

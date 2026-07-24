@@ -496,14 +496,14 @@ mod tests {
             .mutation_service
             .update_task(update_input(fixture.task.id), &fixture.sync)
             .unwrap();
-        assert_eq!(updated.title, "after");
-        assert_eq!(updated.priority, 2);
+        assert_eq!(updated.content.title, "after");
+        assert_eq!(updated.content.priority, 2);
         assert_eq!(updated.scheduled_at, Some(BASE_MS + 30_000));
-        assert_eq!(updated.estimated_minutes, Some(45));
+        assert_eq!(updated.content.estimated_minutes, Some(45));
 
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
-        assert_eq!(tasks.get(fixture.task.id).unwrap().title, "after");
+        assert_eq!(tasks.get(fixture.task.id).unwrap().content.title, "after");
         assert!(tasks.latest_unconsumed_undo().unwrap().is_some());
         drop(tasks);
 
@@ -560,7 +560,7 @@ mod tests {
 
         let connection = open_encrypted(fixture.mutation_service.db_path(), &DB_KEY).unwrap();
         let tasks = SqliteTaskRepository::new(connection);
-        assert_eq!(tasks.get(fixture.task.id).unwrap().title, "before");
+        assert_eq!(tasks.get(fixture.task.id).unwrap().content.title, "before");
         assert!(tasks.latest_unconsumed_undo().unwrap().is_none());
         drop(tasks);
 

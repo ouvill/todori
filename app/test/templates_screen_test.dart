@@ -34,7 +34,7 @@ void main() {
         find.byWidgetPredicate((widget) {
           return widget is Semantics &&
               (widget.properties.label ?? '').startsWith(
-                'Schedule FREQ=DAILY, next ',
+                'Recurring task FREQ=DAILY, next ',
               );
         }),
         findsOneWidget,
@@ -62,7 +62,7 @@ void main() {
         find.byTooltip('Create recurring tasks from this template'),
       );
       await tester.pumpAndSettle();
-      expect(find.text('New schedule'), findsOneWidget);
+      expect(find.text('New recurring task'), findsOneWidget);
       expect(find.text('Every day'), findsOneWidget);
 
       await tester.tap(find.text('Every day'));
@@ -90,23 +90,23 @@ void main() {
       var schedules = await seed.fake.getTaskSeries();
       expect(schedules, hasLength(1));
 
-      await tester.tap(find.byTooltip('Schedule actions'));
+      await tester.tap(find.byTooltip('Recurring task actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Pause'));
       await tester.pumpAndSettle();
       schedules = await seed.fake.getTaskSeries();
       expect(schedules.single.enabled, isFalse);
 
-      await tester.tap(find.byTooltip('Schedule actions'));
+      await tester.tap(find.byTooltip('Recurring task actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
-      expect(find.text('Delete schedule?'), findsOneWidget);
+      expect(find.text('Delete recurring task?'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(await seed.fake.getTaskSeries(), hasLength(1));
 
-      await tester.tap(find.byTooltip('Schedule actions'));
+      await tester.tap(find.byTooltip('Recurring task actions'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
@@ -172,6 +172,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('edits TaskSeries blueprint as an independent atomic config', (
+    tester,
+  ) async {
+    _useMobileView(tester, size: const Size(390, 1200));
+    final seed = await _seedTemplate(FakeBridgeService());
+    final template = (await seed.fake.getTemplates()).single;
+    final series = await seed.fake.createTaskSeriesFromTemplate(
+      templateId: template.id,
+      rrule: 'FREQ=DAILY',
+      startsAt: DateTime(2030).millisecondsSinceEpoch,
+      timeZone: 'UTC',
+    );
+    await _pumpTemplates(tester, seed.fake);
+    await tester.scrollUntilVisible(find.text('Recurring tasks'), 250);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Recurring task actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit tasks and destination'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(ValueKey('blueprint-title-${series.nodes.single.nodeKey}')),
+      'Independent series content',
+    );
+    await tester.ensureVisible(find.byKey(const Key('save-series-content')));
+    await tester.tap(find.byKey(const Key('save-series-content')));
+    await tester.pumpAndSettle();
+
+    final updated = (await seed.fake.getTaskSeries()).single;
+    expect(updated.nodes.single.title, 'Independent series content');
+    expect(updated.configRevision, isNot(series.configRevision));
+    expect(
+      (await seed.fake.getTemplates()).single.nodes.single.title,
+      'Prepare the day',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Japanese task detail saves a subtree as a template', (
     tester,
   ) async {
@@ -205,10 +243,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('creates and edits a template blueprint directly', (
+  testWidgets('task detail creates a TaskSeries directly from its subtree', (
     tester,
   ) async {
     _useMobileView(tester);
+    final fake = FakeBridgeService();
+    final inbox = await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createTask(listId: inbox.id, title: 'Morning routine');
+    await tester.pumpWidget(
+      TaskveilApp(overrides: [bridgeServiceProvider.overrideWithValue(fake)]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lists').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Morning routine'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Task actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Make recurring'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final series = (await fake.getTaskSeries()).single;
+    expect(series.nodes.single.title, 'Morning routine');
+    expect(find.text('Recurring task created.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('creates and edits a template blueprint directly', (
+    tester,
+  ) async {
+    _useMobileView(tester, size: const Size(390, 1200));
     final fake = FakeBridgeService();
     await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
     await _pumpTemplates(tester, fake);
@@ -220,6 +288,7 @@ void main() {
       find.byKey(const ValueKey('blueprint-title-root')),
       'Prepare release',
     );
+    await tester.ensureVisible(find.byKey(const Key('add-blueprint-child')));
     await tester.tap(find.byKey(const Key('add-blueprint-child')));
     await tester.pumpAndSettle();
     final childTitle = find
@@ -233,6 +302,7 @@ void main() {
         )
         .last;
     await tester.enterText(childTitle, 'Publish notes');
+    await tester.ensureVisible(find.byKey(const Key('add-blueprint-child')));
     await tester.tap(find.byKey(const Key('add-blueprint-child')));
     await tester.pumpAndSettle();
     final secondChildTitle = find
@@ -284,6 +354,102 @@ void main() {
     ]);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('edits every TaskContent field in a template', (tester) async {
+    _useMobileView(tester, size: const Size(390, 1200));
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await _pumpTemplates(tester, fake);
+
+    await tester.tap(find.byKey(const Key('create-template')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('template-name')), 'Content');
+    await tester.enterText(
+      find.byKey(const ValueKey('blueprint-title-root')),
+      'Root content',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('blueprint-note-root')),
+      'Reusable note',
+    );
+    tester
+        .widget<DropdownButtonFormField<int>>(
+          find.byKey(const ValueKey('blueprint-priority-root')),
+        )
+        .onChanged!(3);
+    await tester.pumpAndSettle();
+    tester
+        .widget<DropdownButtonFormField<int?>>(
+          find.byKey(const ValueKey('blueprint-estimate-root')),
+        )
+        .onChanged!(30);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save-template')));
+    await tester.pumpAndSettle();
+
+    final root = (await fake.getTemplates()).single.nodes.single;
+    expect(root.title, 'Root content');
+    expect(root.note, 'Reusable note');
+    expect(root.priority, 3);
+    expect(root.estimatedMinutes, 30);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deleting a blueprint parent removes its descendants', (
+    tester,
+  ) async {
+    _useMobileView(tester);
+    final fake = FakeBridgeService();
+    await fake.createDefaultList(name: 'Inbox', sortOrder: 'a0');
+    await fake.createTemplate(
+      name: 'Nested',
+      nodes: const [
+        TaskBlueprintNodeDto(
+          nodeKey: 'root',
+          siblingOrder: 0,
+          title: 'Root',
+          note: '',
+          priority: 0,
+        ),
+        TaskBlueprintNodeDto(
+          nodeKey: 'child',
+          parentNodeKey: 'root',
+          siblingOrder: 0,
+          title: 'Child',
+          note: '',
+          priority: 0,
+        ),
+        TaskBlueprintNodeDto(
+          nodeKey: 'grandchild',
+          parentNodeKey: 'child',
+          siblingOrder: 0,
+          title: 'Grandchild',
+          note: '',
+          priority: 0,
+        ),
+      ],
+    );
+    await _pumpTemplates(tester, fake);
+
+    await tester.tap(find.byTooltip('Template actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    final childDelete = find.descendant(
+      of: find.byKey(const ValueKey('child')),
+      matching: find.byTooltip('Delete'),
+    );
+    await tester.ensureVisible(childDelete);
+    await tester.tap(childDelete);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('save-template')));
+    await tester.tap(find.byKey(const Key('save-template')));
+    await tester.pumpAndSettle();
+
+    final template = (await fake.getTemplates()).single;
+    expect(template.nodes.map((node) => node.nodeKey), ['root']);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 typedef _TemplateSeed = ({
@@ -329,8 +495,9 @@ void _useMobileView(
   WidgetTester tester, {
   double textScale = 1,
   Locale locale = const Locale('en'),
+  Size size = const Size(390, 844),
 }) {
-  tester.view.physicalSize = const Size(390, 844);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   tester.platformDispatcher.localeTestValue = locale;
   tester.platformDispatcher.localesTestValue = [locale];
