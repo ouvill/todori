@@ -90,22 +90,22 @@ milestone: maintenance
 
 ## 6. 受け入れ基準
 
-- [ ] `TaskContent`がTaskとBlueprintNodeで同じ内容語彙を表す。
-- [ ] Blueprintが1 root、非循環、node key一意、sibling order一意、最大100 node、49,152 bytesを検証する。
-- [ ] 空からTemplateを作成し、root / childの追加、削除、並び替え、内容編集ができる。
-- [ ] 既存Task subtreeからTemplateを作成できる。
-- [ ] TemplateからTask treeを手動起票できる。
-- [ ] Templateまたは既存TaskからTaskSeriesを作成できる。
-- [ ] Template編集・削除後も既存TaskSeriesのBlueprintと生成動作が変化しない。
-- [ ] Series編集がTemplateを変更せず、将来予定回だけへ作用する。
-- [ ] Series削除後も生成済みTaskを保持する。
-- [ ] deterministic ID、100件分割、長期offline、停止・再開、future-only編集、stale端末、full resyncで重複しない。
-- [ ] streakがSeries provenanceを使って従来契約を維持する。
-- [ ] schema v21からv22へ開発データを移行するか、互換不要方針に従い明示的に再作成する。
-- [ ] protocol v8のTemplate / TaskSeries / Task roundtrip、wrong key、collection mismatch、tombstone、2-client収束をtestする。
-- [ ] TemplateとSeriesの英日UI、390 px、text scale 2.0、semanticsを確認する。
-- [ ] 全品質ゲート、Postgres integration、iOS / Android Rust cross-build、FRB再生成、`git diff --check`が成功する。
-- [ ] before / after Visual QAを保存して目視する。
+- [x] `TaskContent`がTaskとBlueprintNodeで同じ内容語彙を表す。
+- [x] Blueprintが1 root、非循環、node key一意、sibling order一意、最大100 node、49,152 bytesを検証する。
+- [x] 空からTemplateを作成し、root / childの追加、削除、並び替え、内容編集ができる。
+- [x] 既存Task subtreeからTemplateを作成できる。
+- [x] TemplateからTask treeを手動起票できる。
+- [x] Templateまたは既存TaskからTaskSeriesを作成できる。
+- [x] Template編集・削除後も既存TaskSeriesのBlueprintと生成動作が変化しない。
+- [x] Series編集がTemplateを変更せず、将来予定回だけへ作用する。
+- [x] Series削除後も生成済みTaskを保持する。
+- [x] deterministic ID、100件分割、長期offline、停止・再開、future-only編集、stale端末、full resyncで重複しない。
+- [x] streakがSeries provenanceを使って従来契約を維持する。
+- [x] schema v21からv22へ開発データを移行するか、互換不要方針に従い明示的に再作成する。
+- [x] protocol v8のTemplate / TaskSeries / Task roundtrip、wrong key、collection mismatch、tombstone、2-client収束をtestする。
+- [x] TemplateとSeriesの英日UI、390 px、text scale 2.0、semanticsを確認する。
+- [x] 全品質ゲート、Postgres integration、iOS / Android Rust cross-build、FRB再生成、`git diff --check`が成功する。
+- [x] before / after Visual QAを保存して目視する。
 - [ ] 統合HEADを実装担当外が独立検証する。
 
 ## 7. 制約・注意事項
@@ -128,3 +128,24 @@ milestone: maintenance
 - 全品質ゲート、Postgres integration、cross-build、FRB再生成の結果。
 - 独立検証の判定、指摘、修正、再検証結果。
 - local commit hash、未解決事項、push / PR未実施。
+
+## 9. 完了報告
+
+### 実装結果
+
+- 作業日: 2026-07-24
+- domain: `TaskContent -> TaskBlueprintNode -> TaskBlueprint`を共通のcontent-only値として導入した。`TaskTemplate`と`TaskSeries`はそれぞれBlueprintを所有し、TemplateからTask / Seriesを作る操作は値コピーとした。Template / Series削除は生成済みTaskや相互集約へcascadeしない。Task provenanceとUUIDv5 IDはseries ID、config revision、occurrence instant、node keyへ一本化した。
+- client / UI: 空からのTemplate作成、Blueprintのroot / child内容編集、追加、削除、並び替え、既存Task subtreeからのTemplate / Series作成を追加した。Templates画面はTemplateと「Recurring tasks」を独立sectionとして表示する。停止・再開テストで開始前編集が最初の予定回を飛ばす境界を検出し、subsecondを保持したRRULE列挙とcursor再計算へ修正した。
+- DB / sync: local schema v22とprotocol v8へ更新し、`schedules`を`task_series` collectionへ置換した。通常Taskは保持して旧recurrence provenanceを外し、変換できない旧Template / Scheduleとprotocol v8未満のtransport stateは一般配布前方針に従い再作成する。zero-knowledge server migrationは一度だけlegacy encrypted recordを削除するmarkerを持ち、再起動時に再削除しない。
+- テスト: `cargo test --workspace`はclient 47、domain 62、storage 89成功 / performance 1件手動skip、sync 80、server unit 20とPostgreSQL integration全件を含め成功した。deterministic tree、105予定回の100 + 5分割と再実行0件、停止・再開、Series削除後の105 Task保持、future-only revision、streak、full-resyncでのTemplate非依存、Tenant Root DEK / collection AADを確認した。
+- Flutter: `flutter analyze`は0 issue、`flutter test`は276成功 / Visual QA harness 1件意図的skip。Templates widget 5件で英日、390 px、text scale 2.0、semantics、Template直接作成・編集・並び替え・削除を確認した。hardcoded string / client boundary / boundary self-testも成功した。
+- build / Visual QA: FRBとl10nを再生成し、native release、iOS Simulator arm64、Android arm64-v8a Rust cross-buildに成功した。iOSは既知のdeployment target上書きwarning 1件のみ。beforeは`taskveil/app/build/visual_qa/p2_m8_templates_{en,ja,text_scale_2}.png`、afterは本worktreeの`app/build/visual_qa/task_series_domain_templates_{en,ja,text_scale_2}.png`と`task_series_domain_template_editor_en.png`を目視し、section分離、直接作成導線、英日、390 px、scale 2.0でoverflow / clippingがないことを確認した。
+- 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`、Flutter analyze / test、hardcoded string、client boundary 2種、PostgreSQL integration、iOS / Android cross-build、`git diff --check`が成功した。
+- Commit: `f548363`（実装、仕様、ADR、schema v22 / protocol v8、FRB、UI、テスト）。
+- 未解決: 実装担当外の独立検証のみ未実施。work itemは`active`を維持する。push / Pull Requestは行っていない。
+
+### 独立検証
+
+- 判定: 未実施
+- 根拠: 統合HEADの実装と自己検証は完了したが、critical laneで必要な別セッションまたは人間による検証をまだ受けていない。
+- 検証者: 未割り当て
