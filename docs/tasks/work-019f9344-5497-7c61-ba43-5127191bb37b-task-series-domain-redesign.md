@@ -1,7 +1,7 @@
 ---
 id: 019f9344-5497-7c61-ba43-5127191bb37b
 title: Task template and series domain redesign
-status: active
+status: done
 lane: critical
 milestone: maintenance
 ---
@@ -106,7 +106,7 @@ milestone: maintenance
 - [x] TemplateとSeriesの英日UI、390 px、text scale 2.0、semanticsを確認する。
 - [x] 全品質ゲート、Postgres integration、iOS / Android Rust cross-build、FRB再生成、`git diff --check`が成功する。
 - [x] before / after Visual QAを保存して目視する。
-- [ ] 統合HEADを実装担当外が独立検証する。
+- [x] 統合HEADを実装担当外が独立検証する。
 
 ## 7. 制約・注意事項
 
@@ -137,17 +137,19 @@ milestone: maintenance
 - domain: `TaskContent -> TaskBlueprintNode -> TaskBlueprint`を共通のcontent-only値として導入し、独立レビュー後に`Task`自身もflattenedな`TaskContent`を所有する形へ統一した。通常TaskとBlueprintはtitle、priority、estimated minutesの同じvalidationを通り、見積りは正の5分刻みだけを受理する。`TaskTemplate`と`TaskSeries`はそれぞれBlueprintを所有し、TemplateからTask / Seriesを作る操作は値コピーとした。Template / Series削除は生成済みTaskや相互集約へcascadeしない。Task provenanceとUUIDv5 IDはseries ID、config revision、occurrence instant、node keyへ一本化した。
 - client / UI: 空からのTemplate作成、Blueprintの全`TaskContent`編集、root / child追加、子孫を含む安全な削除、同一親内の並び替え、Template複製、既存Task subtreeからのTemplate / Series作成を追加した。Task詳細からSeriesを直接作成でき、Series editorはBlueprintと起票先をRRULE等と同じatomic configとしてfuture-only更新できる。Templates画面はTemplateと「Recurring tasks」を独立sectionとして表示し、旧Schedule表示語彙を除去した。停止・再開テストで開始前編集が最初の予定回を飛ばす境界を検出し、subsecondを保持したRRULE列挙とcursor再計算へ修正した。
 - DB / sync: local schema v22とprotocol v8へ更新し、`schedules`を`task_series` collectionへ置換した。通常Taskは保持して旧recurrence provenanceを外し、変換できない旧Template / Scheduleとprotocol v8未満のtransport stateは一般配布前方針に従い再作成する。zero-knowledge server migrationは一度だけlegacy encrypted recordを削除するmarkerを持ち、再起動時に再削除しない。
-- テスト: `cargo test --workspace`はPostgreSQL integrationを含め成功した。deterministic tree、105予定回の100 + 5分割と再実行0件、停止・再開、Series削除後の105 Task保持、future-only revision、streak、full-resyncでのTemplate非依存に加え、stale cursor再生後の生成Task 0件、2端末のconcurrent Series config atomic収束、Template / Series tombstoneの非cascadeを確認した。server migrationのcollection制約とmigration再実行後のv8 live / tombstone保持も個別に再実行した。
+- テスト: `cargo test --workspace`はPostgreSQL integrationを含め成功した。deterministic tree、105予定回の100 + 5分割と再実行0件、停止・再開、Series削除後の105 Task保持、future-only revision、streak、full-resyncでのTemplate非依存に加え、stale cursor再生後の生成Task 0件、2端末のconcurrent Series config atomic収束、Template / Series tombstoneの非cascadeを確認した。server migrationのcollection制約とmigration再実行後のv8 live / tombstone保持も個別に再実行した。最終修正後のsync 84件ではremote Taskの空title、priority 4、estimate 1分もmaterialize前に拒否する。
 - Flutter: `flutter analyze`は0 issue、`flutter test`全件が成功し、Visual QA harness 1件は通常実行で意図的skipした。Templates widget 9件で英日、390 px、text scale 2.0、semantics、Template全Content編集・複製導線・多階層削除、Task詳細からのSeries作成、Series Blueprint / 起票先編集を確認した。hardcoded string / client boundary / boundary self-testも成功した。
 - build / Visual QA: FRBとl10nを再生成し、native release、iOS Simulator arm64、Android arm64-v8a Rust cross-buildに成功した。beforeは`taskveil/app/build/visual_qa/p2_m8_templates_{en,ja,text_scale_2}.png`、afterは本worktreeの`app/build/visual_qa/task_series_domain_templates_{en,ja,text_scale_2}.png`と`task_series_domain_template_editor_en.png`を再生成して目視し、section分離、全Content編集、英日、390 px、scale 2.0でoverflow / clippingがないことを確認した。
 - 品質ゲート: `cargo fmt --all -- --check`、`cargo clippy --workspace -- -D warnings`、`cargo test --workspace`、Flutter analyze / test、hardcoded string、client boundary 2種、PostgreSQL integration、iOS / Android cross-build、`git diff --check`が成功した。
-- Commit: `f548363`（初期実装）、`0e725f0`（初期検証記録）。独立レビュー修正は再レビュー後に追加commitする。
-- 未解決: 独立レビュー修正の再検証のみ。work itemは`active`を維持する。push / Pull Requestは行っていない。
+- Commit: `f548363`（初期実装）、`0e725f0`（初期検証記録）、`4f59494`（初回レビュー指摘修正）、`719090b`（同期TaskContent validation）。
+- 未解決: なし。push / Pull Requestは行っていない。
 
 ### 独立検証
 
 - 初回判定: FAIL（2026-07-24、sub-agent）
 - 初回指摘: TaskがTaskContentを所有していないこと、Blueprintと通常Taskの見積りvalidation不一致、多階層Blueprintの中間node削除で子孫が孤立すること、Series更新APIがBlueprint / target listを運ばないこと、Task詳細に直接Series作成導線がないこと、Series固有のstale / tombstone / concurrent config証拠不足、Template editorがpriority / estimateを編集できないこと、旧Schedule表示語彙。
 - 修正: TaskのTaskContent所有と共通validation、子孫削除と親別sibling order、Series atomic config API / FRB / UI、Task詳細の直接Series作成、Template全Content編集と複製、Recurring task表示統一、stale cursor / concurrent config / Template・Series tombstoneテストを追加した。
-- 再検証: pending。初回と同じ独立検証agentへ統合差分の再レビューを依頼する。
+- 再検証判定: FAIL（HEAD `4f59494`）。remote Task plaintextだけが`TaskContent::validate()`を迂回できるP1 1件を検出した。
+- 追加修正: `SyncPlaintext::Task::validate_for_collection`で`TaskContent`の共通validationを適用し、空title、priority 4、estimate 1分のstrict payload回帰testを追加した（`719090b`）。
+- 最終判定: PASS（HEAD `719090b`、同じsub-agent）。残るfindingなし。独立再実行でsync 84件、sync clippy `-D warnings`、fmt、`git diff --check`が成功した。全workspace、Flutter、PostgreSQL、cross-buildは直前HEADの統合検証結果を参照した。
 - 検証者: 未割り当て
