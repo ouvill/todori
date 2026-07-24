@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 use taskveil_domain::{
     validate_completed_timer_session, CompletedTimerSession, List, RevisionBoundary, SeriesCursor,
-    SeriesOccurrenceRef, Task, TaskBlueprint, TaskDue, TaskSeries, TaskSeriesConfig, TaskStatus,
-    TaskTemplate, Uuid,
+    SeriesOccurrenceRef, Task, TaskBlueprint, TaskContent, TaskDue, TaskSeries, TaskSeriesConfig,
+    TaskStatus, TaskTemplate, Uuid,
 };
 use thiserror::Error;
 
@@ -55,6 +55,8 @@ pub enum FieldMapError {
     InvalidCompletion,
     #[error("task placement is invalid for this record")]
     InvalidPlacement,
+    #[error("task content is invalid")]
+    InvalidTaskContent,
     #[error("record id must be a UUID")]
     InvalidRecordId,
     #[error("timer session is invalid")]
@@ -221,6 +223,14 @@ impl SyncPlaintext {
             ("tasks", Self::Task(task)) => {
                 validate_rank(&task.placement.value.rank)?;
                 validate_task_completion(&task.completion.value)?;
+                TaskContent {
+                    title: task.title.value.clone(),
+                    note: task.note.value.clone(),
+                    priority: task.priority.value,
+                    estimated_minutes: task.estimated_minutes.value,
+                }
+                .validate()
+                .map_err(|_| FieldMapError::InvalidTaskContent)?;
                 if task.placement.value.parent_task_id == Some(record_id) {
                     return Err(FieldMapError::InvalidPlacement);
                 }
@@ -679,6 +689,49 @@ mod tests {
         assert_eq!(
             value.validate_for_collection("tasks", &record_id.to_string()),
             Err(FieldMapError::InvalidPlacement)
+        );
+    }
+
+    #[test]
+    fn strict_task_payload_rejects_invalid_shared_task_content() {
+        let task = new_task(
+            Uuid::now_v7(),
+            None,
+            "valid".into(),
+            "7fffffffffffffffffffffffffffffff".into(),
+            1,
+        )
+        .unwrap();
+        let record_id = task.id.to_string();
+
+        let mut empty_title = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        let SyncPlaintext::Task(fields) = &mut empty_title else {
+            unreachable!()
+        };
+        fields.title.value = " ".into();
+        assert_eq!(
+            empty_title.validate_for_collection("tasks", &record_id),
+            Err(FieldMapError::InvalidTaskContent)
+        );
+
+        let mut invalid_priority = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        let SyncPlaintext::Task(fields) = &mut invalid_priority else {
+            unreachable!()
+        };
+        fields.priority.value = 4;
+        assert_eq!(
+            invalid_priority.validate_for_collection("tasks", &record_id),
+            Err(FieldMapError::InvalidTaskContent)
+        );
+
+        let mut invalid_estimate = SyncPlaintext::from_task(&task, hlc(0)).unwrap();
+        let SyncPlaintext::Task(fields) = &mut invalid_estimate else {
+            unreachable!()
+        };
+        fields.estimated_minutes.value = Some(1);
+        assert_eq!(
+            invalid_estimate.validate_for_collection("tasks", &record_id),
+            Err(FieldMapError::InvalidTaskContent)
         );
     }
 
